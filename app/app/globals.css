@@ -1,0 +1,54 @@
+@import "../styles/design-system.css";
+@import "tailwindcss";
+
+@theme inline {
+  --color-ds-primary: var(--ds-primary);
+  --color-ds-on-primary: var(--ds-on-primary);
+  --color-ds-secondary: var(--ds-secondary);
+  --color-ds-tertiary: var(--ds-tertiary);
+  --color-ds-neutral: var(--ds-neutral);
+  --color-ds-surface: var(--ds-surface);
+  --color-ds-sidebar: var(--ds-sidebar);
+  --color-ds-on-surface: var(--ds-on-surface);
+  --color-ds-on-surface-variant: var(--ds-on-surface-variant);
+  --color-ds-outline: var(--ds-outline);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --radius-ds-sm: var(--ds-radius-sm);
+  --radius-ds-md: var(--ds-radius-md);
+  --radius-ds-lg: var(--ds-radius-lg);
+  --radius-ds-xl: var(--ds-radius-xl);
+}
+
+@layer utilities {
+  .dot-grid {
+    background-color: var(--ds-sidebar);
+    background-image: radial-gradient(color-mix(in srgb, var(--ds-on-surface-variant) 20%, transparent) 1px,
+        transparent 1px);
+    background-size: 16px 16px;
+  }
+}
+
+@keyframes ds-blink {
+
+  from,
+  to {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+.typing-cursor-ds::after {
+  content: "|";
+  margin-left: 2px;
+  font-weight: 200;
+  animation: ds-blink 1s step-end infinite;
+}
+
+body {
+  background: var(--ds-neutral);
+  color: var(--ds-on-surface);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
