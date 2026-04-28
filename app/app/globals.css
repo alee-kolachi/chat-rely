@@ -6,6 +6,7 @@
   --color-ds-on-primary: var(--ds-on-primary);
   --color-ds-secondary: var(--ds-secondary);
   --color-ds-tertiary: var(--ds-tertiary);
+  --color-ds-accent-pink: var(--ds-accent-pink);
   --color-ds-neutral: var(--ds-neutral);
   --color-ds-surface: var(--ds-surface);
   --color-ds-sidebar: var(--ds-sidebar);
@@ -20,11 +21,31 @@
 }
 
 @layer utilities {
+  /* Onboarding main canvas: white base + subtle brand wash (dashboard-plus). */
+  .onboarding-main-surface {
+    background:
+      radial-gradient(ellipse 90% 55% at 50% 0%, color-mix(in srgb, var(--ds-tertiary) 10%, transparent) 0%, transparent 55%),
+      #ffffff;
+  }
+
   .dot-grid {
     background-color: var(--ds-sidebar);
     background-image: radial-gradient(color-mix(in srgb, var(--ds-on-surface-variant) 20%, transparent) 1px,
         transparent 1px);
     background-size: 16px 16px;
+  }
+
+  /* Soften default Tailwind shadows globally for cleaner UI surfaces. */
+  .shadow-sm {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  .shadow,
+  .shadow-md,
+  .shadow-lg,
+  .shadow-xl,
+  .shadow-2xl {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
   }
 }
 

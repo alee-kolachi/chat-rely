@@ -1,58 +1,37 @@
+"use client";
+
+import { useState } from "react";
+
 export default function DashboardPage() {
-  const metrics = [
-    {
-      label: "Total conversations",
-      value: "42,892",
-      icon: "●",
-      iconClassName: "text-teal-500",
-    },
-    {
-      label: "Resolution rate",
-      value: "89.4%",
-      icon: "●",
-      iconClassName: "text-pink-500",
-    },
-    {
-      label: "Escalation rate",
-      value: "4.2%",
-      icon: "●",
-      iconClassName: "text-orange-500",
-    },
-    {
-      label: "Avg. response time",
-      value: "1m 12s",
-      icon: "●",
-      iconClassName: "text-indigo-500",
-    },
+  const [previewMode, setPreviewMode] = useState<"empty" | "data">("empty");
+  const totalConversations = previewMode === "data" ? 42892 : 0;
+  const hasConversationData = totalConversations > 0;
+  const recentConversations = [
+    { customer: "Ava Johnson", topic: "Order #8842 tracking", status: "Resolved by AI", time: "2m ago" },
+    { customer: "Mason Cole", topic: "Discount code not applying", status: "Needs human", time: "8m ago" },
+    { customer: "Sofia Davis", topic: "Return label request", status: "Resolved by AI", time: "14m ago" },
+    { customer: "Liam Brown", topic: "Update shipping address", status: "In progress", time: "22m ago" },
+  ];
+  const unresolvedTopics = [
+    { name: "Exchange after 30 days", count: 12 },
+    { name: "Missing order confirmation email", count: 8 },
+    { name: "Partial shipment ETA clarification", count: 5 },
   ];
 
-  const countries = [
-    { code: "USA", percentage: 42, barWidth: "85%", color: "bg-teal-500" },
-    { code: "UK", percentage: 15, barWidth: "35%", color: "bg-pink-500" },
-    { code: "GER", percentage: 12, barWidth: "25%", color: "bg-orange-500" },
-    { code: "CAN", percentage: 10, barWidth: "20%", color: "bg-indigo-500" },
-  ];
-
-  const topics = [
-    { name: "Technical Support", count: "12,430", color: "bg-teal-500" },
-    { name: "Billing Issues", count: "8,522", color: "bg-pink-500" },
-    { name: "Account Access", count: "4,120", color: "bg-orange-500" },
-  ];
-
-  const knowledgeGaps = [
-    { title: "How to delete secondary owner?", subtitle: "Unresolved 12 times today", level: "High" },
-    { title: "Legacy API endpoint transition", subtitle: "Unresolved 8 times today", level: "High" },
-    { title: "Mobile landscape mode support", subtitle: "Unresolved 3 times today", level: "" },
+  const primaryMetrics = [
+    { label: "Conversations started", value: hasConversationData ? "42,892" : "0", hint: "Did anyone chat?" },
+    { label: "Resolved by agent", value: hasConversationData ? "89.4%" : "0%", hint: "Did it solve issues?" },
+    { label: "Needs human help", value: hasConversationData ? "4.2%" : "0%", hint: "Anything escalated?" },
   ];
 
   return (
-    <div className="dot-grid -m-6 min-h-full p-6 md:p-8">
+    <div className="-m-6 min-h-full p-6 md:p-8">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-ds-primary text-3xl font-black tracking-tight md:text-4xl">Dashboard</h1>
             <p className="text-ds-on-surface-variant mt-1 text-sm font-medium md:text-base">
-              Advanced Insights for Pro Users
+              A quick pulse on agent activity and support outcomes.
             </p>
           </div>
           <div className="bg-ds-surface border-ds-outline inline-flex w-fit items-center gap-1 rounded-ds-lg border p-1 shadow-sm">
@@ -71,266 +50,235 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {metrics.map((metric) => (
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setPreviewMode((prev) => (prev === "empty" ? "data" : "empty"))}
+            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2 text-xs font-semibold transition-colors"
+          >
+            {previewMode === "empty" ? "Preview Dashboard With Data" : "Preview Empty-State Dashboard"}
+          </button>
+        </div>
+
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {primaryMetrics.map((metric) => (
             <article key={metric.label} className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 shadow-sm">
-              <div className="mb-2 flex items-center gap-2">
-                <span className={metric.iconClassName}>{metric.icon}</span>
-                <h2 className="text-ds-on-surface-variant text-sm font-semibold">{metric.label}</h2>
-              </div>
+              <h2 className="text-ds-on-surface-variant text-sm font-semibold">{metric.label}</h2>
               <p className="text-3xl font-semibold">{metric.value}</p>
+              <p className="text-ds-on-surface-variant mt-1 text-xs">{metric.hint}</p>
             </article>
           ))}
         </section>
 
-        <section className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 md:p-8 shadow-sm">
-          <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-xl font-bold">Conversations over time</h3>
-              <p className="text-ds-on-surface-variant text-sm">Daily volume of user interactions across all channels</p>
-            </div>
-            <div className="flex items-center gap-4 text-xs font-bold">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-teal-500" />
-                <span className="text-ds-on-surface-variant">Current</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-zinc-300" />
-                <span className="text-ds-on-surface-variant">Previous</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-4">
-            <div className="text-ds-on-surface-variant flex h-72 flex-col justify-between py-1 text-[10px] font-bold">
-              <span>10k</span>
-              <span>7.5k</span>
-              <span>5k</span>
-              <span>2.5k</span>
-              <span>0</span>
-            </div>
-            <div className="flex-1">
-              <div className="relative h-72 w-full">
-                <svg className="h-full w-full overflow-hidden" viewBox="0 0 1000 300" preserveAspectRatio="none">
-                  <line x1="0" y1="0" x2="1000" y2="0" stroke="#e4e4e7" strokeWidth="1" />
-                  <line x1="0" y1="75" x2="1000" y2="75" stroke="#e4e4e7" strokeWidth="1" />
-                  <line x1="0" y1="150" x2="1000" y2="150" stroke="#e4e4e7" strokeWidth="1" />
-                  <line x1="0" y1="225" x2="1000" y2="225" stroke="#e4e4e7" strokeWidth="1" />
-                  <line x1="0" y1="300" x2="1000" y2="300" stroke="#e4e4e7" strokeWidth="1" />
-                  <defs>
-                    <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="#14b8a6" stopOpacity="0.22" />
-                      <stop offset="100%" stopColor="#14b8a6" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d="M0,250 C50,240 150,260 200,260 C250,260 350,220 400,180 C450,140 550,210 600,220 C650,230 750,190 800,150 C850,110 950,170 1000,190"
-                    fill="none"
-                    stroke="#d4d4d8"
-                    strokeWidth="2"
-                    opacity="0.35"
-                  />
-                  <path
-                    d="M0,200 C50,180 150,190 200,190 C250,190 350,140 400,80 C450,20 550,110 600,140 C650,170 750,100 800,40 C850,-20 950,60 1000,90"
-                    fill="none"
-                    stroke="#14b8a6"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M0,200 C50,180 150,190 200,190 C250,190 350,140 400,80 C450,20 550,110 600,140 C650,170 750,100 800,40 C850,-20 950,60 1000,90 V300 H0 Z"
-                    fill="url(#chartGradient)"
-                  />
-                  <circle cx="800" cy="40" r="4" fill="#14b8a6" stroke="#fff" strokeWidth="2" />
-                </svg>
-              </div>
-              <div className="text-ds-on-surface-variant mt-4 flex justify-between px-1 text-[10px] font-bold uppercase tracking-tight">
-                <span>Day 01</span>
-                <span>Day 05</span>
-                <span>Day 10</span>
-                <span>Day 15</span>
-                <span>Day 20</span>
-                <span>Day 25</span>
-                <span>Day 30</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 md:p-8 shadow-sm">
-          <div className="mb-6">
-            <h3 className="text-xl font-bold">Chats per country</h3>
-            <p className="text-ds-on-surface-variant text-sm">Global interaction volume based on IP detection</p>
-          </div>
-          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2">
-            <div className="space-y-6">
-              {countries.map((country) => (
-                <div key={country.code} className="flex items-center gap-4">
-                  <span className="text-ds-on-surface-variant w-8 text-xs font-bold">{country.code}</span>
-                  <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-zinc-200/70">
-                    <div className={`h-full ${country.color}`} style={{ width: country.barWidth }} />
+        {hasConversationData ? (
+          <>
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+              <article className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 md:p-8 shadow-sm">
+                <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold">Conversations over time</h3>
+                    <p className="text-ds-on-surface-variant text-sm">
+                      Daily volume of user interactions across all channels
+                    </p>
                   </div>
-                  <span className="w-12 text-right text-xs font-black">{country.percentage}%</span>
+                  <p className="text-ds-on-surface-variant text-xs">
+                    Secondary insights are available in Analytics
+                  </p>
                 </div>
-              ))}
-            </div>
-            <div className="relative flex h-64 items-center justify-center overflow-hidden rounded-ds-xl bg-zinc-100/70 p-4">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,#99f6e4_0%,transparent_40%),radial-gradient(circle_at_70%_35%,#fbcfe8_0%,transparent_35%),radial-gradient(circle_at_40%_75%,#fed7aa_0%,transparent_45%)] opacity-80" />
-              <div className="absolute top-[36%] left-[26%] h-4 w-4 animate-pulse rounded-full border-2 border-white bg-teal-500 shadow-lg" />
-              <div className="absolute top-[33%] left-[49%] h-3 w-3 animate-pulse rounded-full border-2 border-white bg-pink-500 shadow-lg" />
-              <div className="absolute top-[35%] left-[53%] h-3 w-3 animate-pulse rounded-full border-2 border-white bg-orange-500 shadow-lg" />
-              <span className="text-ds-on-surface-variant relative text-xs font-semibold tracking-wide uppercase">
-                Global Activity Map
-              </span>
-            </div>
-          </div>
-        </section>
+                <div className="h-64">
+                  <svg className="h-full w-full" viewBox="0 0 900 260" preserveAspectRatio="none">
+                    <line x1="0" y1="20" x2="900" y2="20" stroke="#ececec" strokeWidth="1" />
+                    <line x1="0" y1="80" x2="900" y2="80" stroke="#ececec" strokeWidth="1" />
+                    <line x1="0" y1="140" x2="900" y2="140" stroke="#ececec" strokeWidth="1" />
+                    <line x1="0" y1="200" x2="900" y2="200" stroke="#ececec" strokeWidth="1" />
+                    <line x1="0" y1="250" x2="900" y2="250" stroke="#ececec" strokeWidth="1" />
+                    <path
+                      d="M0,210 C70,195 130,205 190,180 C250,155 320,170 380,130 C440,90 510,120 570,95 C630,70 700,85 760,60 C820,45 860,55 900,40"
+                      fill="none"
+                      stroke="#000000"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+              </article>
 
-        <section className="bg-ds-surface border-ds-outline overflow-hidden rounded-ds-xl border shadow-sm">
-          <div className="border-ds-outline p-6 md:p-8 md:pb-6 border-b">
-            <h3 className="mb-4 text-xl font-bold">Topic Distribution</h3>
-            <div className="relative h-56 w-full">
-              <svg className="h-full w-full" viewBox="0 0 400 100" preserveAspectRatio="none">
-                <path
-                  d="M0,60 C40,40 80,75 120,20 C160,45 200,30 240,65 C280,35 320,50 360,25 400,40"
-                  fill="none"
-                  stroke="#14b8a6"
-                  strokeWidth="2.5"
-                />
-                <path
-                  d="M0,80 C40,70 80,85 120,60 C160,75 200,55 240,80 C280,60 320,75 360,50 400,65"
-                  fill="none"
-                  stroke="#ec4899"
-                  strokeWidth="2.5"
-                />
-                <path
-                  d="M0,95 C40,90 80,98 120,85 C160,92 200,88 240,95 280,80 320,90 360,75 400,85"
-                  fill="none"
-                  stroke="#f97316"
-                  strokeWidth="2.5"
-                />
-              </svg>
-              <div className="text-ds-on-surface-variant mt-4 flex justify-between text-[10px] font-bold uppercase tracking-widest">
-                <span>Week 1</span>
-                <span>Week 2</span>
-                <span>Week 3</span>
-                <span>Week 4</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-zinc-50/70 p-6 md:p-8">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              {topics.map((topic) => (
-                <div key={topic.name} className="bg-ds-surface border-ds-outline flex items-center justify-between rounded-ds-lg border p-4">
-                  <div className="flex items-center gap-3">
-                    <span className={`h-3 w-3 rounded-full ${topic.color}`} />
-                    <span className="text-sm font-bold">{topic.name}</span>
-                  </div>
-                  <span className="text-ds-on-surface-variant text-sm font-black">{topic.count}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-8 xl:grid-cols-2">
-          <article className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 md:p-8 shadow-sm">
-            <div className="mb-8 flex items-center justify-between">
-              <h3 className="text-xl font-bold">Knowledge Gaps</h3>
-              <button type="button" className="text-xs font-bold underline underline-offset-4">
-                View All
-              </button>
-            </div>
-            <div className="space-y-4">
-              {knowledgeGaps.map((gap) => (
-                <div
-                  key={gap.title}
-                  className="border-ds-outline/60 flex items-center justify-between rounded-ds-lg border bg-zinc-50 p-4 transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-sm"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-2 w-2 rounded-full bg-pink-500" />
-                    <div>
-                      <p className="text-sm font-bold">{gap.title}</p>
-                      <p className="text-ds-on-surface-variant text-xs">{gap.subtitle}</p>
-                    </div>
-                  </div>
-                  {gap.level ? (
-                    <span className="rounded bg-zinc-200 px-2 py-1 text-[10px] font-black uppercase">{gap.level}</span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 md:p-8 shadow-sm">
-            <h3 className="mb-8 text-xl font-bold">Sentiment Analysis</h3>
-            <div className="flex flex-col items-center gap-10 md:flex-row">
-              <div className="relative h-44 w-44">
-                <svg className="h-full w-full" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="#e4e4e7" strokeWidth="10" />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#14b8a6"
-                    strokeWidth="10"
-                    strokeDasharray="163.36 251.32"
-                    strokeDashoffset="0"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#f97316"
-                    strokeWidth="10"
-                    strokeDasharray="50.26 251.32"
-                    strokeDashoffset="-163.36"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#ec4899"
-                    strokeWidth="10"
-                    strokeDasharray="37.7 251.32"
-                    strokeDashoffset="-213.62"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-black">65%</span>
-                  <span className="text-ds-on-surface-variant text-center text-[10px] font-bold uppercase tracking-widest">
-                    Positive Pulse
-                  </span>
-                </div>
-              </div>
-
-              <div className="w-full flex-1 space-y-4">
-                <div className="flex items-center gap-4">
-                  <span className="h-3 w-3 rounded-full bg-teal-500" />
-                  <span className="flex-1 text-sm font-bold">Positive</span>
-                  <span className="text-sm font-black">65%</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="h-3 w-3 rounded-full bg-orange-500" />
-                  <span className="flex-1 text-sm font-bold">Neutral</span>
-                  <span className="text-sm font-black">20%</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="h-3 w-3 rounded-full bg-pink-500" />
-                  <span className="flex-1 text-sm font-bold">Negative</span>
-                  <span className="text-sm font-black">15%</span>
-                </div>
-                <p className="text-ds-on-surface-variant border-ds-outline pt-4 text-xs italic border-t">
-                  Real-time tracking active
+              <aside className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 shadow-sm">
+                <h3 className="text-lg font-bold">Team Queue Snapshot</h3>
+                <p className="text-ds-on-surface-variant mt-1 text-sm">
+                  Focus on items that need manual intervention now.
                 </p>
+                <div className="mt-5 space-y-3">
+                  <QueueItem label="Open human escalations" value="18" tone="warning" />
+                  <QueueItem label="Awaiting customer reply" value="42" tone="neutral" />
+                  <QueueItem label="Overdue SLA risk" value="3" tone="danger" />
+                </div>
+                <a
+                  href="/conversations"
+                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar mt-5 block rounded-ds-md border bg-white px-4 py-2 text-center text-sm font-semibold transition-colors"
+                >
+                  Open Conversations Queue
+                </a>
+              </aside>
+            </section>
+
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+              <article className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-lg font-bold">Recent customer conversations</h3>
+                  <a href="/conversations" className="text-ds-on-surface-variant text-xs font-semibold hover:underline">
+                    View all
+                  </a>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-ds-on-surface-variant text-[11px] font-bold uppercase">
+                        <th className="py-2">Customer</th>
+                        <th className="py-2">Topic</th>
+                        <th className="py-2">Status</th>
+                        <th className="py-2 text-right">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {recentConversations.map((item) => (
+                        <tr key={`${item.customer}-${item.time}`}>
+                          <td className="py-3 text-sm font-semibold">{item.customer}</td>
+                          <td className="py-3 text-sm text-ds-on-surface-variant">{item.topic}</td>
+                          <td className="py-3">
+                            <span
+                              className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${
+                                item.status === "Resolved by AI"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : item.status === "Needs human"
+                                    ? "bg-rose-100 text-rose-700"
+                                    : "bg-zinc-100 text-zinc-700"
+                              }`}
+                            >
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="py-3 text-right text-xs text-ds-on-surface-variant">{item.time}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 shadow-sm">
+                <h3 className="text-lg font-bold">Unresolved topics to train</h3>
+                <p className="text-ds-on-surface-variant mt-1 text-sm">
+                  Add these to Knowledge Base to improve resolution.
+                </p>
+                <div className="mt-4 space-y-3">
+                  {unresolvedTopics.map((topic) => (
+                    <div key={topic.name} className="border-ds-outline/60 rounded-ds-lg border bg-zinc-50 p-3">
+                      <p className="text-sm font-semibold">{topic.name}</p>
+                      <p className="text-ds-on-surface-variant mt-0.5 text-xs">{topic.count} misses this week</p>
+                    </div>
+                  ))}
+                </div>
+                <a
+                  href="/knowledge/text-snippet"
+                  className="bg-ds-primary text-ds-on-primary mt-5 inline-flex rounded-ds-md px-4 py-2 text-sm font-semibold"
+                >
+                  Improve Knowledge Base
+                </a>
+              </article>
+            </section>
+          </>
+        ) : (
+          <section className="bg-ds-surface border-ds-outline rounded-ds-xl border p-6 md:p-10 shadow-sm">
+            <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-zinc-100">
+                <span className="text-ds-on-surface text-2xl font-bold">0</span>
+              </div>
+              <h3 className="text-ds-on-surface text-2xl font-bold">Your agent is live</h3>
+              <p className="text-ds-on-surface-variant mt-2 max-w-2xl text-sm">
+                Share it with customers to start seeing data here. Once people chat with your agent,
+                this dashboard will populate with conversations, resolution rate, and escalations.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <button className="bg-ds-primary text-ds-on-primary rounded-ds-md px-5 py-2 text-sm font-semibold transition-opacity hover:opacity-90">
+                  Copy widget link
+                </button>
+                <a
+                  href="/deploy"
+                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border px-5 py-2 text-sm font-semibold transition-colors"
+                >
+                  Open Deploy Settings
+                </a>
               </div>
             </div>
-          </article>
-        </section>
+            <div className="border-ds-outline mt-8 grid grid-cols-1 gap-4 border-t pt-6 md:grid-cols-3">
+              <EmptyAction
+                title="Install on storefront"
+                description="Turn on Shopify widget so customers can start chatting."
+                cta="Go to Deploy"
+                href="/deploy"
+              />
+              <EmptyAction
+                title="Enable key actions"
+                description="Turn on Product Search and Order Lookup for instant value."
+                cta="Open Actions"
+                href="/actions"
+              />
+              <EmptyAction
+                title="Improve response quality"
+                description="Upload FAQs and policy snippets in Knowledge Base."
+                cta="Open Knowledge Base"
+                href="/knowledge/website"
+              />
+            </div>
+          </section>
+        )}
       </div>
     </div>
+  );
+}
+
+function QueueItem({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "neutral" | "warning" | "danger";
+}) {
+  const toneClass =
+    tone === "danger"
+      ? "bg-rose-100 text-rose-700"
+      : tone === "warning"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-zinc-100 text-zinc-700";
+  return (
+    <div className="flex items-center justify-between rounded-ds-md border border-zinc-200 bg-white px-3 py-2">
+      <p className="text-sm text-ds-on-surface">{label}</p>
+      <span className={`rounded px-2 py-1 text-xs font-bold ${toneClass}`}>{value}</span>
+    </div>
+  );
+}
+
+function EmptyAction({
+  title,
+  description,
+  cta,
+  href,
+}: {
+  title: string;
+  description: string;
+  cta: string;
+  href: string;
+}) {
+  return (
+    <article className="border-ds-outline rounded-ds-lg border bg-white p-4 text-left">
+      <h4 className="text-sm font-semibold">{title}</h4>
+      <p className="text-ds-on-surface-variant mt-1 text-xs">{description}</p>
+      <a href={href} className="text-ds-on-surface mt-3 inline-block text-xs font-semibold hover:underline">
+        {cta}
+      </a>
+    </article>
   );
 }

@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { cn } from "@/lib/utils";
 
-type NavChild = { href: string; label: string };
+type NavChild = { href?: string; label: string; action?: "logout" };
 type NavItem = {
   href: string;
   label: string;
@@ -43,6 +43,7 @@ const navItems: NavItem[] = [
       { href: "/settings/general", label: "General" },
       { href: "/settings/plan", label: "Plan" },
       { href: "/settings/billing", label: "Billing" },
+      { label: "Log out", action: "logout" },
     ],
   },
 ];
@@ -52,7 +53,7 @@ function isRouteActive(pathname: string, href: string) {
 }
 
 function hasActiveChild(pathname: string, children: NavChild[]) {
-  return children.some((child) => isRouteActive(pathname, child.href));
+  return children.some((child) => child.href && isRouteActive(pathname, child.href));
 }
 
 export function DashboardSidebar() {
@@ -125,9 +126,9 @@ export function DashboardSidebar() {
                   type="button"
                   onClick={() => toggleSection(item.href)}
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all",
-                    "text-ds-on-surface-variant hover:bg-ds-outline/70 hover:text-ds-on-surface",
-                    showAsActive && "bg-ds-outline/90 text-ds-on-surface font-semibold shadow-sm"
+                    "flex w-full min-w-0 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
+                    "text-zinc-500 hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                    showAsActive && "border-zinc-300 bg-white !text-black font-semibold shadow-sm"
                   )}
                   aria-label={sectionOpen ? `Collapse ${item.label}` : `Expand ${item.label}`}
                 >
@@ -145,10 +146,10 @@ export function DashboardSidebar() {
                   href={item.href}
                   title={isCollapsed ? item.label : undefined}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all",
-                    "text-ds-on-surface-variant hover:bg-ds-outline/70 hover:text-ds-on-surface",
+                    "flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
+                    "text-zinc-500 hover:bg-ds-outline/35 hover:text-ds-on-surface",
                     isCollapsed && "justify-center px-2",
-                    showAsActive && "bg-ds-outline/90 text-ds-on-surface font-semibold shadow-sm"
+                    showAsActive && "border-zinc-300 bg-white !text-black font-semibold shadow-sm"
                   )}
                 >
                   {item.icon("size-5 shrink-0")}
@@ -165,15 +166,21 @@ export function DashboardSidebar() {
               {!isCollapsed && item.children && sectionOpen && (
                 <div className="border-ds-outline/70 mt-1 ml-7 flex flex-col gap-1 border-l pl-3">
                   {item.children.map((child) => {
-                    const childIsActive = isRouteActive(pathname, child.href);
+                    const baseChildClass =
+                      "text-zinc-500 hover:text-ds-on-surface rounded-md border border-transparent px-2 py-1.5 text-left text-xs transition-colors";
+
+                    if (child.action === "logout") {
+                      return <LogoutButton key={`${item.href}-${child.label}`} className={baseChildClass} />;
+                    }
+
+                    const childHref = child.href ?? item.href;
+                    const childIsActive = isRouteActive(pathname, childHref);
+
                     return (
                       <Link
-                        key={child.href}
-                        href={child.href}
-                        className={cn(
-                          "text-ds-on-surface-variant hover:bg-ds-outline/70 hover:text-ds-on-surface rounded-md px-2 py-1.5 text-xs transition-colors",
-                          childIsActive && "bg-ds-outline/90 text-ds-on-surface font-semibold"
-                        )}
+                        key={childHref}
+                        href={childHref}
+                        className={cn(baseChildClass, childIsActive && "border-zinc-300 bg-white !text-black font-semibold")}
                       >
                         {child.label}
                       </Link>
@@ -185,15 +192,6 @@ export function DashboardSidebar() {
           );
         })}
       </nav>
-
-      <div className="mt-auto p-2">
-        <LogoutButton
-          className={cn(
-            "text-ds-on-surface-variant hover:bg-ds-outline/70 hover:text-ds-on-surface w-full rounded-lg px-3 py-2 text-left text-sm transition-all",
-            isCollapsed && "px-2 text-center"
-          )}
-        />
-      </div>
     </aside>
   );
 }
