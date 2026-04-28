@@ -1,6 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { backendFetch } from "@/lib/backend-api";
+import { saveOnboardingAgentId } from "@/lib/onboarding-state";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingFieldRow,
@@ -13,8 +16,11 @@ import {
 } from "@/components/onboarding/onboarding-ui";
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const [agentName, setAgentName] = useState("Aria");
   const [website, setWebsite] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const previewInitial = useMemo(() => {
     const value = agentName.trim();
@@ -23,6 +29,35 @@ export default function OnboardingPage() {
   }, [agentName]);
 
   const canContinue = agentName.trim().length > 0;
+
+  async function handleContinue() {
+    if (!canContinue || isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const slug = agentName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 120);
+      const created = await backendFetch<{ id: string }>("/api/v1/agents", {
+        method: "POST",
+        body: JSON.stringify({
+          name: agentName.trim(),
+          slug: slug || undefined,
+          behavior_settings: website.trim() ? { primary_website: website.trim() } : {},
+        }),
+      });
+      saveOnboardingAgentId(created.id);
+      const next = new URLSearchParams({ agentId: created.id });
+      if (website.trim()) next.set("website", website.trim());
+      router.push(`/onboarding/knowledge-base?${next.toString()}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create agent");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <OnboardingFrame activeItem="Agent Name" stepLabel="Step 1 of 6">
@@ -132,13 +167,20 @@ export default function OnboardingPage() {
       </OnboardingMainColumn>
 
       <OnboardingStickyFooter
-        primaryHref="/onboarding/knowledge-base"
-        primaryLabel="Continue"
+        primaryAsButton
+        onPrimaryClick={handleContinue}
+        primaryLabel={isSaving ? "Saving..." : "Continue"}
         primaryDisabled={!canContinue}
         tertiary={
-          <span className="text-ds-on-surface-variant hidden text-[11px] font-medium md:inline">
-            {!canContinue ? "Enter a name to continue" : "Saves as you go in the full product"}
-          </span>
+          <div className="hidden md:block">
+            {error ? (
+              <span className="text-xs font-medium text-rose-600">{error}</span>
+            ) : (
+              <span className="text-ds-on-surface-variant text-[11px] font-medium">
+                {!canContinue ? "Enter a name to continue" : "Creates your first agent"}
+              </span>
+            )}
+          </div>
         }
       />
     </OnboardingFrame>

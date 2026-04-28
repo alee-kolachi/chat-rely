@@ -1,5 +1,9 @@
 "use client";
 
+import { FormEvent, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { backendFetch } from "@/lib/backend-api";
+import { getOnboardingAgentId } from "@/lib/onboarding-state";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingPageHeader,
@@ -17,6 +21,60 @@ const checklistItems = [
 ];
 
 export default function AgentPreviewOnboardingPage() {
+  const searchParams = useSearchParams();
+  const agentId = searchParams.get("agentId") ?? getOnboardingAgentId();
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Array<{ from: "user" | "assistant"; text: string }>>([
+    { from: "assistant", text: "Hello! I can use your connected knowledge sources. Ask me a question." },
+  ]);
+  const [retrievalSummary, setRetrievalSummary] = useState<string>("No retrieval yet");
+
+  const canSend = Boolean(agentId && input.trim() && !isSending);
+  const continueHref = useMemo(() => {
+    if (!agentId) return "/onboarding/pricing";
+    return `/onboarding/pricing?agentId=${encodeURIComponent(agentId)}`;
+  }, [agentId]);
+
+  async function handleSend(event: FormEvent) {
+    event.preventDefault();
+    if (!canSend || !agentId) return;
+    const message = input.trim();
+    setInput("");
+    setError(null);
+    setMessages((prev) => [...prev, { from: "user", text: message }]);
+    setIsSending(true);
+    try {
+      const data = await backendFetch<{
+        conversation_id: string;
+        response: string;
+        fallback_used: boolean;
+        retrieval_count: number;
+      }>("/api/v1/runtime/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: agentId,
+          message,
+          conversation_id: conversationId,
+          visitor_id: "onboarding-preview",
+        }),
+      });
+      setConversationId(data.conversation_id);
+      setMessages((prev) => [...prev, { from: "assistant", text: data.response }]);
+      setRetrievalSummary(
+        data.fallback_used
+          ? "Fallback answer used (low confidence retrieval)."
+          : `Retrieved ${data.retrieval_count} chunk(s).`
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to send preview message");
+    } finally {
+      setIsSending(false);
+    }
+  }
+
   return (
     <OnboardingFrame
       activeItem="Agent Preview"
@@ -77,21 +135,39 @@ export default function AgentPreviewOnboardingPage() {
                 </div>
               </div>
               <div className="flex-1 space-y-3 overflow-y-auto bg-white p-4 text-xs">
-                <div className="border-ds-outline max-w-[90%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-3 py-2 leading-relaxed">
-                  Hello! I can use your site content now; live inventory updates as Shopify finishes syncing.
-                </div>
-                <div className="bg-ds-primary ml-auto max-w-[90%] rounded-2xl rounded-tr-sm px-3 py-2 leading-relaxed text-ds-on-primary">
-                  What is your return policy for international orders?
-                </div>
-                <div className="border-ds-outline max-w-[90%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-3 py-2 leading-relaxed">
-                  International returns are accepted within 30 days; return shipping is paid by the customer.
-                </div>
+                {messages.map((message, idx) => (
+                  <div
+                    key={`${message.from}-${idx}`}
+                    className={
+                      message.from === "user"
+                        ? "bg-ds-primary ml-auto max-w-[90%] rounded-2xl rounded-tr-sm px-3 py-2 leading-relaxed text-ds-on-primary"
+                        : "border-ds-outline max-w-[90%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-3 py-2 leading-relaxed"
+                    }
+                  >
+                    {message.text}
+                  </div>
+                ))}
+                {isSending ? <p className="text-ds-on-surface-variant text-[11px]">Thinking...</p> : null}
               </div>
               <div className="border-ds-outline border-t p-3">
-                <div className="text-ds-on-surface-variant flex items-center justify-between rounded-full border border-ds-outline bg-ds-sidebar px-4 py-2.5 text-[11px]">
-                  Ask a question…
-                  <span className="text-ds-primary font-medium">Send</span>
-                </div>
+                <form onSubmit={handleSend} className="flex items-center gap-2">
+                  <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={agentId ? "Ask a question..." : "Complete previous steps first"}
+                    className="border-ds-outline focus:border-ds-primary flex-1 rounded-full border bg-ds-sidebar px-4 py-2.5 text-[11px] outline-none"
+                    disabled={!agentId || isSending}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!canSend}
+                    className="text-ds-primary px-2 text-[11px] font-medium disabled:opacity-40"
+                  >
+                    Send
+                  </button>
+                </form>
+                <p className="text-ds-on-surface-variant mt-2 text-[10px]">{retrievalSummary}</p>
+                {error ? <p className="mt-1 text-[10px] text-rose-600">{error}</p> : null}
               </div>
             </div>
           </div>
@@ -144,7 +220,7 @@ export default function AgentPreviewOnboardingPage() {
       <OnboardingStickyFooter
         backHref="/onboarding/appearance-tone"
         backLabel="Back"
-        primaryHref="/onboarding/pricing"
+        primaryHref={continueHref}
         primaryLabel="Choose plan & continue"
       />
 

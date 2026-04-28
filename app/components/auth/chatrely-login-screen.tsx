@@ -117,6 +117,20 @@ export function ChatRelyLoginScreen() {
       return;
     }
 
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+      setErrorMessage(
+        sessionError?.message ??
+          "Login succeeded but no auth session was persisted. Check Supabase URL/key env values."
+      );
+      setIsSubmitting(false);
+      return;
+    }
+
     const nextParam = searchParams.get("next");
     const destination =
       nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
@@ -124,6 +138,7 @@ export function ChatRelyLoginScreen() {
         : "/dashboard";
 
     router.push(destination);
+    router.refresh();
   }
 
   return (

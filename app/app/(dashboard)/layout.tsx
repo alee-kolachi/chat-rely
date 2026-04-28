@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { BackendBootstrap } from "@/components/layout/backend-bootstrap";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 
 export default function DashboardLayout({
@@ -6,5 +7,10 @@ export default function DashboardLayout({
 }: {
   children: ReactNode;
 }) {
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <>
+      <BackendBootstrap />
+      <DashboardShell>{children}</DashboardShell>
+    </>
+  );
 }

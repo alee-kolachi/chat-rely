@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { backendFetch } from "@/lib/backend-api";
 
 type ActionItem = {
   label: string;
@@ -31,6 +32,90 @@ const shopifyActions: ActionItem[] = [
 
 export default function PlaygroundPage() {
   const [mobileTab, setMobileTab] = useState<"settings" | "preview">("settings");
+  const [agents, setAgents] = useState<Array<{ id: string; name: string; model: string; system_prompt: string }>>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [model, setModel] = useState("gpt-4o-mini");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [messageInput, setMessageInput] = useState("");
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [previewMessages, setPreviewMessages] = useState<Array<{ from: "user" | "assistant"; text: string }>>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const selectedAgent = useMemo(
+    () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
+    [agents, selectedAgentId]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await backendFetch<{ agents: Array<{ id: string; name: string; model: string; system_prompt: string }> }>(
+          "/api/v1/agents"
+        );
+        if (cancelled) return;
+        setAgents(data.agents);
+        const first = data.agents[0];
+        if (first) {
+          setSelectedAgentId(first.id);
+          setModel(first.model || "gpt-4o-mini");
+          setSystemPrompt(first.system_prompt || "");
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load agents");
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSave() {
+    if (!selectedAgentId || isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      await backendFetch(`/api/v1/agents/${selectedAgentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ model, system_prompt: systemPrompt }),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save agent settings");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleSendMessage() {
+    if (!selectedAgentId || !messageInput.trim() || isSending) return;
+    const userMessage = messageInput.trim();
+    setMessageInput("");
+    setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
+    setIsSending(true);
+    setError(null);
+    try {
+      const data = await backendFetch<{ conversation_id: string; response: string }>("/api/v1/runtime/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: selectedAgentId,
+          message: userMessage,
+          conversation_id: conversationId,
+          model_override: model,
+          system_prompt_override: systemPrompt,
+          visitor_id: "playground-preview",
+        }),
+      });
+      setConversationId(data.conversation_id);
+      setPreviewMessages((prev) => [...prev, { from: "assistant", text: data.response }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to send message");
+    } finally {
+      setIsSending(false);
+    }
+  }
 
   return (
     <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col bg-ds-surface">
@@ -40,7 +125,9 @@ export default function PlaygroundPage() {
             Playground
           </span>
           <div className="bg-ds-outline hidden h-4 w-px sm:block" />
-          <span className="text-ds-on-surface-variant hidden text-sm sm:block">New Assistant Draft</span>
+          <span className="text-ds-on-surface-variant hidden text-sm sm:block">
+            {selectedAgent?.name ?? "No agent selected"}
+          </span>
         </div>
         <div className="flex items-center gap-3">
           <button className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-2 transition-colors">
@@ -57,8 +144,12 @@ export default function PlaygroundPage() {
                 Unsaved Changes
               </span>
             </div>
-            <button className="bg-ds-primary text-ds-on-primary rounded-ds-md px-5 py-2 text-sm font-semibold transition-opacity hover:opacity-90">
-              Save Changes
+            <button
+              className="bg-ds-primary text-ds-on-primary rounded-ds-md px-5 py-2 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+              onClick={handleSave}
+              disabled={!selectedAgentId || isSaving}
+            >
+              {isSaving ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </div>
@@ -105,14 +196,40 @@ export default function PlaygroundPage() {
           <div className="space-y-10 px-5 py-6 sm:px-8 sm:py-8">
             <div className="space-y-3">
               <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
+                Agent
+              </label>
+              <select
+                className="border-ds-outline bg-ds-sidebar text-ds-on-surface w-full rounded-ds-md border px-4 py-3 text-sm outline-none focus:border-black"
+                value={selectedAgentId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setSelectedAgentId(nextId);
+                  const match = agents.find((agent) => agent.id === nextId);
+                  if (match) {
+                    setModel(match.model || "gpt-4o-mini");
+                    setSystemPrompt(match.system_prompt || "");
+                  }
+                }}
+              >
+                <option value="">Select agent</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-3">
+              <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
                 AI Model
               </label>
-              <select className="border-ds-outline bg-ds-sidebar text-ds-on-surface w-full rounded-ds-md border px-4 py-3 text-sm outline-none focus:border-black">
-                <option>GPT-4o (Omni)</option>
-                <option>GPT-4 Turbo</option>
-                <option>Claude 3.5 Sonnet</option>
-                <option>Claude 3 Opus</option>
-                <option>Llama 3 (70b)</option>
+              <select
+                className="border-ds-outline bg-ds-sidebar text-ds-on-surface w-full rounded-ds-md border px-4 py-3 text-sm outline-none focus:border-black"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              >
+                <option value="gpt-4o-mini">GPT-4o mini</option>
+                <option value="gpt-4o">GPT-4o</option>
               </select>
             </div>
 
@@ -202,7 +319,8 @@ export default function PlaygroundPage() {
               </div>
               <textarea
                 className="border-ds-outline bg-ds-sidebar text-ds-on-surface min-h-40 w-full rounded-ds-md border p-4 text-sm leading-relaxed outline-none focus:border-black"
-                defaultValue="You are a professional AI assistant designed to help users manage their Shopify storefront. Your tone is helpful, concise, and professional. Use the provided tools to lookup orders and products accurately."
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
               />
             </div>
 
@@ -246,44 +364,30 @@ export default function PlaygroundPage() {
             </div>
 
             <div className="bg-ds-sidebar/40 min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8">
-              <div className="flex justify-end">
-                <div className="bg-ds-primary text-ds-on-primary max-w-[85%] rounded-2xl rounded-tr-none px-5 py-3 text-sm">
-                  What is the status of order #8842?
-                </div>
-              </div>
-
-              <div className="flex justify-start">
-                <div className="flex max-w-[90%] gap-3">
-                  <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white">
-                    <IconBot className="size-3.5" />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-5 py-3 text-sm leading-relaxed shadow-sm">
-                      Checking the Shopify database...
-                      <br />
-                      <br />
-                      Order #8842 was shipped on Monday via FedEx. It is currently in transit and
-                      scheduled for delivery tomorrow by 5:00 PM.
+              {previewMessages.length === 0 ? (
+                <p className="text-ds-on-surface-variant text-center text-xs">
+                  Send a message to test this agent.
+                </p>
+              ) : null}
+              {previewMessages.map((msg, index) => (
+                <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
+                  {msg.from === "assistant" ? (
+                    <div className="flex max-w-[90%] gap-3">
+                      <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white">
+                        <IconBot className="size-3.5" />
+                      </div>
+                      <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-5 py-3 text-sm leading-relaxed shadow-sm">
+                        {msg.text}
+                      </div>
                     </div>
-                    <span className="text-ds-on-surface-variant ml-1 text-[9px] font-bold tracking-wide uppercase">
-                      Sent 1m ago
-                    </span>
-                  </div>
+                  ) : (
+                    <div className="bg-ds-primary text-ds-on-primary max-w-[85%] rounded-2xl rounded-tr-none px-5 py-3 text-sm">
+                      {msg.text}
+                    </div>
+                  )}
                 </div>
-              </div>
-
-              <div className="flex justify-start">
-                <div className="flex max-w-[90%] gap-3">
-                  <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white">
-                    <IconBot className="size-3.5" />
-                  </div>
-                  <div className="mt-2 flex items-center gap-1">
-                    <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-300" />
-                    <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-300 [animation-delay:0.2s]" />
-                    <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-300 [animation-delay:0.4s]" />
-                  </div>
-                </div>
-              </div>
+              ))}
+              {isSending ? <p className="text-ds-on-surface-variant text-xs">Thinking...</p> : null}
             </div>
 
             <div className="border-ds-outline border-t bg-white p-4 sm:p-6">
@@ -294,13 +398,20 @@ export default function PlaygroundPage() {
                 <input
                   className="border-ds-outline bg-ds-sidebar focus:border-ds-primary w-full rounded-xl border px-5 py-3 text-sm outline-none transition-colors"
                   placeholder="Test your agent..."
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
                 />
-                <button className="bg-ds-primary text-ds-on-primary rounded-xl p-3 transition-opacity hover:opacity-90">
+                <button
+                  className="bg-ds-primary text-ds-on-primary rounded-xl p-3 transition-opacity hover:opacity-90 disabled:opacity-40"
+                  onClick={handleSendMessage}
+                  disabled={!selectedAgentId || isSending || !messageInput.trim()}
+                >
                   <IconSend className="size-4.5" />
                 </button>
               </div>
+              {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}
               <p className="text-ds-on-surface-variant mt-4 text-center text-[9px] font-bold tracking-[0.2em] uppercase">
-                Running <span className="text-ds-on-surface">GPT-4o</span> session
+                Running <span className="text-ds-on-surface">{model}</span> session
               </p>
             </div>
           </div>

@@ -1,0 +1,92 @@
+import time
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
+import structlog
+from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.responses import JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.api.routes import get_api_router
+from app.core.auth_state import set_token_verifier
+from app.core.errors import (
+    AppError,
+    app_error_handler,
+    error_response,
+    http_error_handler,
+    unhandled_error_handler,
+)
+from app.core.logging import bind_request_context, clear_request_context, setup_logging
+from app.core.security import TokenVerifier
+from app.core.settings import get_settings, validate_settings
+from app.db.engine import get_engine, init_engine
+from app.db.session import init_session_factory
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    validate_settings()
+    settings = get_settings()
+    setup_logging(settings.log_level)
+    init_engine(settings)
+    init_session_factory()
+    verifier = TokenVerifier(settings)
+    await verifier.warmup()
+    set_token_verifier(verifier)
+    yield
+    await get_engine().dispose()
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def request_context_middleware(request: Request, call_next: Any) -> Response:
+        request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+        request.state.request_id = request_id
+        bind_request_context(request_id=request_id, path=request.url.path, method=request.method)
+        start = time.perf_counter()
+        logger = structlog.get_logger("request")
+        try:
+            response = await call_next(request)
+        finally:
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            logger.info("request.completed", status_code=getattr(locals().get("response"), "status_code", 500), latency_ms=latency_ms)
+            clear_request_context()
+
+        response.headers["x-request-id"] = request_id
+        return response
+
+    @app.exception_handler(AppError)
+    async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        return await app_error_handler(request, exc)
+
+    @app.exception_handler(HTTPException)
+    async def _handle_http_error(request: Request, exc: HTTPException) -> JSONResponse:
+        return await http_error_handler(request, exc)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _handle_starlette_http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        return await http_error_handler(request, HTTPException(status_code=exc.status_code, detail=exc.detail))
+
+    @app.exception_handler(RequestValidationError)
+    async def _handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        return error_response(
+            code="request.validation_error",
+            message="Invalid request payload",
+            status_code=422,
+            details={"errors": exc.errors()},
+            request_id=getattr(request.state, "request_id", None),
+        )
+
+    @app.exception_handler(Exception)
+    async def _handle_unhandled_error(request: Request, exc: Exception) -> JSONResponse:
+        return await unhandled_error_handler(request, exc)
+
+    app.include_router(get_api_router())
+    return app
+

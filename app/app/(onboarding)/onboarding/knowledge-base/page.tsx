@@ -1,5 +1,9 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { backendFetch } from "@/lib/backend-api";
+import { getOnboardingAgentId } from "@/lib/onboarding-state";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingMainColumn,
@@ -10,6 +14,44 @@ import {
 } from "@/components/onboarding/onboarding-ui";
 
 export default function KnowledgeBaseOnboardingPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [website, setWebsite] = useState(searchParams.get("website") ?? "");
+  const [sourceId, setSourceId] = useState<string | null>(null);
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const agentId = useMemo(() => searchParams.get("agentId") ?? getOnboardingAgentId(), [searchParams]);
+
+  async function handleStartCrawl() {
+    if (!agentId || !website.trim() || isIndexing) return;
+    setIsIndexing(true);
+    setError(null);
+    try {
+      const created = await backendFetch<{ source: { id: string } }>("/api/v1/knowledge/sources", {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: agentId,
+          type: "website",
+          title: "Primary Website",
+          source_url: website.trim(),
+        }),
+      });
+      setSourceId(created.source.id);
+      await backendFetch(`/api/v1/knowledge/sources/${created.source.id}/index`, { method: "POST" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start crawl");
+    } finally {
+      setIsIndexing(false);
+    }
+  }
+
+  function handleContinue() {
+    if (!agentId) return;
+    const params = new URLSearchParams({ agentId });
+    if (sourceId) params.set("sourceId", sourceId);
+    router.push(`/onboarding/knowledge-base/training?${params.toString()}`);
+  }
+
   return (
     <OnboardingFrame
       activeItem="Knowledge Base"
@@ -51,17 +93,21 @@ export default function KnowledgeBaseOnboardingPage() {
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
                   <input
                     type="url"
-                    defaultValue="https://acme-global.com"
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
                     className="border-ds-outline focus:border-ds-primary focus:ring-ds-primary/15 flex-1 rounded-ds-md border bg-white px-4 py-3 text-sm outline-none focus:ring-2"
                     placeholder="https://example.com"
                   />
                   <button
                     type="button"
+                    onClick={handleStartCrawl}
+                    disabled={!agentId || !website.trim() || isIndexing}
                     className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 shrink-0 rounded-ds-md px-5 py-3 text-xs font-semibold tracking-wide uppercase transition-colors"
                   >
-                    Start crawl
+                    {isIndexing ? "Indexing..." : "Start crawl"}
                   </button>
                 </div>
+                {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}
               </div>
             </div>
           </OnboardingSectionCard>
@@ -123,7 +169,9 @@ export default function KnowledgeBaseOnboardingPage() {
       <OnboardingStickyFooter
         backHref="/onboarding"
         backLabel="Back"
-        primaryHref="/onboarding/knowledge-base/training"
+        primaryAsButton
+        onPrimaryClick={handleContinue}
+        primaryDisabled={!agentId}
         primaryLabel="Continue"
       />
     </OnboardingFrame>

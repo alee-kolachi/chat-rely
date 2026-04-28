@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { backendFetch } from "@/lib/backend-api";
+import { getOnboardingAgentId } from "@/lib/onboarding-state";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingFieldRow,
@@ -16,9 +19,39 @@ const toneOptions = ["Friendly", "Professional", "Concise"] as const;
 const colorOptions = ["#000000", "#FB923C", "#F472B6", "#3B82F6", "#10B981", "#6366F1"] as const;
 
 export default function AppearanceToneOnboardingPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [tone, setTone] = useState<(typeof toneOptions)[number]>("Friendly");
   const [hex, setHex] = useState("000000");
   const [selectedColor, setSelectedColor] = useState(0);
+  const [model, setModel] = useState("gpt-4o");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const agentId = searchParams.get("agentId") ?? getOnboardingAgentId();
+
+  async function handleContinue() {
+    if (!agentId || isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      await backendFetch(`/api/v1/agents/${agentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          model,
+          behavior_settings: {
+            tone,
+            brand_color: `#${hex.toUpperCase()}`,
+            widget_position: "bottom_right",
+          },
+        }),
+      });
+      router.push(`/onboarding/agent-preview?agentId=${encodeURIComponent(agentId)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save appearance settings");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <OnboardingFrame
@@ -40,7 +73,8 @@ export default function AppearanceToneOnboardingPage() {
                 <select
                   id="model"
                   className="border-ds-outline focus:border-ds-primary focus:ring-ds-primary/15 w-full appearance-none rounded-ds-md border bg-white px-4 py-3 text-sm outline-none focus:ring-2"
-                  defaultValue="gpt-4o"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
                 >
                   <option value="gpt-4o">GPT-4o (recommended)</option>
                   <option value="gpt-4o-mini">GPT-4o mini</option>
@@ -156,6 +190,7 @@ export default function AppearanceToneOnboardingPage() {
             <p className="text-ds-on-surface-variant mt-3 text-center text-xs italic">
               Reflects tone and color only; full chat UI in Playground.
             </p>
+            {error ? <p className="mt-2 text-center text-xs text-rose-600">{error}</p> : null}
           </div>
         </aside>
       </div>
@@ -163,8 +198,10 @@ export default function AppearanceToneOnboardingPage() {
       <OnboardingStickyFooter
         backHref="/onboarding/connection"
         backLabel="Back"
-        primaryHref="/onboarding/agent-preview"
-        primaryLabel="Continue"
+        primaryAsButton
+        onPrimaryClick={handleContinue}
+        primaryDisabled={!agentId || isSaving}
+        primaryLabel={isSaving ? "Saving..." : "Continue"}
       />
     </OnboardingFrame>
   );
