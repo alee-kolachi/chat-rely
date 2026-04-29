@@ -1,6 +1,7 @@
 "use client";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase";
+import { rewriteLoopbackServiceUrlForPageHost } from "@/lib/resolve-loopback-service-url-for-lan";
 
 const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000";
 
@@ -18,7 +19,11 @@ export class BackendApiError extends Error {
 }
 
 export function getBackendBaseUrl() {
-  return process.env.NEXT_PUBLIC_BACKEND_URL ?? DEFAULT_BACKEND_BASE_URL;
+  const fromEnv = process.env.NEXT_PUBLIC_BACKEND_URL ?? DEFAULT_BACKEND_BASE_URL;
+  if (typeof window === "undefined") {
+    return fromEnv;
+  }
+  return rewriteLoopbackServiceUrlForPageHost(fromEnv, window.location.host);
 }
 
 async function getAccessToken() {

@@ -1,11 +1,17 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { backendFetch } from "@/lib/backend-api";
-import { getOnboardingAgentId } from "@/lib/onboarding-state";
+import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
-import { OnboardingMainColumn, OnboardingStickyFooter } from "@/components/onboarding/onboarding-ui";
+import {
+  OnboardingMainColumn,
+  onboardingSplitBody,
+  onboardingSplitCard,
+  onboardingSplitGrid,
+  onboardingSplitRoot,
+  OnboardingStickyFooter,
+} from "@/components/onboarding/onboarding-ui";
 
 const checklistItems = [
   { label: "Knowledge sources connected", done: true },
@@ -15,8 +21,7 @@ const checklistItems = [
 ];
 
 export default function AgentPreviewOnboardingPage() {
-  const searchParams = useSearchParams();
-  const agentId = searchParams.get("agentId") ?? getOnboardingAgentId();
+  const agentId = useResolvedOnboardingAgentId();
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -79,9 +84,17 @@ export default function AgentPreviewOnboardingPage() {
       activeItem="Agent Preview"
       completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone"]}
       stepLabel="Step 5 of 6"
+      footer={
+        <OnboardingStickyFooter
+          backHref={appearanceBackHref}
+          backLabel="Back"
+          primaryHref={continueHref}
+          primaryLabel="Choose plan & continue"
+        />
+      }
     >
-      <OnboardingMainColumn className="max-w-6xl flex h-full items-center pt-3 pb-24 md:pt-4 md:pb-28">
-        <div className="relative flex h-full w-full min-h-0 items-center">
+      <OnboardingMainColumn className={onboardingSplitRoot}>
+        <div className={onboardingSplitBody}>
           <div
             className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
             style={{
@@ -91,9 +104,9 @@ export default function AgentPreviewOnboardingPage() {
             aria-hidden
           />
 
-          <div className="border-ds-outline h-full w-full overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
-            <div className="grid h-full lg:grid-cols-2">
-              <section className="flex h-full min-h-0 flex-col justify-center p-6 sm:p-8 lg:p-10">
+          <div className={onboardingSplitCard}>
+            <div className={onboardingSplitGrid}>
+              <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                     Step 5
@@ -175,7 +188,7 @@ export default function AgentPreviewOnboardingPage() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex h-full min-h-0 flex-col border-t p-4 sm:p-6 lg:border-t-0 lg:border-l lg:p-8">
+              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col border-t p-4 sm:p-6 max-lg:min-h-min lg:min-h-0 lg:h-full lg:border-t-0 lg:border-l lg:p-8">
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -185,8 +198,8 @@ export default function AgentPreviewOnboardingPage() {
                   }}
                   aria-hidden
                 />
-                <div className="relative flex min-h-0 flex-1 flex-col items-stretch">
-                  <div className="border-ds-outline flex h-full min-h-[520px] w-full max-h-[min(88dvh,calc(100dvh-10.5rem))] flex-1 flex-col overflow-hidden rounded-2xl border bg-white shadow-xl lg:min-h-[560px]">
+                <div className="relative flex flex-col items-stretch max-lg:min-h-min lg:min-h-0 lg:flex-1">
+                  <div className="border-ds-outline flex w-full min-h-[22rem] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl max-lg:mx-auto max-lg:flex-none max-lg:max-h-none sm:min-h-[26rem] lg:h-full lg:min-h-[560px] lg:max-h-[min(88dvh,calc(100dvh-10.5rem))] lg:flex-1">
                     <div className="bg-ds-primary flex shrink-0 items-center gap-3 px-4 py-4 sm:px-5 sm:py-4">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-ds-primary sm:size-11">
                         AI
@@ -235,7 +248,7 @@ export default function AgentPreviewOnboardingPage() {
                         <button
                           type="submit"
                           disabled={!canSend}
-                          className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary shrink-0 rounded-full px-4 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40 sm:px-5 sm:py-3"
+                          className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary touch-manipulation min-h-11 shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40 sm:min-h-12 sm:px-5 sm:py-3 [-webkit-tap-highlight-color:transparent]"
                         >
                           Send
                         </button>
@@ -250,13 +263,6 @@ export default function AgentPreviewOnboardingPage() {
           </div>
         </div>
       </OnboardingMainColumn>
-
-      <OnboardingStickyFooter
-        backHref={appearanceBackHref}
-        backLabel="Back"
-        primaryHref={continueHref}
-        primaryLabel="Choose plan & continue"
-      />
 
       <style jsx>{`
         @keyframes preview-progress {

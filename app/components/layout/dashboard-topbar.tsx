@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -44,86 +45,97 @@ export function DashboardTopbar() {
   const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isMenuOpen]);
+
+  const mobileMenu = isMenuOpen ? (
+      <div className="fixed inset-0 z-[200] md:hidden" role="dialog" aria-modal="true">
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          className="absolute inset-0 bg-black/45 touch-manipulation"
+          onClick={() => setIsMenuOpen(false)}
+        />
+        <aside className="border-ds-outline bg-ds-sidebar relative z-[1] h-full w-[min(84vw,320px)] overflow-y-auto border-r p-3 shadow-xl touch-manipulation">
+          <div className="border-ds-outline mb-3 flex items-center justify-between border-b pb-3">
+            <span className="text-ds-on-surface text-sm font-semibold">Navigation</span>
+            <button
+              type="button"
+              onClick={() => setIsMenuOpen(false)}
+              className="text-ds-on-surface-variant hover:bg-ds-neutral hover:text-ds-on-surface touch-manipulation min-h-10 min-w-10 rounded-ds-md p-2 transition-colors"
+              aria-label="Close navigation menu"
+            >
+              <IconClose className="size-4" />
+            </button>
+          </div>
+
+          <nav className="space-y-1">
+            {mobileNavItems.map((item) => {
+              const active = isRouteActive(pathname, item.href);
+              return (
+                <div key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={() => setIsMenuOpen(false)}
+                    className={cn(
+                      "flex min-h-11 items-center rounded-lg border border-transparent px-3 py-2 text-sm transition-all touch-manipulation",
+                      "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                      active && "border-zinc-300 bg-white text-ds-on-surface font-semibold shadow-sm"
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+
+                  {item.children && (
+                    <div className="border-ds-outline/70 mt-1 ml-4 flex flex-col gap-1 border-l pl-3">
+                      {item.children.map((child) => {
+                        const childActive = isRouteActive(pathname, child.href);
+                        return (
+                          <Link
+                            key={child.href}
+                            href={child.href}
+                            onClick={() => setIsMenuOpen(false)}
+                            className={cn(
+                              "text-ds-on-surface-variant hover:text-ds-on-surface touch-manipulation flex min-h-10 items-center rounded-md border border-transparent px-2 py-1.5 text-xs transition-colors",
+                              childActive && "border-zinc-300 bg-white text-ds-on-surface font-semibold"
+                            )}
+                          >
+                            {child.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
+      </div>
+  ) : null;
+
   return (
     <>
-      <header className="border-ds-outline flex h-14 items-center justify-between border-b px-4 md:hidden">
+      <header className="border-ds-outline bg-ds-surface sticky top-0 z-[70] flex h-14 shrink-0 items-center justify-between border-b px-4 md:hidden">
         <button
           type="button"
           onClick={() => setIsMenuOpen(true)}
-          className="text-ds-on-surface-variant hover:bg-ds-neutral hover:text-ds-on-surface rounded-ds-md p-2 transition-colors"
+          className="text-ds-on-surface-variant hover:bg-ds-neutral hover:text-ds-on-surface touch-manipulation min-h-11 min-w-11 rounded-ds-md p-2 transition-colors [-webkit-tap-highlight-color:transparent]"
           aria-label="Open navigation menu"
         >
           <IconMenu className="size-5" />
         </button>
         <span className="text-ds-on-surface text-sm font-semibold">ChatRely</span>
-        <LogoutButton className="text-ds-on-surface-variant hover:bg-ds-neutral rounded-ds-md px-3 py-1.5 text-sm transition-colors hover:text-ds-on-surface" />
+        <LogoutButton className="text-ds-on-surface-variant hover:bg-ds-neutral touch-manipulation min-h-11 rounded-ds-md px-3 py-2 text-sm transition-colors hover:text-ds-on-surface [-webkit-tap-highlight-color:transparent]" />
       </header>
 
-      {isMenuOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <button
-            type="button"
-            aria-label="Close navigation menu"
-            className="absolute inset-0 bg-black/45"
-            onClick={() => setIsMenuOpen(false)}
-          />
-          <aside className="border-ds-outline bg-ds-sidebar relative h-full w-[min(84vw,320px)] overflow-y-auto border-r p-3 shadow-xl">
-            <div className="border-ds-outline mb-3 flex items-center justify-between border-b pb-3">
-              <span className="text-ds-on-surface text-sm font-semibold">Navigation</span>
-              <button
-                type="button"
-                onClick={() => setIsMenuOpen(false)}
-                className="text-ds-on-surface-variant hover:bg-ds-neutral hover:text-ds-on-surface rounded-ds-md p-2 transition-colors"
-                aria-label="Close navigation menu"
-              >
-                <IconClose className="size-4" />
-              </button>
-            </div>
-
-            <nav className="space-y-1">
-              {mobileNavItems.map((item) => {
-                const active = isRouteActive(pathname, item.href);
-                return (
-                  <div key={item.href}>
-                    <Link
-                      href={item.href}
-                      onClick={() => setIsMenuOpen(false)}
-                      className={cn(
-                        "flex items-center rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
-                        "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                        active && "border-zinc-300 bg-white text-ds-on-surface font-semibold shadow-sm"
-                      )}
-                    >
-                      {item.label}
-                    </Link>
-
-                    {item.children && (
-                      <div className="border-ds-outline/70 mt-1 ml-4 flex flex-col gap-1 border-l pl-3">
-                        {item.children.map((child) => {
-                          const childActive = isRouteActive(pathname, child.href);
-                          return (
-                            <Link
-                              key={child.href}
-                              href={child.href}
-                              onClick={() => setIsMenuOpen(false)}
-                              className={cn(
-                                "text-ds-on-surface-variant hover:text-ds-on-surface rounded-md border border-transparent px-2 py-1.5 text-xs transition-colors",
-                                childActive && "border-zinc-300 bg-white text-ds-on-surface font-semibold"
-                              )}
-                            >
-                              {child.label}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </nav>
-          </aside>
-        </div>
-      )}
+      {mobileMenu && typeof document !== "undefined" ? createPortal(mobileMenu, document.body) : null}
     </>
   );
 }

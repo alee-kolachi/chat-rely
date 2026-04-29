@@ -51,6 +51,13 @@
     background: var(--ds-surface);
   }
 
+  /* Avoid pulling dashboard page chrome under the sticky mobile topbar (hit-testing quirks on some WebKit builds). */
+  @media (max-width: 767px) {
+    .ds-app-shell {
+      margin-top: 0;
+    }
+  }
+
   /* Semantic typography — driven by tokens in styles/design-system.css */
   .ds-app-page-title {
     font-family: var(--ds-app-font-heading);
@@ -186,8 +193,19 @@ body {
     font-style: normal;
     font-weight: 500;
     font-size: 14px;
-    line-height: 14px;
+    /* 14px line-height made line boxes collapse and caused touch/hit-target issues on mobile WebKit */
+    line-height: 1.45;
     color: oklch(0.442 0.017 285.786);
+  }
+
+  /* Reduce iOS double-tap / scroll gesture stealing taps on controls */
+  button,
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  a[href] {
+    touch-action: manipulation;
   }
 
   h1,

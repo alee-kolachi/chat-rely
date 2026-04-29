@@ -1,62 +1,160 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { backendFetch } from "@/lib/backend-api";
+import { backendFetch, BackendApiError } from "@/lib/backend-api";
 import { saveOnboardingAgentId } from "@/lib/onboarding-state";
+import { PromiseTimeoutError, withTimeout } from "@/lib/with-timeout";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
+import { cn } from "@/lib/utils";
 import {
   OnboardingFieldRow,
   OnboardingInput,
   OnboardingMainColumn,
+  onboardingSplitBody,
+  onboardingSplitCard,
+  onboardingSplitGrid,
+  onboardingSplitRoot,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
+
+/** `crypto.randomUUID()` throws outside a secure context (e.g. http://LAN-IP on a phone). */
+function createDemoAgentSuffix(): string {
+  try {
+    if (globalThis.isSecureContext && typeof globalThis.crypto?.randomUUID === "function") {
+      return globalThis.crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  if (process.env.NODE_ENV === "development") {
+    console.warn("[onboarding] demo agent id: non-secure context or randomUUID unavailable; using fallback");
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 12)}`;
+}
 
 export default function OnboardingPage() {
   const router = useRouter();
   const [agentName, setAgentName] = useState("Aria");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const previewInitial = useMemo(() => {
-    const value = agentName.trim();
-    if (!value) return "A";
-    return value.charAt(0).toUpperCase();
-  }, [agentName]);
+  const continueBusyRef = useRef(false);
 
   const canContinue = agentName.trim().length > 0;
 
+  function goToStep2(agentId: string) {
+    saveOnboardingAgentId(agentId);
+    const next = new URLSearchParams({ agentId });
+    router.push(`/onboarding/knowledge-base?${next.toString()}`);
+  }
+
+  function isRecoverableOnboardingNetworkError(e: unknown): boolean {
+    if (e instanceof BackendApiError) return false;
+    if (e instanceof TypeError) return true;
+    if (e instanceof DOMException && e.name === "AbortError") return true;
+    const message = e instanceof Error ? e.message : String(e);
+    return (
+      message.includes("Failed to fetch") ||
+      message.includes("NetworkError") ||
+      message.includes("Load failed") ||
+      message.includes("ECONNREFUSED") ||
+      message.includes("Network request failed")
+    );
+  }
+
   async function handleContinue() {
-    if (!canContinue || isSaving) return;
-    setIsSaving(true);
+    if (!canContinue || continueBusyRef.current) return;
+    continueBusyRef.current = true;
+    // Defer disabling the control until after this gesture's click/touchend cycle (iOS can drop the click if disabled mid-sequence).
+    queueMicrotask(() => setIsSaving(true));
     setError(null);
-    try {
-      const slug = agentName
+    const slug =
+      agentName
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
-        .slice(0, 120);
-      const created = await backendFetch<{ id: string }>("/api/v1/agents", {
-        method: "POST",
-        body: JSON.stringify({
-          name: agentName.trim(),
-          slug: slug || undefined,
+        .slice(0, 100) || "";
+    try {
+      const created = await withTimeout(
+        backendFetch<{ id: string }>("/api/v1/agents", {
+          method: "POST",
+          body: JSON.stringify({
+            name: agentName.trim(),
+            slug: slug || undefined,
+          }),
         }),
-      });
-      saveOnboardingAgentId(created.id);
-      const next = new URLSearchParams({ agentId: created.id });
-      router.push(`/onboarding/knowledge-base?${next.toString()}`);
+        12_000
+      );
+      goToStep2(created.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create agent");
+      let err: unknown = e;
+      if (err instanceof BackendApiError && err.status === 409) {
+        const retrySlug = `${slug || "agent"}-${Date.now().toString(36)}`.slice(0, 120);
+        try {
+          const created = await withTimeout(
+            backendFetch<{ id: string }>("/api/v1/agents", {
+              method: "POST",
+              body: JSON.stringify({
+                name: agentName.trim(),
+                slug: retrySlug,
+              }),
+            }),
+            12_000
+          );
+          goToStep2(created.id);
+          return;
+        } catch (e2) {
+          err = e2;
+        }
+      }
+      const message = err instanceof Error ? err.message : "Failed to create agent";
+      const unauthenticated =
+        message.includes("No authenticated session") ||
+        (err instanceof BackendApiError && (err.status === 401 || err.status === 403));
+      const timedOut = err instanceof PromiseTimeoutError;
+      const useDemo =
+        unauthenticated ||
+        timedOut ||
+        isRecoverableOnboardingNetworkError(err);
+      if (useDemo) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[onboarding] continuing with demo agent", { reason: message, timedOut });
+        }
+        goToStep2(`demo-${createDemoAgentSuffix()}`);
+        return;
+      }
+      setError(message);
     } finally {
+      continueBusyRef.current = false;
       setIsSaving(false);
     }
   }
 
+  const stepFooter = (
+    <OnboardingStickyFooter
+      primaryAsButton
+      onPrimaryClick={() => void handleContinue()}
+      primaryDisabled={!canContinue}
+      primaryPending={isSaving}
+      primaryLabel={isSaving ? "Saving..." : "Continue"}
+      tertiary={
+        error ? (
+          <p role="alert" className="text-rose-600 text-center text-xs font-medium leading-snug sm:max-w-md sm:text-left">
+            {error}
+          </p>
+        ) : null
+      }
+    />
+  );
+
   return (
-    <OnboardingFrame activeItem="Agent Name" stepLabel="Step 1 of 6">
-      <OnboardingMainColumn className="max-w-6xl flex h-full items-center pt-3 pb-24 md:pt-4 md:pb-28">
-        <div className="relative flex h-full w-full min-h-0 items-center">
+    <OnboardingFrame
+      activeItem="Agent Name"
+      stepLabel="Step 1 of 6"
+      footer={<div className="hidden w-full lg:block">{stepFooter}</div>}
+    >
+      <OnboardingMainColumn className={cn(onboardingSplitRoot, "max-lg:pb-28")}>
+        <div className={onboardingSplitBody}>
           <div
             className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
             style={{
@@ -65,9 +163,9 @@ export default function OnboardingPage() {
             }}
             aria-hidden
           />
-          <div className="border-ds-outline h-full w-full overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
-          <div className="grid h-full lg:grid-cols-2">
-            <section className="flex h-full min-h-0 flex-col justify-center p-6 sm:p-8 lg:p-10">
+          <div className={onboardingSplitCard}>
+            <div className={onboardingSplitGrid}>
+            <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
               <div>
                 <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                   Step 1
@@ -80,6 +178,7 @@ export default function OnboardingPage() {
                   className="mt-8 space-y-6 sm:mt-10"
                   onSubmit={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     void handleContinue();
                   }}
                 >
@@ -98,13 +197,12 @@ export default function OnboardingPage() {
                       className="py-3.5 font-normal"
                     />
                   </OnboardingFieldRow>
-
                 </form>
                 {error ? <p className="mt-6 text-sm font-medium text-rose-600">{error}</p> : null}
               </div>
             </section>
 
-            <section className="bg-ds-sidebar border-ds-outline relative flex h-full min-h-0 items-center justify-center border-t p-6 sm:p-8 lg:border-t-0 lg:border-l lg:p-10">
+            <section className="bg-ds-sidebar border-ds-outline relative flex flex-col items-center justify-center border-t p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:border-t-0 lg:border-l lg:p-10">
               <div
                 className="pointer-events-none absolute inset-0 opacity-35"
                 style={{
@@ -114,7 +212,7 @@ export default function OnboardingPage() {
                 aria-hidden
               />
               <div className="relative mx-auto w-full max-w-[400px]">
-                <div className="border-ds-outline flex min-h-[500px] flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl">
+                <div className="border-ds-outline flex min-h-[18rem] w-full flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl sm:min-h-[24rem] lg:min-h-[500px]">
                   <div className="border-ds-outline flex items-center justify-between border-b bg-white px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className="bg-ds-primary text-ds-on-primary flex size-10 items-center justify-center rounded-xl text-base">
@@ -134,7 +232,7 @@ export default function OnboardingPage() {
                   </div>
 
                   <div
-                    className="chat-preview-surface flex-1"
+                    className="chat-preview-surface min-h-0 flex-1"
                     style={{
                       background:
                         "linear-gradient(165deg, rgba(250,245,255,0.9) 0%, rgba(243,232,255,0.82) 45%, rgba(252,231,243,0.8) 100%)",
@@ -250,14 +348,10 @@ export default function OnboardingPage() {
             }
           }
         `}</style>
-      </OnboardingMainColumn>
 
-      <OnboardingStickyFooter
-        primaryAsButton
-        onPrimaryClick={() => void handleContinue()}
-        primaryDisabled={!canContinue || isSaving}
-        primaryLabel={isSaving ? "Saving..." : "Continue"}
-      />
+        {/* Below lg: footer lives inside the scroll layer so iOS/WebKit does not mis-hit-test it against transformed preview content. lg+ matches original docked footer. */}
+        <div className="sticky bottom-0 z-[80] -mx-4 lg:hidden">{stepFooter}</div>
+      </OnboardingMainColumn>
     </OnboardingFrame>
   );
 }

@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { useSearchParams } from "next/navigation";
-import { getOnboardingAgentId } from "@/lib/onboarding-state";
+import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
-import { OnboardingMainColumn, OnboardingStickyFooter } from "@/components/onboarding/onboarding-ui";
+import {
+  OnboardingMainColumn,
+  onboardingSplitBody,
+  onboardingSplitCard,
+  onboardingSplitGrid,
+  onboardingSplitRoot,
+  OnboardingStickyFooter,
+} from "@/components/onboarding/onboarding-ui";
 
 const syncItems = [
   { label: "Products", state: "done" as const },
@@ -15,8 +21,7 @@ const syncItems = [
 ];
 
 export default function ConnectionOnboardingPage() {
-  const searchParams = useSearchParams();
-  const agentId = useMemo(() => searchParams.get("agentId") ?? getOnboardingAgentId(), [searchParams]);
+  const agentId = useResolvedOnboardingAgentId();
   const appearanceHref = useMemo(() => {
     const path = "/onboarding/appearance-tone";
     if (!agentId) return path;
@@ -28,9 +33,21 @@ export default function ConnectionOnboardingPage() {
       activeItem="Connection"
       completedItems={["Agent Name", "Knowledge Base"]}
       stepLabel="Step 3 of 6"
+      footer={
+        <OnboardingStickyFooter
+          backHref={
+            agentId
+              ? `/onboarding/knowledge-base/training?agentId=${encodeURIComponent(agentId)}`
+              : "/onboarding/knowledge-base/training"
+          }
+          backLabel="Back"
+          primaryHref={appearanceHref}
+          primaryLabel="Continue"
+        />
+      }
     >
-      <OnboardingMainColumn className="max-w-6xl flex h-full items-center pt-3 pb-24 md:pt-4 md:pb-28">
-        <div className="relative flex h-full w-full min-h-0 items-center">
+      <OnboardingMainColumn className={onboardingSplitRoot}>
+        <div className={onboardingSplitBody}>
           <div
             className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
             style={{
@@ -40,9 +57,9 @@ export default function ConnectionOnboardingPage() {
             aria-hidden
           />
 
-          <div className="border-ds-outline h-full w-full overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
-            <div className="grid h-full lg:grid-cols-2">
-              <section className="flex h-full min-h-0 flex-col justify-center p-6 sm:p-8 lg:p-10">
+          <div className={onboardingSplitCard}>
+            <div className={onboardingSplitGrid}>
+              <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                     Step 3
@@ -57,8 +74,8 @@ export default function ConnectionOnboardingPage() {
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <div className="mb-4 flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-3">
+                      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
                           <div className="border-ds-outline bg-ds-sidebar flex size-11 shrink-0 items-center justify-center rounded-xl border text-lg font-bold text-ds-on-surface">
                             S
                           </div>
@@ -69,14 +86,14 @@ export default function ConnectionOnboardingPage() {
                         </div>
                         <button
                           type="button"
-                          className="text-ds-on-surface-variant hover:text-ds-on-surface shrink-0 text-[11px] font-semibold tracking-wide uppercase transition-colors"
+                          className="text-ds-on-surface-variant hover:text-ds-on-surface touch-manipulation min-h-11 shrink-0 rounded-ds-md px-2 text-[11px] font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent]"
                         >
                           Connect later
                         </button>
                       </div>
                       <button
                         type="button"
-                        className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-md py-3 text-sm font-semibold transition-colors"
+                        className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary touch-manipulation min-h-12 w-full rounded-ds-md py-3 text-sm font-semibold transition-colors [-webkit-tap-highlight-color:transparent]"
                       >
                         Connect Shopify
                       </button>
@@ -96,7 +113,7 @@ export default function ConnectionOnboardingPage() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex h-full min-h-0 items-center justify-center border-t p-6 sm:p-8 lg:border-t-0 lg:border-l lg:p-10">
+              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col items-center justify-center border-t p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:border-t-0 lg:border-l lg:p-10">
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -107,7 +124,7 @@ export default function ConnectionOnboardingPage() {
                   aria-hidden
                 />
                 <div className="relative mx-auto w-full max-w-[400px]">
-                  <div className="border-ds-outline flex min-h-[520px] flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl">
+                  <div className="border-ds-outline flex min-h-[18rem] w-full flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl sm:min-h-[24rem] lg:min-h-[520px]">
                     <div className="border-ds-outline flex items-center justify-between border-b bg-white px-4 py-3">
                       <div className="min-w-0">
                         <h3 className="text-ds-on-surface truncate text-sm font-semibold">Store connection</h3>
@@ -118,7 +135,7 @@ export default function ConnectionOnboardingPage() {
                       </span>
                     </div>
 
-                    <div className="flex flex-1 flex-col gap-4 p-4">
+                    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
                       <div className="border-ds-outline rounded-ds-lg border bg-white p-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>
@@ -134,7 +151,7 @@ export default function ConnectionOnboardingPage() {
                         </p>
                       </div>
 
-                      <div className="border-ds-outline flex flex-1 flex-col overflow-hidden rounded-ds-lg border bg-white p-3 sm:p-4">
+                      <div className="border-ds-outline flex min-h-0 flex-1 flex-col overflow-hidden rounded-ds-lg border bg-white p-3 sm:p-4">
                         <p className="text-ds-on-surface text-xs font-semibold">Synchronization</p>
                         <p className="text-ds-on-surface-variant mt-1 text-[11px] leading-relaxed">
                           Initial sync may take a few minutes. You can keep configuring your agent.
@@ -185,17 +202,6 @@ export default function ConnectionOnboardingPage() {
           </div>
         </div>
       </OnboardingMainColumn>
-
-      <OnboardingStickyFooter
-        backHref={
-          agentId
-            ? `/onboarding/knowledge-base/training?agentId=${encodeURIComponent(agentId)}`
-            : "/onboarding/knowledge-base/training"
-        }
-        backLabel="Back"
-        primaryHref={appearanceHref}
-        primaryLabel="Continue"
-      />
     </OnboardingFrame>
   );
 }

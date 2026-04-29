@@ -206,7 +206,7 @@ export function ChatRelySignupScreen() {
                 <div className="border-ds-outline flex-grow border-t" />
               </div>
 
-              <form className="space-y-4" onSubmit={handleSubmit}>
+              <form className="space-y-4" method="post" onSubmit={handleSubmit}>
                 <div className="space-y-1.5">
                   <label htmlFor="signup-name" className="text-ds-on-surface text-xs font-semibold">
                     Full name

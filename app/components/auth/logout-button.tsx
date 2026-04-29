@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
 
 type LogoutButtonProps = {
   className?: string;
@@ -21,7 +22,15 @@ export function LogoutButton({ className }: LogoutButtonProps) {
   }
 
   return (
-    <button type="button" onClick={handleLogout} disabled={isLoading} className={className}>
+    <button
+      type="button"
+      onClick={handleLogout}
+      disabled={isLoading}
+      className={cn(
+        "touch-manipulation cursor-pointer disabled:cursor-wait [-webkit-tap-highlight-color:transparent]",
+        className
+      )}
+    >
       {isLoading ? "Logging out..." : "Log out"}
     </button>
   );

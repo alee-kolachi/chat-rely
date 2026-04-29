@@ -63,7 +63,7 @@ export function DashboardSidebar() {
 
   useEffect(() => {
     const savedCollapsed = window.localStorage.getItem("dashboard-sidebar-collapsed");
-    setIsCollapsed(savedCollapsed === "true");
+    queueMicrotask(() => setIsCollapsed(savedCollapsed === "true"));
   }, []);
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export function DashboardSidebar() {
     navItems.forEach((item) => {
       if (item.children) nextOpenSections[item.href] = hasActiveChild(pathname, item.children);
     });
-    setOpenSections((prev) => ({ ...nextOpenSections, ...prev }));
+    queueMicrotask(() => setOpenSections((prev) => ({ ...nextOpenSections, ...prev })));
   }, [pathname]);
 
   function toggleSidebar() {

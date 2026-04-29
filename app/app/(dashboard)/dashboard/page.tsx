@@ -57,7 +57,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => setPreviewMode((prev) => (prev === "empty" ? "data" : "empty"))}
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2 text-xs font-semibold transition-colors"
+            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar touch-manipulation min-h-11 rounded-ds-md border bg-white px-4 py-2 text-xs font-semibold transition-colors [-webkit-tap-highlight-color:transparent]"
           >
             {previewMode === "empty" ? "Preview with sample data" : "Preview empty state"}
           </button>

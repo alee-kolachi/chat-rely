@@ -1,16 +1,45 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getOnboardingAgentId } from "@/lib/onboarding-state";
+import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
-  OnboardingMainColumn,
   OnboardingFieldRow,
+  OnboardingMainColumn,
+  onboardingSplitBody,
+  onboardingSplitCard,
+  onboardingSplitGrid,
+  onboardingSplitRoot,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 
-export default function KnowledgeBaseOnboardingPage() {
+function KnowledgeBaseOnboardingFallback() {
+  return (
+    <OnboardingFrame
+      activeItem="Knowledge Base"
+      completedItems={["Agent Name"]}
+      stepLabel="Step 2 of 6"
+      footer={
+        <OnboardingStickyFooter
+          backHref="/onboarding"
+          backLabel="Back"
+          primaryAsButton
+          onPrimaryClick={() => {}}
+          primaryDisabled
+          primaryLabel="Continue"
+        />
+      }
+    >
+      <OnboardingMainColumn className={onboardingSplitRoot}>
+        <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+      </OnboardingMainColumn>
+    </OnboardingFrame>
+  );
+}
+
+function KnowledgeBaseOnboardingPageInner() {
   type CrawlStreamItem = { id: string; text: string; done: boolean };
   const prepSteps = [
     "Initializing crawler",
@@ -29,7 +58,16 @@ export default function KnowledgeBaseOnboardingPage() {
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [website, setWebsite] = useState(searchParams.get("website") ?? "");
+  const [website, setWebsite] = useState("");
+  const websiteSeededRef = useRef(false);
+
+  useEffect(() => {
+    if (websiteSeededRef.current) return;
+    websiteSeededRef.current = true;
+    const fromUrl = searchParams.get("website");
+    if (!fromUrl) return;
+    queueMicrotask(() => setWebsite(fromUrl));
+  }, [searchParams]);
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [isIndexing, setIsIndexing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,10 +77,20 @@ export default function KnowledgeBaseOnboardingPage() {
   const [streamItems, setStreamItems] = useState<CrawlStreamItem[]>([]);
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const logCursorRef = useRef(0);
-  const agentId = useMemo(() => searchParams.get("agentId") ?? getOnboardingAgentId(), [searchParams]);
+  const agentId = useResolvedOnboardingAgentId();
+
+  /** URL + hook can lag on mobile; read storage at action time so the UI is not stuck disabled. */
+  function resolveAgentId(): string | null {
+    return searchParams.get("agentId") ?? getOnboardingAgentId() ?? agentId;
+  }
 
   async function handleStartCrawl() {
-    if (!agentId || !website.trim() || isIndexing) return;
+    const id = resolveAgentId();
+    if (!website.trim() || isIndexing || isStreamingLogs || prepStepIndex >= 0) return;
+    if (!id) {
+      setError("Missing agent id. Go back to step 1 or open this step from the setup link with ?agentId=…");
+      return;
+    }
     setPrepStepIndex(0);
     setIsStreamingLogs(false);
     setShowContinue(false);
@@ -60,8 +108,10 @@ export default function KnowledgeBaseOnboardingPage() {
     if (prepStepIndex < 0 || isStreamingLogs) return;
 
     const currentId = `prep-${prepStepIndex}`;
-    setStreamItems([{ id: currentId, text: prepSteps[prepStepIndex], done: false }]);
-    setActiveStreamId(currentId);
+    queueMicrotask(() => {
+      setStreamItems([{ id: currentId, text: prepSteps[prepStepIndex], done: false }]);
+      setActiveStreamId(currentId);
+    });
 
     const completeTimer = setTimeout(() => {
       setStreamItems((current) =>
@@ -113,8 +163,9 @@ export default function KnowledgeBaseOnboardingPage() {
   }, [isStreamingLogs]);
 
   function handleContinue() {
-    if (!agentId) return;
-    const params = new URLSearchParams({ agentId });
+    const id = resolveAgentId();
+    if (!id) return;
+    const params = new URLSearchParams({ agentId: id });
     if (sourceId) params.set("sourceId", sourceId);
     router.push(`/onboarding/knowledge-base/training?${params.toString()}`);
   }
@@ -124,9 +175,19 @@ export default function KnowledgeBaseOnboardingPage() {
       activeItem="Knowledge Base"
       completedItems={["Agent Name"]}
       stepLabel="Step 2 of 6"
+      footer={
+        <OnboardingStickyFooter
+          backHref="/onboarding"
+          backLabel="Back"
+          primaryAsButton
+          onPrimaryClick={handleContinue}
+          primaryDisabled={!showContinue}
+          primaryLabel="Continue"
+        />
+      }
     >
-      <OnboardingMainColumn className="max-w-6xl flex h-full items-center pt-3 pb-24 md:pt-4 md:pb-28">
-        <div className="relative flex h-full w-full min-h-0 items-center">
+      <OnboardingMainColumn className={onboardingSplitRoot}>
+        <div className={onboardingSplitBody}>
           <div
             className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
             style={{
@@ -136,9 +197,9 @@ export default function KnowledgeBaseOnboardingPage() {
             aria-hidden
           />
 
-          <div className="border-ds-outline h-full w-full overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
-            <div className="grid h-full lg:grid-cols-2">
-              <section className="flex h-full min-h-0 flex-col justify-center p-6 sm:p-8 lg:p-10">
+          <div className={onboardingSplitCard}>
+            <div className={onboardingSplitGrid}>
+              <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                     Step 2
@@ -167,6 +228,7 @@ export default function KnowledgeBaseOnboardingPage() {
                             type="text"
                             value={website}
                             onChange={(e) => setWebsite(e.target.value)}
+                            onInput={(e) => setWebsite((e.target as HTMLInputElement).value)}
                             placeholder="example.com"
                             inputMode="url"
                             className="placeholder:text-ds-on-surface-variant/70 text-ds-on-surface w-full border-none bg-transparent px-3 py-3.5 text-sm font-normal outline-none sm:px-4"
@@ -177,8 +239,8 @@ export default function KnowledgeBaseOnboardingPage() {
                         <button
                           type="button"
                           onClick={handleStartCrawl}
-                          disabled={!agentId || !website.trim() || isIndexing || isStreamingLogs || prepStepIndex >= 0}
-                          className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                          disabled={!website.trim() || isIndexing || isStreamingLogs || prepStepIndex >= 0}
+                          className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 touch-manipulation min-h-11 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent]"
                         >
                           {isIndexing || prepStepIndex >= 0 || isStreamingLogs ? "Crawling..." : "Start crawl"}
                         </button>
@@ -192,9 +254,9 @@ export default function KnowledgeBaseOnboardingPage() {
                           {streamItems.slice(-1).map((item) => (
                             <div
                               key={item.id}
-                              className="stream-item text-ds-on-surface flex items-center justify-between gap-3 text-sm leading-relaxed"
+                              className="stream-item text-ds-on-surface flex min-w-0 items-center justify-between gap-3 text-sm leading-relaxed"
                             >
-                              <p>{item.text}</p>
+                              <p className="min-w-0 break-words">{item.text}</p>
                               <span
                                 className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
                                   item.done
@@ -220,7 +282,7 @@ export default function KnowledgeBaseOnboardingPage() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex h-full min-h-0 items-center justify-center border-t p-6 sm:p-8 lg:border-t-0 lg:border-l lg:p-10">
+              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col items-center justify-center border-t p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:border-t-0 lg:border-l lg:p-10">
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -231,7 +293,7 @@ export default function KnowledgeBaseOnboardingPage() {
                   aria-hidden
                 />
                 <div className="relative mx-auto w-full max-w-[400px]">
-                  <div className="border-ds-outline flex min-h-[520px] flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl">
+                  <div className="border-ds-outline flex min-h-[18rem] w-full flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl sm:min-h-[24rem] lg:min-h-[520px]">
                     <div className="border-ds-outline flex items-center justify-between border-b bg-white px-4 py-3">
                       <div>
                         <h3 className="text-ds-on-surface text-sm font-semibold">Website preview</h3>
@@ -241,8 +303,8 @@ export default function KnowledgeBaseOnboardingPage() {
                         ⋮
                       </span>
                     </div>
-                    <div className="flex flex-1 flex-col gap-3 p-4">
-                      <div className="border-ds-outline flex flex-1 flex-col overflow-hidden rounded-ds-md border bg-white">
+                    <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+                      <div className="border-ds-outline flex min-h-0 flex-1 flex-col overflow-hidden rounded-ds-md border bg-white">
                         <div className="border-ds-outline flex items-center gap-2 border-b px-3 py-2">
                           <span className="h-2 w-2 rounded-full bg-rose-400" />
                           <span className="h-2 w-2 rounded-full bg-amber-400" />
@@ -341,15 +403,14 @@ export default function KnowledgeBaseOnboardingPage() {
           will-change: opacity, transform;
         }
       `}</style>
-
-      <OnboardingStickyFooter
-        backHref="/onboarding"
-        backLabel="Back"
-        primaryAsButton
-        onPrimaryClick={handleContinue}
-        primaryDisabled={!agentId || !showContinue}
-        primaryLabel="Continue"
-      />
     </OnboardingFrame>
+  );
+}
+
+export default function KnowledgeBaseOnboardingPage() {
+  return (
+    <Suspense fallback={<KnowledgeBaseOnboardingFallback />}>
+      <KnowledgeBaseOnboardingPageInner />
+    </Suspense>
   );
 }

@@ -1,14 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { backendFetch } from "@/lib/backend-api";
-import { getOnboardingAgentId } from "@/lib/onboarding-state";
+import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
+import { cn } from "@/lib/utils";
 import {
   OnboardingFieldRow,
   OnboardingInput,
   OnboardingMainColumn,
+  onboardingSplitBody,
+  onboardingSplitCard,
+  onboardingSplitGrid,
+  onboardingSplitRootStretch,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 
@@ -35,14 +40,13 @@ function brandChromeClasses(hex: string) {
 
 export default function AppearanceToneOnboardingPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [tone, setTone] = useState<(typeof toneOptions)[number]>("Friendly");
   const [hex, setHex] = useState("000000");
   const [selectedColor, setSelectedColor] = useState(0);
   const [model, setModel] = useState("gpt-4o");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const agentId = searchParams.get("agentId") ?? getOnboardingAgentId();
+  const agentId = useResolvedOnboardingAgentId();
 
   const connectionBackHref = useMemo(() => {
     const path = "/onboarding/connection";
@@ -93,9 +97,20 @@ export default function AppearanceToneOnboardingPage() {
       activeItem="Appearance & Tone"
       completedItems={["Agent Name", "Knowledge Base", "Connection"]}
       stepLabel="Step 4 of 6"
+      footer={
+        <OnboardingStickyFooter
+          backHref={connectionBackHref}
+          backLabel="Back"
+          primaryAsButton
+          onPrimaryClick={handleContinue}
+          primaryDisabled={!agentId}
+          primaryPending={isSaving}
+          primaryLabel={isSaving ? "Saving..." : "Continue"}
+        />
+      }
     >
-      <OnboardingMainColumn className="max-w-6xl flex h-full min-h-0 items-stretch pt-3 pb-24 md:pt-4 md:pb-28">
-        <div className="relative flex h-full min-h-0 w-full flex-1 flex-col">
+      <OnboardingMainColumn className={onboardingSplitRootStretch}>
+        <div className={onboardingSplitBody}>
           <div
             className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
             style={{
@@ -105,9 +120,9 @@ export default function AppearanceToneOnboardingPage() {
             aria-hidden
           />
 
-          <div className="border-ds-outline flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
-            <div className="grid min-h-0 flex-1 lg:grid-cols-2">
-              <section className="flex min-h-0 flex-col overflow-y-auto overscroll-contain p-6 sm:p-8 lg:h-full lg:p-10">
+          <div className={cn(onboardingSplitCard, "flex flex-col max-lg:flex-none lg:min-h-0 lg:flex-1")}>
+            <div className={onboardingSplitGrid}>
+              <section className="flex flex-col overflow-visible p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:p-10">
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                     Step 4
@@ -116,8 +131,8 @@ export default function AppearanceToneOnboardingPage() {
                     <span className="text-ds-primary font-bold">Appearance</span> and tone
                   </h1>
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                    Choose how the agent sounds and how the widget looks on your site. Changes reflect in the preview
-                    on the right.
+                    Choose how the agent sounds and how the widget looks on your site. Changes show in the live preview
+                    below (or beside on larger screens).
                   </p>
 
                   <div className="mt-8 space-y-5 sm:mt-10">
@@ -146,13 +161,13 @@ export default function AppearanceToneOnboardingPage() {
                       <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
                         Sets default phrasing style for customer-facing replies.
                       </p>
-                      <div className="bg-ds-sidebar flex rounded-ds-md border border-ds-outline p-1">
+                      <div className="bg-ds-sidebar flex flex-col gap-1 rounded-ds-md border border-ds-outline p-1 sm:flex-row sm:gap-0">
                         {toneOptions.map((t) => (
                           <button
                             key={t}
                             type="button"
                             onClick={() => setTone(t)}
-                            className={`flex-1 rounded-ds-sm px-3 py-2 text-sm font-medium transition-all ${
+                            className={`touch-manipulation w-full rounded-ds-sm px-3 py-3 text-sm font-medium transition-all sm:flex-1 sm:py-2 ${
                               tone === t
                                 ? "bg-white text-ds-on-surface shadow-sm"
                                 : "text-ds-on-surface-variant hover:text-ds-on-surface"
@@ -179,7 +194,7 @@ export default function AppearanceToneOnboardingPage() {
                               setHex(color.replace("#", "").toUpperCase().slice(0, 6));
                             }}
                             aria-label={`Color ${color}`}
-                            className={`size-10 rounded-full border-2 transition-transform hover:scale-105 ${
+                            className={`touch-manipulation size-11 rounded-full border-2 transition-transform hover:scale-105 sm:size-10 ${
                               selectedColor === index
                                 ? "border-ds-primary ring-2 ring-ds-primary/25 ring-offset-2"
                                 : "border-transparent"
@@ -205,7 +220,7 @@ export default function AppearanceToneOnboardingPage() {
                       <div className="grid grid-cols-2 gap-3">
                         <button
                           type="button"
-                          className="border-ds-outline hover:border-ds-primary/50 rounded-ds-lg border bg-ds-sidebar/50 p-3 text-left transition-colors"
+                          className="border-ds-outline hover:border-ds-primary/50 touch-manipulation rounded-ds-lg border bg-ds-sidebar/50 p-3 text-left transition-colors [-webkit-tap-highlight-color:transparent]"
                         >
                           <div className="border-ds-outline relative mb-2 aspect-video rounded-ds-sm border bg-white">
                             <span className="bg-ds-primary absolute bottom-2 left-2 size-3 rounded-full" />
@@ -214,7 +229,7 @@ export default function AppearanceToneOnboardingPage() {
                         </button>
                         <button
                           type="button"
-                          className="border-ds-primary ring-ds-primary/15 rounded-ds-lg border bg-white p-3 text-left ring-2"
+                          className="border-ds-primary ring-ds-primary/15 touch-manipulation rounded-ds-lg border bg-white p-3 text-left ring-2 [-webkit-tap-highlight-color:transparent]"
                         >
                           <div className="border-ds-outline relative mb-2 aspect-video rounded-ds-sm border bg-white">
                             <span className="bg-ds-primary absolute right-2 bottom-2 size-3 rounded-full" />
@@ -229,7 +244,7 @@ export default function AppearanceToneOnboardingPage() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex min-h-0 flex-col overflow-y-auto overscroll-contain border-t p-6 sm:p-8 lg:h-full lg:items-center lg:justify-center lg:border-t-0 lg:border-l lg:p-10">
+              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col overflow-visible border-t p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:items-center lg:justify-center lg:overflow-y-auto lg:overscroll-contain lg:border-t-0 lg:border-l lg:p-10">
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -243,7 +258,7 @@ export default function AppearanceToneOnboardingPage() {
                   <div
                     role="region"
                     aria-label="Chat widget"
-                    className="border-ds-outline flex min-h-[420px] w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl"
+                    className="border-ds-outline flex min-h-[14rem] w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl sm:min-h-[20rem] lg:min-h-[420px]"
                   >
                     <div
                       className="flex shrink-0 items-center gap-2 px-4 py-3"
@@ -281,15 +296,6 @@ export default function AppearanceToneOnboardingPage() {
           </div>
         </div>
       </OnboardingMainColumn>
-
-      <OnboardingStickyFooter
-        backHref={connectionBackHref}
-        backLabel="Back"
-        primaryAsButton
-        onPrimaryClick={handleContinue}
-        primaryDisabled={!agentId || isSaving}
-        primaryLabel={isSaving ? "Saving..." : "Continue"}
-      />
     </OnboardingFrame>
   );
 }

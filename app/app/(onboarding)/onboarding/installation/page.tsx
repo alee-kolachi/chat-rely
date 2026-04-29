@@ -2,10 +2,17 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { getOnboardingAgentId } from "@/lib/onboarding-state";
+import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
-import { OnboardingMainColumn, OnboardingStickyFooter } from "@/components/onboarding/onboarding-ui";
+import {
+  OnboardingMainColumn,
+  onboardingSplitBody,
+  onboardingSplitCard,
+  onboardingSplitGrid,
+  onboardingSplitRoot,
+  OnboardingStickyFooter,
+} from "@/components/onboarding/onboarding-ui";
+import { cn } from "@/lib/utils";
 
 type InstallTab = "custom" | "shopify";
 
@@ -21,8 +28,7 @@ const codeSnippet = `<!-- ChatRely widget -->
 <!-- end -->`;
 
 export default function InstallationOnboardingPage() {
-  const searchParams = useSearchParams();
-  const agentId = useMemo(() => searchParams.get("agentId") ?? getOnboardingAgentId(), [searchParams]);
+  const agentId = useResolvedOnboardingAgentId();
   const [tab, setTab] = useState<InstallTab>("custom");
 
   const pricingBackHref = useMemo(() => {
@@ -36,9 +42,17 @@ export default function InstallationOnboardingPage() {
       activeItem="Installation"
       completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone", "Agent Preview"]}
       stepLabel="Step 6 of 6"
+      footer={
+        <OnboardingStickyFooter
+          backHref={pricingBackHref}
+          backLabel="Back"
+          primaryHref="/onboarding/complete"
+          primaryLabel="Finish"
+        />
+      }
     >
-      <OnboardingMainColumn className="max-w-6xl flex h-full min-h-0 flex-1 flex-col overflow-hidden px-4 pb-[4.5rem] pt-2 md:px-6 md:pb-[4.5rem] md:pt-3">
-        <div className="relative flex h-full min-h-0 flex-1 flex-col py-4">
+      <OnboardingMainColumn className={cn(onboardingSplitRoot, "px-4 md:px-6")}>
+        <div className={cn(onboardingSplitBody, "py-3 md:py-4")}>
           <div
             className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
             style={{
@@ -48,9 +62,14 @@ export default function InstallationOnboardingPage() {
             aria-hidden
           />
 
-          <div className="flex h-full min-h-0 w-full max-h-[min(calc(100dvh-10.5rem),100%)] min-h-[min(28rem,calc(100dvh-10.5rem))] max-w-6xl flex-1 flex-col overflow-hidden rounded-[28px] border border-ds-outline/45 bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)] ring-1 ring-zinc-900/[0.06] lg:min-h-[min(36rem,calc(100dvh-10rem))]">
-            <div className="grid h-full min-h-0 max-h-full flex-1 overflow-hidden lg:grid-cols-2 lg:items-stretch">
-              <section className="flex min-h-0 flex-col overflow-y-auto p-4 max-lg:border-b max-lg:border-ds-outline/25 sm:p-5 lg:h-full lg:min-h-0 lg:flex-1 lg:border-r lg:border-ds-outline/25 lg:border-b-0 lg:p-6">
+          <div
+            className={cn(
+              onboardingSplitCard,
+              "max-w-6xl border-ds-outline/45 ring-1 ring-zinc-900/[0.06] max-lg:flex-none lg:max-h-[min(calc(100dvh-10.5rem),100%)] lg:min-h-[min(36rem,calc(100dvh-10rem))]"
+            )}
+          >
+            <div className={cn(onboardingSplitGrid, "max-lg:overflow-visible lg:max-h-full lg:items-stretch lg:overflow-hidden")}>
+              <section className="flex flex-col overflow-visible p-4 max-lg:min-h-min max-lg:border-b max-lg:border-ds-outline/25 sm:p-5 lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:border-r lg:border-ds-outline/25 lg:border-b-0 lg:p-6">
                 <div className="min-w-0">
                   <p className="text-ds-on-surface-variant mb-1.5 text-[10px] font-semibold tracking-[0.18em] uppercase">
                     Step 6
@@ -66,7 +85,7 @@ export default function InstallationOnboardingPage() {
                     <button
                       type="button"
                       onClick={() => setTab("custom")}
-                      className={`min-w-0 flex-1 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      className={`touch-manipulation min-h-11 min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-medium transition-colors [-webkit-tap-highlight-color:transparent] ${
                         tab === "custom"
                           ? "bg-ds-primary text-ds-on-primary shadow-sm"
                           : "text-ds-on-surface-variant hover:bg-white/50 hover:text-ds-on-surface"
@@ -77,7 +96,7 @@ export default function InstallationOnboardingPage() {
                     <button
                       type="button"
                       onClick={() => setTab("shopify")}
-                      className={`min-w-0 flex-1 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      className={`touch-manipulation min-h-11 min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-medium transition-colors [-webkit-tap-highlight-color:transparent] ${
                         tab === "shopify"
                           ? "bg-ds-primary text-ds-on-primary shadow-sm"
                           : "text-ds-on-surface-variant hover:bg-white/50 hover:text-ds-on-surface"
@@ -87,10 +106,10 @@ export default function InstallationOnboardingPage() {
                     </button>
                   </div>
 
-                  <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
+                  <div className="mt-4 flex flex-col gap-4 max-lg:min-h-min max-lg:flex-none lg:min-h-0 lg:flex-1">
                     <div className="shrink-0 rounded-ds-xl border border-ds-outline/35 bg-ds-sidebar/40 p-3 sm:p-4">
                       <h2 className="text-ds-on-surface mb-2 text-xs font-semibold sm:text-sm">Instructions</h2>
-                      <div className="flex min-h-[17.5rem] flex-col sm:min-h-[18.5rem]">
+                      <div className="flex min-h-0 flex-col sm:min-h-[17.5rem] md:min-h-[18.5rem]">
                         <div className="min-h-0 flex-1">
                           {tab === "custom" ? (
                             <ol className="space-y-2.5 sm:space-y-3">
@@ -139,7 +158,7 @@ export default function InstallationOnboardingPage() {
                           {tab === "shopify" ? (
                             <button
                               type="button"
-                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors sm:px-4 sm:py-2.5 sm:text-sm"
+                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary touch-manipulation min-h-11 rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors sm:min-h-0 sm:px-4 sm:py-2.5 sm:text-sm [-webkit-tap-highlight-color:transparent]"
                             >
                               Open theme editor (Shopify)
                             </button>
@@ -162,7 +181,7 @@ export default function InstallationOnboardingPage() {
                         <span className="text-ds-on-surface-variant font-mono text-[10px] sm:text-xs">widget-snippet.html</span>
                         <button
                           type="button"
-                          className="text-ds-primary hover:bg-white/60 rounded-ds-md px-2 py-1 text-[10px] font-semibold sm:px-3 sm:py-1.5 sm:text-xs"
+                          className="text-ds-primary hover:bg-white/60 touch-manipulation min-h-9 min-w-9 rounded-ds-md px-2 py-1 text-[10px] font-semibold sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-1.5 sm:text-xs [-webkit-tap-highlight-color:transparent]"
                         >
                           Copy snippet
                         </button>
@@ -183,7 +202,7 @@ export default function InstallationOnboardingPage() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar/80 relative flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5 lg:h-full lg:min-h-0 lg:p-6">
+              <section className="bg-ds-sidebar/80 relative flex flex-col overflow-visible p-4 max-lg:min-h-min sm:p-5 lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:p-6">
                 <div
                   className="pointer-events-none absolute inset-0 opacity-30"
                   style={{
@@ -193,8 +212,8 @@ export default function InstallationOnboardingPage() {
                   }}
                   aria-hidden
                 />
-                <div className="relative flex h-full w-full min-h-[18rem] flex-1 flex-col lg:min-h-0">
-                  <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-ds-outline/40 bg-ds-surface/90 shadow-xl ring-1 ring-zinc-900/[0.05]">
+                <div className="relative flex w-full min-h-[14rem] flex-col max-lg:flex-none sm:min-h-[16rem] lg:h-full lg:min-h-0 lg:flex-1">
+                  <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-ds-outline/40 bg-ds-surface/90 shadow-xl ring-1 ring-zinc-900/[0.05] max-lg:min-h-[12rem] lg:h-full lg:min-h-0 lg:flex-1">
                     <div className="flex shrink-0 items-center justify-between border-b border-ds-outline/25 bg-ds-sidebar px-3 py-2.5 sm:px-4">
                       <div className="min-w-0">
                         <h3 className="text-ds-on-surface truncate text-xs font-semibold sm:text-sm">On-site preview</h3>
@@ -240,13 +259,6 @@ export default function InstallationOnboardingPage() {
           </div>
         </div>
       </OnboardingMainColumn>
-
-      <OnboardingStickyFooter
-        backHref={pricingBackHref}
-        backLabel="Back"
-        primaryHref="/onboarding/complete"
-        primaryLabel="Finish setup"
-      />
     </OnboardingFrame>
   );
 }

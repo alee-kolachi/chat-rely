@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { backendFetch } from "@/lib/backend-api";
+import { useClientOnboardingAgentId } from "@/lib/use-client-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingPageHeader,
@@ -12,9 +13,20 @@ import {
   onboardingType,
 } from "@/components/onboarding/onboarding-ui";
 
-export default function KnowledgeBaseTrainingPage() {
+function KnowledgeBaseTrainingFallback() {
+  return (
+    <OnboardingFrame activeItem="Knowledge Base" completedItems={["Agent Name"]} stepLabel="Step 2 of 6">
+      <div className="flex min-h-0 w-full min-w-0 flex-col items-center justify-center px-4 py-8 pt-6 pb-[max(6.5rem,calc(4.5rem+env(safe-area-inset-bottom,0px)))] md:min-h-[calc(100dvh-3.5rem)] md:px-8 md:py-10 md:pb-24">
+        <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+      </div>
+    </OnboardingFrame>
+  );
+}
+
+function KnowledgeBaseTrainingPageInner() {
   const searchParams = useSearchParams();
-  const agentId = searchParams.get("agentId");
+  const storedAgentId = useClientOnboardingAgentId();
+  const agentId = searchParams.get("agentId") ?? storedAgentId;
   const sourceId = searchParams.get("sourceId");
   const [status, setStatus] = useState<"processing" | "success" | "pending">(sourceId ? "processing" : "pending");
   const [description, setDescription] = useState(
@@ -72,9 +84,17 @@ export default function KnowledgeBaseTrainingPage() {
       activeItem="Knowledge Base"
       completedItems={["Agent Name"]}
       stepLabel="Step 2 of 6"
+      footer={
+        <OnboardingStickyFooter
+          backHref="/onboarding/knowledge-base"
+          backLabel="Back"
+          primaryHref={continueHref}
+          primaryLabel="Continue"
+        />
+      }
     >
-      <div className="flex min-h-[calc(100vh-3.5rem)] flex-col items-center justify-center px-4 pb-24 pt-10 md:px-8">
-        <div className="w-full max-w-lg text-center">
+      <div className="flex min-h-0 w-full min-w-0 flex-col items-center justify-center px-4 py-8 pt-6 pb-[max(6.5rem,calc(4.5rem+env(safe-area-inset-bottom,0px)))] md:min-h-[calc(100dvh-3.5rem)] md:px-8 md:py-10 md:pb-24">
+        <div className="w-full min-w-0 max-w-lg text-center">
           <OnboardingPageHeader
             kicker="Indexing"
             title="We’re building your knowledge base"
@@ -82,7 +102,7 @@ export default function KnowledgeBaseTrainingPage() {
           />
         </div>
 
-        <div className="mt-8 w-full max-w-md space-y-4">
+        <div className="mt-6 w-full min-w-0 max-w-md space-y-4 md:mt-8">
           <OnboardingStatusBlock
             variant={status}
             title="Current activity"
@@ -101,13 +121,6 @@ export default function KnowledgeBaseTrainingPage() {
           </OnboardingSectionCard>
         </div>
       </div>
-
-      <OnboardingStickyFooter
-        backHref="/onboarding/knowledge-base"
-        backLabel="Back"
-        primaryHref={continueHref}
-        primaryLabel="Continue setup"
-      />
 
       <style jsx>{`
         @keyframes onboarding-indeterminate {
@@ -129,5 +142,13 @@ export default function KnowledgeBaseTrainingPage() {
         }
       `}</style>
     </OnboardingFrame>
+  );
+}
+
+export default function KnowledgeBaseTrainingPage() {
+  return (
+    <Suspense fallback={<KnowledgeBaseTrainingFallback />}>
+      <KnowledgeBaseTrainingPageInner />
+    </Suspense>
   );
 }

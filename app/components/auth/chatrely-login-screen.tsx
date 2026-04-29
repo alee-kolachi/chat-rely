@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { LoginTypingPreview } from "@/components/auth/login-typing-preview";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
+import { loginWithEmailPassword } from "@/app/(auth)/login/actions";
 
 function IconGrid({ className }: { className?: string }) {
   return (
@@ -68,11 +69,14 @@ function GoogleGlyph({ className }: { className?: string }) {
 }
 
 export function ChatRelyLoginScreen() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [formState, formAction, isAuthPending] = useActionState(loginWithEmailPassword, undefined);
+
+  const nextParam = searchParams.get("next");
+  const nextHiddenValue =
+    nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "";
 
   async function handleGoogleSignIn() {
     setErrorMessage(null);
@@ -97,48 +101,6 @@ export function ChatRelyLoginScreen() {
       setErrorMessage(error.message);
       setIsGoogleLoading(false);
     }
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setErrorMessage(null);
-    setIsSubmitting(true);
-
-    const formData = new FormData(event.currentTarget);
-    const email = String(formData.get("email") ?? "").trim();
-    const password = String(formData.get("password") ?? "");
-
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      setErrorMessage(error.message);
-      setIsSubmitting(false);
-      return;
-    }
-
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session?.access_token) {
-      setErrorMessage(
-        sessionError?.message ??
-          "Login succeeded but no auth session was persisted. Check Supabase URL/key env values."
-      );
-      setIsSubmitting(false);
-      return;
-    }
-
-    const nextParam = searchParams.get("next");
-    const destination =
-      nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
-        ? nextParam
-        : "/dashboard";
-
-    router.push(destination);
-    router.refresh();
   }
 
   return (
@@ -193,11 +155,16 @@ export function ChatRelyLoginScreen() {
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={isGoogleLoading}
-                className="border-ds-outline hover:bg-ds-neutral mb-6 flex w-full items-center justify-center gap-3 rounded-ds-md border bg-ds-surface px-4 py-2.5 text-sm font-medium shadow-sm transition-colors"
+                className={`border-ds-outline hover:bg-ds-neutral flex w-full items-center justify-center gap-3 rounded-ds-md border bg-ds-surface px-4 py-2.5 text-sm font-medium shadow-sm transition-colors ${errorMessage ? "mb-2" : "mb-6"}`}
               >
                 <GoogleGlyph className="size-5" />
                 {isGoogleLoading ? "Redirecting to Google..." : "Sign in with Google"}
               </button>
+              {errorMessage ? (
+                <p className="text-sm text-red-600 mb-4" role="alert">
+                  {errorMessage}
+                </p>
+              ) : null}
 
               <div className="text-ds-on-surface-variant relative mb-6 flex items-center">
                 <div className="border-ds-outline flex-grow border-t" />
@@ -207,7 +174,8 @@ export function ChatRelyLoginScreen() {
                 <div className="border-ds-outline flex-grow border-t" />
               </div>
 
-              <form className="space-y-4" onSubmit={handleSubmit}>
+              <form className="space-y-4" action={formAction}>
+                <input type="hidden" name="next" value={nextHiddenValue} />
                 <div className="space-y-1.5">
                   <label htmlFor="login-email" className="text-ds-on-surface text-xs font-semibold">
                     Email address
@@ -260,14 +228,14 @@ export function ChatRelyLoginScreen() {
                 </div>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-on-surface mt-2 w-full rounded-ds-md py-3 text-sm font-semibold transition-colors"
+                  disabled={isAuthPending}
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-on-surface mt-2 w-full rounded-ds-md py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSubmitting ? "Logging in..." : "Log in"}
+                  {isAuthPending ? "Logging in..." : "Log in"}
                 </button>
-                {errorMessage ? (
+                {formState?.error ? (
                   <p className="text-sm text-red-600" role="alert">
-                    {errorMessage}
+                    {formState.error}
                   </p>
                 ) : null}
               </form>

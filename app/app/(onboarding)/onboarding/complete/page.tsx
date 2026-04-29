@@ -6,6 +6,7 @@ import {
   OnboardingMainColumn,
   OnboardingPageHeader,
   OnboardingSectionCard,
+  OnboardingStickyFooter,
   onboardingType,
 } from "@/components/onboarding/onboarding-ui";
 
@@ -15,6 +16,7 @@ export default function OnboardingCompletePage() {
       activeItem="Installation"
       completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone", "Agent Preview", "Installation"]}
       stepLabel="Complete"
+      footer={<OnboardingStickyFooter primaryHref="/dashboard" primaryLabel="Continue" />}
     >
       <OnboardingMainColumn className="max-w-lg text-center">
         <div className="border-ds-outline mx-auto mb-6 flex size-14 items-center justify-center rounded-full border bg-emerald-50 text-2xl">
@@ -50,19 +52,19 @@ export default function OnboardingCompletePage() {
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Link
             href="/dashboard"
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center justify-center rounded-ds-md px-6 py-3 text-sm font-semibold transition-colors"
+            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary touch-manipulation inline-flex min-h-11 items-center justify-center rounded-ds-md px-6 py-3 text-sm font-semibold transition-colors [-webkit-tap-highlight-color:transparent]"
           >
             Go to dashboard
           </Link>
           <Link
             href="/playground"
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex items-center justify-center rounded-ds-md border bg-white px-6 py-3 text-sm font-semibold transition-colors"
+            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar touch-manipulation inline-flex min-h-11 items-center justify-center rounded-ds-md border bg-white px-6 py-3 text-sm font-semibold transition-colors [-webkit-tap-highlight-color:transparent]"
           >
             Open Playground
           </Link>
         </div>
         <p className={`${onboardingType.hint} mt-8`}>
-          Need changes? Use the setup wizard links on the left or jump to Settings anytime.
+          Need changes? Open Settings anytime—on larger screens you can also use the setup steps in the sidebar.
         </p>
       </OnboardingMainColumn>
     </OnboardingFrame>

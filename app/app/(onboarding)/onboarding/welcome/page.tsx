@@ -6,6 +6,7 @@ import {
   OnboardingMainColumn,
   OnboardingPageHeader,
   OnboardingSectionCard,
+  OnboardingStickyFooter,
   onboardingType,
 } from "@/components/onboarding/onboarding-ui";
 
@@ -14,7 +15,12 @@ import {
  */
 export default function OnboardingWelcomePage() {
   return (
-    <OnboardingFrame activeItem="Agent Name" completedItems={[]} stepLabel="Welcome">
+    <OnboardingFrame
+      activeItem="Agent Name"
+      completedItems={[]}
+      stepLabel="Welcome"
+      footer={<OnboardingStickyFooter primaryHref="/onboarding" primaryLabel="Continue" />}
+    >
       <OnboardingMainColumn className="max-w-xl text-center">
         <OnboardingPageHeader
           kicker="ChatRely"
@@ -36,16 +42,10 @@ export default function OnboardingWelcomePage() {
               Connect Shopify, tune experience, validate, install
             </li>
           </ul>
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <Link
-              href="/onboarding"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center justify-center rounded-ds-md px-6 py-3 text-sm font-semibold transition-colors"
-            >
-              Start setup
-            </Link>
+          <div className="mt-6 flex justify-center">
             <Link
               href="/dashboard"
-              className="text-ds-on-surface-variant hover:text-ds-on-surface text-sm font-semibold underline underline-offset-2"
+              className="text-ds-on-surface-variant hover:text-ds-on-surface inline-flex min-h-11 items-center justify-center text-sm font-semibold underline underline-offset-2 [-webkit-tap-highlight-color:transparent]"
             >
               I already have an agent — go to dashboard
             </Link>
