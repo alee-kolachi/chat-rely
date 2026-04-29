@@ -36,30 +36,30 @@ export const onboardingType = {
  */
 export const onboardingSplitRoot = cn(
   "max-w-6xl flex w-full flex-col max-lg:flex-none max-lg:min-h-min pt-2 md:pt-4",
-  "lg:min-h-0 lg:flex-1 lg:h-full lg:max-h-full lg:items-center lg:justify-center"
+  "lg:items-center lg:justify-center"
 );
 
 /** Same as onboardingSplitRoot but `lg:items-stretch` (e.g. appearance + long forms). */
 export const onboardingSplitRootStretch = cn(
   "max-w-6xl flex w-full flex-col max-lg:flex-none max-lg:min-h-min pt-2 md:pt-4",
-  "lg:min-h-0 lg:flex-1 lg:h-full lg:max-h-full lg:items-stretch lg:justify-center"
+  "lg:items-stretch lg:justify-center"
 );
 
 export const onboardingSplitBody = cn(
   "relative flex w-full min-w-0 flex-col max-lg:flex-none max-lg:min-h-min",
-  "lg:min-h-0 lg:flex-1 lg:h-full lg:items-center lg:justify-center"
+  "lg:items-center lg:justify-center"
 );
 
 /** White shell: mobile does not clip so full column stack adds to main scroll; desktop restores clip + radius. */
 export const onboardingSplitCard = cn(
   "border-ds-outline w-full rounded-2xl border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
   "max-lg:min-h-min max-lg:overflow-visible",
-  "lg:h-full lg:min-h-0 lg:overflow-hidden lg:rounded-[28px]"
+  "lg:overflow-hidden lg:rounded-[28px]"
 );
 
 export const onboardingSplitGrid = cn(
   "flex w-full min-w-0 flex-col max-lg:min-h-min",
-  "lg:grid lg:h-full lg:min-h-0 lg:grid-cols-2"
+  "lg:grid lg:grid-cols-2"
 );
 
 export function OnboardingPageHeader({
@@ -127,6 +127,11 @@ export function OnboardingStickyFooter({
   primaryPending?: boolean;
   tertiary?: ReactNode;
 }) {
+  const runPrimaryAction = () => {
+    if (primaryDisabled || !onPrimaryClick) return;
+    onPrimaryClick();
+  };
+
   const controlClass =
     "touch-manipulation cursor-pointer inline-flex max-w-full min-h-11 min-w-[2.75rem] items-center justify-center rounded-ds-md px-4 py-2.5 text-[11px] font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:px-5 sm:py-2.5 sm:text-xs";
   const backClass =
@@ -159,9 +164,11 @@ export function OnboardingStickyFooter({
             type="button"
             disabled={!!primaryDisabled}
             aria-busy={primaryPending ? true : undefined}
-            onClick={() => {
-              if (primaryDisabled || !onPrimaryClick) return;
-              onPrimaryClick();
+            onClick={runPrimaryAction}
+            onTouchEnd={(event) => {
+              // iOS Safari can occasionally miss click on sticky controls; touchend keeps CTA responsive.
+              event.preventDefault();
+              runPrimaryAction();
             }}
             className={cn(
               controlClass,

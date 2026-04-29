@@ -65,10 +65,10 @@ export default function InstallationOnboardingPage() {
           <div
             className={cn(
               onboardingSplitCard,
-              "max-w-6xl border-ds-outline/45 ring-1 ring-zinc-900/[0.06] max-lg:flex-none lg:max-h-[min(calc(100dvh-10.5rem),100%)] lg:min-h-[min(36rem,calc(100dvh-10rem))]"
+              "max-w-6xl border-ds-outline/45 ring-1 ring-zinc-900/[0.06] max-lg:flex-none"
             )}
           >
-            <div className={cn(onboardingSplitGrid, "max-lg:overflow-visible lg:max-h-full lg:items-stretch lg:overflow-hidden")}>
+            <div className={cn(onboardingSplitGrid, "max-lg:overflow-visible lg:items-stretch lg:overflow-hidden")}>
               <section className="flex flex-col overflow-visible p-4 max-lg:min-h-min max-lg:border-b max-lg:border-ds-outline/25 sm:p-5 lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:border-r lg:border-ds-outline/25 lg:border-b-0 lg:p-6">
                 <div className="min-w-0">
                   <p className="text-ds-on-surface-variant mb-1.5 text-[10px] font-semibold tracking-[0.18em] uppercase">

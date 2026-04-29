@@ -199,7 +199,7 @@ export default function AgentPreviewOnboardingPage() {
                   aria-hidden
                 />
                 <div className="relative flex flex-col items-stretch max-lg:min-h-min lg:min-h-0 lg:flex-1">
-                  <div className="border-ds-outline flex w-full min-h-[22rem] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl max-lg:mx-auto max-lg:flex-none max-lg:max-h-none sm:min-h-[26rem] lg:h-full lg:min-h-[560px] lg:max-h-[min(88dvh,calc(100dvh-10.5rem))] lg:flex-1">
+                  <div className="border-ds-outline flex w-full min-h-[22rem] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl max-lg:mx-auto max-lg:flex-none max-lg:max-h-none sm:min-h-[26rem] lg:min-h-[560px]">
                     <div className="bg-ds-primary flex shrink-0 items-center gap-3 px-4 py-4 sm:px-5 sm:py-4">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-ds-primary sm:size-11">
                         AI

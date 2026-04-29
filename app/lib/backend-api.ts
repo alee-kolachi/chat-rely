@@ -27,14 +27,17 @@ export function getBackendBaseUrl() {
 }
 
 async function getAccessToken() {
-  const supabase = createBrowserSupabaseClient();
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.getSession();
-  if (error) throw new Error(error.message);
-  if (!session?.access_token) throw new Error("No authenticated session found");
-  return session.access_token;
+  try {
+    const supabase = createBrowserSupabaseClient();
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
+    if (error) return null;
+    return session?.access_token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function backendFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -44,7 +47,7 @@ export async function backendFetch<T>(path: string, init: RequestInit = {}): Pro
     headers: {
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     cache: "no-store",
   });

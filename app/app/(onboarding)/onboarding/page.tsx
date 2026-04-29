@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { backendFetch, BackendApiError } from "@/lib/backend-api";
 import { saveOnboardingAgentId } from "@/lib/onboarding-state";
 import { PromiseTimeoutError, withTimeout } from "@/lib/with-timeout";
@@ -33,19 +32,22 @@ function createDemoAgentSuffix(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 12)}`;
 }
 
+function deferAfterGesture(cb: () => void) {
+  // Older iOS Safari versions may not expose queueMicrotask.
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(cb);
+    return;
+  }
+  Promise.resolve().then(cb);
+}
+
 export default function OnboardingPage() {
-  const router = useRouter();
   const [agentName, setAgentName] = useState("Aria");
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const continueBusyRef = useRef(false);
 
   const canContinue = agentName.trim().length > 0;
 
   function goToStep2(agentId: string) {
     saveOnboardingAgentId(agentId);
-    const next = new URLSearchParams({ agentId });
-    router.push(`/onboarding/knowledge-base?${next.toString()}`);
   }
 
   function isRecoverableOnboardingNetworkError(e: unknown): boolean {
@@ -62,12 +64,8 @@ export default function OnboardingPage() {
     );
   }
 
-  async function handleContinue() {
-    if (!canContinue || continueBusyRef.current) return;
-    continueBusyRef.current = true;
-    // Defer disabling the control until after this gesture's click/touchend cycle (iOS can drop the click if disabled mid-sequence).
-    queueMicrotask(() => setIsSaving(true));
-    setError(null);
+  async function bestEffortCreateAgent() {
+    if (!canContinue) return;
     const slug =
       agentName
         .toLowerCase()
@@ -112,38 +110,28 @@ export default function OnboardingPage() {
         message.includes("No authenticated session") ||
         (err instanceof BackendApiError && (err.status === 401 || err.status === 403));
       const timedOut = err instanceof PromiseTimeoutError;
-      const useDemo =
-        unauthenticated ||
-        timedOut ||
-        isRecoverableOnboardingNetworkError(err);
-      if (useDemo) {
-        if (process.env.NODE_ENV === "development") {
-          console.warn("[onboarding] continuing with demo agent", { reason: message, timedOut });
-        }
-        goToStep2(`demo-${createDemoAgentSuffix()}`);
-        return;
+      const recoverable = isRecoverableOnboardingNetworkError(err);
+
+      // Step 1 should never block onboarding progression on client/backend variance.
+      // Use a demo id for any failure path so mobile behavior matches later steps.
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[onboarding] create agent failed; continuing with demo agent", {
+          reason: message,
+          unauthenticated,
+          timedOut,
+          recoverable,
+        });
       }
-      setError(message);
-    } finally {
-      continueBusyRef.current = false;
-      setIsSaving(false);
+      goToStep2(`demo-${createDemoAgentSuffix()}`);
+      return;
     }
   }
 
   const stepFooter = (
     <OnboardingStickyFooter
-      primaryAsButton
-      onPrimaryClick={() => void handleContinue()}
+      primaryHref="/onboarding/knowledge-base"
       primaryDisabled={!canContinue}
-      primaryPending={isSaving}
-      primaryLabel={isSaving ? "Saving..." : "Continue"}
-      tertiary={
-        error ? (
-          <p role="alert" className="text-rose-600 text-center text-xs font-medium leading-snug sm:max-w-md sm:text-left">
-            {error}
-          </p>
-        ) : null
-      }
+      primaryLabel="Continue"
     />
   );
 
@@ -151,7 +139,7 @@ export default function OnboardingPage() {
     <OnboardingFrame
       activeItem="Agent Name"
       stepLabel="Step 1 of 6"
-      footer={<div className="hidden w-full lg:block">{stepFooter}</div>}
+      footer={stepFooter}
     >
       <OnboardingMainColumn className={cn(onboardingSplitRoot, "max-lg:pb-28")}>
         <div className={onboardingSplitBody}>
@@ -179,7 +167,7 @@ export default function OnboardingPage() {
                   onSubmit={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    void handleContinue();
+                    void bestEffortCreateAgent();
                   }}
                 >
                   <OnboardingFieldRow
@@ -198,7 +186,6 @@ export default function OnboardingPage() {
                     />
                   </OnboardingFieldRow>
                 </form>
-                {error ? <p className="mt-6 text-sm font-medium text-rose-600">{error}</p> : null}
               </div>
             </section>
 
@@ -349,8 +336,6 @@ export default function OnboardingPage() {
           }
         `}</style>
 
-        {/* Below lg: footer lives inside the scroll layer so iOS/WebKit does not mis-hit-test it against transformed preview content. lg+ matches original docked footer. */}
-        <div className="sticky bottom-0 z-[80] -mx-4 lg:hidden">{stepFooter}</div>
       </OnboardingMainColumn>
     </OnboardingFrame>
   );
