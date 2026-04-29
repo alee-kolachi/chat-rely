@@ -15,7 +15,7 @@ export function ActionCard({ action }: ActionCardProps) {
   return (
     <div
       className={cn(
-        "border-ds-outline rounded-ds-xl flex flex-col border bg-white p-5 shadow-sm transition-shadow",
+        "border-ds-outline rounded-ds-xl flex flex-col border bg-ds-surface p-5 shadow-sm transition-shadow",
         !isComingSoon && "hover:shadow-md",
         isComingSoon && "opacity-90"
       )}
@@ -42,9 +42,7 @@ export function ActionCard({ action }: ActionCardProps) {
       </div>
 
       <div className="border-ds-outline/60 mt-5 border-t pt-4">
-        <p className="text-ds-on-surface-variant text-[10px] font-bold tracking-widest uppercase">
-          Trigger example
-        </p>
+        <p className="ds-app-kicker">Trigger example</p>
         <p className="text-ds-on-surface mt-1.5 line-clamp-1 text-xs italic">
           &ldquo;{action.triggerExamples[0]}&rdquo;
         </p>

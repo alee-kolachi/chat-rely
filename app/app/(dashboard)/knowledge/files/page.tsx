@@ -1,5 +1,6 @@
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
 import { KnowledgeMobileSubnav } from "@/components/knowledge/knowledge-mobile-subnav";
+import { KnowledgeWorkspaceShell } from "@/components/knowledge/knowledge-workspace-shell";
 
 const fileRows = [
   {
@@ -30,106 +31,99 @@ const fileRows = [
 
 export default function KnowledgeFilesPage() {
   return (
-    <div className="-m-6 min-h-[calc(100vh-3.5rem)] bg-ds-surface">
-      <div className="flex flex-col lg:flex-row">
-        <main className="min-w-0 flex-1 p-4 pb-24 md:p-8 md:pb-8">
-          <KnowledgeMobileSubnav active="files" />
-          <div className="mx-auto max-w-5xl">
-            <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h2 className="text-ds-on-surface text-2xl font-black tracking-tight">Files</h2>
-                <p className="text-ds-on-surface-variant mt-1 text-sm">
-                  Upload and manage documents to train your AI agent. Supports .pdf, .txt, .doc,
-                  and .docx.
-                </p>
-              </div>
-              <button className="bg-ds-primary text-ds-on-primary rounded-ds-lg flex w-fit items-center gap-2 px-5 py-2 text-sm font-semibold transition-all hover:opacity-90 active:scale-95">
-                <IconUpload className="size-4.5" />
-                Upload Files
-              </button>
-            </div>
-
-            <div className="mb-10 cursor-pointer rounded-ds-xl border-2 border-dashed border-zinc-200 bg-white p-10 text-center transition-colors hover:border-black">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-50 transition-transform hover:scale-110">
-                <IconCloudUpload className="text-ds-on-surface-variant size-5" />
-              </div>
-              <p className="text-sm font-semibold text-zinc-900">
-                Drag and drop documents here or click to browse.
-              </p>
-              <p className="text-ds-on-surface-variant mt-1 text-xs">
-                Max 50MB per file. High-quality extraction enabled.
+    <KnowledgeWorkspaceShell>
+      <main className="min-w-0 flex-1 p-4 pb-24 md:p-8 md:pb-8">
+        <KnowledgeMobileSubnav active="files" />
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="ds-app-page-title">Files</h1>
+              <p className="ds-app-page-description ds-app-page-description--wide">
+                Upload documents to train your agent. Supports .pdf, .txt, .doc, and .docx.
               </p>
             </div>
-
-            <div className="border-ds-outline overflow-hidden rounded-ds-xl border bg-white">
-              <div className="border-ds-outline flex flex-col gap-2 border-b px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-ds-on-surface text-sm font-bold tracking-wider uppercase">
-                  File sources
-                </h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-ds-on-surface-variant text-xs">{fileRows.length} files</span>
-                  <button className="rounded bg-red-100 px-3 py-1 text-xs font-bold text-red-700 transition-opacity hover:opacity-80">
-                    Delete
-                  </button>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-zinc-50/50 text-ds-on-surface-variant text-[11px] font-bold tracking-widest uppercase">
-                      <th className="w-10 px-6 py-3">
-                        <input type="checkbox" defaultChecked className="h-4 w-4 rounded" />
-                      </th>
-                      <th className="px-4 py-3">File Name</th>
-                      <th className="px-4 py-3">Characters</th>
-                      <th className="px-4 py-3">Last Updated</th>
-                      <th className="px-6 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100">
-                    {fileRows.map((row) => (
-                      <tr key={row.name} className="transition-colors hover:bg-zinc-50">
-                        <td className="px-6 py-4">
-                          <input type="checkbox" defaultChecked className="h-4 w-4 rounded" />
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-3">
-                            {row.icon === "pdf" ? (
-                              <IconPdf className="text-ds-on-surface-variant size-5" />
-                            ) : row.icon === "doc" ? (
-                              <IconDoc className="text-ds-on-surface-variant size-5" />
-                            ) : (
-                              <IconTxt className="text-ds-on-surface-variant size-5" />
-                            )}
-                            <span className="text-sm font-medium text-black">{row.name}</span>
-                          </div>
-                        </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 font-mono text-xs">
-                          {row.characters}
-                        </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 text-xs">
-                          {row.updatedAt}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button className="text-ds-on-surface-variant hover:text-ds-on-surface">
-                            <IconMore className="size-5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <button
+              type="button"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary flex w-fit items-center gap-2 rounded-ds-md px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors active:scale-[0.98]"
+            >
+              <IconUpload className="size-4.5 shrink-0" aria-hidden />
+              Upload files
+            </button>
           </div>
 
-          <DataSourcesSidebar mobile className="lg:hidden" />
-        </main>
+          <div className="border-ds-outline mb-10 cursor-pointer rounded-ds-xl border-2 border-dashed bg-ds-surface/80 p-10 text-center shadow-sm transition-colors hover:border-ds-primary/50 hover:bg-white">
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-ds-sidebar ring-1 ring-ds-outline transition-transform hover:scale-105">
+              <IconCloudUpload className="text-ds-primary size-5" aria-hidden />
+            </div>
+            <p className="text-ds-on-surface text-sm font-semibold">Drag and drop documents here or click to browse.</p>
+            <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">Max 50MB per file. High-quality extraction enabled.</p>
+          </div>
 
-        <DataSourcesSidebar className="hidden lg:block" />
-      </div>
-    </div>
+          <div className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+            <div className="border-ds-outline bg-ds-sidebar/90 flex flex-col gap-2 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <h2 className="ds-app-kicker text-ds-on-surface font-semibold">File sources</h2>
+              <div className="flex items-center gap-2">
+                <span className="text-ds-on-surface-variant text-xs font-medium">{fileRows.length} files</span>
+                <button
+                  type="button"
+                  className="rounded-ds-md bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-800 transition-opacity hover:opacity-80"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="ds-app-kicker bg-ds-sidebar/80 text-ds-on-surface-variant">
+                    <th className="w-10 px-5 py-3 sm:px-6">
+                      <input type="checkbox" defaultChecked className="border-ds-outline size-4 rounded" aria-label="Select all" />
+                    </th>
+                    <th className="px-4 py-3 font-semibold">File name</th>
+                    <th className="px-4 py-3 font-semibold">Characters</th>
+                    <th className="px-4 py-3 font-semibold">Last updated</th>
+                    <th className="px-5 py-3 text-right font-semibold sm:px-6">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-ds-outline divide-y">
+                  {fileRows.map((row) => (
+                    <tr key={row.name} className="transition-colors hover:bg-ds-sidebar/50">
+                      <td className="px-5 py-4 sm:px-6">
+                        <input type="checkbox" defaultChecked className="border-ds-outline size-4 rounded" aria-label={`Select ${row.name}`} />
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-3">
+                          {row.icon === "pdf" ? (
+                            <IconPdf className="text-ds-on-surface-variant size-5 shrink-0" aria-hidden />
+                          ) : row.icon === "doc" ? (
+                            <IconDoc className="text-ds-on-surface-variant size-5 shrink-0" aria-hidden />
+                          ) : (
+                            <IconTxt className="text-ds-on-surface-variant size-5 shrink-0" aria-hidden />
+                          )}
+                          <span className="text-ds-on-surface text-sm font-medium">{row.name}</span>
+                        </div>
+                      </td>
+                      <td className="text-ds-on-surface-variant px-4 py-4 font-mono text-xs">{row.characters}</td>
+                      <td className="text-ds-on-surface-variant px-4 py-4 text-xs">{row.updatedAt}</td>
+                      <td className="px-5 py-4 text-right sm:px-6">
+                        <button type="button" className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-1" aria-label="More">
+                          <IconMore className="size-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <DataSourcesSidebar mobile className="lg:hidden" />
+      </main>
+
+      <DataSourcesSidebar className="hidden lg:block" />
+    </KnowledgeWorkspaceShell>
   );
 }
 

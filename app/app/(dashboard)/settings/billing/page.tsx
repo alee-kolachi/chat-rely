@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
+
 const billingHistory = [
   { date: "Oct 12, 2023", amount: "$299.00", status: "Paid" },
   { date: "Sep 12, 2023", amount: "$299.00", status: "Paid" },
@@ -11,35 +14,32 @@ const paymentMethods = [
 
 export default function SettingsBillingPage() {
   return (
-    <div className="-m-6 min-h-[calc(100vh-3.5rem)] bg-ds-surface p-8">
+    <div className="ds-app-shell p-6 md:p-8">
       <div className="mx-auto w-full max-w-5xl space-y-8">
         <section>
-          <h1 className="text-3xl font-extrabold tracking-tight text-black">Billing Settings</h1>
-          <p className="mt-2 max-w-2xl text-zinc-500">
-            Manage your organizational billing details, payment methods, and tax documentation.
-            Your monthly invoice will be sent to the primary email listed below.
+          <h1 className="ds-app-page-title">Billing</h1>
+          <p className="ds-app-page-description ds-app-page-description--wide mt-2">
+            Business details, payment methods, and invoices. Monthly statements go to the primary email below.
           </p>
         </section>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
           <div className="space-y-8 lg:col-span-2">
-            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-              <div className="border-b border-zinc-100 bg-zinc-50/50 p-6">
-                <h3 className="text-lg font-bold">Billing Details</h3>
-                <p className="text-sm text-zinc-500">Business identity and legal address</p>
+            <div className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+              <div className="border-ds-outline bg-ds-sidebar/90 border-b px-6 py-5">
+                <h2 className="ds-app-section-title text-base">Billing details</h2>
+                <p className="text-ds-on-surface-variant mt-1 text-sm">Legal name and address on invoices</p>
               </div>
               <div className="space-y-4 p-6">
-                <LabeledInput label="Business Name" value="Acme Global Industries" />
+                <LabeledInput label="Business name" value="Acme Global Industries" />
                 <LabeledInput label="Address" value="123 Innovation Drive" />
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <LabeledInput label="City" value="San Francisco" />
-                  <LabeledInput label="Zip / Postal Code" value="94105" />
+                  <LabeledInput label="ZIP / postal code" value="94105" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-bold tracking-wider text-zinc-500 uppercase">
-                    Country
-                  </label>
-                  <select className="w-full rounded border border-zinc-200 px-4 py-2 text-sm transition-all focus:border-orange-500 focus:ring-1 focus:ring-orange-500">
+                  <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Country</label>
+                  <select className="ds-app-field rounded-ds-lg">
                     <option>United States</option>
                     <option>Canada</option>
                     <option>United Kingdom</option>
@@ -47,44 +47,53 @@ export default function SettingsBillingPage() {
                   </select>
                 </div>
                 <div className="flex justify-end pt-4">
-                  <button className="rounded bg-black px-6 py-2 text-sm font-bold text-white transition-opacity hover:opacity-80">
-                    Save Changes
+                  <button
+                    type="button"
+                    className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-lg px-6 py-2.5 text-sm font-semibold transition-colors"
+                  >
+                    Save changes
                   </button>
                 </div>
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50/50 p-6">
+            <div className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+              <div className="border-ds-outline bg-ds-sidebar/90 flex flex-wrap items-center justify-between gap-3 border-b px-6 py-5">
                 <div>
-                  <h3 className="text-lg font-bold">Billing History</h3>
-                  <p className="text-sm text-zinc-500">Your recent invoices and payments</p>
+                  <h2 className="ds-app-section-title text-base">Billing history</h2>
+                  <p className="text-ds-on-surface-variant mt-1 text-sm">Recent invoices and payments</p>
                 </div>
-                <button className="text-sm font-semibold text-orange-500 hover:underline">View All</button>
+                <button type="button" className="text-ds-primary text-sm font-semibold hover:underline">
+                  View all
+                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
-                  <thead className="bg-zinc-50/50 text-[10px] font-bold tracking-widest text-zinc-500 uppercase">
+                  <thead className="ds-app-kicker bg-ds-sidebar/60 text-ds-on-surface-variant">
                     <tr>
-                      <th className="px-6 py-4">Date</th>
-                      <th className="px-6 py-4">Amount</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4 text-right">Action</th>
+                      <th className="px-6 py-3 font-semibold">Date</th>
+                      <th className="px-6 py-3 font-semibold">Amount</th>
+                      <th className="px-6 py-3 font-semibold">Status</th>
+                      <th className="px-6 py-3 text-right font-semibold">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-100 text-sm">
+                  <tbody className="divide-ds-outline text-ds-on-surface divide-y text-sm">
                     {billingHistory.map((row) => (
-                      <tr key={row.date} className="transition-colors hover:bg-zinc-50">
-                        <td className="px-6 py-4 font-medium text-black">{row.date}</td>
-                        <td className="px-6 py-4 text-zinc-600">{row.amount}</td>
+                      <tr key={row.date} className="transition-colors hover:bg-ds-sidebar/40">
+                        <td className="px-6 py-4 font-medium">{row.date}</td>
+                        <td className="text-ds-on-surface-variant px-6 py-4 tabular-nums">{row.amount}</td>
                         <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                            <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
                             {row.status}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <button className="rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-black">
+                          <button
+                            type="button"
+                            className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-2 transition-colors hover:bg-ds-sidebar"
+                            aria-label={`Download invoice ${row.date}`}
+                          >
                             <IconDownload className="size-5" />
                           </button>
                         </td>
@@ -97,33 +106,37 @@ export default function SettingsBillingPage() {
           </div>
 
           <div className="space-y-8">
-            <SidebarCard title="Billing Email">
-              <LabeledInput label="Invoice Recipient" value="billing@acmeglobal.com" type="email" />
-              <button className="mt-4 w-full rounded bg-zinc-100 py-2 text-sm font-bold text-black transition-colors hover:bg-zinc-200">
-                Save Email
+            <SidebarCard title="Billing email">
+              <LabeledInput label="Invoice recipient" value="billing@acmeglobal.com" type="email" />
+              <button
+                type="button"
+                className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar mt-4 w-full rounded-ds-lg border bg-white py-2.5 text-sm font-semibold transition-colors"
+              >
+                Save email
               </button>
             </SidebarCard>
 
-            <SidebarCard title="Tax ID (VAT/GST)">
+            <SidebarCard title="Tax ID (VAT / GST)">
               <div>
-                <label className="mb-1 block text-xs font-bold tracking-wider text-zinc-500 uppercase">
-                  Tax Registration Number
-                </label>
-                <input
-                  className="w-full rounded border border-zinc-200 px-4 py-2 text-sm transition-all focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                  placeholder="e.g. US123456789"
-                />
+                <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Tax registration number</label>
+                <input className="ds-app-field rounded-ds-lg" placeholder="e.g. US123456789" />
               </div>
-              <button className="mt-4 w-full rounded bg-zinc-100 py-2 text-sm font-bold text-black transition-colors hover:bg-zinc-200">
-                Update Tax Info
+              <button
+                type="button"
+                className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar mt-4 w-full rounded-ds-lg border bg-white py-2.5 text-sm font-semibold transition-colors"
+              >
+                Update tax info
               </button>
             </SidebarCard>
 
             <SidebarCard
-              title="Payment Methods"
+              title="Payment methods"
               action={
-                <button className="flex items-center gap-1 text-xs font-bold text-orange-500 hover:underline">
-                  <IconPlus className="size-3.5" />
+                <button
+                  type="button"
+                  className="text-ds-primary inline-flex items-center gap-1 text-xs font-semibold hover:underline"
+                >
+                  <IconPlus className="size-3.5 shrink-0" aria-hidden />
                   Add
                 </button>
               }
@@ -132,42 +145,51 @@ export default function SettingsBillingPage() {
                 {paymentMethods.map((method) => (
                   <div
                     key={method.masked}
-                    className={`group flex items-center justify-between rounded-lg border p-4 ${
+                    className={cn(
+                      "group flex items-center justify-between rounded-ds-lg border p-4",
                       method.default
-                        ? "border-orange-200 bg-orange-50/30"
-                        : "border-zinc-100 bg-white"
-                    }`}
+                        ? "border-ds-primary/35 bg-ds-primary/6"
+                        : "border-ds-outline bg-ds-surface"
+                    )}
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className={`flex h-6 w-10 items-center justify-center rounded text-[8px] font-bold uppercase italic ${
+                        className={cn(
+                          "flex h-6 w-10 items-center justify-center rounded text-[8px] font-bold uppercase",
                           method.default
-                            ? "bg-zinc-800 text-white"
-                            : "border border-zinc-200 bg-zinc-100 text-zinc-600"
-                        }`}
+                            ? "bg-ds-on-surface text-ds-on-primary"
+                            : "border-ds-outline bg-ds-sidebar text-ds-on-surface-variant border"
+                        )}
                       >
                         {method.brand}
                       </div>
                       <div>
-                        <p className="text-sm leading-tight font-bold">{method.masked}</p>
-                        <p className="text-[10px] text-zinc-500">{method.exp}</p>
+                        <p className="text-ds-on-surface text-sm font-semibold leading-tight">{method.masked}</p>
+                        <p className="text-ds-on-surface-variant text-[11px]">{method.exp}</p>
                       </div>
                     </div>
                     {method.default ? (
-                      <span className="rounded bg-orange-100 px-2 py-0.5 text-[10px] font-black text-orange-600 uppercase">
+                      <span className="bg-ds-primary/15 text-ds-primary rounded px-2 py-0.5 text-[10px] font-semibold uppercase">
                         Default
                       </span>
                     ) : (
-                      <button className="rounded p-1.5 text-red-600 opacity-0 transition-all group-hover:opacity-100 hover:bg-zinc-100">
+                      <button
+                        type="button"
+                        className="text-rose-600 rounded-ds-md p-1.5 opacity-0 transition-all group-hover:opacity-100 hover:bg-rose-50"
+                        aria-label="Remove card"
+                      >
                         <IconTrash className="size-4.5" />
                       </button>
                     )}
                   </div>
                 ))}
               </div>
-              <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-200 py-3 text-xs font-semibold text-zinc-400 transition-all hover:border-orange-200 hover:bg-orange-50/20 hover:text-orange-500">
-                <IconCard className="size-4.5" />
-                Add new payment method
+              <button
+                type="button"
+                className="border-ds-outline text-ds-on-surface-variant hover:border-ds-primary/40 hover:text-ds-primary mt-4 flex w-full items-center justify-center gap-2 rounded-ds-lg border-2 border-dashed bg-transparent py-3 text-xs font-semibold transition-colors"
+              >
+                <IconCard className="size-4.5 shrink-0" aria-hidden />
+                Add payment method
               </button>
             </SidebarCard>
           </div>
@@ -180,12 +202,8 @@ export default function SettingsBillingPage() {
 function LabeledInput({ label, value, type = "text" }: { label: string; value: string; type?: string }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-bold tracking-wider text-zinc-500 uppercase">{label}</label>
-      <input
-        className="w-full rounded border border-zinc-200 px-4 py-2 text-sm transition-all focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-        type={type}
-        defaultValue={value}
-      />
+      <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">{label}</label>
+      <input className="ds-app-field rounded-ds-lg" type={type} defaultValue={value} />
     </div>
   );
 }
@@ -196,13 +214,13 @@ function SidebarCard({
   action,
 }: {
   title: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
+  children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50/50 p-6">
-        <h3 className="text-sm font-bold">{title}</h3>
+    <div className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+      <div className="border-ds-outline bg-ds-sidebar/90 flex items-center justify-between border-b px-6 py-4">
+        <h3 className="text-ds-on-surface text-sm font-semibold">{title}</h3>
         {action}
       </div>
       <div className="p-6">{children}</div>
@@ -217,7 +235,7 @@ function IconBase({
   strokeWidth = "1.8",
 }: {
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   fill?: string;
   strokeWidth?: string;
 }) {

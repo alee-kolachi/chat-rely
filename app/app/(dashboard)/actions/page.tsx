@@ -1,6 +1,7 @@
 import { ActionCard } from "@/components/actions/action-card";
 import { ConnectionCard } from "@/components/actions/connection-card";
 import { shopifyActions } from "@/components/actions/shopify-actions-data";
+import { cn } from "@/lib/utils";
 
 const FILTER_CHIPS = ["All", "Enabled", "Disabled", "Coming soon"] as const;
 
@@ -8,19 +9,18 @@ export default function ActionsPage() {
   const totalCount = shopifyActions.length;
 
   return (
-    <div className="-m-6 min-h-[calc(100vh-3.5rem)] bg-ds-surface p-8">
+    <div className="ds-app-shell p-6 md:p-8">
       <div className="mx-auto w-full max-w-6xl">
         <header className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-ds-primary text-3xl font-extrabold tracking-tight">Actions</h1>
-            <p className="text-ds-on-surface-variant mt-2 max-w-2xl text-sm">
-              Tools your agent can invoke on behalf of customers. Enable an action to let the
-              agent call it during conversations.
+            <h1 className="ds-app-page-title">Actions</h1>
+            <p className="ds-app-page-description ds-app-page-description--wide">
+              Tools your agent can invoke for customers. Enable an action to allow it during conversations.
             </p>
           </div>
           <button
             type="button"
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar self-start rounded-ds-md border bg-white px-4 py-2 text-sm font-semibold transition-colors md:self-auto"
+            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar self-start rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors md:self-auto"
           >
             Manage connection
           </button>
@@ -34,21 +34,20 @@ export default function ActionsPage() {
 
         <div className="mt-10 mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-ds-on-surface text-lg font-bold">Shopify actions</h2>
-            <span className="text-ds-on-surface-variant text-xs font-medium">
-              {totalCount} available
-            </span>
+            <h2 className="ds-app-section-title text-base md:text-lg">Shopify actions</h2>
+            <span className="text-ds-on-surface-variant text-xs font-medium">{totalCount} available</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {FILTER_CHIPS.map((chip, idx) => (
               <button
                 key={chip}
                 type="button"
-                className={
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
                   idx === 0
-                    ? "rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-ds-on-surface shadow-sm"
-                    : "text-ds-on-surface-variant hover:text-ds-on-surface rounded-full border border-transparent px-3 py-1 text-xs font-medium transition-colors hover:bg-ds-outline/35"
-                }
+                    ? "border-ds-primary/45 text-ds-primary bg-white shadow-sm"
+                    : "text-ds-on-surface-variant hover:text-ds-on-surface border-transparent hover:bg-ds-outline/35"
+                )}
               >
                 {chip}
               </button>
@@ -62,9 +61,7 @@ export default function ActionsPage() {
           ))}
         </div>
 
-        <p className="text-ds-on-surface-variant mt-12 pb-12 text-center text-[10px] tracking-widest uppercase">
-          More integrations coming soon
-        </p>
+        <p className="ds-app-kicker mt-12 pb-8 text-center">More integrations coming soon</p>
       </div>
     </div>
   );

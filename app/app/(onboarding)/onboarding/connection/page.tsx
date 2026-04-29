@@ -1,15 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
+import { useSearchParams } from "next/navigation";
+import { getOnboardingAgentId } from "@/lib/onboarding-state";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
-import {
-  OnboardingMainColumn,
-  OnboardingPageHeader,
-  OnboardingSectionCard,
-  OnboardingStatusBlock,
-  OnboardingStickyFooter,
-  onboardingType,
-} from "@/components/onboarding/onboarding-ui";
+import { OnboardingMainColumn, OnboardingStickyFooter } from "@/components/onboarding/onboarding-ui";
 
 const syncItems = [
   { label: "Products", state: "done" as const },
@@ -19,95 +15,185 @@ const syncItems = [
 ];
 
 export default function ConnectionOnboardingPage() {
+  const searchParams = useSearchParams();
+  const agentId = useMemo(() => searchParams.get("agentId") ?? getOnboardingAgentId(), [searchParams]);
+  const appearanceHref = useMemo(() => {
+    const path = "/onboarding/appearance-tone";
+    if (!agentId) return path;
+    return `${path}?agentId=${encodeURIComponent(agentId)}`;
+  }, [agentId]);
+
   return (
     <OnboardingFrame
       activeItem="Connection"
       completedItems={["Agent Name", "Knowledge Base"]}
       stepLabel="Step 3 of 6"
     >
-      <OnboardingMainColumn className="max-w-2xl">
-        <div className="mb-6 flex justify-end">
-          <button
-            type="button"
-            className="text-ds-on-surface-variant hover:text-ds-on-surface text-xs font-semibold tracking-wide uppercase transition-colors"
-          >
-            Connect later
-          </button>
-        </div>
+      <OnboardingMainColumn className="max-w-6xl flex h-full items-center pt-3 pb-24 md:pt-4 md:pb-28">
+        <div className="relative flex h-full w-full min-h-0 items-center">
+          <div
+            className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
+            style={{
+              background:
+                "radial-gradient(circle at 12% 22%, rgba(16,185,129,0.14), transparent 38%), radial-gradient(circle at 88% 72%, rgba(99,102,241,0.12), transparent 42%), linear-gradient(180deg, rgba(240,253,250,0.95), rgba(245,243,255,0.72))",
+            }}
+            aria-hidden
+          />
 
-        <OnboardingPageHeader
-          kicker="Step 3 · Integrations"
-          title="Connect Shopify for live catalog data"
-          subtitle="OAuth keeps your store secure. We sync products and policies so answers stay accurate as inventory changes."
-        />
+          <div className="border-ds-outline h-full w-full overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
+            <div className="grid h-full lg:grid-cols-2">
+              <section className="flex h-full min-h-0 flex-col justify-center p-6 sm:p-8 lg:p-10">
+                <div>
+                  <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
+                    Step 3
+                  </p>
+                  <h1 className="text-ds-on-surface text-2xl font-semibold tracking-tight sm:text-3xl lg:text-[2rem]">
+                    Connect your <span className="text-ds-primary font-bold">commerce store</span> for live data
+                  </h1>
+                  <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
+                    OAuth keeps access scoped and revocable. We sync catalog and policies so your agent answers with what
+                    is in stock today—not a stale snapshot.
+                  </p>
 
-        <OnboardingSectionCard className="mb-6">
-          <div className="flex flex-col items-center text-center">
-            <div className="border-ds-outline mb-6 flex size-16 items-center justify-center rounded-ds-lg border bg-ds-sidebar text-2xl">
-              S
+                  <div className="mt-8 space-y-5 sm:mt-10">
+                    <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
+                      <div className="mb-4 flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="border-ds-outline bg-ds-sidebar flex size-11 shrink-0 items-center justify-center rounded-xl border text-lg font-bold text-ds-on-surface">
+                            S
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-ds-on-surface text-sm font-semibold">Shopify</p>
+                            <p className="text-ds-on-surface-variant text-xs">Recommended for product catalogs</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="text-ds-on-surface-variant hover:text-ds-on-surface shrink-0 text-[11px] font-semibold tracking-wide uppercase transition-colors"
+                        >
+                          Connect later
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-md py-3 text-sm font-semibold transition-colors"
+                      >
+                        Connect Shopify
+                      </button>
+                      <p className="text-ds-on-surface-variant mt-3 text-center text-[11px] font-medium uppercase tracking-wider">
+                        Secure OAuth · no password sharing
+                      </p>
+                    </div>
+
+                    <p className="text-ds-on-surface-variant text-sm leading-relaxed">
+                      Other channels (email, helpdesk) can be linked later from{" "}
+                      <Link href="/settings" className="text-ds-primary font-semibold underline underline-offset-2">
+                        Settings
+                      </Link>
+                      .
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="bg-ds-sidebar border-ds-outline relative flex h-full min-h-0 items-center justify-center border-t p-6 sm:p-8 lg:border-t-0 lg:border-l lg:p-10">
+                <div
+                  className="pointer-events-none absolute inset-0 opacity-35"
+                  style={{
+                    backgroundImage:
+                      "radial-gradient(color-mix(in srgb, var(--ds-on-surface-variant) 22%, transparent) 1px, transparent 1px)",
+                    backgroundSize: "20px 20px",
+                  }}
+                  aria-hidden
+                />
+                <div className="relative mx-auto w-full max-w-[400px]">
+                  <div className="border-ds-outline flex min-h-[520px] flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl">
+                    <div className="border-ds-outline flex items-center justify-between border-b bg-white px-4 py-3">
+                      <div className="min-w-0">
+                        <h3 className="text-ds-on-surface truncate text-sm font-semibold">Store connection</h3>
+                        <p className="text-ds-secondary text-[11px]">Preview · not live yet</p>
+                      </div>
+                      <span className="text-ds-on-surface-variant shrink-0 text-sm" aria-hidden>
+                        ⋮
+                      </span>
+                    </div>
+
+                    <div className="flex flex-1 flex-col gap-4 p-4">
+                      <div className="border-ds-outline rounded-ds-lg border bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-ds-on-surface text-sm font-semibold">Luma Outfitters</p>
+                            <p className="text-ds-on-surface-variant text-xs">my-store.myshopify.com</p>
+                          </div>
+                          <span className="bg-emerald-50 text-emerald-800 border-emerald-200 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide">
+                            Linked
+                          </span>
+                        </div>
+                        <p className="text-ds-on-surface-variant mt-3 text-xs leading-relaxed">
+                          Product titles, variants, and policy pages stay in sync while ChatRely answers shoppers.
+                        </p>
+                      </div>
+
+                      <div className="border-ds-outline flex flex-1 flex-col overflow-hidden rounded-ds-lg border bg-white p-3 sm:p-4">
+                        <p className="text-ds-on-surface text-xs font-semibold">Synchronization</p>
+                        <p className="text-ds-on-surface-variant mt-1 text-[11px] leading-relaxed">
+                          Initial sync may take a few minutes. You can keep configuring your agent.
+                        </p>
+                        <div className="mt-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-ds-on-surface">
+                          <span>Progress</span>
+                          <span>55%</span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-ds-outline/80">
+                          <div className="bg-ds-primary h-full w-[55%] rounded-full transition-all" />
+                        </div>
+                        <ul className="mt-3 space-y-1.5">
+                          {syncItems.map((item) => (
+                            <li
+                              key={item.label}
+                              className={`flex items-center justify-between rounded-ds-md border px-2.5 py-2 text-[11px] ${
+                                item.state === "active"
+                                  ? "border-ds-primary bg-white ring-1 ring-ds-primary/15"
+                                  : item.state === "pending"
+                                    ? "border-dashed border-ds-outline bg-ds-sidebar/60 text-ds-on-surface-variant"
+                                    : "border-ds-outline bg-white"
+                              }`}
+                            >
+                              <span className="font-medium text-ds-on-surface">{item.label}</span>
+                              <span className="text-[9px] font-semibold uppercase tracking-wide text-ds-on-surface-variant">
+                                {item.state === "done"
+                                  ? "Done"
+                                  : item.state === "active"
+                                    ? "In progress"
+                                    : "Pending"}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="border-ds-outline rounded-ds-md border bg-white p-3">
+                        <p className="text-ds-on-surface text-xs font-semibold">Scope</p>
+                        <p className="text-ds-on-surface-variant mt-1 text-[11px] leading-relaxed">
+                          Read products, variants, and storefront policies. No payment or customer PII by default.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
-            <button
-              type="button"
-              className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 w-full max-w-sm rounded-ds-md py-3 text-sm font-semibold transition-colors sm:max-w-md"
-            >
-              Connect Shopify
-            </button>
-            <p className="text-ds-on-surface-variant mt-3 text-[11px] font-medium uppercase tracking-wider">
-              Secure OAuth · no password sharing
-            </p>
           </div>
-        </OnboardingSectionCard>
-
-        <OnboardingStatusBlock
-          variant="neutral"
-          title="Synchronization status"
-          description="Initial sync may take a few minutes. You can keep configuring your agent."
-        >
-          <div className="mt-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-ds-on-surface">
-            <span>Progress</span>
-            <span>55%</span>
-          </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-ds-outline/80">
-            <div className="bg-ds-primary h-full w-[55%] rounded-full transition-all" />
-          </div>
-          <ul className="mt-4 space-y-2">
-            {syncItems.map((item) => (
-              <li
-                key={item.label}
-                className={`flex items-center justify-between rounded-ds-md border px-3 py-2.5 text-sm ${
-                  item.state === "active"
-                    ? "border-ds-primary bg-white ring-1 ring-ds-primary/15"
-                    : item.state === "pending"
-                      ? "border-dashed border-ds-outline bg-ds-sidebar/60 text-ds-on-surface-variant"
-                      : "border-ds-outline bg-white"
-                }`}
-              >
-                <span className="font-medium text-ds-on-surface">{item.label}</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-ds-on-surface-variant">
-                  {item.state === "done"
-                    ? "Done"
-                    : item.state === "active"
-                      ? "In progress"
-                      : "Pending"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </OnboardingStatusBlock>
-
-        <p className={`${onboardingType.body} mt-6 text-center`}>
-          Other channels (email, helpdesk) can be linked later from{" "}
-          <Link href="/settings" className="text-ds-primary font-semibold underline underline-offset-2">
-            Settings
-          </Link>
-          .
-        </p>
+        </div>
       </OnboardingMainColumn>
 
       <OnboardingStickyFooter
-        backHref="/onboarding/knowledge-base/training"
+        backHref={
+          agentId
+            ? `/onboarding/knowledge-base/training?agentId=${encodeURIComponent(agentId)}`
+            : "/onboarding/knowledge-base/training"
+        }
         backLabel="Back"
-        primaryHref="/onboarding/appearance-tone"
+        primaryHref={appearanceHref}
         primaryLabel="Continue"
       />
     </OnboardingFrame>

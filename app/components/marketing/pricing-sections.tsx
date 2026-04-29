@@ -70,57 +70,125 @@ export const comparisonRows = [
   ["Custom Branding", "-", "-", "Yes", "Yes"],
 ] as const;
 
-export function PricingCards() {
+export function PricingCards({ variant = "default" }: { variant?: "default" | "onboarding" }) {
+  const isOnboarding = variant === "onboarding";
+
   return (
-    <div className="grid grid-cols-1 gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-4">
+    <div
+      className={
+        isOnboarding
+          ? "mx-auto grid w-full max-w-6xl grid-cols-1 items-stretch gap-x-5 gap-y-8 px-0.5 sm:grid-cols-2 sm:gap-x-5 sm:gap-y-10 sm:px-1 lg:grid-cols-4 lg:gap-x-6 lg:gap-y-6 lg:px-1"
+          : "grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-4"
+      }
+    >
       {pricingPlans.map((plan) => (
         <article
           key={plan.name}
-          className={`flex flex-col rounded-xl border p-5 sm:p-6 lg:p-8 ${
-            plan.highlighted
-              ? "relative z-10 border-ds-primary bg-ds-primary text-ds-on-primary shadow-xl sm:scale-[1.02] sm:shadow-2xl"
-              : "border-ds-outline bg-white"
-          }`}
+          className={
+            isOnboarding
+              ? `flex min-h-0 flex-col rounded-2xl p-5 sm:p-6 lg:h-full lg:min-h-[17rem] ${
+                  plan.highlighted
+                    ? "relative isolate z-0 bg-ds-primary text-ds-on-primary shadow-[0_12px_40px_rgba(99,102,241,0.28)] ring-2 ring-ds-primary/60"
+                    : "relative z-0 border border-ds-outline/45 bg-white text-ds-on-surface shadow-[0_6px_28px_rgba(15,23,42,0.06)] ring-1 ring-zinc-900/[0.05]"
+                }`
+              : `flex flex-col rounded-xl border p-5 sm:p-6 lg:p-8 ${
+                  plan.highlighted
+                    ? "relative z-10 border-ds-primary bg-ds-primary text-ds-on-primary shadow-xl sm:scale-[1.02] sm:shadow-2xl"
+                    : "border-ds-outline bg-white"
+                }`
+          }
         >
           {plan.highlighted ? (
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-ds-tertiary px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+            <span
+              className={`absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                isOnboarding ? "bg-ds-tertiary text-white shadow-md" : "bg-ds-tertiary text-white"
+              }`}
+            >
               Popular
             </span>
           ) : null}
-          <div className="mb-5 sm:mb-6">
-            <h3 className="text-lg font-bold">{plan.name}</h3>
-            <p className={`mt-2 text-sm ${plan.highlighted ? "text-white/75" : "text-ds-on-surface-variant"}`}>
+          <div className={isOnboarding ? "mb-5 shrink-0" : "mb-5 sm:mb-6"}>
+            <h3
+              className={
+                isOnboarding
+                  ? `text-lg font-semibold tracking-tight sm:text-xl ${plan.highlighted ? "text-ds-on-primary" : "text-ds-on-surface"}`
+                  : "text-lg font-bold"
+              }
+            >
+              {plan.name}
+            </h3>
+            <p
+              className={`${isOnboarding ? "mt-2 text-sm leading-relaxed" : "mt-2 text-sm"} ${
+                plan.highlighted ? "text-white/85" : "text-ds-on-surface-variant"
+              }`}
+            >
               {plan.description}
             </p>
-            <div className="mt-4 flex items-baseline">
-              <span className="text-3xl font-black sm:text-4xl">{plan.price}</span>
+            <div className={`flex items-baseline ${isOnboarding ? "mt-5 gap-1" : "mt-4"}`}>
+              <span
+                className={
+                  isOnboarding
+                    ? `font-bold tabular-nums tracking-tight ${plan.highlighted ? "text-4xl text-ds-on-primary sm:text-[2.5rem]" : "text-3xl text-ds-on-surface sm:text-4xl"}`
+                    : "text-3xl font-black sm:text-4xl"
+                }
+              >
+                {plan.price}
+              </span>
               {plan.period ? (
-                <span className={`ml-1 ${plan.highlighted ? "text-white/70" : "text-ds-on-surface-variant"}`}>
+                <span
+                  className={`ml-1 font-medium ${isOnboarding ? "text-[15px]" : "text-base"} ${plan.highlighted ? "text-white/80" : "text-ds-on-surface-variant"}`}
+                >
                   {plan.period}
                 </span>
               ) : null}
             </div>
           </div>
-          <div className="mb-6 flex grow flex-col gap-2.5 sm:gap-3">
+          <div
+            className={
+              isOnboarding
+                ? "mb-5 flex flex-col gap-2.5"
+                : "mb-8 flex min-h-0 flex-1 flex-col gap-2.5 sm:gap-3"
+            }
+          >
             {plan.features.map((feature) => (
               <p
                 key={feature.label}
-                className={`flex items-center gap-2 text-sm ${
-                  feature.included ? "" : plan.highlighted ? "text-white/70" : "text-ds-on-surface-variant"
-                }`}
+                className={`flex items-start gap-2.5 text-sm leading-snug ${
+                  feature.included ? "" : plan.highlighted ? "text-white/75" : "text-ds-on-surface-variant"
+                } ${isOnboarding && feature.included && !plan.highlighted ? "text-ds-on-surface" : ""}`}
               >
-                <span className="text-xs">{feature.included ? "✓" : "✕"}</span>
+                <span
+                  className={`mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                    plan.highlighted
+                      ? feature.included
+                        ? "bg-white/20 text-ds-on-primary"
+                        : "bg-white/10 text-white/60"
+                      : feature.included
+                        ? "bg-emerald-500/12 text-emerald-700"
+                        : "bg-ds-sidebar text-ds-on-surface-variant"
+                  }`}
+                >
+                  {feature.included ? "✓" : "✕"}
+                </span>
                 {feature.label}
               </p>
             ))}
           </div>
           <Link
             href={plan.name === "Pro" ? "/login" : "/signup"}
-            className={`mx-auto w-full max-w-[17rem] rounded-lg py-3 text-center text-sm font-semibold transition ${
-              plan.highlighted
-                ? "bg-white text-ds-primary hover:bg-ds-tertiary hover:text-white"
-                : "border-2 border-ds-primary text-ds-primary hover:bg-ds-primary hover:text-ds-on-primary"
-            }`}
+            className={
+              isOnboarding
+                ? `mx-auto mt-auto w-full max-w-none shrink-0 rounded-ds-md py-3 text-center text-sm font-semibold transition ${
+                    plan.highlighted
+                      ? "bg-white text-ds-primary shadow-md hover:bg-ds-tertiary hover:text-white hover:shadow-lg"
+                      : "border-2 border-ds-primary bg-transparent text-ds-primary hover:bg-ds-primary hover:text-ds-on-primary"
+                  }`
+                : `mx-auto w-full max-w-[17rem] rounded-lg py-3 text-center text-sm font-semibold transition ${
+                    plan.highlighted
+                      ? "bg-white text-ds-primary hover:bg-ds-tertiary hover:text-white"
+                      : "border-2 border-ds-primary text-ds-primary hover:bg-ds-primary hover:text-ds-on-primary"
+                  }`
+            }
           >
             {plan.cta}
           </Link>

@@ -1,7 +1,8 @@
- "use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { backendFetch } from "@/lib/backend-api";
+import { cn } from "@/lib/utils";
 
 type Conversation = {
   id: string;
@@ -111,18 +112,19 @@ export default function ConversationsPage() {
   }
 
   return (
-    <div className="-m-6 min-h-[calc(100vh-3.5rem)] bg-ds-surface p-8">
+    <div className="ds-app-shell p-6 md:p-8">
       <div className="mx-auto w-full max-w-7xl">
         <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-ds-on-surface text-3xl font-black tracking-tight">Conversations</h1>
-            <p className="text-ds-on-surface-variant mt-1 text-sm">
-              Monitor live threads, review context, and jump in when needed.
+            <h1 className="ds-app-page-title">Conversations</h1>
+            <p className="ds-app-page-description ds-app-page-description--wide">
+              Monitor threads, review context, and jump in when needed.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
-              className="border-ds-outline bg-white hover:bg-ds-sidebar rounded-ds-md border px-4 py-2 text-sm font-semibold transition-colors"
+              type="button"
+              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors"
               onClick={() => void loadConversations()}
             >
               Refresh
@@ -132,30 +134,33 @@ export default function ConversationsPage() {
         {error ? <p className="mb-3 text-sm text-rose-600">{error}</p> : null}
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_1fr]">
-          <div className="border-ds-outline rounded-ds-xl border bg-white shadow-sm">
-            <div className="border-ds-outline flex items-center justify-between border-b px-4 py-3">
-              <h2 className="text-ds-on-surface text-sm font-bold tracking-wide uppercase">Live queue</h2>
-              <button className="text-ds-on-surface-variant hover:text-ds-on-surface text-xs font-medium">
+          <div className="border-ds-outline rounded-ds-xl border bg-ds-surface shadow-sm">
+            <div className="border-ds-outline bg-ds-sidebar/90 flex items-center justify-between border-b px-4 py-3">
+              <h2 className="ds-app-kicker text-ds-on-surface font-semibold">Live queue</h2>
+              <button type="button" className="text-ds-primary text-xs font-semibold hover:underline">
                 Filters
               </button>
             </div>
             <div className="divide-ds-outline divide-y">
-              {loading ? <p className="p-4 text-sm text-ds-on-surface-variant">Loading conversations...</p> : null}
+              {loading ? (
+                <p className="text-ds-on-surface-variant p-4 text-sm">Loading conversations…</p>
+              ) : null}
               {!loading && conversations.length === 0 ? (
-                <p className="p-4 text-sm text-ds-on-surface-variant">No conversations yet.</p>
+                <p className="text-ds-on-surface-variant p-4 text-sm">No conversations yet.</p>
               ) : null}
               {conversations.map((item) => (
                 <button
                   type="button"
                   key={item.id}
-                  className={`w-full px-4 py-4 text-left transition-colors ${
-                    selectedConversationId === item.id ? "bg-ds-sidebar/50" : "hover:bg-ds-sidebar/60"
-                  }`}
+                  className={cn(
+                    "w-full px-4 py-4 text-left transition-colors",
+                    selectedConversationId === item.id ? "bg-ds-primary/8" : "hover:bg-ds-sidebar/70"
+                  )}
                   onClick={() => setSelectedConversationId(item.id)}
                 >
                   <div className="mb-1 flex items-start justify-between gap-2">
                     <p className="text-ds-on-surface text-sm font-semibold">{item.id.slice(0, 8)}</p>
-                    <span className="text-ds-on-surface-variant text-[11px]">
+                    <span className="text-ds-on-surface-variant shrink-0 text-[11px]">
                       {new Date(item.updated_at).toLocaleTimeString()}
                     </span>
                   </div>
@@ -164,11 +169,10 @@ export default function ConversationsPage() {
                   </p>
                   <div className="mt-2 flex items-center gap-2">
                     <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
-                        item.status === "closed"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-blue-100 text-blue-700"
-                      }`}
+                      className={cn(
+                        "rounded-ds-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
+                        item.status === "closed" ? "bg-emerald-100 text-emerald-800" : "bg-ds-sidebar text-ds-primary ring-1 ring-ds-primary/25"
+                      )}
                     >
                       {item.status}
                     </span>
@@ -178,49 +182,51 @@ export default function ConversationsPage() {
             </div>
           </div>
 
-          <div className="border-ds-outline rounded-ds-xl border bg-white shadow-sm">
-            <div className="border-ds-outline flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-              <div>
-                <h3 className="text-ds-on-surface text-sm font-bold">
+          <div className="border-ds-outline flex min-h-[420px] flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+            <div className="border-ds-outline bg-ds-sidebar/90 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4 sm:px-6">
+              <div className="min-w-0">
+                <h3 className="text-ds-on-surface truncate text-sm font-semibold">
                   {selectedConversation ? selectedConversation.id : "No conversation selected"}
                 </h3>
                 <p className="text-ds-on-surface-variant text-xs">Live transcript</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
-                  className="border-ds-outline rounded-ds-md border bg-white px-3 py-1.5 text-xs font-semibold"
+                  type="button"
+                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-3 py-1.5 text-xs font-semibold transition-colors"
                   onClick={() => void updateStatus("open")}
                 >
                   Reopen
                 </button>
                 <button
-                  className="bg-ds-primary text-ds-on-primary rounded-ds-md px-3 py-1.5 text-xs font-semibold"
+                  type="button"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
                   onClick={() => void updateStatus("closed")}
                 >
                   Resolve
                 </button>
               </div>
             </div>
-            <div className="space-y-4 px-6 py-6">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-6 sm:px-6">
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                  className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}
                 >
                   <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    className={cn(
+                      "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
                       message.role === "user"
                         ? "bg-ds-primary text-ds-on-primary rounded-tr-none"
                         : "border-ds-outline text-ds-on-surface rounded-tl-none border bg-white"
-                    }`}
+                    )}
                   >
                     {message.content}
                     <div
-                      className={`mt-2 text-[10px] ${
-                        message.role === "user"
-                          ? "text-ds-on-primary/80"
-                          : "text-ds-on-surface-variant"
-                      }`}
+                      className={cn(
+                        "mt-2 text-[10px]",
+                        message.role === "user" ? "text-ds-on-primary/80" : "text-ds-on-surface-variant"
+                      )}
                     >
                       {new Date(message.created_at).toLocaleTimeString()}
                     </div>
@@ -228,20 +234,21 @@ export default function ConversationsPage() {
                 </div>
               ))}
             </div>
-            <div className="border-ds-outline border-t px-6 py-4">
+            <div className="border-ds-outline border-t bg-ds-surface px-5 py-4 sm:px-6">
               <div className="flex items-center gap-3">
                 <input
-                  className="border-ds-outline bg-ds-sidebar focus:border-ds-primary w-full rounded-xl border px-4 py-2.5 text-sm outline-none"
-                  placeholder="Reply to customer..."
+                  className={cn("ds-app-field", "min-h-0 flex-1 rounded-ds-lg py-2.5")}
+                  placeholder="Reply to customer…"
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
                 />
                 <button
-                  className="bg-ds-primary text-ds-on-primary rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                  type="button"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary shrink-0 rounded-ds-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
                   onClick={() => void handleReply()}
                   disabled={!selectedConversationId || sending || !reply.trim()}
                 >
-                  {sending ? "Sending..." : "Send"}
+                  {sending ? "Sending…" : "Send"}
                 </button>
               </div>
             </div>

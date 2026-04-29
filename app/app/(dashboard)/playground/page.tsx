@@ -2,7 +2,12 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { onboardingType } from "@/components/onboarding/onboarding-ui";
 import { backendFetch } from "@/lib/backend-api";
+import { cn } from "@/lib/utils";
+
+/** Uses global `.ds-app-field` (design-system tokens + focus ring). */
+const fieldControlClass = cn("ds-app-field");
 
 type ActionItem = {
   label: string;
@@ -118,63 +123,74 @@ export default function PlaygroundPage() {
   }
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col bg-ds-surface">
-      <header className="border-ds-outline flex h-16 shrink-0 items-center justify-between border-b px-4 md:px-8">
-        <div className="flex items-center gap-4">
-          <span className="text-ds-on-surface text-lg font-black tracking-tight uppercase">
+    <div className="onboarding-main-surface -m-6 flex h-[calc(100vh-3.5rem)] flex-col">
+      <header className="border-ds-outline bg-ds-surface flex h-14 shrink-0 items-center justify-between border-b px-4 md:h-16 md:px-8">
+        <div className="flex min-w-0 items-center gap-3 md:gap-4">
+          <span className="text-ds-on-surface truncate text-base font-semibold tracking-tight md:text-lg">
             Playground
           </span>
-          <div className="bg-ds-outline hidden h-4 w-px sm:block" />
-          <span className="text-ds-on-surface-variant hidden text-sm sm:block">
+          <div className="bg-ds-outline hidden h-4 w-px shrink-0 sm:block" />
+          <span className={cn(onboardingType.body, "hidden min-w-0 truncate sm:block")}>
             {selectedAgent?.name ?? "No agent selected"}
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <button className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-2 transition-colors">
+        <div className="flex shrink-0 items-center gap-2 md:gap-3">
+          <button
+            type="button"
+            className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 rounded-ds-md p-2 transition-colors"
+            aria-label="Help"
+          >
             <IconQuestion className="size-5" />
           </button>
-          <button className="text-ds-on-surface-variant hover:text-ds-on-surface relative rounded-ds-md p-2 transition-colors">
+          <button
+            type="button"
+            className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 relative rounded-ds-md p-2 transition-colors"
+            aria-label="Notifications"
+          >
             <IconBell className="size-5" />
-            <span className="bg-ds-primary border-ds-surface absolute top-1.5 right-1.5 h-2 w-2 rounded-full border-2" />
+            <span className="bg-ds-primary border-ds-surface absolute top-1.5 right-1.5 size-2 rounded-full border-2" />
           </button>
-          <div className="ml-2 hidden items-center gap-3 lg:flex">
+          <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-orange-500" />
-              <span className="text-[10px] font-bold tracking-wider text-orange-500 uppercase">
-                Unsaved Changes
+              <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+              <span className="text-ds-on-surface-variant text-[11px] font-semibold tracking-wide uppercase">
+                Unsaved
               </span>
             </div>
             <button
-              className="bg-ds-primary text-ds-on-primary rounded-ds-md px-5 py-2 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+              type="button"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
               onClick={handleSave}
               disabled={!selectedAgentId || isSaving}
             >
-              {isSaving ? "Saving..." : "Save Changes"}
+              {isSaving ? "Saving…" : "Save changes"}
             </button>
           </div>
         </div>
       </header>
 
-      <div className="border-ds-outline bg-ds-sidebar/50 flex items-center gap-2 border-b p-3 xl:hidden">
+      <div className="border-ds-outline bg-ds-sidebar/80 flex items-center gap-2 border-b p-2.5 xl:hidden">
         <button
           type="button"
           onClick={() => setMobileTab("settings")}
-          className={`rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+          className={cn(
+            "rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
             mobileTab === "settings"
-              ? "border border-zinc-300 bg-white text-ds-on-surface shadow-sm"
-              : "text-ds-on-surface-variant hover:text-ds-on-surface"
-          }`}
+              ? "border-ds-primary/40 text-ds-primary border bg-white shadow-sm"
+              : "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-white/70"
+          )}
         >
           Settings
         </button>
         <button
           type="button"
           onClick={() => setMobileTab("preview")}
-          className={`rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+          className={cn(
+            "rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
             mobileTab === "preview"
-              ? "border border-zinc-300 bg-white text-ds-on-surface shadow-sm"
-              : "text-ds-on-surface-variant hover:text-ds-on-surface"
-          }`}
+              ? "border-ds-primary/40 text-ds-primary border bg-white shadow-sm"
+              : "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-white/70"
+          )}
         >
           Preview
         </button>
@@ -186,20 +202,20 @@ export default function PlaygroundPage() {
             mobileTab === "settings" ? "block" : "hidden xl:block"
           }`}
         >
-          <div className="border-ds-outline sticky top-0 z-10 border-b bg-white px-6 py-5">
-            <h2 className="text-ds-on-surface flex items-center gap-2 text-sm font-bold tracking-[0.14em] uppercase">
-              <IconTune className="size-4" />
-              Playground Settings
+          <div className="border-ds-outline bg-ds-sidebar/90 sticky top-0 z-10 border-b px-5 py-4 backdrop-blur-sm sm:px-6">
+            <h2 className="text-ds-on-surface flex items-center gap-2 text-sm font-semibold tracking-tight">
+              <IconTune className="text-ds-primary size-4 shrink-0" aria-hidden />
+              Playground settings
             </h2>
           </div>
 
           <div className="space-y-10 px-5 py-6 sm:px-8 sm:py-8">
-            <div className="space-y-3">
-              <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
+            <div className="space-y-2">
+              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
                 Agent
               </label>
               <select
-                className="border-ds-outline bg-ds-sidebar text-ds-on-surface w-full rounded-ds-md border px-4 py-3 text-sm outline-none focus:border-black"
+                className={fieldControlClass}
                 value={selectedAgentId}
                 onChange={(e) => {
                   const nextId = e.target.value;
@@ -219,12 +235,12 @@ export default function PlaygroundPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-3">
-              <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
-                AI Model
+            <div className="space-y-2">
+              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
+                AI model
               </label>
               <select
-                className="border-ds-outline bg-ds-sidebar text-ds-on-surface w-full rounded-ds-md border px-4 py-3 text-sm outline-none focus:border-black"
+                className={fieldControlClass}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               >
@@ -233,12 +249,14 @@ export default function PlaygroundPage() {
               </select>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
-                  Creativity Level
+                <label className={cn(onboardingType.label, "text-ds-on-surface-variant mb-0 text-[11px] uppercase tracking-[0.14em]")}>
+                  Creativity
                 </label>
-                <IconInfo className="text-ds-on-surface-variant size-4" />
+                <button type="button" className="text-ds-on-surface-variant hover:text-ds-primary rounded-ds-md p-1 transition-colors" aria-label="About creativity">
+                  <IconInfo className="size-4" />
+                </button>
               </div>
               <input
                 className="accent-ds-primary w-full"
@@ -248,34 +266,34 @@ export default function PlaygroundPage() {
                 step="0.5"
                 defaultValue="0.5"
               />
-              <div className="text-ds-on-surface-variant flex justify-between text-[10px] font-bold tracking-wide uppercase">
+              <div className="text-ds-on-surface-variant flex justify-between text-[11px] font-medium tracking-wide">
                 <span>Conservative</span>
-                <span className="text-ds-on-surface">Balanced</span>
+                <span className="text-ds-on-surface font-semibold">Balanced</span>
                 <span>Creative</span>
               </div>
             </div>
 
-            <div className="space-y-5">
-              <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
-                Enabled Actions
+            <div className="space-y-4">
+              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
+                Enabled actions
               </label>
-              <div className="border-ds-outline overflow-hidden rounded-ds-lg border bg-white shadow-sm">
+              <div className="border-ds-outline overflow-hidden rounded-ds-lg border bg-ds-surface shadow-sm">
                 <div className="bg-ds-sidebar flex items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <IconBag className="size-4" />
-                    <span className="text-ds-on-surface text-sm font-semibold">Shopify Actions</span>
+                    <IconBag className="text-ds-primary size-4 shrink-0" aria-hidden />
+                    <span className="text-ds-on-surface text-sm font-semibold">Shopify actions</span>
                   </div>
-                  <IconChevron className="text-ds-on-surface-variant size-4 rotate-90" />
+                  <IconChevron className="text-ds-on-surface-variant size-4 rotate-90" aria-hidden />
                 </div>
-                <div className="space-y-4 border-t border-zinc-100 p-4">
+                <div className="border-ds-outline space-y-4 border-t p-4">
                   {shopifyActions.map((action) => (
                     <div
                       key={action.label}
                       className={`flex items-center justify-between ${action.disabled ? "opacity-50" : ""}`}
                     >
                       <div>
-                        <p className="text-ds-on-surface text-xs font-semibold">{action.label}</p>
-                        <p className="text-ds-on-surface-variant text-[11px]">{action.description}</p>
+                        <p className="text-ds-on-surface text-sm font-medium">{action.label}</p>
+                        <p className={cn(onboardingType.hint, "mt-0.5 text-[13px]")}>{action.description}</p>
                       </div>
                       <ToggleSwitch checked={action.enabled} />
                     </div>
@@ -283,50 +301,68 @@ export default function PlaygroundPage() {
                 </div>
               </div>
 
-              <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-white p-4 shadow-sm">
+              <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-surface p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <IconPersonPin className="size-4" />
-                  <span className="text-ds-on-surface text-sm font-semibold">Escalate to Human</span>
+                  <IconPersonPin className="text-ds-primary size-4 shrink-0" aria-hidden />
+                  <span className="text-ds-on-surface text-sm font-semibold">Escalate to human</span>
                 </div>
                 <ToggleSwitch checked={false} />
               </div>
             </div>
 
-            <div className="space-y-3">
-              <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
-                Agent Type
+            <div className="space-y-2">
+              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
+                Agent type
               </label>
-              <select className="border-ds-outline bg-ds-sidebar text-ds-on-surface w-full rounded-ds-md border px-4 py-3 text-sm outline-none focus:border-black">
+              <select className={fieldControlClass}>
                 <option>Brand Support Agent</option>
                 <option>General AI Agent</option>
                 <option>Customer Support Agent</option>
                 <option>Custom Prompt</option>
               </select>
-              <p className="text-ds-on-surface-variant text-[10px] font-medium">
-                Advanced mode: Manual prompt editing enabled.
-              </p>
+              <p className={onboardingType.hint}>Advanced mode: manual prompt editing enabled.</p>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-ds-on-surface-variant text-[11px] font-bold tracking-[0.16em] uppercase">
-                  System Prompt
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <label className={cn(onboardingType.label, "text-ds-on-surface-variant mb-0 text-[11px] uppercase tracking-[0.14em]")}>
+                  System prompt
                 </label>
-                <button className="text-ds-on-surface-variant hover:text-ds-on-surface flex items-center gap-1 text-[10px] font-bold tracking-[0.12em] uppercase">
-                  <IconHistory className="size-3.5" />
-                  Reset to Default
+                <button
+                  type="button"
+                  className="text-ds-on-surface-variant hover:text-ds-primary inline-flex shrink-0 items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors"
+                >
+                  <IconHistory className="size-3.5" aria-hidden />
+                  Reset
                 </button>
               </div>
               <textarea
-                className="border-ds-outline bg-ds-sidebar text-ds-on-surface min-h-40 w-full rounded-ds-md border p-4 text-sm leading-relaxed outline-none focus:border-black"
+                className={cn(fieldControlClass, "leading-relaxed")}
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
               />
             </div>
 
-            <p className="text-ds-on-surface-variant pb-8 text-center text-[10px] font-bold tracking-[0.16em] uppercase">
-              Changes must be saved manually to take effect.
+            <p className={cn(onboardingType.hint, "pb-4 text-center lg:pb-8")}>
+              Save your changes for them to take effect in the live agent.
             </p>
+
+            <div className="border-ds-outline bg-ds-surface/95 sticky bottom-0 -mx-5 flex items-center justify-between gap-3 border-t p-4 backdrop-blur-sm sm:-mx-8 lg:hidden">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+                <span className="text-ds-on-surface-variant truncate text-[11px] font-semibold uppercase tracking-wide">
+                  Unsaved
+                </span>
+              </div>
+              <button
+                type="button"
+                className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex shrink-0 items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+                onClick={handleSave}
+                disabled={!selectedAgentId || isSaving}
+              >
+                {isSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </section>
 
@@ -335,83 +371,81 @@ export default function PlaygroundPage() {
             mobileTab === "preview" ? "flex" : "hidden xl:flex"
           }`}
         >
-          <div className="border-ds-outline flex h-[68vh] min-h-[420px] w-full max-w-xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl shadow-zinc-900/5">
-            <div className="border-ds-outline flex items-center justify-between border-b px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="bg-ds-primary flex size-9 items-center justify-center rounded-lg">
-                    <IconBot className="text-ds-on-primary size-4" />
+          <div className="border-ds-outline flex h-[68vh] min-h-[420px] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
+            <div className="border-ds-outline bg-ds-sidebar flex items-center justify-between border-b px-5 py-3.5 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="relative shrink-0">
+                  <div className="bg-ds-primary flex size-9 items-center justify-center rounded-lg text-ds-on-primary shadow-sm">
+                    <IconBot className="size-4" aria-hidden />
                   </div>
-                  <div className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+                  <div className="border-ds-surface absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 bg-emerald-500" />
                 </div>
-                <div>
-                  <h3 className="text-ds-on-surface text-xs font-black tracking-tight uppercase">
-                    Assistant Preview
+                <div className="min-w-0">
+                  <h3 className="text-ds-on-surface truncate text-sm font-semibold tracking-tight">
+                    Assistant preview
                   </h3>
-                  <span className="text-[9px] font-bold tracking-[0.15em] text-emerald-600 uppercase">
-                    Live
-                  </span>
+                  <span className="text-emerald-700 text-xs font-medium">Live</span>
                 </div>
               </div>
-              <div className="text-ds-on-surface-variant flex items-center gap-1">
-                <button className="hover:text-ds-on-surface rounded-ds-md p-2 transition-colors">
+              <div className="text-ds-on-surface-variant flex shrink-0 items-center gap-0.5">
+                <button type="button" className="hover:bg-ds-outline/50 hover:text-ds-on-surface rounded-ds-md p-2 transition-colors" aria-label="Refresh">
                   <IconRefresh className="size-4.5" />
                 </button>
-                <button className="hover:text-ds-on-surface rounded-ds-md p-2 transition-colors">
+                <button type="button" className="hover:bg-ds-outline/50 hover:text-ds-on-surface rounded-ds-md p-2 transition-colors" aria-label="More">
                   <IconMore className="size-4.5" />
                 </button>
               </div>
             </div>
 
-            <div className="bg-ds-sidebar/40 min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8">
               {previewMessages.length === 0 ? (
-                <p className="text-ds-on-surface-variant text-center text-xs">
-                  Send a message to test this agent.
-                </p>
+                <p className={cn(onboardingType.body, "text-center")}>Send a message to test this agent.</p>
               ) : null}
               {previewMessages.map((msg, index) => (
                 <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
                   {msg.from === "assistant" ? (
                     <div className="flex max-w-[90%] gap-3">
-                      <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white">
-                        <IconBot className="size-3.5" />
+                      <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white shadow-sm">
+                        <IconBot className="text-ds-on-surface-variant size-3.5" aria-hidden />
                       </div>
-                      <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-5 py-3 text-sm leading-relaxed shadow-sm">
+                      <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5">
                         {msg.text}
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-ds-primary text-ds-on-primary max-w-[85%] rounded-2xl rounded-tr-none px-5 py-3 text-sm">
+                    <div className="bg-ds-primary text-ds-on-primary max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5">
                       {msg.text}
                     </div>
                   )}
                 </div>
               ))}
-              {isSending ? <p className="text-ds-on-surface-variant text-xs">Thinking...</p> : null}
+              {isSending ? <p className={cn(onboardingType.hint, "italic")}>Thinking…</p> : null}
             </div>
 
-            <div className="border-ds-outline border-t bg-white p-4 sm:p-6">
-              <div className="flex items-center gap-3">
-                <button className="text-ds-on-surface-variant hover:text-ds-on-surface p-2 transition-colors">
+            <div className="border-ds-outline border-t bg-ds-surface p-4 sm:p-5">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button type="button" className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 shrink-0 rounded-ds-md p-2 transition-colors" aria-label="Attach">
                   <IconAttach className="size-5" />
                 </button>
                 <input
-                  className="border-ds-outline bg-ds-sidebar focus:border-ds-primary w-full rounded-xl border px-5 py-3 text-sm outline-none transition-colors"
-                  placeholder="Test your agent..."
+                  className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
+                  placeholder="Test your agent…"
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
                 />
                 <button
-                  className="bg-ds-primary text-ds-on-primary rounded-xl p-3 transition-opacity hover:opacity-90 disabled:opacity-40"
+                  type="button"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
                   onClick={handleSendMessage}
                   disabled={!selectedAgentId || isSending || !messageInput.trim()}
+                  aria-label="Send"
                 >
                   <IconSend className="size-4.5" />
                 </button>
               </div>
-              {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}
-              <p className="text-ds-on-surface-variant mt-4 text-center text-[9px] font-bold tracking-[0.2em] uppercase">
-                Running <span className="text-ds-on-surface">{model}</span> session
+              {error ? <p className="text-rose-600 mt-2 text-sm">{error}</p> : null}
+              <p className={cn(onboardingType.hint, "mt-3 text-center")}>
+                Session: <span className="text-ds-on-surface font-medium">{model}</span>
               </p>
             </div>
           </div>
@@ -426,9 +460,10 @@ function ToggleSwitch({ checked }: { checked: boolean }) {
     <button
       type="button"
       aria-pressed={checked}
-      className={`flex h-5 w-9 items-center rounded-full p-[2px] transition-colors ${
-        checked ? "bg-ds-primary" : "bg-zinc-300"
-      }`}
+      className={cn(
+        "flex h-5 w-9 items-center rounded-full p-0.5 transition-colors",
+        checked ? "bg-ds-primary" : "bg-ds-outline"
+      )}
     >
       <span
         className={`h-4 w-4 rounded-full bg-white transition-transform ${

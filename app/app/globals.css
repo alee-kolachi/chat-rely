@@ -13,7 +13,7 @@
   --color-ds-on-surface: var(--ds-on-surface);
   --color-ds-on-surface-variant: var(--ds-on-surface-variant);
   --color-ds-outline: var(--ds-outline);
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), "Inter Fallback", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --radius-ds-sm: var(--ds-radius-sm);
   --radius-ds-md: var(--ds-radius-md);
   --radius-ds-lg: var(--ds-radius-lg);
@@ -21,11 +21,8 @@
 }
 
 @layer utilities {
-  /* Onboarding main canvas: white base + subtle brand wash (dashboard-plus). */
   .onboarding-main-surface {
-    background:
-      radial-gradient(ellipse 90% 55% at 50% 0%, color-mix(in srgb, var(--ds-tertiary) 10%, transparent) 0%, transparent 55%),
-      #ffffff;
+    background: var(--ds-surface);
   }
 
   .dot-grid {
@@ -46,6 +43,116 @@
   .shadow-xl,
   .shadow-2xl {
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  }
+
+  .ds-app-shell {
+    margin: -1.5rem;
+    min-height: calc(100vh - 3.5rem);
+    background: var(--ds-surface);
+  }
+
+  /* Semantic typography — driven by tokens in styles/design-system.css */
+  .ds-app-page-title {
+    font-family: var(--ds-app-font-heading);
+    font-size: var(--ds-app-page-title-size);
+    font-weight: var(--ds-app-page-title-weight);
+    letter-spacing: var(--ds-app-page-title-tracking);
+    line-height: var(--ds-app-page-title-leading);
+    color: var(--ds-on-surface);
+  }
+
+  @media (min-width: 768px) {
+    .ds-app-page-title {
+      font-size: var(--ds-app-page-title-size-md);
+    }
+  }
+
+  .ds-app-page-description {
+    font-family: inherit;
+    font-size: var(--ds-app-page-description-size);
+    line-height: 1.55;
+    color: var(--ds-on-surface-variant);
+    margin-top: 0.25rem;
+    max-width: 42rem;
+  }
+
+  @media (min-width: 768px) {
+    .ds-app-page-description {
+      font-size: var(--ds-app-page-description-size-md);
+    }
+  }
+
+  .ds-app-page-description--wide {
+    max-width: none;
+  }
+
+  .ds-app-section-title {
+    font-family: var(--ds-app-font-heading);
+    font-size: var(--ds-app-section-title-size);
+    font-weight: var(--ds-app-section-title-weight);
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+    color: var(--ds-on-surface);
+  }
+
+  .ds-app-card-title {
+    font-family: var(--ds-app-font-heading);
+    font-size: var(--ds-app-card-title-size);
+    font-weight: var(--ds-app-card-title-weight);
+    line-height: 1.35;
+    color: var(--ds-on-surface);
+  }
+
+  .ds-app-metric-value {
+    font-family: var(--ds-app-font-heading);
+    font-size: var(--ds-app-metric-value-size);
+    font-weight: var(--ds-app-metric-value-weight);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    color: var(--ds-on-surface);
+  }
+
+  @media (min-width: 768px) {
+    .ds-app-metric-value {
+      font-size: var(--ds-app-metric-value-size-lg);
+    }
+  }
+
+  .ds-app-kicker {
+    font-size: var(--ds-app-kicker-size);
+    font-weight: var(--ds-app-kicker-weight);
+    letter-spacing: var(--ds-app-kicker-tracking);
+    text-transform: uppercase;
+    color: var(--ds-on-surface-variant);
+  }
+
+  /* Form controls aligned with onboarding / playground */
+  .ds-app-field {
+    width: 100%;
+    border: 1px solid var(--ds-outline);
+    border-radius: var(--ds-radius-md);
+    background: var(--ds-surface);
+    color: var(--ds-on-surface);
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .ds-app-field::placeholder {
+    color: color-mix(in srgb, var(--ds-on-surface-variant) 72%, transparent);
+  }
+
+  .ds-app-field:focus {
+    border-color: var(--ds-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ds-primary) 18%, transparent);
+  }
+
+  textarea.ds-app-field {
+    resize: vertical;
+    min-height: 10rem;
+    padding: 0.875rem 1rem;
   }
 }
 
@@ -69,7 +176,33 @@
 }
 
 body {
-  background: var(--ds-neutral);
+  background: var(--ds-surface);
   color: var(--ds-on-surface);
   font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    font-style: normal;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 14px;
+    color: oklch(0.442 0.017 285.786);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-style: normal;
+    font-weight: 600;
+    color: oklch(0.141 0.005 285.823);
+  }
+
+  h1 {
+    font-size: 28px;
+    line-height: 36px;
+  }
 }

@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
+
 type DataSourcesSidebarProps = {
   className?: string;
   mobile?: boolean;
@@ -7,21 +10,31 @@ export function DataSourcesSidebar({ className, mobile = false }: DataSourcesSid
   if (mobile) {
     return (
       <section
-        className={`border-ds-outline fixed right-0 bottom-0 left-0 z-40 border-t bg-white/95 p-3 shadow-xl backdrop-blur ${className ?? ""}`}
+        className={cn(
+          "border-ds-outline bg-ds-surface/95 fixed right-0 bottom-0 left-0 z-40 border-t p-3 shadow-lg backdrop-blur-sm",
+          "pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]",
+          className
+        )}
       >
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-ds-on-surface text-xs font-bold tracking-wide uppercase">Data sources</p>
+            <p className="ds-app-kicker text-ds-on-surface font-semibold">Data sources</p>
             <div className="text-ds-on-surface-variant mt-0.5 flex items-center gap-2 text-xs">
-              <IconLanguage className="size-4" />
-              <span className="truncate">2068 Links · 887 KB used</span>
+              <IconLanguage className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">2068 links · 887 KB used</span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button className="border-ds-outline text-ds-on-surface rounded-ds-md border bg-white px-3 py-1.5 text-xs font-semibold">
+            <button
+              type="button"
+              className="border-ds-outline text-ds-on-surface rounded-ds-md border bg-white px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors hover:bg-ds-sidebar"
+            >
               Retrain
             </button>
-            <button className="bg-ds-primary text-ds-on-primary rounded-ds-md px-3 py-1.5 text-xs font-semibold">
+            <button
+              type="button"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
+            >
               Upgrade
             </button>
           </div>
@@ -32,49 +45,56 @@ export function DataSourcesSidebar({ className, mobile = false }: DataSourcesSid
 
   return (
     <aside
-      className={`border-ds-outline bg-ds-sidebar sticky top-0 h-[calc(100vh-3.5rem)] w-[500px] shrink-0 overflow-y-auto border-l p-8 ${
-        className ?? ""
-      }`}
+      className={cn(
+        "border-ds-outline bg-ds-sidebar sticky top-0 h-[calc(100vh-3.5rem)] w-[clamp(16rem,30vw,31.25rem)] min-w-[16rem] shrink-0 overflow-y-auto border-l p-6 md:p-8",
+        className
+      )}
     >
-      <h2 className="mb-6 text-base font-bold text-black">Data sources</h2>
+      <h2 className="ds-app-section-title mb-6 text-base">Data sources</h2>
       <div className="space-y-4">
-        <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-white p-4 shadow-sm">
+        <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-surface p-4 shadow-sm">
           <div className="flex items-center gap-2">
-            <IconLanguage className="text-ds-on-surface-variant size-5" />
-            <span className="text-sm font-medium">2068 Links</span>
+            <IconLanguage className="text-ds-primary size-5 shrink-0" aria-hidden />
+            <span className="text-ds-on-surface text-sm font-medium">2068 links</span>
           </div>
-          <span className="text-sm font-medium">887 KB</span>
+          <span className="text-ds-on-surface text-sm font-semibold">887 KB</span>
         </div>
 
-        <div className="border-ds-outline rounded-ds-lg border bg-white p-5 shadow-sm">
+        <div className="border-ds-outline rounded-ds-lg border bg-ds-surface p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between text-sm">
             <span className="text-ds-on-surface-variant">Total size</span>
-            <span className="font-bold text-black">887 KB / 400 KB</span>
+            <span className="text-ds-on-surface font-semibold">887 KB / 400 KB</span>
           </div>
-          <div className="mb-6 h-2.5 w-full overflow-hidden rounded-full bg-zinc-100">
-            <div className="h-full w-full bg-zinc-400" />
+          <div className="mb-6 h-2.5 w-full overflow-hidden rounded-full bg-ds-outline/55">
+            <div className="from-ds-primary to-ds-secondary h-full w-full bg-gradient-to-r" />
           </div>
-          <button className="w-full rounded-ds-lg bg-zinc-500 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-600">
+          <button
+            type="button"
+            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-md py-2.5 text-sm font-semibold transition-colors"
+          >
             Retrain agent
           </button>
         </div>
 
         <div className="mt-6 space-y-3">
           <div className="flex items-start gap-2">
-            <div className="mt-1.5 h-2 w-2 rounded-full bg-orange-500" />
+            <div className="mt-1.5 size-2 shrink-0 rounded-full bg-amber-500" />
             <div>
-              <p className="text-sm font-bold text-orange-600">Limit exceeded</p>
+              <p className="text-sm font-semibold text-amber-800">Limit exceeded</p>
               <p className="text-ds-on-surface-variant text-sm leading-relaxed">
-                You&apos;re using 887 KB of 400 KB included in your plan
+                You&apos;re using 887 KB of 400 KB included in your plan.
               </p>
             </div>
           </div>
-          <button className="border-ds-outline hover:border-ds-primary group flex w-full items-center justify-between rounded-ds-lg border bg-white p-3 transition-colors">
+          <button
+            type="button"
+            className="border-ds-outline hover:border-ds-primary/40 group flex w-full items-center justify-between rounded-ds-lg border bg-ds-surface p-3 text-left shadow-sm transition-colors"
+          >
             <div className="flex items-center gap-2">
-              <IconArrowUp className="size-4.5" />
-              <span className="text-sm font-bold">Upgrade to train on more data</span>
+              <IconArrowUp className="text-ds-primary size-4.5 shrink-0" aria-hidden />
+              <span className="text-ds-on-surface text-sm font-semibold">Upgrade for more data</span>
             </div>
-            <IconChevron className="text-ds-on-surface-variant group-hover:text-ds-on-surface size-4" />
+            <IconChevron className="text-ds-on-surface-variant group-hover:text-ds-on-surface size-4 shrink-0" aria-hidden />
           </button>
         </div>
       </div>
@@ -89,7 +109,7 @@ function IconBase({
   strokeWidth = "1.8",
 }: {
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   fill?: string;
   strokeWidth?: string;
 }) {
@@ -129,9 +149,8 @@ function IconLanguage({ className }: { className?: string }) {
 function IconArrowUp({ className }: { className?: string }) {
   return (
     <IconBase className={className}>
-      <path d="M12 18V6" />
-      <path d="m7 11 5-5 5 5" />
-      <circle cx="12" cy="12" r="9" />
+      <path d="M12 19V5" />
+      <path d="m7 10 5-5 5 5" />
     </IconBase>
   );
 }

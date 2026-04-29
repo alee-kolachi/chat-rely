@@ -34,7 +34,7 @@ export function OnboardingFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="bg-white text-ds-on-surface flex min-h-screen">
+    <div className="bg-white text-ds-on-surface flex h-dvh max-h-dvh min-h-0 overflow-hidden">
       <aside className="bg-ds-sidebar border-ds-outline fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r md:flex">
         <div className="border-ds-outline flex h-14 items-center gap-2 border-b px-3">
           <div className="bg-ds-primary text-ds-on-primary flex size-8 items-center justify-center rounded-lg text-sm font-bold">
@@ -44,10 +44,8 @@ export function OnboardingFrame({
         </div>
 
         <div className="px-3 pt-5 pb-3">
-          <div className="mb-1 text-sm font-semibold tracking-tight">Setup Wizard</div>
-          <p className="text-ds-on-surface-variant text-[11px] font-medium tracking-widest uppercase">
-            Configure your AI agent
-          </p>
+          <div className="mb-1 text-sm font-semibold tracking-tight">Agent Setup</div>
+          <p className="text-ds-on-surface-variant text-[11px] font-medium tracking-widest uppercase">6 Steps</p>
         </div>
 
         <nav className="flex-1 px-2 pb-3">
@@ -60,8 +58,8 @@ export function OnboardingFrame({
                 href={onboardingItemRoutes[item]}
                 className={cn(
                   "mb-1 flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
-                  "text-zinc-500 hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                  isActive && "border-zinc-300 bg-white !text-black font-semibold shadow-sm"
+                  "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                  isActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
                 )}
               >
                 <span
@@ -89,19 +87,12 @@ export function OnboardingFrame({
         </div>
       </aside>
 
-      <div className="md:ml-64 flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="bg-ds-surface border-ds-outline sticky top-0 z-20 flex h-14 items-center justify-between border-b px-6">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold tracking-tight">AgentBuilder</span>
-            <span className="bg-ds-outline h-4 w-px" />
-            <span className="text-ds-on-surface-variant text-sm font-medium">{stepLabel}</span>
-          </div>
-          <span className="text-ds-on-surface-variant text-xs font-medium uppercase tracking-wider">
-            Onboarding
-          </span>
+      <div className="md:ml-64 flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="bg-ds-surface border-ds-outline sticky top-0 z-20 flex h-14 items-center border-b px-6">
+          <span className="text-ds-on-surface-variant text-sm font-medium">{stepLabel}</span>
         </header>
 
-        <main className="onboarding-main-surface flex-1 min-h-0">{children}</main>
+        <main className="onboarding-main-surface flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
       </div>
     </div>
   );

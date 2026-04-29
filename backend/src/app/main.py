@@ -8,6 +8,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import get_api_router
@@ -43,6 +44,17 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    allowed_origins = [str(origin) for origin in settings.allowed_origins]
+    if settings.is_development and not allowed_origins:
+        allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next: Any) -> Response:

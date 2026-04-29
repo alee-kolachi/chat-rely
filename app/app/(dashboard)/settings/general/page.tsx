@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
+
 const notificationOptions = [
   {
     title: "Receive email with daily leads",
@@ -13,166 +16,211 @@ const notificationOptions = [
 
 export default function SettingsGeneralPage() {
   return (
-    <div className="-m-6 min-h-[calc(100vh-3.5rem)] bg-ds-surface p-8">
-      <div className="mx-auto w-full max-w-4xl">
+    <div className="ds-app-shell p-6 md:p-8">
+      <div className="mx-auto w-full max-w-5xl">
         <header className="mb-10">
-          <h1 className="text-ds-primary text-3xl font-extrabold tracking-tight">General Settings</h1>
-          <p className="text-ds-on-surface-variant mt-2">
-            Manage your account preferences and application configurations.
+          <h1 className="ds-app-page-title">General</h1>
+          <p className="ds-app-page-description ds-app-page-description--wide mt-2">
+            Account preferences and workspace configuration.
           </p>
         </header>
 
         <div className="grid grid-cols-1 gap-6">
-          <section className="border-ds-outline rounded-ds-xl bg-white p-6 shadow-sm border">
-            <h2 className="mb-6 flex items-center gap-2 text-lg font-bold">
-              <IconUser className="text-ds-primary size-5" />
-              Profile Information
-            </h2>
-            <div className="flex flex-col items-center gap-6 md:flex-row">
-              <div className="group relative shrink-0">
-                <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border-2 border-zinc-200 bg-zinc-100">
-                  <div className="text-ds-on-surface-variant text-xs font-bold">AH</div>
-                  <div className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                    <IconCamera className="text-white size-5" />
+          <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-10">
+              <div className="min-w-0 lg:border-r lg:border-ds-outline lg:pr-10">
+                <h2 className="ds-app-section-title mb-6 flex items-center gap-2 text-base">
+                  <IconUser className="text-ds-primary size-5 shrink-0" aria-hidden />
+                  Profile
+                </h2>
+                <div className="grid grid-cols-1 items-start gap-6 sm:grid-cols-[auto_1fr]">
+                  <div className="group relative mx-auto shrink-0 sm:mx-0">
+                    <div className="border-ds-outline bg-ds-sidebar relative flex size-20 items-center justify-center overflow-hidden rounded-ds-lg border-2">
+                      <div className="text-ds-on-surface-variant text-xs font-semibold">AH</div>
+                      <div className="absolute inset-0 flex cursor-pointer items-center justify-center bg-ds-on-surface/45 opacity-0 transition-opacity group-hover:opacity-100">
+                        <IconCamera className="text-ds-on-primary size-5" aria-hidden />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-ds-primary mt-2 block w-full text-center text-[11px] font-semibold tracking-wide uppercase hover:underline"
+                    >
+                      Change photo
+                    </button>
+                  </div>
+                  <div className="min-w-0">
+                    <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Full name</label>
+                    <input className="ds-app-field rounded-ds-lg" type="text" defaultValue="Alexander Hamilton" />
+                    <p className="text-ds-on-surface-variant mt-2 text-xs leading-relaxed">
+                      Shown on your profile and in notifications.
+                    </p>
                   </div>
                 </div>
-                <button className="text-ds-primary mt-2 block w-full text-center text-[10px] font-bold tracking-wider uppercase hover:underline">
-                  Change
-                </button>
               </div>
-              <div className="w-full max-w-sm flex-1">
-                <label className="mb-1.5 block text-sm font-bold text-zinc-700">Full name</label>
-                <input
-                  className="focus:border-ds-primary focus:ring-ds-primary/30 w-full rounded-ds-lg border border-zinc-300 px-4 py-2 text-sm outline-none focus:ring-2"
-                  type="text"
-                  defaultValue="Alexander Hamilton"
-                />
-                <p className="mt-2 text-[11px] text-zinc-500">
-                  Displayed across profile and notifications.
-                </p>
+
+              <div className="min-w-0 border-t border-ds-outline pt-8 lg:border-t-0 lg:pt-0 lg:pl-10">
+                <h2 className="ds-app-section-title mb-6 flex items-center gap-2 text-base">
+                  <IconMail className="text-ds-primary size-5 shrink-0" aria-hidden />
+                  Email
+                </h2>
+                <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Current email</label>
+                <div className="flex flex-col gap-3">
+                  <input
+                    className="ds-app-field text-ds-on-surface-variant w-full cursor-not-allowed rounded-ds-lg bg-ds-sidebar/80"
+                    type="email"
+                    readOnly
+                    value="alex.hamilton@example.com"
+                  />
+                  <button
+                    type="button"
+                    className="border-ds-outline text-ds-primary hover:bg-ds-primary/8 w-full rounded-ds-lg border bg-transparent px-4 py-2.5 text-sm font-semibold transition-colors sm:w-auto sm:self-start"
+                  >
+                    Change
+                  </button>
+                </div>
               </div>
             </div>
           </section>
 
-          <section className="border-ds-outline rounded-ds-xl bg-white p-6 shadow-sm border">
-            <h2 className="mb-6 flex items-center gap-2 text-lg font-bold">
-              <IconMail className="text-ds-primary size-5" />
-              Email Settings
+          <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <h2 className="ds-app-section-title mb-2 flex items-center gap-2 text-base">
+              <IconSpeed className="text-ds-primary size-5 shrink-0" aria-hidden />
+              Rate limits
             </h2>
-            <div className="max-w-sm">
-              <label className="mb-1.5 block text-sm font-bold text-zinc-700">Current email</label>
-              <div className="flex items-center gap-3">
-                <input
-                  className="flex-1 cursor-not-allowed rounded-ds-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-500"
-                  type="email"
-                  readOnly
-                  value="alex.hamilton@example.com"
-                />
-                <button className="text-ds-primary text-sm font-bold hover:underline">Change</button>
-              </div>
-            </div>
-          </section>
-
-          <section className="border-ds-outline rounded-ds-xl bg-white p-6 shadow-sm border">
-            <h2 className="mb-6 flex items-center gap-2 text-lg font-bold">
-              <IconSpeed className="text-ds-primary size-5" />
-              Rate Limit Settings
-            </h2>
+            <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
+              Throttle how many user messages an agent accepts within a rolling time window.
+            </p>
             <div className="space-y-6">
-              <div className="flex flex-wrap items-center gap-3 text-sm font-medium text-zinc-700">
-                <span>Limit to</span>
-                <input
-                  className="w-16 rounded-ds-lg border border-zinc-300 px-3 py-1.5 text-center font-bold"
-                  type="number"
-                  defaultValue={20}
-                />
-                <span>messages every</span>
-                <input
-                  className="w-16 rounded-ds-lg border border-zinc-300 px-3 py-1.5 text-center font-bold"
-                  type="number"
-                  defaultValue={60}
-                />
-                <span>seconds</span>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-8">
+                <div>
+                  <label
+                    htmlFor="rate-limit-messages"
+                    className="text-ds-on-surface mb-1.5 block text-sm font-semibold"
+                  >
+                    Max messages
+                  </label>
+                  <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+                    Allowed before the limit message is shown.
+                  </p>
+                  <div className="w-28">
+                    <input
+                      id="rate-limit-messages"
+                      className="ds-app-field rounded-ds-lg py-2.5 text-center tabular-nums font-semibold"
+                      type="number"
+                      min={1}
+                      defaultValue={20}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label
+                    htmlFor="rate-limit-window"
+                    className="text-ds-on-surface mb-1.5 block text-sm font-semibold"
+                  >
+                    Window (seconds)
+                  </label>
+                  <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+                    Rolling period the count applies to.
+                  </p>
+                  <div className="w-28">
+                    <input
+                      id="rate-limit-window"
+                      className="ds-app-field rounded-ds-lg py-2.5 text-center tabular-nums font-semibold"
+                      type="number"
+                      min={1}
+                      defaultValue={60}
+                    />
+                  </div>
+                </div>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-bold text-zinc-700">
-                  Message to show when limit is hit
+                <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">
+                  Message when limit is reached
                 </label>
                 <textarea
-                  className="focus:border-ds-primary focus:ring-ds-primary/30 w-full rounded-ds-lg border border-zinc-300 px-4 py-3 text-sm outline-none focus:ring-2"
+                  className="ds-app-field min-h-[5.5rem] rounded-ds-lg leading-relaxed"
                   rows={3}
                   defaultValue="Too many messages. Please try again in a bit."
                 />
               </div>
-              <div className="flex justify-end gap-3 border-t border-zinc-100 pt-4">
-                <button className="rounded-ds-lg px-5 py-2 text-sm font-bold text-zinc-600 transition-all hover:bg-zinc-100">
+              <div className="border-ds-outline flex justify-end gap-3 border-t pt-4">
+                <button
+                  type="button"
+                  className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-lg px-5 py-2 text-sm font-semibold transition-colors hover:bg-ds-sidebar"
+                >
                   Reset
                 </button>
-                <button className="bg-ds-primary text-ds-on-primary rounded-ds-lg px-5 py-2 text-sm font-bold shadow-sm transition-all hover:opacity-90">
-                  Save Changes
+                <button
+                  type="button"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-lg px-5 py-2 text-sm font-semibold shadow-sm transition-colors"
+                >
+                  Save changes
                 </button>
               </div>
             </div>
           </section>
 
-          <section className="border-ds-outline rounded-ds-xl bg-white p-6 shadow-sm border">
-            <h2 className="mb-6 flex items-center gap-2 text-lg font-bold">
-              <IconBell className="text-ds-primary size-5" />
-              Notification Settings
+          <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <h2 className="ds-app-section-title mb-6 flex items-center gap-2 text-base">
+              <IconBell className="text-ds-primary size-5 shrink-0" aria-hidden />
+              Notifications
             </h2>
             <div className="space-y-6">
               {notificationOptions.map((option) => (
                 <label key={option.title} className="flex cursor-pointer items-start gap-4">
-                  <div className="relative flex h-5 items-center">
+                  <div className="relative mt-0.5 flex h-5 items-center">
                     <input
                       type="checkbox"
                       defaultChecked={option.checked}
-                      className="h-5 w-5 rounded border-zinc-300 text-black focus:ring-black"
+                      className="border-ds-outline text-ds-primary focus:ring-ds-primary/25 size-5 rounded"
                     />
                   </div>
                   <div className="text-sm">
-                    <span className="block font-bold text-zinc-800">{option.title}</span>
-                    <span className="text-zinc-500">{option.description}</span>
+                    <span className="text-ds-on-surface block font-semibold">{option.title}</span>
+                    <span className="text-ds-on-surface-variant mt-0.5 block leading-relaxed">
+                      {option.description}
+                    </span>
                   </div>
                 </label>
               ))}
               <div className="flex justify-end pt-4">
-                <button className="bg-ds-primary text-ds-on-primary rounded-ds-lg px-6 py-2 text-sm font-bold shadow-sm transition-all hover:opacity-90">
-                  Save Preferences
+                <button
+                  type="button"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-lg px-6 py-2 text-sm font-semibold shadow-sm transition-colors"
+                >
+                  Save preferences
                 </button>
               </div>
             </div>
           </section>
 
-          <section className="rounded-ds-xl border border-red-200 bg-red-50 p-6">
-            <h2 className="mb-2 flex items-center gap-2 text-lg font-bold text-red-700">
-              <IconWarning className="size-5" />
-              Danger Zone
+          <section className="rounded-ds-xl border border-rose-200 bg-rose-50/80 p-6">
+            <h2 className="ds-app-section-title mb-2 flex items-center gap-2 text-base text-rose-900">
+              <IconWarning className="size-5 shrink-0 text-rose-700" aria-hidden />
+              Danger zone
             </h2>
-            <p className="mb-6 text-[13px] text-red-600">
-              Irreversible actions that will permanently affect your data and account.
+            <p className="text-sm leading-relaxed text-rose-800/90">
+              Irreversible actions that permanently affect your data and account.
             </p>
-            <div className="space-y-4">
+            <div className="mt-6 space-y-4">
               <DangerItem
-                title="Clear Data"
-                description="Permanently remove all chat logs and history from the system."
+                title="Clear data"
+                description="Permanently remove all chat logs and history."
                 action="Delete all conversations"
                 subtle
-                icon={<IconDeleteSweep className="size-4.5" />}
+                icon={<IconDeleteSweep className="size-4.5 shrink-0" aria-hidden />}
               />
               <DangerItem
-                title="Close Account"
-                description="Deactivate your profile and remove all associated personal information."
+                title="Close account"
+                description="Deactivate your profile and remove associated personal information."
                 action="Delete account"
-                icon={<IconDeleteForever className="size-4.5" />}
+                icon={<IconDeleteForever className="size-4.5 shrink-0" aria-hidden />}
               />
             </div>
           </section>
         </div>
 
-        <footer className="text-ds-on-surface-variant mt-12 pb-12 text-center text-[10px] tracking-widest uppercase">
-          © 2024 Settings Console. Built with Inter.
-        </footer>
+        <footer className="ds-app-kicker mt-12 pb-8 text-center">ChatRely · Settings</footer>
       </div>
     </div>
   );
@@ -188,21 +236,23 @@ function DangerItem({
   title: string;
   description: string;
   action: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   subtle?: boolean;
 }) {
   return (
-    <div className="flex flex-col justify-between gap-4 rounded-ds-lg border border-red-100 bg-white p-4 sm:flex-row sm:items-center">
-      <div>
-        <h3 className="text-sm font-bold text-zinc-900">{title}</h3>
-        <p className="text-xs text-zinc-500">{description}</p>
+    <div className="border-ds-outline flex flex-col justify-between gap-4 rounded-ds-lg border bg-ds-surface p-4 sm:flex-row sm:items-center">
+      <div className="min-w-0">
+        <h3 className="text-ds-on-surface text-sm font-semibold">{title}</h3>
+        <p className="text-ds-on-surface-variant mt-0.5 text-xs leading-relaxed">{description}</p>
       </div>
       <button
-        className={`flex items-center justify-center gap-2 rounded-ds-lg px-5 py-2.5 text-sm font-bold whitespace-nowrap transition-all ${
+        type="button"
+        className={cn(
+          "flex items-center justify-center gap-2 rounded-ds-lg px-5 py-2.5 text-sm font-semibold whitespace-nowrap transition-colors",
           subtle
-            ? "border border-red-200 bg-white text-red-600 hover:bg-red-50"
-            : "bg-red-600 text-white shadow-sm hover:bg-red-700"
-        }`}
+            ? "border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+            : "bg-rose-600 text-white shadow-sm hover:bg-rose-700"
+        )}
       >
         {icon}
         {action}
@@ -218,7 +268,7 @@ function IconBase({
   strokeWidth = "1.8",
 }: {
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   fill?: string;
   strokeWidth?: string;
 }) {

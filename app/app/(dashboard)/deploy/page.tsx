@@ -1,3 +1,5 @@
+import { cn } from "@/lib/utils";
+
 const setupSteps = [
   {
     title: "Enable chat widget in Deploy",
@@ -21,71 +23,76 @@ const integrationEvents = [
 
 export default function DeployPage() {
   return (
-    <div className="-m-6 min-h-[calc(100vh-3.5rem)] bg-ds-surface p-8">
+    <div className="ds-app-shell p-6 md:p-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-ds-on-surface text-3xl font-black tracking-tight">Deploy</h1>
-            <p className="text-ds-on-surface-variant mt-1 text-sm">
-              Connect Shopify and configure the chat widget experience for your store.
+            <h1 className="ds-app-page-title">Deploy</h1>
+            <p className="ds-app-page-description ds-app-page-description--wide">
+              Connect Shopify and configure the chat widget for your store.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="border-ds-outline bg-white hover:bg-ds-sidebar rounded-ds-md border px-4 py-2 text-sm font-semibold transition-colors">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors"
+            >
               Open Shopify
             </button>
-            <button className="bg-ds-primary text-ds-on-primary rounded-ds-md px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-90">
+            <button
+              type="button"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+            >
               Connect store
             </button>
           </div>
         </header>
 
-        <section className="border-ds-outline rounded-ds-xl border bg-white p-6 shadow-sm">
+        <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-ds-on-surface text-base font-bold">Shopify Integration</p>
+              <p className="ds-app-section-title text-base">Shopify integration</p>
               <p className="text-ds-on-surface-variant mt-1 text-sm">
-                Store: <span className="text-ds-on-surface font-medium">mystore.myshopify.com</span>
+                Store: <span className="text-ds-on-surface font-semibold">mystore.myshopify.com</span>
               </p>
             </div>
-            <span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700 uppercase">
+            <span className="ds-app-kicker rounded-ds-md bg-emerald-100 px-2 py-1 font-semibold text-emerald-800">
               Connected
             </span>
           </div>
-          <div className="mt-4 rounded-ds-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-            No manual embed code needed. The widget is automatically added once the Chatbase Shopify
-            app is installed and authorized.
+          <div className="mt-4 rounded-ds-md border border-emerald-200 bg-emerald-50/90 p-3 text-sm leading-relaxed text-emerald-950">
+            No manual embed code needed. The widget is added once the Shopify app is installed and authorized.
           </div>
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_1fr]">
-          <article className="border-ds-outline rounded-ds-xl border bg-white p-6 shadow-sm">
-            <h2 className="text-ds-on-surface mb-4 text-lg font-bold">Recommended Setup Flow</h2>
+          <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <h2 className="ds-app-section-title mb-4">Recommended setup</h2>
             <div className="space-y-3">
               {setupSteps.map((step, index) => (
-                <div key={step.title} className="border-ds-outline rounded-ds-lg border bg-zinc-50 p-4">
+                <div key={step.title} className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/60 p-4">
                   <p className="text-ds-on-surface text-sm font-semibold">
                     Step {index + 1}: {step.title}
                   </p>
-                  <p className="text-ds-on-surface-variant mt-1 text-sm">{step.detail}</p>
+                  <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">{step.detail}</p>
                 </div>
               ))}
             </div>
           </article>
 
-          <article className="border-ds-outline rounded-ds-xl border bg-white p-6 shadow-sm">
-            <h2 className="text-ds-on-surface mb-4 text-lg font-bold">Connection Method</h2>
+          <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <h2 className="ds-app-section-title mb-4">Connection method</h2>
             <div className="space-y-3 text-sm">
-              <div className="border-ds-outline rounded-ds-md border bg-zinc-50 p-3">
-                <p className="text-ds-on-surface font-semibold">Via Chatbase (Recommended)</p>
-                <p className="text-ds-on-surface-variant mt-1">
-                  Full feature access and add-ons. Best option for MVP + future expansion.
+              <div className="border-ds-outline rounded-ds-md border bg-ds-sidebar/60 p-3">
+                <p className="text-ds-on-surface font-semibold">Via ChatRely (recommended)</p>
+                <p className="text-ds-on-surface-variant mt-1 leading-relaxed">
+                  Full feature access and add-ons. Best for production and growth.
                 </p>
               </div>
-              <div className="border-ds-outline rounded-ds-md border bg-zinc-50 p-3">
+              <div className="border-ds-outline rounded-ds-md border bg-ds-sidebar/60 p-3">
                 <p className="text-ds-on-surface font-semibold">Via Shopify Marketplace</p>
-                <p className="text-ds-on-surface-variant mt-1">
-                  Billing via Shopify, but limited add-ons and single agent constraint.
+                <p className="text-ds-on-surface-variant mt-1 leading-relaxed">
+                  Billing via Shopify with a more constrained feature set.
                 </p>
               </div>
             </div>
@@ -93,20 +100,18 @@ export default function DeployPage() {
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_1fr]">
-          <article className="border-ds-outline rounded-ds-xl border bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-ds-on-surface text-lg font-bold">Theme & Widget Settings</h2>
-              <span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700 uppercase">
+          <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="ds-app-section-title">Theme & widget</h2>
+              <span className="ds-app-kicker rounded-ds-md bg-emerald-100 px-2 py-1 font-semibold text-emerald-800">
                 Ready
               </span>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="text-ds-on-surface-variant mb-1.5 block text-xs font-bold tracking-wide uppercase">
-                  Selected theme
-                </label>
-                <select className="border-ds-outline bg-white text-ds-on-surface w-full rounded-ds-md border px-3 py-2 text-sm outline-none">
+                <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Selected theme</label>
+                <select className="ds-app-field rounded-ds-md">
                   <option>Published Theme</option>
                   <option>Holiday Campaign Theme</option>
                 </select>
@@ -114,19 +119,15 @@ export default function DeployPage() {
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="text-ds-on-surface-variant mb-1.5 block text-xs font-bold tracking-wide uppercase">
-                    Launcher position
-                  </label>
-                  <select className="border-ds-outline bg-white text-ds-on-surface w-full rounded-ds-md border px-3 py-2 text-sm outline-none">
+                  <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Launcher position</label>
+                  <select className="ds-app-field rounded-ds-md">
                     <option>Bottom Right</option>
                     <option>Bottom Left</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-ds-on-surface-variant mb-1.5 block text-xs font-bold tracking-wide uppercase">
-                    Chat widget
-                  </label>
-                  <select className="border-ds-outline bg-white text-ds-on-surface w-full rounded-ds-md border px-3 py-2 text-sm outline-none">
+                  <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Chat widget</label>
+                  <select className="ds-app-field rounded-ds-md">
                     <option>Enabled</option>
                     <option>Disabled</option>
                   </select>
@@ -134,27 +135,28 @@ export default function DeployPage() {
               </div>
 
               <div>
-                <label className="text-ds-on-surface-variant mb-1.5 block text-xs font-bold tracking-wide uppercase">
-                  Welcome message
-                </label>
+                <label className="ds-app-kicker mb-2 block text-ds-on-surface-variant">Welcome message</label>
                 <textarea
-                  className="border-ds-outline bg-white text-ds-on-surface min-h-24 w-full rounded-ds-md border p-3 text-sm outline-none"
+                  className="ds-app-field min-h-24 rounded-ds-md"
                   defaultValue="Hi there! Need help finding a product or tracking your order?"
                 />
               </div>
             </div>
           </article>
 
-          <article className="border-ds-outline rounded-ds-xl border bg-white p-6 shadow-sm">
-            <h2 className="text-ds-on-surface mb-5 text-lg font-bold">Actions Readiness</h2>
+          <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <h2 className="ds-app-section-title mb-5">Actions readiness</h2>
             <div className="space-y-3">
               <ChecklistItem text="Product Search configured" checked />
               <ChecklistItem text="Order Lookup configured" checked />
               <ChecklistItem text="Customer auth prompts reviewed" checked={false} />
               <ChecklistItem text="Escalate to Human fallback enabled" checked />
             </div>
-            <div className="mt-5 grid grid-cols-1 gap-2">
-              <button className="border-ds-outline hover:bg-ds-sidebar rounded-ds-md border bg-white px-3 py-2 text-sm font-semibold transition-colors">
+            <div className="mt-5">
+              <button
+                type="button"
+                className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar w-full rounded-ds-md border bg-white px-3 py-2.5 text-sm font-semibold transition-colors"
+              >
                 Open Actions setup
               </button>
             </div>
@@ -162,15 +164,15 @@ export default function DeployPage() {
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
-          <article className="border-ds-outline rounded-ds-xl border bg-white p-6 shadow-sm">
-            <h2 className="text-ds-on-surface mb-5 text-lg font-bold">Integration Activity</h2>
+          <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <h2 className="ds-app-section-title mb-5">Integration activity</h2>
             <div className="space-y-3">
               {integrationEvents.map((event) => (
                 <div
                   key={event.title}
-                  className="border-ds-outline/70 rounded-ds-lg flex items-start justify-between gap-4 border bg-zinc-50 px-4 py-3"
+                  className="border-ds-outline flex items-start justify-between gap-4 rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-ds-on-surface text-sm font-semibold">{event.title}</p>
                     <p className="text-ds-on-surface-variant mt-0.5 text-xs">{event.detail}</p>
                   </div>
@@ -180,15 +182,18 @@ export default function DeployPage() {
             </div>
           </article>
 
-          <aside className="border-ds-outline rounded-ds-xl h-fit border bg-white p-6 shadow-sm">
-            <h2 className="text-ds-on-surface mb-4 text-lg font-bold">MVP Checklist</h2>
+          <aside className="border-ds-outline h-fit rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <h2 className="ds-app-section-title mb-4">MVP checklist</h2>
             <ul className="space-y-2">
-              <ChecklistItem text="Shopify store connected via Chatbase" checked />
-              <ChecklistItem text="Widget enabled in Deploy page" checked />
+              <ChecklistItem text="Shopify store connected" checked />
+              <ChecklistItem text="Widget enabled in Deploy" checked />
               <ChecklistItem text="Theme selected in Shopify editor" checked />
               <ChecklistItem text="Core Shopify actions configured" checked={false} />
             </ul>
-            <button className="mt-5 w-full rounded-ds-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90">
+            <button
+              type="button"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary mt-5 w-full rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+            >
               Continue to actions
             </button>
           </aside>
@@ -200,11 +205,12 @@ export default function DeployPage() {
 
 function ChecklistItem({ text, checked }: { text: string; checked: boolean }) {
   return (
-    <li className="border-ds-outline rounded-ds-md flex items-center gap-3 border px-3 py-2">
+    <li className="border-ds-outline flex items-center gap-3 rounded-ds-md border bg-white px-3 py-2 shadow-sm">
       <span
-        className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
-          checked ? "bg-emerald-600 text-white" : "bg-zinc-200 text-zinc-700"
-        }`}
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+          checked ? "bg-emerald-600 text-white" : "bg-ds-outline text-ds-on-surface-variant"
+        )}
       >
         {checked ? "✓" : "!"}
       </span>

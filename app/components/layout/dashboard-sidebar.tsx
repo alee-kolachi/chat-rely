@@ -127,8 +127,8 @@ export function DashboardSidebar() {
                   onClick={() => toggleSection(item.href)}
                   className={cn(
                     "flex w-full min-w-0 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
-                    "text-zinc-500 hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                    showAsActive && "border-zinc-300 bg-white !text-black font-semibold shadow-sm"
+                    "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                    showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
                   )}
                   aria-label={sectionOpen ? `Collapse ${item.label}` : `Expand ${item.label}`}
                 >
@@ -147,9 +147,9 @@ export function DashboardSidebar() {
                   title={isCollapsed ? item.label : undefined}
                   className={cn(
                     "flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
-                    "text-zinc-500 hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                    "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
                     isCollapsed && "justify-center px-2",
-                    showAsActive && "border-zinc-300 bg-white !text-black font-semibold shadow-sm"
+                    showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
                   )}
                 >
                   {item.icon("size-5 shrink-0")}
@@ -167,7 +167,7 @@ export function DashboardSidebar() {
                 <div className="border-ds-outline/70 mt-1 ml-7 flex flex-col gap-1 border-l pl-3">
                   {item.children.map((child) => {
                     const baseChildClass =
-                      "text-zinc-500 hover:text-ds-on-surface rounded-md border border-transparent px-2 py-1.5 text-left text-xs transition-colors";
+                      "text-ds-on-surface-variant hover:text-ds-on-surface rounded-md border border-transparent px-2 py-1.5 text-left text-xs transition-colors";
 
                     if (child.action === "logout") {
                       return <LogoutButton key={`${item.href}-${child.label}`} className={baseChildClass} />;
@@ -180,7 +180,7 @@ export function DashboardSidebar() {
                       <Link
                         key={childHref}
                         href={childHref}
-                        className={cn(baseChildClass, childIsActive && "border-zinc-300 bg-white !text-black font-semibold")}
+                        className={cn(baseChildClass, childIsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold")}
                       >
                         {child.label}
                       </Link>

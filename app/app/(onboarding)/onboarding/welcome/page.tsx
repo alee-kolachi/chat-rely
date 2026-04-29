@@ -39,7 +39,7 @@ export default function OnboardingWelcomePage() {
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
             <Link
               href="/onboarding"
-              className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 inline-flex items-center justify-center rounded-ds-md px-6 py-3 text-sm font-semibold transition-colors"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center justify-center rounded-ds-md px-6 py-3 text-sm font-semibold transition-colors"
             >
               Start setup
             </Link>

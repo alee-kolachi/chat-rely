@@ -2,6 +2,23 @@ import type { ComponentProps, ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
+function OnboardingBackChevron({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+  );
+}
+
 /** Shared typography + spacing for all onboarding main content */
 export const onboardingType = {
   kicker: "text-ds-on-surface-variant text-[11px] font-semibold uppercase tracking-[0.18em]",
@@ -76,27 +93,28 @@ export function OnboardingStickyFooter({
   tertiary?: ReactNode;
 }) {
   return (
-    <footer className="bg-ds-surface/95 border-ds-outline fixed right-0 bottom-0 left-0 z-40 flex h-16 items-center justify-between gap-4 border-t px-4 backdrop-blur-sm md:left-64 md:px-8">
-      <div className="flex min-w-0 items-center gap-3">
+    <footer className="bg-ds-surface/95 border-ds-outline fixed right-0 bottom-0 left-0 z-40 flex min-h-16 w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t px-3 py-3 backdrop-blur-sm pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 md:left-64 md:h-16 md:flex-nowrap md:gap-4 md:px-8 md:py-0 md:pb-0 md:pt-0">
+      <div className="order-1 flex min-w-0 shrink items-center">
         {backHref ? (
           <Link
             href={backHref}
-            className="text-ds-on-surface-variant hover:text-ds-on-surface inline-flex items-center gap-1.5 rounded-ds-md px-3 py-2 text-xs font-semibold tracking-wide uppercase transition-colors"
+            className="text-ds-on-surface-variant hover:text-ds-on-surface inline-flex min-w-0 items-center gap-1.5 rounded-ds-md px-2 py-2 text-[11px] font-semibold tracking-wide uppercase transition-colors sm:gap-2 sm:px-3 sm:text-xs"
           >
-            ← {backLabel}
+            <OnboardingBackChevron className="size-4 shrink-0" />
+            <span className="leading-none">{backLabel}</span>
           </Link>
         ) : (
           <span />
         )}
       </div>
-      {tertiary ? <div className="hidden shrink-0 sm:block">{tertiary}</div> : null}
-      <div className="flex shrink-0 items-center gap-3">
+      {tertiary ? <div className="order-3 hidden w-full shrink-0 sm:order-2 sm:block sm:w-auto">{tertiary}</div> : null}
+      <div className="order-2 flex shrink-0 items-center justify-end sm:order-3">
         {primaryAsButton ? (
           <button
             type="button"
             onClick={onPrimaryClick}
             disabled={primaryDisabled}
-            className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 inline-flex items-center justify-center rounded-ds-md px-5 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex max-w-full items-center justify-center rounded-ds-md px-3 py-2 text-[10px] font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45 sm:px-5 sm:py-2.5 sm:text-xs"
           >
             {primaryLabel}
           </button>
@@ -104,14 +122,14 @@ export function OnboardingStickyFooter({
           <button
             type="button"
             disabled
-            className="bg-ds-primary text-ds-on-primary inline-flex cursor-not-allowed items-center justify-center rounded-ds-md px-5 py-2.5 text-xs font-semibold tracking-wide uppercase opacity-45"
+            className="bg-ds-primary text-ds-on-primary inline-flex max-w-full cursor-not-allowed items-center justify-center rounded-ds-md px-3 py-2 text-[10px] font-semibold tracking-wide uppercase opacity-45 sm:px-5 sm:py-2.5 sm:text-xs"
           >
             {primaryLabel}
           </button>
         ) : (
           <Link
             href={primaryHref}
-            className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 inline-flex items-center justify-center rounded-ds-md px-5 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98]"
+            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex max-w-full items-center justify-center rounded-ds-md px-3 py-2 text-[10px] font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] sm:px-5 sm:py-2.5 sm:text-xs"
           >
             {primaryLabel}
           </Link>
@@ -125,16 +143,18 @@ export function OnboardingFieldRow({
   id,
   label,
   hint,
+  labelClassName,
   children,
 }: {
   id?: string;
   label: string;
   hint?: string;
+  labelClassName?: string;
   children: ReactNode;
 }) {
   return (
     <div className="space-y-0">
-      <label htmlFor={id} className={onboardingType.label}>
+      <label htmlFor={id} className={cn(onboardingType.label, labelClassName)}>
         {label}
       </label>
       {children}

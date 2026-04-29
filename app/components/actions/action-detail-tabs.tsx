@@ -32,8 +32,8 @@ export function ActionDetailTabs({ action }: ActionDetailTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   return (
-    <div className="border-ds-outline rounded-ds-xl border bg-white shadow-sm">
-      <div className="border-ds-outline overflow-x-auto border-b">
+    <div className="border-ds-outline rounded-ds-xl border bg-ds-surface shadow-sm">
+      <div className="border-ds-outline bg-ds-sidebar/80 overflow-x-auto border-b">
         <div className="flex min-w-max items-center gap-1 px-4 pt-3">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTab;
@@ -45,7 +45,7 @@ export function ActionDetailTabs({ action }: ActionDetailTabsProps) {
                 className={cn(
                   "relative px-4 py-3 text-sm font-medium transition-colors",
                   isActive
-                    ? "text-ds-on-surface font-semibold"
+                    ? "text-ds-primary font-semibold"
                     : "text-ds-on-surface-variant hover:text-ds-on-surface"
                 )}
               >
@@ -73,8 +73,8 @@ export function ActionDetailTabs({ action }: ActionDetailTabsProps) {
 function SectionHeading({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="mb-4">
-      <h3 className="text-ds-on-surface text-sm font-bold tracking-wide">{title}</h3>
-      {hint ? <p className="text-ds-on-surface-variant mt-1 text-xs">{hint}</p> : null}
+      <h3 className="ds-app-section-title text-sm md:text-base">{title}</h3>
+      {hint ? <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">{hint}</p> : null}
     </div>
   );
 }
@@ -134,11 +134,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
         <label className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
           {field.label}
         </label>
-        <input
-          type="text"
-          defaultValue={field.defaultValue}
-          className="border-ds-outline focus:border-ds-primary w-full rounded-ds-md border bg-white px-3 py-2 text-sm outline-none"
-        />
+        <input type="text" defaultValue={field.defaultValue} className="ds-app-field rounded-ds-md" />
         {field.help && (
           <p className="text-ds-on-surface-variant mt-1 text-xs">{field.help}</p>
         )}
@@ -157,7 +153,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
           defaultValue={field.defaultValue}
           min={field.min}
           max={field.max}
-          className="border-ds-outline focus:border-ds-primary w-32 rounded-ds-md border bg-white px-3 py-2 text-sm outline-none"
+          className="ds-app-field w-32 max-w-full rounded-ds-md"
         />
         {field.help && (
           <p className="text-ds-on-surface-variant mt-1 text-xs">{field.help}</p>
@@ -172,10 +168,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
         <label className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
           {field.label}
         </label>
-        <select
-          defaultValue={field.defaultValue}
-          className="border-ds-outline focus:border-ds-primary bg-ds-sidebar w-full max-w-sm rounded-ds-md border px-3 py-2 text-sm outline-none"
-        >
+        <select defaultValue={field.defaultValue} className="ds-app-field max-w-sm rounded-ds-md">
           {field.options.map((opt) => (
             <option key={opt}>{opt}</option>
           ))}
@@ -203,7 +196,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
                 className={cn(
                   "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                   isOn
-                    ? "border-zinc-300 bg-white text-ds-on-surface shadow-sm"
+                    ? "border-ds-primary/45 text-ds-primary bg-white shadow-sm"
                     : "border-ds-outline bg-ds-sidebar text-ds-on-surface-variant"
                 )}
               >
@@ -242,7 +235,7 @@ function ToggleStub({ defaultChecked }: { defaultChecked: boolean }) {
       onClick={() => setChecked((v) => !v)}
       className={cn(
         "flex h-5 w-9 items-center rounded-full p-[2px] transition-colors",
-        checked ? "bg-ds-primary" : "bg-zinc-300"
+        checked ? "bg-ds-primary" : "bg-ds-outline"
       )}
     >
       <span
@@ -263,10 +256,7 @@ function TriggeringPanel({ action }: { action: ShopifyAction }) {
           title="When the agent should call this"
           hint="Plain-language guidance the model will follow."
         />
-        <textarea
-          defaultValue={action.triggerGuidance}
-          className="border-ds-outline focus:border-ds-primary bg-ds-sidebar text-ds-on-surface min-h-32 w-full rounded-ds-md border p-3 text-sm leading-relaxed outline-none"
-        />
+        <textarea defaultValue={action.triggerGuidance} className="ds-app-field min-h-32 rounded-ds-md leading-relaxed" />
       </section>
 
       <section>
@@ -370,7 +360,7 @@ function TestRunPanel({ action }: { action: ShopifyAction }) {
               type="text"
               defaultValue={field.defaultValue}
               placeholder={field.placeholder}
-              className="border-ds-outline focus:border-ds-primary w-full rounded-ds-md border bg-white px-3 py-2 text-sm outline-none"
+              className="ds-app-field rounded-ds-md"
             />
           </div>
         ))}
@@ -381,7 +371,7 @@ function TestRunPanel({ action }: { action: ShopifyAction }) {
           type="button"
           onClick={runTest}
           disabled={running}
-          className="bg-ds-primary text-ds-on-primary inline-flex items-center gap-2 rounded-ds-md px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
+          className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center gap-2 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
         >
           <IconPlay className="size-4" />
           {running ? "Running..." : "Run test"}

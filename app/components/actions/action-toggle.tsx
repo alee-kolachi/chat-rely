@@ -42,7 +42,7 @@ export function ActionToggle({
       className={cn(
         "flex items-center rounded-full p-[2px] transition-colors",
         dims.track,
-        checked ? "bg-ds-primary" : "bg-zinc-300",
+        checked ? "bg-ds-primary" : "bg-ds-outline",
         isDisabled && "cursor-not-allowed opacity-50"
       )}
     >

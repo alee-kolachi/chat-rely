@@ -23,7 +23,7 @@ export function ConnectionCard({ storeDomain, lastSynced, scopes }: ConnectionCa
           </div>
           <p className="text-ds-on-surface-variant mt-1 text-sm">
             <span className="text-ds-on-surface font-medium">{storeDomain}</span>
-            <span className="mx-2 text-zinc-300">|</span>
+            <span className="text-ds-outline mx-2">|</span>
             Last synced {lastSynced}
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
