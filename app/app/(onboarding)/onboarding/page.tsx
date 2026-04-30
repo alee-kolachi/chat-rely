@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { backendFetch, BackendApiError } from "@/lib/backend-api";
 import { saveOnboardingAgentId } from "@/lib/onboarding-state";
 import { PromiseTimeoutError, withTimeout } from "@/lib/with-timeout";
@@ -42,12 +43,20 @@ function deferAfterGesture(cb: () => void) {
 }
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const [agentName, setAgentName] = useState("Aria");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const handleAgentNameInput = (value: string) => {
+    setAgentName(value);
+  };
 
   const canContinue = agentName.trim().length > 0;
 
   function goToStep2(agentId: string) {
     saveOnboardingAgentId(agentId);
+    deferAfterGesture(() => {
+      router.push(`/onboarding/knowledge-base?agentId=${encodeURIComponent(agentId)}`);
+    });
   }
 
   function isRecoverableOnboardingNetworkError(e: unknown): boolean {
@@ -65,7 +74,8 @@ export default function OnboardingPage() {
   }
 
   async function bestEffortCreateAgent() {
-    if (!canContinue) return;
+    if (!canContinue || isSubmitting) return;
+    setIsSubmitting(true);
     const slug =
       agentName
         .toLowerCase()
@@ -124,13 +134,19 @@ export default function OnboardingPage() {
       }
       goToStep2(`demo-${createDemoAgentSuffix()}`);
       return;
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
   const stepFooter = (
     <OnboardingStickyFooter
-      primaryHref="/onboarding/knowledge-base"
-      primaryDisabled={!canContinue}
+      primaryAsButton
+      onPrimaryClick={() => {
+        void bestEffortCreateAgent();
+      }}
+      primaryDisabled={!canContinue || isSubmitting}
+      primaryPending={isSubmitting}
       primaryLabel="Continue"
     />
   );
@@ -179,7 +195,8 @@ export default function OnboardingPage() {
                       id="agent-name"
                       type="text"
                       value={agentName}
-                      onChange={(e) => setAgentName(e.target.value)}
+                      onChange={(e) => handleAgentNameInput(e.currentTarget.value)}
+                      onInput={(e) => handleAgentNameInput((e.target as HTMLInputElement).value)}
                       placeholder="e.g. Aria, Luna, Support Bot"
                       autoComplete="off"
                       className="py-3.5 font-normal"

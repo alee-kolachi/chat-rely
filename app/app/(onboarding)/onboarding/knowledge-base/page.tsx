@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { getOnboardingAgentId } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
@@ -69,26 +70,47 @@ function KnowledgeBaseOnboardingPageInner() {
     queueMicrotask(() => setWebsite(fromUrl));
   }, [searchParams]);
   const [sourceId, setSourceId] = useState<string | null>(null);
-  const [isIndexing, setIsIndexing] = useState(false);
+  const [crawlSubmitting, setCrawlSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prepStepIndex, setPrepStepIndex] = useState<number>(-1);
   const [isStreamingLogs, setIsStreamingLogs] = useState(false);
+  /** True once the intro crawl animation reaches the “streaming logs” phase (Continue may still wait on `sourceId`). */
   const [showContinue, setShowContinue] = useState(false);
   const [streamItems, setStreamItems] = useState<CrawlStreamItem[]>([]);
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const logCursorRef = useRef(0);
   const agentId = useResolvedOnboardingAgentId();
 
+  const canContinue = useMemo(() => showContinue && !!sourceId, [showContinue, sourceId]);
+
   /** URL + hook can lag on mobile; read storage at action time so the UI is not stuck disabled. */
   function resolveAgentId(): string | null {
     return searchParams.get("agentId") ?? getOnboardingAgentId() ?? agentId;
   }
 
+  function isValidUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
+  function normalizeWebsiteUrl(input: string): { website_url: string; title: string } {
+    const raw = input.trim().replace(/^https?:\/\//i, "");
+    const host = raw.split("/")[0] ?? "";
+    const website_url = `https://${raw}`;
+    const title = (host || "website").slice(0, 255) || "Website";
+    return { website_url, title };
+  }
+
   async function handleStartCrawl() {
     const id = resolveAgentId();
-    if (!website.trim() || isIndexing || isStreamingLogs || prepStepIndex >= 0) return;
+    if (!website.trim() || crawlSubmitting || isStreamingLogs || prepStepIndex >= 0) return;
     if (!id) {
       setError("Missing agent id. Go back to step 1 or open this step from the setup link with ?agentId=…");
+      return;
+    }
+    if (!isValidUuid(id)) {
+      setError(
+        "This session is using a demo agent id. Sign in and complete step 1 with a real agent to crawl and index your site."
+      );
       return;
     }
     setPrepStepIndex(0);
@@ -97,11 +119,37 @@ function KnowledgeBaseOnboardingPageInner() {
     setStreamItems([]);
     setActiveStreamId(null);
     logCursorRef.current = 0;
-    setIsIndexing(true);
+    setCrawlSubmitting(true);
     setError(null);
-    // Frontend-only demo flow: keep backend calls disabled for onboarding animation preview.
-    setSourceId(`demo-source-${Date.now()}`);
-    setIsIndexing(false);
+    setSourceId(null);
+
+    const { website_url, title } = normalizeWebsiteUrl(website);
+
+    try {
+      const res = await backendFetch<{ source_id: string; job_id: string; status: string }>(
+        "/api/v1/onboarding/website",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            agent_id: id,
+            website_url,
+            title,
+          }),
+        }
+      );
+      setSourceId(res.source_id);
+    } catch (e) {
+      const msg =
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not start crawl";
+      setError(msg);
+      setPrepStepIndex(-1);
+      setIsStreamingLogs(false);
+      setShowContinue(false);
+      setStreamItems([]);
+      setActiveStreamId(null);
+    } finally {
+      setCrawlSubmitting(false);
+    }
   }
 
   useEffect(() => {
@@ -181,7 +229,7 @@ function KnowledgeBaseOnboardingPageInner() {
           backLabel="Back"
           primaryAsButton
           onPrimaryClick={handleContinue}
-          primaryDisabled={!showContinue}
+          primaryDisabled={!canContinue}
           primaryLabel="Continue"
         />
       }
@@ -239,10 +287,20 @@ function KnowledgeBaseOnboardingPageInner() {
                         <button
                           type="button"
                           onClick={handleStartCrawl}
-                          disabled={!website.trim() || isIndexing || isStreamingLogs || prepStepIndex >= 0}
+                          disabled={
+                            !website.trim() ||
+                            crawlSubmitting ||
+                            isStreamingLogs ||
+                            prepStepIndex >= 0 ||
+                            !!sourceId
+                          }
                           className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 touch-manipulation min-h-11 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent]"
                         >
-                          {isIndexing || prepStepIndex >= 0 || isStreamingLogs ? "Crawling..." : "Start crawl"}
+                          {crawlSubmitting || prepStepIndex >= 0 || isStreamingLogs
+                            ? "Crawling..."
+                            : sourceId
+                              ? "Crawl started"
+                              : "Start crawl"}
                         </button>
                       </div>
                       {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
@@ -272,9 +330,11 @@ function KnowledgeBaseOnboardingPageInner() {
                           ))}
                         </div>
                         <p className="text-ds-on-surface-variant border-ds-outline mt-3 border-t pt-3 text-sm leading-relaxed">
-                          {showContinue
-                            ? "You can continue—crawling keeps running in the background."
-                            : "Continue below unlocks when this first pass completes."}
+                          {!showContinue
+                            ? "Continue below unlocks when this first pass completes."
+                            : !sourceId
+                              ? "Almost done—confirming the crawl with the server…"
+                              : "You can continue—indexing keeps running in the background."}
                         </p>
                       </div>
                     ) : null}
@@ -352,7 +412,11 @@ function KnowledgeBaseOnboardingPageInner() {
                       <div className="border-ds-outline rounded-ds-md border bg-white p-3">
                         <p className="text-ds-on-surface text-sm font-semibold">Crawl status</p>
                         <p className="text-ds-on-surface-variant mt-1 text-xs">
-                          {isIndexing ? "Indexing in progress..." : sourceId ? "Crawl queued successfully" : "Not started"}
+                          {crawlSubmitting
+                            ? "Contacting server…"
+                            : sourceId
+                              ? "Crawl queued on the server"
+                              : "Not started"}
                         </p>
                       </div>
                       <div className="border-ds-outline rounded-ds-md border bg-white p-3">

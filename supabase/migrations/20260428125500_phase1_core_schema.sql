@@ -122,7 +122,7 @@ create table if not exists public.agents (
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   slug text not null,
-  public_key text not null unique default encode(gen_random_bytes(16), 'hex'),
+  public_key text not null unique default encode(extensions.gen_random_bytes(16), 'hex'),
   system_prompt text not null default '',
   model text not null default 'gpt-4o-mini',
   behavior_settings jsonb not null default '{}'::jsonb check (jsonb_typeof(behavior_settings) = 'object'),

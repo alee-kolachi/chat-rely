@@ -1,6 +1,8 @@
 import json
 import math
 import re
+from collections import deque
+from urllib.parse import urljoin, urlparse
 from uuid import UUID
 
 import httpx
@@ -17,11 +19,11 @@ from app.domains.knowledge.schemas import (
 )
 
 EMBEDDING_DIMENSION = 1536
+MAX_ONBOARDING_PAGES = 5
 
 
 def _normalize_text(value: str) -> str:
-    value = re.sub(r"\s+", " ", value).strip()
-    return value
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def _chunk_text(text_value: str, chunk_size: int = 1200, overlap: int = 200) -> list[str]:
@@ -44,11 +46,27 @@ def _token_estimate(chunk: str) -> int:
     return max(1, math.ceil(len(chunk.split()) * 1.3))
 
 
-async def _scrape_url(url: str) -> str:
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
+def _extract_links(base_url: str, html: str) -> list[str]:
+    base = urlparse(base_url)
+    soup = BeautifulSoup(html, "html.parser")
+    links: list[str] = []
+    for anchor in soup.find_all("a", href=True):
+        href = str(anchor["href"]).strip()
+        if not href or href.startswith("#") or href.startswith("mailto:") or href.startswith("tel:"):
+            continue
+        absolute = urljoin(base_url, href)
+        parsed = urlparse(absolute)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if parsed.netloc != base.netloc:
+            continue
+        normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path or '/'}"
+        links.append(normalized)
+    return links
+
+
+def _extract_page_text(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
     for element in soup(["script", "style", "noscript"]):
         element.decompose()
     return _normalize_text(soup.get_text(" "))
@@ -152,13 +170,13 @@ async def _create_job(db: AsyncSession, source: KnowledgeSourceDTO, user_id: UUI
         text(
             """
             insert into public.indexing_jobs (
-              knowledge_source_id, agent_id, user_id, status, triggered_by
+              knowledge_source_id, agent_id, user_id, status, triggered_by, phase, progress_pct
             ) values (
-              :knowledge_source_id, :agent_id, :user_id, 'queued', 'api'
+              :knowledge_source_id, :agent_id, :user_id, 'queued', 'api', 'queued', 0
             )
             returning
               id, knowledge_source_id, agent_id, user_id, status, attempt, triggered_by, error_message,
-              started_at, finished_at, metrics, created_at, updated_at
+              started_at, finished_at, phase, pages_total, pages_processed, chunks_total, chunks_embedded, progress_pct, metrics, created_at, updated_at
             """
         ),
         {
@@ -175,7 +193,7 @@ async def _set_job_running(db: AsyncSession, job_id: UUID) -> None:
         text(
             """
             update public.indexing_jobs
-            set status = 'running', started_at = now(), error_message = null
+            set status = 'running', phase = 'crawling', started_at = now(), error_message = null, progress_pct = 5
             where id = :job_id
             """
         ),
@@ -202,7 +220,7 @@ async def _load_source(db: AsyncSession, source_id: UUID, user_id: UUID) -> Know
     return KnowledgeSourceDTO.model_validate(row)
 
 
-async def index_website_source(
+async def enqueue_index_website_source(
     db: AsyncSession, source_id: UUID, user_id: UUID
 ) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
     source = await _load_source(db, source_id, user_id)
@@ -224,17 +242,158 @@ async def index_website_source(
         {"source_id": str(source.id)},
     )
     await db.commit()
+    return source, job
+
+
+async def _create_crawl_run(db: AsyncSession, source: KnowledgeSourceDTO, user_id: UUID) -> UUID:
+    result = await db.execute(
+        text(
+            """
+            insert into public.knowledge_crawl_runs (knowledge_source_id, agent_id, user_id, status, started_at, settings)
+            values (:source_id, :agent_id, :user_id, 'running', now(), cast(:settings as jsonb))
+            returning id
+            """
+        ),
+        {
+            "source_id": str(source.id),
+            "agent_id": str(source.agent_id),
+            "user_id": str(user_id),
+            "settings": json.dumps({"max_pages": MAX_ONBOARDING_PAGES}),
+        },
+    )
+    return UUID(str(result.mappings().one()["id"]))
+
+
+async def _crawl_pages(seed_url: str) -> tuple[list[dict[str, object]], int]:
+    parsed_seed = urlparse(seed_url)
+    seed_normalized = f"{parsed_seed.scheme}://{parsed_seed.netloc}{parsed_seed.path or '/'}"
+    queue: deque[tuple[str, int]] = deque([(seed_normalized, 0)])
+    seen: set[str] = set()
+    pages: list[dict[str, object]] = []
+    links_discovered = 0
+
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        while queue and len(pages) < MAX_ONBOARDING_PAGES:
+            url, depth = queue.popleft()
+            if url in seen:
+                continue
+            seen.add(url)
+            try:
+                response = await client.get(url)
+                status_code = int(response.status_code)
+                response.raise_for_status()
+                html = response.text
+                page_text = _extract_page_text(html)
+                links = _extract_links(url, html)
+                links_discovered += len(links)
+                for link in links:
+                    if link not in seen and len(pages) + len(queue) < MAX_ONBOARDING_PAGES * 4:
+                        queue.append((link, depth + 1))
+                pages.append({"url": url, "depth": depth, "http_status": status_code, "text": page_text})
+            except Exception:
+                pages.append({"url": url, "depth": depth, "http_status": None, "text": ""})
+    return pages[:MAX_ONBOARDING_PAGES], links_discovered
+
+
+async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) -> None:
+    result = await db.execute(
+        text(
+            """
+            select
+              j.id as job_id,
+              s.id, s.agent_id, s.user_id, s.type, s.title, s.status, s.source_url, s.storage_bucket, s.storage_path,
+              s.metadata, s.error_message, s.last_indexed_at, s.created_at, s.updated_at
+            from public.indexing_jobs j
+            join public.knowledge_sources s on s.id = j.knowledge_source_id
+            where j.id = :job_id and j.user_id = :user_id
+            """
+        ),
+        {"job_id": str(job_id), "user_id": str(user_id)},
+    )
+    row = result.mappings().first()
+    if row is None:
+        raise AppError(code="knowledge.job_not_found", message="Indexing job not found", status_code=404)
+    source = KnowledgeSourceDTO.model_validate(row)
+    if source.type != "website" or not source.source_url:
+        raise AppError(code="validation.invalid_input", message="Only website sources are supported", status_code=422)
+
+    await _set_job_running(db, job_id)
+    crawl_run_id = await _create_crawl_run(db, source, user_id)
+    await db.commit()
 
     try:
-        text_content = await _scrape_url(source.source_url)
-        if not text_content:
+        pages, links_discovered = await _crawl_pages(source.source_url)
+        usable_pages = [p for p in pages if str(p["text"]).strip()]
+        if not usable_pages:
             raise AppError(code="knowledge.scrape_empty", message="Website returned no readable text", status_code=422)
 
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set pages_total = :pages_total, pages_processed = :pages_processed, progress_pct = 25
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job_id), "pages_total": len(pages), "pages_processed": len(usable_pages)},
+        )
+
+        for page in pages:
+            await db.execute(
+                text(
+                    """
+                    insert into public.knowledge_source_pages (
+                      knowledge_source_id, crawl_run_id, user_id, url, depth, status, http_status, last_crawled_at
+                    ) values (
+                      :source_id, :crawl_run_id, :user_id, :url, :depth, :status, :http_status, now()
+                    )
+                    on conflict (knowledge_source_id, url)
+                    do update set
+                      crawl_run_id = excluded.crawl_run_id,
+                      depth = excluded.depth,
+                      status = excluded.status,
+                      http_status = excluded.http_status,
+                      last_crawled_at = now()
+                    """
+                ),
+                {
+                    "source_id": str(source.id),
+                    "crawl_run_id": str(crawl_run_id),
+                    "user_id": str(user_id),
+                    "url": str(page["url"]),
+                    "depth": int(page["depth"]),
+                    "status": "parsed" if str(page["text"]).strip() else "failed",
+                    "http_status": page["http_status"],
+                },
+            )
+
+        text_content = "\n\n".join(str(page["text"]) for page in usable_pages)
         chunks = _chunk_text(text_content)
         if not chunks:
             raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from website text", status_code=422)
 
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'chunking', chunks_total = :chunks_total, progress_pct = 45
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job_id), "chunks_total": len(chunks)},
+        )
+
         embeddings = await _embed_texts(chunks)
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'embedding', chunks_embedded = :chunks_embedded, progress_pct = 75
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job_id), "chunks_embedded": len(embeddings)},
+        )
         await db.execute(
             text("delete from public.knowledge_chunks where knowledge_source_id = :source_id"),
             {"source_id": str(source.id)},
@@ -284,12 +443,33 @@ async def index_website_source(
             text(
                 """
                 update public.indexing_jobs
-                set status = 'succeeded', finished_at = now(),
+                set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
                     metrics = jsonb_build_object('chunk_count', CAST(:chunk_count AS integer))
                 where id = :job_id
                 """
             ),
-            {"job_id": str(job.id), "chunk_count": len(chunks)},
+            {"job_id": str(job_id), "chunk_count": len(chunks)},
+        )
+        await db.execute(
+            text(
+                """
+                update public.knowledge_crawl_runs
+                set status = 'succeeded',
+                    pages_discovered = :pages_discovered,
+                    pages_crawled = :pages_crawled,
+                    pages_failed = :pages_failed,
+                    links_discovered = :links_discovered,
+                    finished_at = now()
+                where id = :crawl_run_id
+                """
+            ),
+            {
+                "crawl_run_id": str(crawl_run_id),
+                "pages_discovered": len(pages),
+                "pages_crawled": len(usable_pages),
+                "pages_failed": len(pages) - len(usable_pages),
+                "links_discovered": links_discovered,
+            },
         )
         await db.commit()
     except Exception as exc:
@@ -309,22 +489,33 @@ async def index_website_source(
             text(
                 """
                 update public.indexing_jobs
-                set status = 'failed', finished_at = now(), error_message = :error_message
+                set status = 'failed', phase = 'failed', finished_at = now(), error_message = :error_message
                 where id = :job_id
                 """
             ),
-            {"job_id": str(job.id), "error_message": message[:1000]},
+            {"job_id": str(job_id), "error_message": message[:1000]},
+        )
+        await db.execute(
+            text(
+                """
+                update public.knowledge_crawl_runs
+                set status = 'failed', error_message = :error_message, finished_at = now()
+                where id = :crawl_run_id
+                """
+            ),
+            {"crawl_run_id": str(crawl_run_id), "error_message": message[:1000]},
         )
         await db.commit()
         if isinstance(exc, AppError):
             raise
         raise AppError(code="knowledge.indexing_failed", message="Indexing job failed", status_code=500) from exc
 
-    refreshed_source = await _load_source(db, source.id, user_id)
-    latest_job = await get_latest_job(db, source.id, user_id)
-    if latest_job is None:
-        raise AppError(code="knowledge.job_not_found", message="Indexing job missing after completion", status_code=500)
-    return refreshed_source, latest_job
+
+async def index_website_source(
+    db: AsyncSession, source_id: UUID, user_id: UUID
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    # Backward-compatible route behavior: queue now, worker executes later.
+    return await enqueue_index_website_source(db, source_id, user_id)
 
 
 async def get_jobs(db: AsyncSession, source_id: UUID, user_id: UUID) -> list[IndexJobDTO]:
@@ -333,7 +524,7 @@ async def get_jobs(db: AsyncSession, source_id: UUID, user_id: UUID) -> list[Ind
             """
             select
               id, knowledge_source_id, agent_id, user_id, status, attempt, triggered_by, error_message,
-              started_at, finished_at, metrics, created_at, updated_at
+              started_at, finished_at, phase, pages_total, pages_processed, chunks_total, chunks_embedded, progress_pct, metrics, created_at, updated_at
             from public.indexing_jobs
             where knowledge_source_id = :source_id and user_id = :user_id
             order by created_at desc
@@ -350,7 +541,7 @@ async def get_latest_job(db: AsyncSession, source_id: UUID, user_id: UUID) -> In
             """
             select
               id, knowledge_source_id, agent_id, user_id, status, attempt, triggered_by, error_message,
-              started_at, finished_at, metrics, created_at, updated_at
+              started_at, finished_at, phase, pages_total, pages_processed, chunks_total, chunks_embedded, progress_pct, metrics, created_at, updated_at
             from public.indexing_jobs
             where knowledge_source_id = :source_id and user_id = :user_id
             order by created_at desc

@@ -23,16 +23,23 @@ function KnowledgeBaseTrainingFallback() {
   );
 }
 
+function looksLikeKnowledgeSourceId(value: string): boolean {
+  return /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
+}
+
 function KnowledgeBaseTrainingPageInner() {
   const searchParams = useSearchParams();
   const storedAgentId = useClientOnboardingAgentId();
   const agentId = searchParams.get("agentId") ?? storedAgentId;
-  const sourceId = searchParams.get("sourceId");
+  const rawSourceId = searchParams.get("sourceId");
+  const sourceId = rawSourceId && looksLikeKnowledgeSourceId(rawSourceId) ? rawSourceId : null;
   const [status, setStatus] = useState<"processing" | "success" | "pending">(sourceId ? "processing" : "pending");
   const [description, setDescription] = useState(
-    sourceId
-      ? "Extracting text from linked pages and normalizing for search."
-      : "No source selected. Go back to start a website crawl."
+    rawSourceId && !sourceId
+      ? "That link is missing a valid knowledge source. Go back to step 2 and run “Start crawl” again."
+      : sourceId
+        ? "Extracting text from linked pages and normalizing for search."
+        : "No source selected. Go back to start a website crawl."
   );
 
   useEffect(() => {
@@ -44,7 +51,7 @@ function KnowledgeBaseTrainingPageInner() {
     const poll = async () => {
       try {
         const jobs = await backendFetch<{ jobs: Array<{ status: string; error_message?: string | null }> }>(
-          `/api/v1/knowledge/sources/${sourceId}/indexing-jobs`
+          `/api/v1/knowledge/sources/${encodeURIComponent(sourceId)}/indexing-jobs`
         );
         if (cancelled) return;
         const latest = jobs.jobs[0];

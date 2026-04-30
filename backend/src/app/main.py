@@ -34,9 +34,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setup_logging(settings.log_level)
     init_engine(settings)
     init_session_factory()
-    verifier = TokenVerifier(settings)
-    await verifier.warmup()
-    set_token_verifier(verifier)
+    if settings.is_development and settings.dev_auth_bypass_enabled:
+        set_token_verifier(None)
+    else:
+        verifier = TokenVerifier(settings)
+        await verifier.warmup()
+        set_token_verifier(verifier)
     yield
     await get_engine().dispose()
 

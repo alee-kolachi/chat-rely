@@ -11,6 +11,7 @@ from app.core.settings import get_settings
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
 from app.domains.conversations.service import append_message
 from app.domains.knowledge.service import _embed_texts
+from app.domains.runtime.prompts import build_grounded_user_prompt, build_system_prompt
 from app.domains.runtime.schemas import RuntimeChatRequest, RuntimeChatResponse
 
 
@@ -19,7 +20,7 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
         text(
             """
             select
-              a.id, a.model, a.system_prompt,
+              a.id, a.name, a.model, a.system_prompt, a.behavior_settings,
               rs.min_retrieval_similarity, rs.fallback_message
             from public.agents a
             left join public.agent_reliability_settings rs on rs.agent_id = a.id and rs.user_id = a.user_id
@@ -31,12 +32,19 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
     row = result.mappings().first()
     if row is None:
         raise AppError(code="agent.not_found", message="Agent not found", status_code=404)
+    behavior = row["behavior_settings"] or {}
+    tone = behavior.get("tone", "professional")
+    fallback = row["fallback_message"] or (
+        f"Hello! I'm {row['name']}. I can use your website knowledge, but I am not fully sure yet. "
+        "Please clarify your request."
+    )
     return {
+        "agent_name": row["name"],
         "model": row["model"] or "gpt-4o-mini",
         "system_prompt": row["system_prompt"] or "",
+        "tone": tone,
         "min_retrieval_similarity": float(row["min_retrieval_similarity"] or 0.72),
-        "fallback_message": row["fallback_message"]
-        or "I am not fully sure based on available information. Please clarify your request.",
+        "fallback_message": fallback,
     }
 
 
@@ -133,11 +141,7 @@ async def _generate_grounded_answer(
     context_block = "\n\n".join(
         f"[Chunk {idx + 1}] {chunk['content']}" for idx, chunk in enumerate(context_chunks[:6])
     )
-    system_content = (
-        system_prompt.strip()
-        + "\n\nYou must answer strictly from the provided knowledge context. "
-        "If context is insufficient, respond with the fallback exactly."
-    )
+    system_content = build_system_prompt(system_prompt)
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(
             "https://api.openai.com/v1/chat/completions",
@@ -149,11 +153,7 @@ async def _generate_grounded_answer(
                     {"role": "system", "content": system_content},
                     {
                         "role": "user",
-                        "content": (
-                            f"Knowledge context:\n{context_block}\n\n"
-                            f"Fallback message:\n{fallback_message}\n\n"
-                            f"User question:\n{user_message}"
-                        ),
+                        "content": build_grounded_user_prompt(context_block, fallback_message, user_message),
                     },
                 ],
             },
@@ -177,6 +177,8 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
     config = await _load_agent_runtime_config(db, user_id, payload.agent_id)
     model = payload.model_override or config["model"]
     system_prompt = payload.system_prompt_override or config["system_prompt"]
+    if config["tone"]:
+        system_prompt = f"{system_prompt}\n\nPreferred response tone: {config['tone']}.".strip()
     min_similarity = float(config["min_retrieval_similarity"])
     fallback_message = str(config["fallback_message"])
 

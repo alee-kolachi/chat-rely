@@ -51,6 +51,12 @@ class IndexJobDTO(BaseModel):
     error_message: str | None
     started_at: datetime | None
     finished_at: datetime | None
+    phase: str = "queued"
+    pages_total: int = 0
+    pages_processed: int = 0
+    chunks_total: int = 0
+    chunks_embedded: int = 0
+    progress_pct: int = 0
     metrics: dict[str, Any]
     created_at: datetime
     updated_at: datetime
