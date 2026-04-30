@@ -40,7 +40,14 @@ def test_onboarding_website_enqueue(client: TestClient, monkeypatch: pytest.Monk
     _patch_auth(monkeypatch)
 
     async def _submit(*_: Any, **__: Any) -> OnboardingWebsiteResponse:
-        return OnboardingWebsiteResponse(source_id=uuid4(), job_id=uuid4(), status="queued")
+        return OnboardingWebsiteResponse(
+            source_id=uuid4(),
+            job_id=uuid4(),
+            status="succeeded",
+            website_url="https://example.com",
+            pages=[],
+            preview_image_url=None,
+        )
 
     monkeypatch.setattr("app.api.routes.onboarding.submit_website", _submit)
     response = client.post(
@@ -53,7 +60,10 @@ def test_onboarding_website_enqueue(client: TestClient, monkeypatch: pytest.Monk
         },
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "queued"
+    body = response.json()
+    assert body["status"] == "succeeded"
+    assert body["website_url"] == "https://example.com"
+    assert body["pages"] == []
 
 
 def test_onboarding_status(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,6 +118,43 @@ async def test_worker_loop_processes_jobs(monkeypatch: pytest.MonkeyPatch) -> No
     with pytest.raises(RuntimeError, match="stop-loop"):
         await indexing_worker.run_worker_loop(poll_interval_seconds=0.01)
     assert calls["processed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_surrogate_failure_on_uncaught_process_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.workers import indexing_worker
+
+    job_id = uuid4()
+    user_id = uuid4()
+    surrogate_calls: dict[str, int] = {"n": 0}
+    fetch_calls: dict[str, int] = {"n": 0}
+
+    async def _fetch_twice() -> tuple[Any, Any] | None:
+        fetch_calls["n"] += 1
+        if fetch_calls["n"] == 1:
+            return job_id, user_id
+        return None
+
+    async def _process_raises(*_: Any, **__: Any) -> None:
+        raise RuntimeError("simulated indexing bug")
+
+    async def _surrogate(*_: Any, **__: Any) -> None:
+        surrogate_calls["n"] += 1
+
+    async def _sleep(_: float) -> None:
+        raise RuntimeError("stop-loop")
+
+    monkeypatch.setattr(indexing_worker, "_fetch_next_job_id", _fetch_twice)
+    monkeypatch.setattr(indexing_worker, "process_indexing_job", _process_raises)
+    monkeypatch.setattr(indexing_worker, "record_worker_indexing_surrogate_failure", _surrogate)
+    monkeypatch.setattr(indexing_worker, "init_engine", lambda *_: None)
+    monkeypatch.setattr(indexing_worker, "init_session_factory", lambda: None)
+    monkeypatch.setattr(indexing_worker, "get_settings", lambda: type("S", (), {})())
+    monkeypatch.setattr(indexing_worker.asyncio, "sleep", _sleep)
+
+    with pytest.raises(RuntimeError, match="stop-loop"):
+        await indexing_worker.run_worker_loop(poll_interval_seconds=0.01)
+    assert surrogate_calls["n"] == 1
 
 
 def test_knowledge_index_route_returns_queued_status(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

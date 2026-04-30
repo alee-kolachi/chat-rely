@@ -16,6 +16,24 @@ import {
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 
+type OnboardingWebsiteResponse = {
+  source_id: string;
+  job_id: string;
+  status: string;
+  website_url: string;
+  pages: Array<{ url: string; path: string; status: string }>;
+  preview_image_url: string | null;
+};
+
+function faviconServiceUrl(siteUrl: string): string {
+  try {
+    const host = new URL(siteUrl).hostname;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
+  } catch {
+    return "";
+  }
+}
+
 function KnowledgeBaseOnboardingFallback() {
   return (
     <OnboardingFrame
@@ -41,22 +59,6 @@ function KnowledgeBaseOnboardingFallback() {
 }
 
 function KnowledgeBaseOnboardingPageInner() {
-  type CrawlStreamItem = { id: string; text: string; done: boolean };
-  const prepSteps = [
-    "Initializing crawler",
-    "Analyzing website structure",
-    "Preparing resources",
-    "Starting crawl",
-  ] as const;
-  const dummyLogs = [
-    "✔ Crawled /about",
-    "✔ Crawled /pricing",
-    "⏳ Crawling /blog/page-2",
-    "✔ Crawled /blog/page-1",
-    "✔ Crawled /faq",
-    "⏳ Crawling /docs/getting-started",
-  ] as const;
-
   const router = useRouter();
   const searchParams = useSearchParams();
   const [website, setWebsite] = useState("");
@@ -69,21 +71,18 @@ function KnowledgeBaseOnboardingPageInner() {
     if (!fromUrl) return;
     queueMicrotask(() => setWebsite(fromUrl));
   }, [searchParams]);
+
   const [sourceId, setSourceId] = useState<string | null>(null);
-  const [crawlSubmitting, setCrawlSubmitting] = useState(false);
+  const [crawlPhase, setCrawlPhase] = useState<"idle" | "working" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [prepStepIndex, setPrepStepIndex] = useState<number>(-1);
-  const [isStreamingLogs, setIsStreamingLogs] = useState(false);
-  /** True once the intro crawl animation reaches the “streaming logs” phase (Continue may still wait on `sourceId`). */
-  const [showContinue, setShowContinue] = useState(false);
-  const [streamItems, setStreamItems] = useState<CrawlStreamItem[]>([]);
-  const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
-  const logCursorRef = useRef(0);
+  const [indexedUrl, setIndexedUrl] = useState<string | null>(null);
+  const [crawlPages, setCrawlPages] = useState<OnboardingWebsiteResponse["pages"]>([]);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewImageFailed, setPreviewImageFailed] = useState(false);
   const agentId = useResolvedOnboardingAgentId();
 
-  const canContinue = useMemo(() => showContinue && !!sourceId, [showContinue, sourceId]);
+  const canContinue = useMemo(() => crawlPhase === "done" && !!sourceId, [crawlPhase, sourceId]);
 
-  /** URL + hook can lag on mobile; read storage at action time so the UI is not stuck disabled. */
   function resolveAgentId(): string | null {
     return searchParams.get("agentId") ?? getOnboardingAgentId() ?? agentId;
   }
@@ -100,9 +99,16 @@ function KnowledgeBaseOnboardingPageInner() {
     return { website_url, title };
   }
 
+  const previewTargetUrl = useMemo(() => {
+    if (indexedUrl) return indexedUrl;
+    const t = website.trim();
+    if (!t) return null;
+    return normalizeWebsiteUrl(t).website_url;
+  }, [indexedUrl, website]);
+
   async function handleStartCrawl() {
     const id = resolveAgentId();
-    if (!website.trim() || crawlSubmitting || isStreamingLogs || prepStepIndex >= 0) return;
+    if (!website.trim() || crawlPhase === "working") return;
     if (!id) {
       setError("Missing agent id. Go back to step 1 or open this step from the setup link with ?agentId=…");
       return;
@@ -113,102 +119,43 @@ function KnowledgeBaseOnboardingPageInner() {
       );
       return;
     }
-    setPrepStepIndex(0);
-    setIsStreamingLogs(false);
-    setShowContinue(false);
-    setStreamItems([]);
-    setActiveStreamId(null);
-    logCursorRef.current = 0;
-    setCrawlSubmitting(true);
+    setCrawlPhase("working");
     setError(null);
     setSourceId(null);
+    setIndexedUrl(null);
+    setCrawlPages([]);
+    setPreviewImageUrl(null);
+    setPreviewImageFailed(false);
 
     const { website_url, title } = normalizeWebsiteUrl(website);
 
     try {
-      const res = await backendFetch<{ source_id: string; job_id: string; status: string }>(
-        "/api/v1/onboarding/website",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            agent_id: id,
-            website_url,
-            title,
-          }),
-        }
-      );
+      const res = await backendFetch<OnboardingWebsiteResponse>("/api/v1/onboarding/website", {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: id,
+          website_url,
+          title,
+        }),
+      });
       setSourceId(res.source_id);
+      setIndexedUrl(res.website_url || website_url);
+      setCrawlPages(res.pages ?? []);
+      setPreviewImageUrl(res.preview_image_url ?? null);
+      setPreviewImageFailed(false);
+      setCrawlPhase("done");
     } catch (e) {
       const msg =
-        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not start crawl";
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not crawl and index site";
       setError(msg);
-      setPrepStepIndex(-1);
-      setIsStreamingLogs(false);
-      setShowContinue(false);
-      setStreamItems([]);
-      setActiveStreamId(null);
-    } finally {
-      setCrawlSubmitting(false);
+      setCrawlPhase("error");
+      setSourceId(null);
+      setIndexedUrl(null);
+      setCrawlPages([]);
+      setPreviewImageUrl(null);
+      setPreviewImageFailed(false);
     }
   }
-
-  useEffect(() => {
-    if (prepStepIndex < 0 || isStreamingLogs) return;
-
-    const currentId = `prep-${prepStepIndex}`;
-    queueMicrotask(() => {
-      setStreamItems([{ id: currentId, text: prepSteps[prepStepIndex], done: false }]);
-      setActiveStreamId(currentId);
-    });
-
-    const completeTimer = setTimeout(() => {
-      setStreamItems((current) =>
-        current.map((item) => (item.id === currentId ? { ...item, done: true } : item))
-      );
-      setActiveStreamId(null);
-    }, 1300);
-
-    const nextTimer = setTimeout(() => {
-      if (prepStepIndex >= prepSteps.length - 1) {
-        const firstLogId = `log-${Date.now()}-seed`;
-        setPrepStepIndex(-1);
-        setIsStreamingLogs(true);
-        setShowContinue(true);
-        setStreamItems([{ id: firstLogId, text: "Crawled /about", done: false }]);
-        setActiveStreamId(firstLogId);
-        logCursorRef.current = 1;
-        setTimeout(() => {
-          setStreamItems((current) => current.map((item) => (item.id === firstLogId ? { ...item, done: true } : item)));
-          setActiveStreamId((current) => (current === firstLogId ? null : current));
-        }, 800);
-        return;
-      }
-      setPrepStepIndex((current) => current + 1);
-    }, 2200);
-
-    return () => {
-      clearTimeout(completeTimer);
-      clearTimeout(nextTimer);
-    };
-  }, [isStreamingLogs, prepStepIndex]);
-
-  useEffect(() => {
-    if (!isStreamingLogs) return;
-    const timer = setInterval(() => {
-      const raw = dummyLogs[logCursorRef.current % dummyLogs.length];
-      const next = raw.replace(/^[✔⏳]\s*/, "");
-      const id = `log-${Date.now()}-${logCursorRef.current}`;
-      logCursorRef.current += 1;
-      setStreamItems([{ id, text: next, done: false }]);
-      setActiveStreamId(id);
-      setTimeout(() => {
-        setStreamItems((current) => current.map((item) => (item.id === id ? { ...item, done: true } : item)));
-        setActiveStreamId((current) => (current === id ? null : current));
-      }, 1200);
-    }, 2200);
-
-    return () => clearInterval(timer);
-  }, [isStreamingLogs]);
 
   function handleContinue() {
     const id = resolveAgentId();
@@ -279,7 +226,8 @@ function KnowledgeBaseOnboardingPageInner() {
                             onInput={(e) => setWebsite((e.target as HTMLInputElement).value)}
                             placeholder="example.com"
                             inputMode="url"
-                            className="placeholder:text-ds-on-surface-variant/70 text-ds-on-surface w-full border-none bg-transparent px-3 py-3.5 text-sm font-normal outline-none sm:px-4"
+                            disabled={crawlPhase === "working" || crawlPhase === "done"}
+                            className="placeholder:text-ds-on-surface-variant/70 text-ds-on-surface w-full border-none bg-transparent px-3 py-3.5 text-sm font-normal outline-none sm:px-4 disabled:opacity-60"
                           />
                         </div>
                       </OnboardingFieldRow>
@@ -287,54 +235,56 @@ function KnowledgeBaseOnboardingPageInner() {
                         <button
                           type="button"
                           onClick={handleStartCrawl}
-                          disabled={
-                            !website.trim() ||
-                            crawlSubmitting ||
-                            isStreamingLogs ||
-                            prepStepIndex >= 0 ||
-                            !!sourceId
-                          }
+                          disabled={!website.trim() || crawlPhase === "working" || crawlPhase === "done"}
                           className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 touch-manipulation min-h-11 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent]"
                         >
-                          {crawlSubmitting || prepStepIndex >= 0 || isStreamingLogs
-                            ? "Crawling..."
-                            : sourceId
-                              ? "Crawl started"
+                          {crawlPhase === "working"
+                            ? "Crawling & indexing…"
+                            : crawlPhase === "done"
+                              ? "Crawl complete"
                               : "Start crawl"}
                         </button>
                       </div>
                       {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
                     </div>
 
-                    {prepStepIndex >= 0 || isStreamingLogs ? (
+                    {crawlPhase === "working" ? (
                       <div className="border-ds-outline rounded-ds-lg border bg-white p-4">
-                        <div className="space-y-2 pr-1">
-                          {streamItems.slice(-1).map((item) => (
-                            <div
-                              key={item.id}
-                              className="stream-item text-ds-on-surface flex min-w-0 items-center justify-between gap-3 text-sm leading-relaxed"
-                            >
-                              <p className="min-w-0 break-words">{item.text}</p>
-                              <span
-                                className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
-                                  item.done
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : activeStreamId === item.id
-                                      ? "bg-amber-100 text-amber-700 animate-pulse"
-                                      : "bg-ds-sidebar text-ds-on-surface-variant"
-                                }`}
-                              >
-                                {item.done ? "✓" : "…"}
-                              </span>
-                            </div>
-                          ))}
+                        <p className="text-ds-on-surface text-sm font-medium">Indexing your site</p>
+                        <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
+                          Fetching up to five pages on your domain, extracting text, chunking, and embedding for search.
+                          This usually takes under a minute.
+                        </p>
+                        <div className="mt-4 flex items-center gap-2 text-sm text-ds-on-surface-variant">
+                          <span
+                            className="border-ds-outline size-4 shrink-0 animate-spin rounded-full border-2 border-t-ds-primary"
+                            aria-hidden
+                          />
+                          Working…
                         </div>
-                        <p className="text-ds-on-surface-variant border-ds-outline mt-3 border-t pt-3 text-sm leading-relaxed">
-                          {!showContinue
-                            ? "Continue below unlocks when this first pass completes."
-                            : !sourceId
-                              ? "Almost done—confirming the crawl with the server…"
-                              : "You can continue—indexing keeps running in the background."}
+                      </div>
+                    ) : null}
+
+                    {crawlPhase === "done" && crawlPages.length > 0 ? (
+                      <div className="border-ds-outline rounded-ds-lg border bg-white p-4">
+                        <p className="text-ds-on-surface text-sm font-semibold">Pages indexed</p>
+                        <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
+                          {crawlPages.map((p) => (
+                            <li key={p.url} className="text-ds-on-surface flex items-start gap-2 leading-snug">
+                              <span className="text-emerald-600" aria-hidden>
+                                ✓
+                              </span>
+                              <span className="min-w-0 break-all">
+                                <span className="font-medium">{p.path || "/"}</span>
+                                {p.status !== "parsed" ? (
+                                  <span className="text-ds-on-surface-variant ml-1 text-xs">({p.status})</span>
+                                ) : null}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-ds-on-surface-variant border-ds-outline mt-3 border-t pt-3 text-xs leading-relaxed">
+                          You can continue—training and the playground use this knowledge next.
                         </p>
                       </div>
                     ) : null}
@@ -357,11 +307,24 @@ function KnowledgeBaseOnboardingPageInner() {
                     <div className="border-ds-outline flex items-center justify-between border-b bg-white px-4 py-3">
                       <div>
                         <h3 className="text-ds-on-surface text-sm font-semibold">Website preview</h3>
-                        <p className="text-ds-secondary text-[11px]">Homepage snapshot (dummy for now)</p>
+                        <p className="text-ds-secondary text-[11px]">
+                          Social preview image when available — live iframes are usually blocked
+                        </p>
                       </div>
-                      <span className="text-ds-on-surface-variant text-sm" aria-hidden>
-                        ⋮
-                      </span>
+                      {previewTargetUrl ? (
+                        <a
+                          href={previewTargetUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-ds-primary shrink-0 text-xs font-semibold hover:underline"
+                        >
+                          Open
+                        </a>
+                      ) : (
+                        <span className="text-ds-on-surface-variant text-sm" aria-hidden>
+                          ⋮
+                        </span>
+                      )}
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
                       <div className="border-ds-outline flex min-h-0 flex-1 flex-col overflow-hidden rounded-ds-md border bg-white">
@@ -369,54 +332,77 @@ function KnowledgeBaseOnboardingPageInner() {
                           <span className="h-2 w-2 rounded-full bg-rose-400" />
                           <span className="h-2 w-2 rounded-full bg-amber-400" />
                           <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                          <p className="text-ds-on-surface-variant ml-1 truncate text-[11px]">
-                            {website.trim() ? `https://${website.trim().replace(/^https?:\/\//, "")}` : "https://yourwebsite.com"}
+                          <p className="text-ds-on-surface-variant ml-1 truncate text-[11px]" title={previewTargetUrl ?? undefined}>
+                            {previewTargetUrl ?? "Enter a URL and start crawl"}
                           </p>
                         </div>
-                        <div
-                          className="w-full flex-1 p-3"
-                          aria-label="Website homepage preview placeholder"
-                          role="img"
-                        >
-                          <div className="flex h-full flex-col gap-2 rounded-md bg-gradient-to-br from-sky-100 via-indigo-50 to-fuchsia-100 p-3">
-                            <div className="rounded-md bg-white/80 p-2">
-                              <div className="mb-2 h-3 w-2/3 rounded bg-slate-200/80" />
-                              <div className="mb-1.5 h-2 w-full rounded bg-slate-200/70" />
-                              <div className="h-2 w-5/6 rounded bg-slate-200/70" />
+                        <div className="relative min-h-0 flex-1 bg-zinc-100">
+                          {previewTargetUrl && (crawlPhase === "working" || crawlPhase === "done") ? (
+                            <>
+                              {crawlPhase === "done" &&
+                              previewImageUrl &&
+                              !previewImageFailed ? (
+                                // eslint-disable-next-line @next/next/no-img-element -- remote og:image from crawled site
+                                <img
+                                  src={previewImageUrl}
+                                  alt=""
+                                  className="size-full max-h-[min(420px,55vh)] min-h-[200px] border-0 object-cover object-top sm:min-h-[280px]"
+                                  referrerPolicy="no-referrer"
+                                  onError={() => setPreviewImageFailed(true)}
+                                />
+                              ) : (
+                                <div className="text-ds-on-surface flex size-full min-h-[200px] flex-col items-center justify-center gap-3 p-6 text-center sm:min-h-[280px]">
+                                  {faviconServiceUrl(previewTargetUrl) ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={faviconServiceUrl(previewTargetUrl)}
+                                      alt=""
+                                      className="size-16 rounded-xl border border-black/5 bg-white shadow-sm"
+                                      width={64}
+                                      height={64}
+                                    />
+                                  ) : null}
+                                  <p className="max-w-[280px] text-sm leading-snug">
+                                    {crawlPhase === "working"
+                                      ? "Crawling and indexing on the server…"
+                                      : previewImageUrl && previewImageFailed
+                                        ? "Could not load the preview image (hotlink or CORS)."
+                                        : "No og:image / Twitter card image on the first page. Your pages were still indexed."}
+                                  </p>
+                                </div>
+                              )}
+                              {crawlPhase === "working" ? (
+                                <div className="bg-ds-surface/90 absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-ds-on-surface">
+                                  <span
+                                    className="border-ds-outline size-8 animate-spin rounded-full border-2 border-t-ds-primary"
+                                    aria-hidden
+                                  />
+                                  Crawling and embedding…
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <div
+                              className="text-ds-on-surface-variant flex size-full min-h-[200px] flex-col items-center justify-center gap-2 p-6 text-center text-sm sm:min-h-[280px]"
+                              role="status"
+                            >
+                              <p>Your preview will appear here after you start a crawl.</p>
                             </div>
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="h-10 rounded-md bg-white/80" />
-                              <div className="h-10 rounded-md bg-white/80" />
-                              <div className="h-10 rounded-md bg-white/80" />
-                            </div>
-                            <div className="grid flex-1 grid-cols-2 gap-2">
-                              <div className="rounded-md bg-white/80 p-2">
-                                <div className="mb-2 h-2.5 w-3/4 rounded bg-slate-200/75" />
-                                <div className="mb-1.5 h-2 w-full rounded bg-slate-200/65" />
-                                <div className="h-2 w-4/5 rounded bg-slate-200/65" />
-                              </div>
-                              <div className="rounded-md bg-white/80 p-2">
-                                <div className="mb-2 h-2.5 w-3/4 rounded bg-slate-200/75" />
-                                <div className="mb-1.5 h-2 w-full rounded bg-slate-200/65" />
-                                <div className="h-2 w-4/5 rounded bg-slate-200/65" />
-                              </div>
-                            </div>
-                            <div className="rounded-md bg-white/80 p-2">
-                              <div className="mb-2 h-2.5 w-1/3 rounded bg-slate-200/75" />
-                              <div className="mb-1.5 h-2 w-full rounded bg-slate-200/65" />
-                              <div className="h-2 w-2/3 rounded bg-slate-200/65" />
-                            </div>
-                          </div>
+                          )}
                         </div>
                       </div>
                       <div className="border-ds-outline rounded-ds-md border bg-white p-3">
                         <p className="text-ds-on-surface text-sm font-semibold">Crawl status</p>
                         <p className="text-ds-on-surface-variant mt-1 text-xs">
-                          {crawlSubmitting
-                            ? "Contacting server…"
-                            : sourceId
-                              ? "Crawl queued on the server"
-                              : "Not started"}
+                          {crawlPhase === "idle"
+                            ? "Not started"
+                            : crawlPhase === "working"
+                              ? "Crawling up to 5 pages, then chunking and embedding"
+                              : crawlPhase === "error"
+                                ? "Failed—see message on the left"
+                                : crawlPages.length
+                                  ? `Indexed ${crawlPages.length} page${crawlPages.length === 1 ? "" : "s"}`
+                                  : "Complete"}
                         </p>
                       </div>
                       <div className="border-ds-outline rounded-ds-md border bg-white p-3">
@@ -433,40 +419,6 @@ function KnowledgeBaseOnboardingPageInner() {
           </div>
         </div>
       </OnboardingMainColumn>
-      <style jsx>{`
-        @keyframes fade-slide-up {
-          0% {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        @keyframes stream-item-cycle {
-          0% {
-            opacity: 0;
-            transform: translateY(14px) scale(0.985);
-          }
-          14% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-          78% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(-8px) scale(0.99);
-          }
-        }
-        .stream-item {
-          animation: stream-item-cycle 2.2s ease-in-out both;
-          will-change: opacity, transform;
-        }
-      `}</style>
     </OnboardingFrame>
   );
 }

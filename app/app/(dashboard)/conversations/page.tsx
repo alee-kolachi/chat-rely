@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
@@ -221,7 +222,11 @@ export default function ConversationsPage() {
                         : "border-ds-outline text-ds-on-surface rounded-tl-none border bg-white"
                     )}
                   >
-                    {message.content}
+                    {message.role === "assistant" ? (
+                      <AssistantMarkdown>{message.content}</AssistantMarkdown>
+                    ) : (
+                      message.content
+                    )}
                     <div
                       className={cn(
                         "mt-2 text-[10px]",

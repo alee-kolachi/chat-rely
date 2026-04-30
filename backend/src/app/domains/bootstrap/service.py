@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from app.core.settings import get_settings
 from app.domains.bootstrap.schemas import (
     BootstrapResponse,
     MeContextResponse,
@@ -20,6 +21,30 @@ def _month_period(now: datetime) -> tuple[datetime, datetime]:
     next_month_seed = start.replace(day=28) + timedelta(days=4)
     end = next_month_seed.replace(day=1) - timedelta(microseconds=1)
     return start, end
+
+
+async def _ensure_local_dev_auth_user_stub(db: AsyncSession, user_id: UUID) -> None:
+    """When dev auth bypass is on, JWT / fallback sub may not exist in auth.users yet."""
+    settings = get_settings()
+    if not (settings.is_development and settings.dev_auth_bypass_enabled):
+        return
+    await db.execute(
+        text(
+            """
+            insert into auth.users (id, instance_id, aud, role, created_at, updated_at)
+            values (
+              :user_id,
+              '00000000-0000-0000-0000-000000000000'::uuid,
+              'authenticated',
+              'authenticated',
+              now(),
+              now()
+            )
+            on conflict (id) do nothing
+            """
+        ),
+        {"user_id": str(user_id)},
+    )
 
 
 async def _fetch_profile(db: AsyncSession, user_id: UUID) -> ProfileDTO | None:
@@ -41,6 +66,8 @@ async def _ensure_profile(db: AsyncSession, user_id: UUID) -> ProfileDTO:
     profile = await _fetch_profile(db, user_id)
     if profile:
         return profile
+
+    await _ensure_local_dev_auth_user_stub(db, user_id)
 
     result = await db.execute(
         text(
@@ -120,19 +147,19 @@ async def _ensure_default_subscription(db: AsyncSession, user_id: UUID) -> tuple
     if existing:
         return existing
 
-    starter_result = await db.execute(
+    free_result = await db.execute(
         text(
             """
             select id
             from public.plans
-            where slug = 'starter' and is_active = true
+            where slug = 'free' and is_active = true
             limit 1
             """
         )
     )
-    starter_row = starter_result.mappings().first()
-    if starter_row is None:
-        raise AppError(code="plan.not_found", message="Default starter plan is missing", status_code=500)
+    free_row = free_result.mappings().first()
+    if free_row is None:
+        raise AppError(code="plan.not_found", message="Default free plan is missing", status_code=500)
 
     period_start, period_end = _month_period(datetime.now(tz=UTC))
     await db.execute(
@@ -147,7 +174,7 @@ async def _ensure_default_subscription(db: AsyncSession, user_id: UUID) -> tuple
         ),
         {
             "user_id": str(user_id),
-            "plan_id": str(starter_row["id"]),
+            "plan_id": str(free_row["id"]),
             "period_start": period_start,
             "period_end": period_end,
         },

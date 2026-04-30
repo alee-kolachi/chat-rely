@@ -1,18 +1,58 @@
+"""
+Runtime chat: RAG retrieval here, **LangGraph** (`chat_graph`) for each model turn.
+
+Conversation memory is loaded from Postgres; extend the graph with tool nodes
+for agentic actions (Shopify, policies) per `supabase/RULES.md`.
+"""
+
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.core.settings import get_settings
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
-from app.domains.conversations.service import append_message
+from app.domains.conversations.service import append_message, list_messages
 from app.domains.knowledge.service import _embed_texts
+from app.domains.runtime.chat_graph import (
+    build_retrieval_query_for_embedding,
+    build_turn_messages,
+    invoke_runtime_chat_graph,
+    slice_history_for_current_turn,
+)
 from app.domains.runtime.prompts import build_grounded_user_prompt, build_system_prompt
 from app.domains.runtime.schemas import RuntimeChatRequest, RuntimeChatResponse
+
+# Cosine similarity (1 - distance) from `match_knowledge_chunks`. Nav/listing-heavy
+# pages often score ~0.45–0.55 vs natural questions; 0.72 filters everything out.
+RAG_RELAX_MIN_SIMILARITY = 0.43
+# After threshold passes, keep at most this many merged candidates; the model sees top N only.
+RAG_MERGED_CHUNK_CAP = 10
+RAG_PROMPT_CHUNK_COUNT = 5
+
+
+def _resolve_runtime_model(model: str) -> str:
+    # Keep backward compatibility with legacy/open-ended model labels.
+    normalized = (model or "").strip().lower()
+    legacy_aliases = {"gpt-3.5", "gpt-3.5-turbo", "gpt35", "gpt-35"}
+    if normalized in legacy_aliases:
+        return "gpt-4o-mini"
+    return model
+
+
+def _build_open_chat_system_prompt(system_prompt: str) -> str:
+    base = (system_prompt or "").strip()
+    guidance = (
+        "You are a customer-support chatbot for this brand. No indexed excerpts were retrieved for this question, "
+        "so do not invent catalog details, prices, or policies. "
+        "Respond helpfully to greetings and small talk; for product or policy questions, keep answers short, "
+        "acknowledge you don’t have their knowledge base context for this turn, and suggest what the customer could "
+        "ask next or where on the site they might look (without making up URLs). "
+        "Use earlier messages in this thread for follow-ups when the user refers to something already discussed."
+    )
+    return f"{base}\n\n{guidance}".strip() if base else guidance
 
 
 async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: UUID) -> dict[str, Any]:
@@ -43,7 +83,7 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
         "model": row["model"] or "gpt-4o-mini",
         "system_prompt": row["system_prompt"] or "",
         "tone": tone,
-        "min_retrieval_similarity": float(row["min_retrieval_similarity"] or 0.72),
+        "min_retrieval_similarity": float(row["min_retrieval_similarity"] or 0.52),
         "fallback_message": fallback,
     }
 
@@ -96,11 +136,50 @@ async def _resolve_or_create_conversation(
     return UUID(str(created.mappings().one()["id"]))
 
 
-async def _retrieve_context(
-    db: AsyncSession, agent_id: UUID, user_message: str, min_similarity: float
+def _embedding_vector_param(embedding: list[float]) -> str:
+    return "[" + ",".join(f"{v:.10f}" for v in embedding) + "]"
+
+
+async def _match_top_chunks_ann(
+    db: AsyncSession,
+    agent_id: UUID,
+    embedding: list[float],
+    *,
+    limit: int,
 ) -> list[dict[str, Any]]:
-    embeddings = await _embed_texts([user_message])
-    embedding = embeddings[0]
+    """Nearest chunks by cosine distance, no similarity floor (last resort when RPC returns nothing)."""
+    result = await db.execute(
+        text(
+            """
+            select
+              c.id,
+              c.knowledge_source_id,
+              c.content,
+              c.metadata,
+              (1 - (c.embedding <=> cast(:embedding as vector)))::double precision as similarity
+            from public.knowledge_chunks c
+            where c.agent_id = cast(:agent_id as uuid)
+            order by c.embedding <=> cast(:embedding as vector)
+            limit :limit
+            """
+        ),
+        {
+            "agent_id": str(agent_id),
+            "embedding": _embedding_vector_param(embedding),
+            "limit": limit,
+        },
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def _match_chunks_with_embedding(
+    db: AsyncSession,
+    agent_id: UUID,
+    embedding: list[float],
+    min_similarity: float,
+    *,
+    match_count: int = 8,
+) -> list[dict[str, Any]]:
     result = await db.execute(
         text(
             """
@@ -115,67 +194,93 @@ async def _retrieve_context(
         ),
         {
             "agent_id": str(agent_id),
-            "embedding": "[" + ",".join(f"{v:.10f}" for v in embedding) + "]",
-            "match_count": 8,
+            "embedding": _embedding_vector_param(embedding),
+            "match_count": match_count,
             "min_score": min_similarity,
         },
     )
     return [dict(row) for row in result.mappings().all()]
 
 
-async def _generate_grounded_answer(
+async def _retrieve_context(
+    db: AsyncSession,
+    agent_id: UUID,
+    query_text: str,
+    min_similarity: float,
+    *,
+    match_count: int = 8,
+) -> list[dict[str, Any]]:
+    text_q = (query_text or "").strip()
+    if not text_q:
+        return []
+    embeddings = await _embed_texts([text_q])
+    return await _match_chunks_with_embedding(
+        db, agent_id, embeddings[0], min_similarity, match_count=match_count
+    )
+
+
+async def _retrieve_merged_chunks_for_message(
+    db: AsyncSession,
+    agent_id: UUID,
     *,
     user_message: str,
-    context_chunks: list[dict[str, Any]],
-    model: str,
-    system_prompt: str,
-    fallback_message: str,
-) -> tuple[str, bool]:
-    if not context_chunks:
-        return fallback_message, True
+    expanded_query: str,
+    min_similarity: float,
+    match_count: int = 10,
+) -> list[dict[str, Any]]:
+    """
+    Embed each distinct query string once, match at `min_similarity`, merge.
+    If nothing passes the threshold (common for nav-heavy crawls vs. 0.72),
+    retry the same vectors at RAG_RELAX_MIN_SIMILARITY without extra embedding calls.
+    If still empty, take the top K nearest chunks by ANN (same vectors) so the assistant
+    always gets excerpts when the index has any data for this agent.
+    """
+    msg = (user_message or "").strip()
+    if not msg:
+        return []
+    raw_embedding = (await _embed_texts([msg]))[0]
+    expanded_embedding: list[float] | None = None
+    exp = (expanded_query or "").strip()
+    if exp and exp != msg:
+        expanded_embedding = (await _embed_texts([exp]))[0]
 
-    settings = get_settings()
-    if not settings.openai_api_key:
-        raise AppError(code="runtime.llm_not_configured", message="OPENAI_API_KEY is required for runtime chat", status_code=500)
-
-    context_block = "\n\n".join(
-        f"[Chunk {idx + 1}] {chunk['content']}" for idx, chunk in enumerate(context_chunks[:6])
-    )
-    system_content = build_system_prompt(system_prompt)
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            json={
-                "model": model,
-                "temperature": 0,
-                "messages": [
-                    {"role": "system", "content": system_content},
-                    {
-                        "role": "user",
-                        "content": build_grounded_user_prompt(context_block, fallback_message, user_message),
-                    },
-                ],
-            },
-        )
-        if response.status_code >= 400:
-            raise AppError(
-                code="runtime.llm_failed",
-                message="LLM request failed",
-                status_code=502,
-                details={"status_code": response.status_code, "body": response.text[:500]},
+    async def merged_at(floor: float) -> list[dict[str, Any]]:
+        parts = [await _match_chunks_with_embedding(db, agent_id, raw_embedding, floor, match_count=match_count)]
+        if expanded_embedding is not None:
+            parts.append(
+                await _match_chunks_with_embedding(
+                    db, agent_id, expanded_embedding, floor, match_count=match_count
+                )
             )
+        return _merge_chunks_by_best_similarity(parts)[:RAG_MERGED_CHUNK_CAP]
 
-    payload = response.json()
-    content = payload["choices"][0]["message"]["content"].strip()
-    if not content:
-        return fallback_message, True
-    return content, False
+    merged = await merged_at(min_similarity)
+    if not merged and min_similarity > RAG_RELAX_MIN_SIMILARITY:
+        merged = await merged_at(RAG_RELAX_MIN_SIMILARITY)
+    if not merged:
+        merged = await _match_top_chunks_ann(
+            db, agent_id, raw_embedding, limit=max(RAG_PROMPT_CHUNK_COUNT, match_count)
+        )
+    return merged[:RAG_MERGED_CHUNK_CAP]
+
+
+def _merge_chunks_by_best_similarity(chunks_lists: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Union several retrieval lists, keeping the strongest similarity per chunk id."""
+    by_id: dict[Any, dict[str, Any]] = {}
+    for lst in chunks_lists:
+        for row in lst:
+            cid = row.get("id")
+            if cid is None:
+                continue
+            prev = by_id.get(cid)
+            if prev is None or float(row.get("similarity") or 0) > float(prev.get("similarity") or 0):
+                by_id[cid] = row
+    return sorted(by_id.values(), key=lambda r: float(r.get("similarity") or 0), reverse=True)
 
 
 async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest) -> RuntimeChatResponse:
     config = await _load_agent_runtime_config(db, user_id, payload.agent_id)
-    model = payload.model_override or config["model"]
+    model = _resolve_runtime_model(payload.model_override or config["model"])
     system_prompt = payload.system_prompt_override or config["system_prompt"]
     if config["tone"]:
         system_prompt = f"{system_prompt}\n\nPreferred response tone: {config['tone']}.".strip()
@@ -197,13 +302,40 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         payload=ConversationMessageCreateRequest(role="user", content=payload.message, model=model),
     )
 
-    chunks = await _retrieve_context(db, payload.agent_id, payload.message, min_similarity=min_similarity)
-    answer, fallback_used = await _generate_grounded_answer(
+    history_rows = await list_messages(db, user_id, conversation_id)
+    history = slice_history_for_current_turn(history_rows, current_user_content=payload.message)
+
+    expanded_query = build_retrieval_query_for_embedding(history, payload.message)
+    chunks = await _retrieve_merged_chunks_for_message(
+        db,
+        payload.agent_id,
         user_message=payload.message,
-        context_chunks=chunks,
+        expanded_query=expanded_query,
+        min_similarity=min_similarity,
+        match_count=10,
+    )
+    prompt_chunks = chunks[:RAG_PROMPT_CHUNK_COUNT]
+
+    has_context = bool(prompt_chunks)
+    system_content = _build_open_chat_system_prompt(system_prompt)
+    grounded_user = payload.message
+    if has_context:
+        system_content = build_system_prompt(system_prompt)
+        context_block = "\n\n".join(
+            f"[Excerpt {idx + 1}]\n{chunk['content']}" for idx, chunk in enumerate(prompt_chunks)
+        )
+        grounded_user = build_grounded_user_prompt(context_block, fallback_message, payload.message)
+
+    lc_messages = build_turn_messages(
+        system_content=system_content,
+        history_without_current_user=history,
+        grounded_user_content=grounded_user,
+    )
+    answer, fallback_used = await invoke_runtime_chat_graph(
+        messages=lc_messages,
         model=model,
-        system_prompt=system_prompt,
         fallback_message=fallback_message,
+        thread_id=str(conversation_id),
     )
 
     assistant_message = await append_message(
@@ -214,7 +346,11 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             role="assistant",
             content=answer,
             model=model,
-            metadata={"fallback_used": fallback_used, "retrieval_count": len(chunks)},
+            metadata={
+                "fallback_used": fallback_used,
+                "retrieval_count": len(chunks),
+                "prompt_chunk_count": len(prompt_chunks),
+            },
         ),
     )
 
@@ -224,7 +360,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             "similarity": float(chunk["similarity"]),
             "snippet": str(chunk["content"])[:180],
         }
-        for chunk in chunks[:3]
+        for chunk in prompt_chunks[:5]
     ]
 
     return RuntimeChatResponse(
@@ -233,7 +369,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         response=answer,
         model=model,
         fallback_used=fallback_used,
-        retrieval_count=len(chunks),
+        retrieval_count=len(prompt_chunks),
         min_similarity=min_similarity,
         created_at=datetime.now(tz=UTC),
         retrieval_preview=preview,

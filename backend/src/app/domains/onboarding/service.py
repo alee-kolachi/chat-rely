@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlparse
 from uuid import UUID
 
 from sqlalchemy import text
@@ -8,8 +9,9 @@ from app.core.errors import AppError
 from app.domains.agents.schemas import AgentCreateRequest, AgentUpdateRequest
 from app.domains.agents.service import create_agent, update_agent
 from app.domains.knowledge.schemas import KnowledgeSourceCreateRequest
-from app.domains.knowledge.service import enqueue_index_website_source
+from app.domains.knowledge.service import enqueue_index_website_source, get_latest_job, process_indexing_job
 from app.domains.onboarding.schemas import (
+    OnboardingCrawledPageDTO,
     OnboardingFinishRequest,
     OnboardingPreferencesRequest,
     OnboardingStartRequest,
@@ -19,6 +21,15 @@ from app.domains.onboarding.schemas import (
     OnboardingWebsiteRequest,
     OnboardingWebsiteResponse,
 )
+
+
+def _page_display_path(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        return parsed.path or "/"
+    except Exception:
+        return url
+
 
 CHECKLIST_DEFAULTS: list[tuple[str, bool]] = [
     ("agent_created", True),
@@ -73,14 +84,15 @@ async def _set_checklist_status(
         text(
             """
             update public.onboarding_checklist_items
-            set status = :status,
-                completed_at = case when :status = 'done' then now() else completed_at end,
+            set status = cast(:status as public.onboarding_checklist_status),
+                completed_at = case when :mark_done then now() else completed_at end,
                 evidence = cast(:evidence as jsonb)
             where agent_id = :agent_id and user_id = :user_id and item_key = :item_key
             """
         ),
         {
             "status": status,
+            "mark_done": status == "done",
             "agent_id": str(agent_id),
             "user_id": str(user_id),
             "item_key": item_key,
@@ -103,12 +115,41 @@ async def submit_website(
 ) -> OnboardingWebsiteResponse:
     source = await create_source_website(db, user_id, payload)
     _, job = await enqueue_index_website_source(db, source.id, user_id)
+    preview_image_url = await process_indexing_job(db, job.id, user_id)
+    final_job = await get_latest_job(db, source.id, user_id)
+    job_status = str(final_job.status) if final_job else str(job.status)
+
+    pages_rows = (
+        await db.execute(
+            text(
+                """
+                select url, status::text as status
+                from public.knowledge_source_pages
+                where knowledge_source_id = :sid and user_id = :uid
+                order by depth asc, url asc
+                limit 20
+                """
+            ),
+            {"sid": str(source.id), "uid": str(user_id)},
+        )
+    ).mappings().all()
+    pages = [
+        OnboardingCrawledPageDTO(url=str(row["url"]), path=_page_display_path(str(row["url"])), status=str(row["status"]))
+        for row in pages_rows
+    ]
 
     await _ensure_session(db, user_id, payload.agent_id, current_step=2)
     await _set_checklist_status(
         db, user_id, payload.agent_id, "website_connected", "done", {"url": payload.website_url}
     )
-    await _set_checklist_status(db, user_id, payload.agent_id, "pages_indexed", "in_progress")
+    await _set_checklist_status(
+        db,
+        user_id,
+        payload.agent_id,
+        "pages_indexed",
+        "done",
+        {"page_count": len(pages), "urls": [p.url for p in pages]},
+    )
 
     await db.execute(
         text(
@@ -128,7 +169,14 @@ async def submit_website(
         },
     )
     await db.commit()
-    return OnboardingWebsiteResponse(source_id=source.id, job_id=job.id, status=job.status)
+    return OnboardingWebsiteResponse(
+        source_id=source.id,
+        job_id=job.id,
+        status=job_status,
+        website_url=payload.website_url,
+        pages=pages,
+        preview_image_url=preview_image_url,
+    )
 
 
 async def create_source_website(db: AsyncSession, user_id: UUID, payload: OnboardingWebsiteRequest):

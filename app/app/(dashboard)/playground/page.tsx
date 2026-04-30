@@ -1,9 +1,13 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
+import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
 import { backendFetch } from "@/lib/backend-api";
+import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
 
 /** Uses global `.ds-app-field` (design-system tokens + focus ring). */
@@ -15,6 +19,314 @@ type ActionItem = {
   enabled: boolean;
   disabled?: boolean;
 };
+
+type PlaygroundPreviewMessage = { from: "user" | "assistant"; text: string };
+
+const playgroundChatStorageKey = (agentId: string) => `chatrely.playground-chat.v1:${agentId}`;
+
+function newPlaygroundVisitorId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `playground-${crypto.randomUUID()}`;
+  }
+  return `playground-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function readPlaygroundChatFromStorage(agentId: string): {
+  previewMessages: PlaygroundPreviewMessage[];
+  conversationId: string | null;
+  visitorId: string;
+} | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(playgroundChatStorageKey(agentId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      previewMessages?: unknown;
+      conversationId?: string | null;
+      visitorId?: unknown;
+    };
+    if (!parsed || !Array.isArray(parsed.previewMessages)) return null;
+    const previewMessages = parsed.previewMessages.filter(
+      (m): m is PlaygroundPreviewMessage =>
+        m !== null &&
+        typeof m === "object" &&
+        (m as { from?: string }).from !== undefined &&
+        ((m as { from: string }).from === "user" || (m as { from: string }).from === "assistant") &&
+        typeof (m as { text?: unknown }).text === "string"
+    );
+    const conversationId =
+      typeof parsed.conversationId === "string" || parsed.conversationId === null
+        ? parsed.conversationId
+        : null;
+    const visitorId =
+      typeof parsed.visitorId === "string" && parsed.visitorId.trim().length > 0
+        ? parsed.visitorId.trim()
+        : "playground-preview";
+    return { previewMessages, conversationId, visitorId };
+  } catch {
+    return null;
+  }
+}
+
+function writePlaygroundChatToStorage(
+  agentId: string,
+  previewMessages: PlaygroundPreviewMessage[],
+  conversationId: string | null,
+  visitorId: string
+) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      playgroundChatStorageKey(agentId),
+      JSON.stringify({ previewMessages, conversationId, visitorId })
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function formatToneLabel(tone: string | null | undefined): string | null {
+  if (!tone?.trim()) return null;
+  const s = tone.trim();
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+function PlaygroundPreviewConversation({
+  agentId,
+  agentName,
+  brandColorHex,
+  toneRaw,
+  model,
+  systemPrompt,
+  saveError,
+}: {
+  agentId: string | null;
+  agentName: string | null;
+  brandColorHex: string | null;
+  toneRaw: string | null;
+  model: string;
+  systemPrompt: string;
+  saveError: string | null;
+}) {
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const [messageInput, setMessageInput] = useState("");
+  const [previewMessages, setPreviewMessages] = useState<PlaygroundPreviewMessage[]>(() => {
+    if (!agentId) return [];
+    return readPlaygroundChatFromStorage(agentId)?.previewMessages ?? [];
+  });
+  const [conversationId, setConversationId] = useState<string | null>(() => {
+    if (!agentId) return null;
+    return readPlaygroundChatFromStorage(agentId)?.conversationId ?? null;
+  });
+  const [visitorId, setVisitorId] = useState<string>(() => {
+    if (!agentId) return newPlaygroundVisitorId();
+    return readPlaygroundChatFromStorage(agentId)?.visitorId ?? "playground-preview";
+  });
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+
+  useEffect(() => {
+    if (!agentId) return;
+    writePlaygroundChatToStorage(agentId, previewMessages, conversationId, visitorId);
+  }, [agentId, previewMessages, conversationId, visitorId]);
+
+  useLayoutEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [previewMessages, isSending]);
+
+  async function handleSendMessage() {
+    if (!agentId || !messageInput.trim() || isSending) return;
+    const userMessage = messageInput.trim();
+    setMessageInput("");
+    setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
+    setIsSending(true);
+    setChatError(null);
+    try {
+      const data = await backendFetch<{ conversation_id: string; response: string }>("/api/v1/runtime/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: agentId,
+          message: userMessage,
+          conversation_id: conversationId,
+          model_override: model,
+          system_prompt_override: systemPrompt,
+          visitor_id: visitorId,
+        }),
+      });
+      setConversationId(data.conversation_id);
+      setPreviewMessages((prev) => [...prev, { from: "assistant", text: data.response }]);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : "Failed to send message");
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  function handleResetPreviewChat() {
+    if (!agentId) return;
+    const nextVisitorId = newPlaygroundVisitorId();
+    setVisitorId(nextVisitorId);
+    setConversationId(null);
+    setPreviewMessages([]);
+    setChatError(null);
+    writePlaygroundChatToStorage(agentId, [], null, nextVisitorId);
+  }
+
+  const footerError = saveError ?? chatError;
+
+  const hasBrand = Boolean(brandColorHex);
+  const chrome = useMemo(
+    () => (brandColorHex ? brandChromeClasses(brandColorHex) : null),
+    [brandColorHex]
+  );
+  const toneLabel = formatToneLabel(toneRaw);
+  const displayName = (agentName?.trim() || "Assistant preview").trim();
+  const emptyToneLine = previewAssistantLineForTone(toneRaw);
+
+  return (
+    <div className="border-ds-outline flex h-[min(68dvh,100%)] min-h-[min(420px,100%)] w-full max-w-[30rem] flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
+      <div
+        className={cn(
+          "flex items-center justify-between border-b px-5 py-3.5 sm:px-6",
+          hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
+        )}
+        style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="relative shrink-0">
+            <div
+              className={cn(
+                "flex size-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/10",
+                hasBrand && chrome
+                  ? chrome.lightBg
+                    ? "bg-black/[0.06] text-ds-on-surface"
+                    : "bg-white/20 text-white"
+                  : "bg-ds-primary text-ds-on-primary"
+              )}
+            >
+              <IconBot className="size-4" />
+            </div>
+            <div
+              className={cn(
+                "border-ds-surface absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2",
+                hasBrand && chrome ? chrome.dotClass : "bg-emerald-500"
+              )}
+            />
+          </div>
+          <div className="min-w-0">
+            <h3
+              className={cn(
+                "truncate text-sm font-semibold tracking-tight",
+                hasBrand && chrome ? chrome.titleClass : "text-ds-on-surface"
+              )}
+            >
+              {displayName}
+            </h3>
+            <span
+              className={cn(
+                "text-xs font-medium",
+                hasBrand && chrome ? cn(chrome.titleClass, "opacity-90") : "text-emerald-700"
+              )}
+            >
+              {toneLabel ? `${toneLabel} · Live` : "Live"}
+            </span>
+          </div>
+        </div>
+        <div className={cn("flex shrink-0 items-center", hasBrand && chrome ? chrome.headerIconButtonClass : "text-ds-on-surface-variant")}>
+          <button
+            type="button"
+            className={cn(
+              "rounded-ds-md p-2.5 transition-colors disabled:pointer-events-none disabled:opacity-40",
+              !hasBrand && "hover:bg-ds-outline/50 hover:text-ds-on-surface"
+            )}
+            aria-label="Reset conversation and start a new chat thread"
+            title="Reset — clears preview and starts a new server thread (old messages no longer influence replies)"
+            onClick={handleResetPreviewChat}
+            disabled={!agentId}
+          >
+            <IconRefresh className="size-5" />
+          </button>
+        </div>
+      </div>
+
+      <div ref={messagesScrollRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8">
+        {previewMessages.length === 0 ? (
+          <div className={cn(onboardingType.body, "space-y-3 text-center")}>
+            <p className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-sm border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
+              {emptyToneLine}
+            </p>
+            <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>Send a message to test this agent.</p>
+          </div>
+        ) : null}
+        {previewMessages.map((msg, index) => (
+          <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
+            {msg.from === "assistant" ? (
+              <div className="flex max-w-[90%] gap-3">
+                <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white shadow-sm">
+                  <IconBot className="text-ds-on-surface-variant size-3.5" />
+                </div>
+                <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5">
+                  <AssistantMarkdown>{msg.text}</AssistantMarkdown>
+                </div>
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5",
+                  hasBrand && chrome ? chrome.titleClass : "bg-ds-primary text-ds-on-primary"
+                )}
+                style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+              >
+                {msg.text}
+              </div>
+            )}
+          </div>
+        ))}
+        {isSending ? <p className={cn(onboardingType.hint, "italic")}>Thinking…</p> : null}
+      </div>
+
+      <div className="border-ds-outline border-t bg-ds-surface p-4 sm:p-5">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button type="button" className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 shrink-0 rounded-ds-md p-2 transition-colors" aria-label="Attach">
+            <IconAttach className="size-5" />
+          </button>
+          <input
+            className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
+            placeholder="Test your agent…"
+            value={messageInput}
+            onChange={(e) => setMessageInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              void handleSendMessage();
+            }}
+          />
+          <button
+            type="button"
+            className={cn(
+              "shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
+              hasBrand && chrome
+                ? cn(chrome.fabIconClass, "hover:opacity-90")
+                : "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+            )}
+            style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+            onClick={() => void handleSendMessage()}
+            disabled={!agentId || isSending || !messageInput.trim()}
+            aria-label="Send"
+          >
+            <IconSend className="size-4.5" />
+          </button>
+        </div>
+        {footerError ? <p className="text-rose-600 mt-2 text-sm">{footerError}</p> : null}
+        <p className={cn(onboardingType.hint, "mt-3 text-center")}>
+          Session: <span className="text-ds-on-surface font-medium">{model}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
 
 const shopifyActions: ActionItem[] = [
   {
@@ -37,139 +349,91 @@ const shopifyActions: ActionItem[] = [
 
 export default function PlaygroundPage() {
   const [mobileTab, setMobileTab] = useState<"settings" | "preview">("settings");
-  const [agents, setAgents] = useState<Array<{ id: string; name: string; model: string; system_prompt: string }>>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const { agents, selectedAgentId, selectedAgent } = useDashboardAgent();
+  const setTopbarExtras = useSetDashboardTopbarExtras();
   const [model, setModel] = useState("gpt-4o-mini");
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [messageInput, setMessageInput] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [previewMessages, setPreviewMessages] = useState<Array<{ from: "user" | "assistant"; text: string }>>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
+  const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const selectedAgent = useMemo(
-    () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
-    [agents, selectedAgentId]
-  );
+  const [syncedAgentId, setSyncedAgentId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const data = await backendFetch<{ agents: Array<{ id: string; name: string; model: string; system_prompt: string }> }>(
-          "/api/v1/agents"
-        );
-        if (cancelled) return;
-        setAgents(data.agents);
-        const first = data.agents[0];
-        if (first) {
-          setSelectedAgentId(first.id);
-          setModel(first.model || "gpt-4o-mini");
-          setSystemPrompt(first.system_prompt || "");
-        }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load agents");
-      }
+  if (selectedAgentId && selectedAgentId !== syncedAgentId) {
+    const match = agents.find((a) => a.id === selectedAgentId);
+    if (match) {
+      setSyncedAgentId(selectedAgentId);
+      setModel(match.model || "gpt-4o-mini");
+      setSystemPrompt(match.system_prompt || "");
+    } else if (agents.length > 0) {
+      setSyncedAgentId(selectedAgentId);
     }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }
 
-  async function handleSave() {
+  const handleSave = useCallback(async () => {
     if (!selectedAgentId || isSaving) return;
     setIsSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       await backendFetch(`/api/v1/agents/${selectedAgentId}`, {
         method: "PATCH",
         body: JSON.stringify({ model, system_prompt: systemPrompt }),
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save agent settings");
+      setSaveError({
+        agentId: selectedAgentId,
+        message: e instanceof Error ? e.message : "Failed to save agent settings",
+      });
     } finally {
       setIsSaving(false);
     }
-  }
+  }, [selectedAgentId, isSaving, model, systemPrompt]);
 
-  async function handleSendMessage() {
-    if (!selectedAgentId || !messageInput.trim() || isSending) return;
-    const userMessage = messageInput.trim();
-    setMessageInput("");
-    setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
-    setIsSending(true);
-    setError(null);
-    try {
-      const data = await backendFetch<{ conversation_id: string; response: string }>("/api/v1/runtime/chat", {
-        method: "POST",
-        body: JSON.stringify({
-          agent_id: selectedAgentId,
-          message: userMessage,
-          conversation_id: conversationId,
-          model_override: model,
-          system_prompt_override: systemPrompt,
-          visitor_id: "playground-preview",
-        }),
-      });
-      setConversationId(data.conversation_id);
-      setPreviewMessages((prev) => [...prev, { from: "assistant", text: data.response }]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send message");
-    } finally {
-      setIsSending(false);
-    }
-  }
+  const handleSaveRef = useRef(handleSave);
+
+  useLayoutEffect(() => {
+    handleSaveRef.current = handleSave;
+  }, [handleSave]);
+
+  useLayoutEffect(() => {
+    setTopbarExtras(
+      <>
+        <button
+          type="button"
+          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 rounded-ds-md p-2 transition-colors"
+          aria-label="Help"
+        >
+          <IconQuestion className="size-5" />
+        </button>
+        <button
+          type="button"
+          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 relative rounded-ds-md p-2 transition-colors"
+          aria-label="Notifications"
+        >
+          <IconBell className="size-5" />
+          <span className="bg-ds-primary border-ds-surface absolute top-1.5 right-1.5 size-2 rounded-full border-2" />
+        </button>
+        <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
+          <div className="flex items-center gap-2">
+            <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+            <span className="text-ds-on-surface-variant text-[11px] font-semibold tracking-wide uppercase">Unsaved</span>
+          </div>
+          <button
+            type="button"
+            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+            onClick={() => void handleSaveRef.current()}
+            disabled={!selectedAgentId || isSaving}
+          >
+            {isSaving ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+      </>
+    );
+    return () => setTopbarExtras(null);
+  }, [setTopbarExtras, isSaving, selectedAgentId]);
 
   return (
-    <div className="onboarding-main-surface -m-6 flex h-[calc(100vh-3.5rem)] flex-col">
-      <header className="border-ds-outline bg-ds-surface flex h-14 shrink-0 items-center justify-between border-b px-4 md:h-16 md:px-8">
-        <div className="flex min-w-0 items-center gap-3 md:gap-4">
-          <span className="text-ds-on-surface truncate text-base font-semibold tracking-tight md:text-lg">
-            Playground
-          </span>
-          <div className="bg-ds-outline hidden h-4 w-px shrink-0 sm:block" />
-          <span className={cn(onboardingType.body, "hidden min-w-0 truncate sm:block")}>
-            {selectedAgent?.name ?? "No agent selected"}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 md:gap-3">
-          <button
-            type="button"
-            className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 rounded-ds-md p-2 transition-colors"
-            aria-label="Help"
-          >
-            <IconQuestion className="size-5" />
-          </button>
-          <button
-            type="button"
-            className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 relative rounded-ds-md p-2 transition-colors"
-            aria-label="Notifications"
-          >
-            <IconBell className="size-5" />
-            <span className="bg-ds-primary border-ds-surface absolute top-1.5 right-1.5 size-2 rounded-full border-2" />
-          </button>
-          <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
-            <div className="flex items-center gap-2">
-              <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-ds-on-surface-variant text-[11px] font-semibold tracking-wide uppercase">
-                Unsaved
-              </span>
-            </div>
-            <button
-              type="button"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
-              onClick={handleSave}
-              disabled={!selectedAgentId || isSaving}
-            >
-              {isSaving ? "Saving…" : "Save changes"}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="border-ds-outline bg-ds-sidebar/80 flex items-center gap-2 border-b p-2.5 xl:hidden">
+    <div className="onboarding-main-surface -mx-6 -mb-6 flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="border-ds-outline bg-ds-sidebar/80 flex shrink-0 items-center gap-2 border-b p-2.5 xl:hidden">
         <button
           type="button"
           onClick={() => setMobileTab("settings")}
@@ -196,45 +460,22 @@ export default function PlaygroundPage() {
         </button>
       </div>
 
-      <div className="dot-grid flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
+      <div className="dot-grid flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row xl:items-stretch">
         <section
-          className={`border-ds-outline w-full shrink-0 overflow-y-auto border-b bg-white xl:w-[420px] xl:border-r xl:border-b-0 ${
-            mobileTab === "settings" ? "block" : "hidden xl:block"
-          }`}
+          className={cn(
+            "border-ds-outline flex w-full min-h-0 flex-col overflow-hidden border-b bg-white",
+            "xl:h-full xl:max-h-full xl:w-[420px] xl:shrink-0 xl:border-r xl:border-b-0",
+            mobileTab === "settings" ? "flex-1 xl:flex-none" : "hidden xl:flex"
+          )}
         >
-          <div className="border-ds-outline bg-ds-sidebar/90 sticky top-0 z-10 border-b px-5 py-4 backdrop-blur-sm sm:px-6">
+          <div className="border-ds-outline bg-ds-sidebar/90 shrink-0 border-b px-5 py-4 backdrop-blur-sm sm:px-6">
             <h2 className="text-ds-on-surface flex items-center gap-2 text-sm font-semibold tracking-tight">
               <IconTune className="text-ds-primary size-4 shrink-0" aria-hidden />
               Playground settings
             </h2>
           </div>
 
-          <div className="space-y-10 px-5 py-6 sm:px-8 sm:py-8">
-            <div className="space-y-2">
-              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
-                Agent
-              </label>
-              <select
-                className={fieldControlClass}
-                value={selectedAgentId}
-                onChange={(e) => {
-                  const nextId = e.target.value;
-                  setSelectedAgentId(nextId);
-                  const match = agents.find((agent) => agent.id === nextId);
-                  if (match) {
-                    setModel(match.model || "gpt-4o-mini");
-                    setSystemPrompt(match.system_prompt || "");
-                  }
-                }}
-              >
-                <option value="">Select agent</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8">
             <div className="space-y-2">
               <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
                 AI model
@@ -347,7 +588,7 @@ export default function PlaygroundPage() {
               Save your changes for them to take effect in the live agent.
             </p>
 
-            <div className="border-ds-outline bg-ds-surface/95 sticky bottom-0 -mx-5 flex items-center justify-between gap-3 border-t p-4 backdrop-blur-sm sm:-mx-8 lg:hidden">
+            <div className="border-ds-outline bg-ds-surface/95 sticky bottom-0 -mx-5 flex shrink-0 items-center justify-between gap-3 border-t p-4 backdrop-blur-sm sm:-mx-8 lg:hidden">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
                 <span className="text-ds-on-surface-variant truncate text-[11px] font-semibold uppercase tracking-wide">
@@ -367,87 +608,27 @@ export default function PlaygroundPage() {
         </section>
 
         <section
-          className={`min-w-0 flex-1 items-center justify-center p-4 sm:p-6 xl:flex xl:p-12 ${
-            mobileTab === "preview" ? "flex" : "hidden xl:flex"
-          }`}
+          className={cn(
+            "min-w-0 flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
+            "xl:items-center xl:justify-center xl:p-12 xl:pt-10 xl:pb-12",
+            mobileTab === "preview" ? "" : "hidden xl:flex"
+          )}
         >
-          <div className="border-ds-outline flex h-[68vh] min-h-[420px] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
-            <div className="border-ds-outline bg-ds-sidebar flex items-center justify-between border-b px-5 py-3.5 sm:px-6">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="relative shrink-0">
-                  <div className="bg-ds-primary flex size-9 items-center justify-center rounded-lg text-ds-on-primary shadow-sm">
-                    <IconBot className="size-4" aria-hidden />
-                  </div>
-                  <div className="border-ds-surface absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 bg-emerald-500" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-ds-on-surface truncate text-sm font-semibold tracking-tight">
-                    Assistant preview
-                  </h3>
-                  <span className="text-emerald-700 text-xs font-medium">Live</span>
-                </div>
-              </div>
-              <div className="text-ds-on-surface-variant flex shrink-0 items-center gap-0.5">
-                <button type="button" className="hover:bg-ds-outline/50 hover:text-ds-on-surface rounded-ds-md p-2 transition-colors" aria-label="Refresh">
-                  <IconRefresh className="size-4.5" />
-                </button>
-                <button type="button" className="hover:bg-ds-outline/50 hover:text-ds-on-surface rounded-ds-md p-2 transition-colors" aria-label="More">
-                  <IconMore className="size-4.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8">
-              {previewMessages.length === 0 ? (
-                <p className={cn(onboardingType.body, "text-center")}>Send a message to test this agent.</p>
-              ) : null}
-              {previewMessages.map((msg, index) => (
-                <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
-                  {msg.from === "assistant" ? (
-                    <div className="flex max-w-[90%] gap-3">
-                      <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white shadow-sm">
-                        <IconBot className="text-ds-on-surface-variant size-3.5" aria-hidden />
-                      </div>
-                      <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5">
-                        {msg.text}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-ds-primary text-ds-on-primary max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5">
-                      {msg.text}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {isSending ? <p className={cn(onboardingType.hint, "italic")}>Thinking…</p> : null}
-            </div>
-
-            <div className="border-ds-outline border-t bg-ds-surface p-4 sm:p-5">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <button type="button" className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 shrink-0 rounded-ds-md p-2 transition-colors" aria-label="Attach">
-                  <IconAttach className="size-5" />
-                </button>
-                <input
-                  className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
-                  placeholder="Test your agent…"
-                  value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
-                  onClick={handleSendMessage}
-                  disabled={!selectedAgentId || isSending || !messageInput.trim()}
-                  aria-label="Send"
-                >
-                  <IconSend className="size-4.5" />
-                </button>
-              </div>
-              {error ? <p className="text-rose-600 mt-2 text-sm">{error}</p> : null}
-              <p className={cn(onboardingType.hint, "mt-3 text-center")}>
-                Session: <span className="text-ds-on-surface font-medium">{model}</span>
-              </p>
-            </div>
+          <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden xl:justify-start">
+            <PlaygroundPreviewConversation
+              key={selectedAgentId ?? "__no_agent__"}
+              agentId={selectedAgentId}
+              agentName={selectedAgent?.name ?? null}
+              brandColorHex={parseBrandColorHex(selectedAgent?.behavior_settings?.brand_color)}
+              toneRaw={
+                typeof selectedAgent?.behavior_settings?.tone === "string"
+                  ? selectedAgent.behavior_settings.tone
+                  : null
+              }
+              model={model}
+              systemPrompt={systemPrompt}
+              saveError={saveError?.agentId === selectedAgentId ? saveError.message : null}
+            />
           </div>
         </section>
       </div>
@@ -589,16 +770,6 @@ function IconRefresh({ className }: { className?: string }) {
     <IconBase className={className}>
       <path d="M20 12a8 8 0 1 1-2.3-5.6" />
       <path d="M20 4v5h-5" />
-    </IconBase>
-  );
-}
-
-function IconMore({ className }: { className?: string }) {
-  return (
-    <IconBase className={className} fill="currentColor" strokeWidth="0">
-      <circle cx="12" cy="5" r="1.7" />
-      <circle cx="12" cy="12" r="1.7" />
-      <circle cx="12" cy="19" r="1.7" />
     </IconBase>
   );
 }

@@ -2,12 +2,15 @@ import asyncio
 import os
 from uuid import UUID
 
+import structlog
 from sqlalchemy import text
 
 from app.core.settings import get_settings
 from app.db.engine import init_engine
 from app.db.session import get_session_factory, init_session_factory
-from app.domains.knowledge.service import process_indexing_job
+from app.domains.knowledge.service import process_indexing_job, record_worker_indexing_surrogate_failure
+
+log = structlog.get_logger("indexing_worker")
 
 
 async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
@@ -56,8 +59,25 @@ async def run_worker_loop(poll_interval_seconds: float = 2.0) -> None:
             await asyncio.sleep(poll_interval_seconds)
             continue
         job_id, user_id = fetched
-        async with get_session_factory()() as db:
-            await process_indexing_job(db, job_id=job_id, user_id=user_id)
+        try:
+            async with get_session_factory()() as db:
+                await process_indexing_job(db, job_id=job_id, user_id=user_id)
+        except Exception as exc:
+            log.exception(
+                "indexing_job_failed",
+                job_id=str(job_id),
+                user_id=str(user_id),
+                error=str(exc),
+            )
+            try:
+                async with get_session_factory()() as db:
+                    await record_worker_indexing_surrogate_failure(db, job_id, user_id, exc)
+            except Exception:
+                log.exception(
+                    "indexing_job_surrogate_persist_failed",
+                    job_id=str(job_id),
+                    user_id=str(user_id),
+                )
 
 
 def main() -> None:

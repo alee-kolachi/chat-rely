@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { backendFetch } from "@/lib/backend-api";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
+import { brandChromeClasses } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
 import {
   OnboardingFieldRow,
@@ -19,24 +20,6 @@ import {
 
 const toneOptions = ["Friendly", "Professional", "Concise"] as const;
 const colorOptions = ["#000000", "#FB923C", "#F472B6", "#3B82F6", "#10B981", "#6366F1"] as const;
-
-/** YIQ luminance — light text on darker fills, dark text on light/pastel fills */
-function brandChromeClasses(hex: string) {
-  const h = hex.replace("#", "").toUpperCase();
-  if (h.length !== 6 || !/^[0-9A-F]{6}$/.test(h)) {
-    return { titleClass: "text-white", dotClass: "bg-emerald-300", fabIconClass: "text-white" } as const;
-  }
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-  const lightBg = yiq >= 175;
-  return {
-    titleClass: lightBg ? "text-ds-on-surface" : "text-white",
-    dotClass: lightBg ? "bg-emerald-600" : "bg-emerald-300",
-    fabIconClass: lightBg ? "text-ds-on-surface" : "text-white",
-  } as const;
-}
 
 export default function AppearanceToneOnboardingPage() {
   const router = useRouter();

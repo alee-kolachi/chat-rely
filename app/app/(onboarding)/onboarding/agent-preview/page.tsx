@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { backendFetch } from "@/lib/backend-api";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
@@ -231,7 +232,11 @@ export default function AgentPreviewOnboardingPage() {
                               : "border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-4 py-2.5 text-ds-on-surface sm:max-w-[88%]"
                           }
                         >
-                          {message.text}
+                          {message.from === "assistant" ? (
+                            <AssistantMarkdown>{message.text}</AssistantMarkdown>
+                          ) : (
+                            message.text
+                          )}
                         </div>
                       ))}
                       {isSending ? <p className="text-ds-on-surface-variant text-sm">Thinking...</p> : null}

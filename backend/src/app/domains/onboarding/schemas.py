@@ -60,7 +60,19 @@ class OnboardingStartResponse(BaseModel):
     current_step: int
 
 
+class OnboardingCrawledPageDTO(BaseModel):
+    url: str
+    path: str
+    status: str
+
+
 class OnboardingWebsiteResponse(BaseModel):
     source_id: UUID
     job_id: UUID
     status: str
+    website_url: str
+    pages: list[OnboardingCrawledPageDTO] = Field(default_factory=list)
+    preview_image_url: str | None = Field(
+        default=None,
+        description="og:image / twitter:image from the first crawled page when present (many sites block iframes).",
+    )
