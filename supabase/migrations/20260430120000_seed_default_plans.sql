@@ -20,7 +20,7 @@ values
     500,
     8,
     1,
-    '{"shopify_enabled": true, "max_enabled_actions_per_agent": 5, "max_file_storage_mb": 100, "auto_retrain": false}'::jsonb,
+    '{"shopify_enabled": true, "max_enabled_actions_per_agent": 5, "max_file_storage_mb": 100, "max_knowledge_storage_kb": 500, "max_website_crawl_kb": 500, "auto_retrain": false}'::jsonb,
     '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 2500, "strong_delay_ms": 8000}'::jsonb,
     true
   ),

@@ -93,7 +93,7 @@ export function DashboardSidebar() {
         isCollapsed ? "w-20" : "w-64"
       )}
     >
-      <div className="border-ds-outline flex h-14 items-center justify-between border-b px-3">
+      <div className="border-ds-outline flex h-14 items-center justify-between border-b px-3 md:h-16">
         <span
           className={cn(
             "text-ds-on-surface overflow-hidden text-sm font-semibold whitespace-nowrap transition-all",

@@ -91,6 +91,15 @@ function formatToneLabel(tone: string | null | undefined): string | null {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
+function faviconServiceUrl(siteUrl: string): string {
+  try {
+    const host = new URL(siteUrl).hostname;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
+  } catch {
+    return "";
+  }
+}
+
 function PlaygroundPreviewConversation({
   agentId,
   agentName,
@@ -99,6 +108,7 @@ function PlaygroundPreviewConversation({
   model,
   systemPrompt,
   saveError,
+  websiteLogoUrl,
 }: {
   agentId: string | null;
   agentName: string | null;
@@ -107,6 +117,7 @@ function PlaygroundPreviewConversation({
   model: string;
   systemPrompt: string;
   saveError: string | null;
+  websiteLogoUrl: string | null;
 }) {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [messageInput, setMessageInput] = useState("");
@@ -181,7 +192,6 @@ function PlaygroundPreviewConversation({
     () => (brandColorHex ? brandChromeClasses(brandColorHex) : null),
     [brandColorHex]
   );
-  const toneLabel = formatToneLabel(toneRaw);
   const displayName = (agentName?.trim() || "Assistant preview").trim();
   const emptyToneLine = previewAssistantLineForTone(toneRaw);
 
@@ -196,24 +206,38 @@ function PlaygroundPreviewConversation({
       >
         <div className="flex min-w-0 items-center gap-3">
           <div className="relative shrink-0">
-            <div
-              className={cn(
-                "flex size-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/10",
-                hasBrand && chrome
-                  ? chrome.lightBg
-                    ? "bg-black/[0.06] text-ds-on-surface"
-                    : "bg-white/20 text-white"
-                  : "bg-ds-primary text-ds-on-primary"
-              )}
-            >
-              <IconBot className="size-4" />
-            </div>
-            <div
-              className={cn(
-                "border-ds-surface absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2",
-                hasBrand && chrome ? chrome.dotClass : "bg-emerald-500"
-              )}
-            />
+            {websiteLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- remote logo/fallback asset
+              <img
+                src={websiteLogoUrl}
+                alt=""
+                className="block max-h-9 w-auto max-w-[10rem] object-contain"
+                width={160}
+                height={36}
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/10",
+                  hasBrand && chrome
+                    ? chrome.lightBg
+                      ? "bg-black/[0.06] text-ds-on-surface"
+                      : "bg-white/20 text-white"
+                    : "bg-ds-primary text-ds-on-primary"
+                )}
+              >
+                <IconBot className="size-4" />
+              </div>
+            )}
+            {!websiteLogoUrl ? (
+              <div
+                className={cn(
+                  "border-ds-surface absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2",
+                  hasBrand && chrome ? chrome.dotClass : "bg-emerald-500"
+                )}
+              />
+            ) : null}
           </div>
           <div className="min-w-0">
             <h3
@@ -224,14 +248,6 @@ function PlaygroundPreviewConversation({
             >
               {displayName}
             </h3>
-            <span
-              className={cn(
-                "text-xs font-medium",
-                hasBrand && chrome ? cn(chrome.titleClass, "opacity-90") : "text-emerald-700"
-              )}
-            >
-              {toneLabel ? `${toneLabel} · Live` : "Live"}
-            </span>
           </div>
         </div>
         <div className={cn("flex shrink-0 items-center", hasBrand && chrome ? chrome.headerIconButtonClass : "text-ds-on-surface-variant")}>
@@ -320,9 +336,6 @@ function PlaygroundPreviewConversation({
           </button>
         </div>
         {footerError ? <p className="text-rose-600 mt-2 text-sm">{footerError}</p> : null}
-        <p className={cn(onboardingType.hint, "mt-3 text-center")}>
-          Session: <span className="text-ds-on-surface font-medium">{model}</span>
-        </p>
       </div>
     </div>
   );
@@ -355,6 +368,8 @@ export default function PlaygroundPage() {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
+  const settingsScrollRef = useRef<HTMLDivElement>(null);
 
   const [syncedAgentId, setSyncedAgentId] = useState<string | null>(null);
 
@@ -431,8 +446,48 @@ export default function PlaygroundPage() {
     return () => setTopbarExtras(null);
   }, [setTopbarExtras, isSaving, selectedAgentId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedAgentId) {
+      setWebsiteLogoUrl(null);
+      return;
+    }
+    void (async () => {
+      try {
+        const data = await backendFetch<{
+          sources: Array<{ source_url: string | null; website_mode: string | null; title: string | null }>;
+        }>(
+          `/api/v1/knowledge/website/sources?agent_id=${encodeURIComponent(selectedAgentId)}`
+        );
+        if (cancelled) return;
+        const prioritizedSource =
+          data.sources.find(
+            (source) => typeof source.source_url === "string" && source.source_url && source.website_mode !== "individual"
+          ) ??
+          data.sources.find((source) => typeof source.source_url === "string" && source.source_url);
+        const sourceUrl = prioritizedSource?.source_url ?? null;
+        setWebsiteLogoUrl(sourceUrl ? faviconServiceUrl(sourceUrl) : null);
+      } catch {
+        if (!cancelled) setWebsiteLogoUrl(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgentId]);
+
+  const routeWheelToSettingsOnDesktop = useCallback((event: React.WheelEvent<HTMLElement>) => {
+    if (typeof window === "undefined" || window.innerWidth < 1280) return;
+    const el = settingsScrollRef.current;
+    if (!el) return;
+    const next = el.scrollTop + event.deltaY;
+    if (next === el.scrollTop) return;
+    el.scrollTop = next;
+    event.preventDefault();
+  }, []);
+
   return (
-    <div className="onboarding-main-surface -mx-6 -mb-6 flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="onboarding-main-surface -mx-6 -mt-6 -mb-6 flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="border-ds-outline bg-ds-sidebar/80 flex shrink-0 items-center gap-2 border-b p-2.5 xl:hidden">
         <button
           type="button"
@@ -467,6 +522,7 @@ export default function PlaygroundPage() {
             "xl:h-full xl:max-h-full xl:w-[420px] xl:shrink-0 xl:border-r xl:border-b-0",
             mobileTab === "settings" ? "flex-1 xl:flex-none" : "hidden xl:flex"
           )}
+          onWheel={routeWheelToSettingsOnDesktop}
         >
           <div className="border-ds-outline bg-ds-sidebar/90 shrink-0 border-b px-5 py-4 backdrop-blur-sm sm:px-6">
             <h2 className="text-ds-on-surface flex items-center gap-2 text-sm font-semibold tracking-tight">
@@ -475,7 +531,10 @@ export default function PlaygroundPage() {
             </h2>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8">
+          <div
+            ref={settingsScrollRef}
+            className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8"
+          >
             <div className="space-y-2">
               <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
                 AI model
@@ -613,6 +672,7 @@ export default function PlaygroundPage() {
             "xl:items-center xl:justify-center xl:p-12 xl:pt-10 xl:pb-12",
             mobileTab === "preview" ? "" : "hidden xl:flex"
           )}
+          onWheel={routeWheelToSettingsOnDesktop}
         >
           <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden xl:justify-start">
             <PlaygroundPreviewConversation
@@ -628,6 +688,7 @@ export default function PlaygroundPage() {
               model={model}
               systemPrompt={systemPrompt}
               saveError={saveError?.agentId === selectedAgentId ? saveError.message : null}
+              websiteLogoUrl={websiteLogoUrl}
             />
           </div>
         </section>

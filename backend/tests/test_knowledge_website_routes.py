@@ -139,6 +139,7 @@ def test_website_source_pages_route(client: TestClient, monkeypatch: pytest.Monk
         return (
             [
                 {
+                    "id": UUID("00000000-0000-0000-0000-000000000111"),
                     "url": "https://example.com/a",
                     "status": "parsed",
                     "depth": 0,
@@ -173,6 +174,64 @@ def test_website_source_delete_route(client: TestClient, monkeypatch: pytest.Mon
     assert res.status_code == 204
     assert res.content == b""
     assert called.get("ok") is True
+
+
+def test_website_source_retrain_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_auth(monkeypatch)
+    sid = UUID("00000000-0000-0000-0000-000000000099")
+    jid = UUID("00000000-0000-0000-0000-000000000100")
+    aid = UUID("00000000-0000-0000-0000-000000000888")
+
+    async def _retrain(*_a: Any, **_k: Any) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+        src = KnowledgeSourceDTO.model_validate(
+            {
+                "id": sid,
+                "agent_id": aid,
+                "user_id": UUID("00000000-0000-0000-0000-000000000123"),
+                "type": "website",
+                "title": "example.com",
+                "status": "indexing",
+                "source_url": "https://example.com/",
+                "storage_bucket": None,
+                "storage_path": None,
+                "metadata": {"origin": "dashboard_website", "website_mode": "crawl"},
+                "error_message": None,
+                "last_indexed_at": None,
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            }
+        )
+        job = IndexJobDTO.model_validate(
+            {
+                "id": jid,
+                "knowledge_source_id": sid,
+                "agent_id": aid,
+                "user_id": UUID("00000000-0000-0000-0000-000000000123"),
+                "status": "queued",
+                "attempt": 1,
+                "triggered_by": "api",
+                "error_message": None,
+                "started_at": None,
+                "finished_at": None,
+                "phase": "queued",
+                "pages_total": 0,
+                "pages_processed": 0,
+                "chunks_total": 0,
+                "chunks_embedded": 0,
+                "progress_pct": 0,
+                "metrics": {},
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            }
+        )
+        return src, job
+
+    monkeypatch.setattr("app.api.routes.knowledge_website.enqueue_index_website_source_queued", _retrain)
+    res = client.post(f"/api/v1/knowledge/website/sources/{sid}/retrain", headers=_auth_header())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["source"]["id"] == str(sid)
+    assert body["job"]["id"] == str(jid)
 
 
 def test_website_usage_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,6 +297,13 @@ def test_job_crawl_limit_exceeded_flag() -> None:
     assert _job_crawl_limit_exceeded("succeeded", m, 33, 33) is False
     assert _job_crawl_limit_exceeded("running", m, 2000, 10) is False
     assert _job_crawl_limit_exceeded("succeeded", {"crawl_stopped_reason": "complete"}, 2000, 33) is False
+
+
+def test_job_crawl_limit_exceeded_uses_storage_guardrail() -> None:
+    from app.domains.knowledge.service import _job_crawl_limit_exceeded
+
+    m = {"crawl_stopped_reason": "budget", "indexed_source_bytes": 40_000}
+    assert _job_crawl_limit_exceeded("succeeded", m, 2000, 300, storage_cap_bytes=500_000) is False
 
 
 def test_url_duplicate_key_normalizes() -> None:

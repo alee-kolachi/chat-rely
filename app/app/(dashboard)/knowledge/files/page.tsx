@@ -1,38 +1,261 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
+import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
+import {
+  CollapsibleSection,
+  KnowledgeSearchInput,
+  KnowledgeSortMenu,
+  StatusPill,
+} from "@/components/knowledge/knowledge-controls";
+import {
+  IconCloudUpload,
+  IconFile,
+  IconMoreVertical,
+} from "@/components/knowledge/knowledge-icons";
 import { KnowledgeMobileSubnav } from "@/components/knowledge/knowledge-mobile-subnav";
 import { KnowledgeWorkspaceShell } from "@/components/knowledge/knowledge-workspace-shell";
+import {
+  makeSortComparator,
+  useSortPreference,
+} from "@/components/knowledge/use-sort-preference";
+import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
 
-const fileRows = [
-  {
-    icon: "pdf",
-    name: "product_roadmap_2024.pdf",
-    characters: "42,850",
-    updatedAt: "Oct 24, 2023 · 14:20",
-  },
-  {
-    icon: "doc",
-    name: "customer_support_faqs.docx",
-    characters: "128,402",
-    updatedAt: "Oct 22, 2023 · 09:15",
-  },
-  {
-    icon: "txt",
-    name: "technical_specs_v2.txt",
-    characters: "8,922",
-    updatedAt: "Oct 21, 2023 · 18:45",
-  },
-  {
-    icon: "pdf",
-    name: "brand_guidelines.pdf",
-    characters: "54,300",
-    updatedAt: "Oct 19, 2023 · 11:30",
-  },
-];
+type FileSourceRow = {
+  id: string;
+  title: string;
+  storage_bucket: string | null;
+  storage_path: string | null;
+  status: string;
+  character_count: number;
+  last_indexed_at: string | null;
+};
+
+type FileUploadResult = {
+  status: "succeeded" | "failed";
+  error_message?: string | null;
+};
+
+async function fetchFileSources(agentId: string): Promise<FileSourceRow[]> {
+  const data = await backendFetch<{ sources: FileSourceRow[] }>(
+    `/api/v1/knowledge/files/sources?agent_id=${encodeURIComponent(agentId)}`
+  );
+  return data.sources;
+}
+
+function formatUpdatedAt(value: string | null): string {
+  if (!value) return "Not indexed yet";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "Not indexed yet";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function fileNameFromRow(row: FileSourceRow): string {
+  const fromPath = row.storage_path?.split("/").pop();
+  return fromPath && fromPath.trim().length > 0 ? fromPath : row.title;
+}
+
+function sourceStatusPill(status: string): { label: string; tone: "success" | "danger" | "warning" | "neutral" } {
+  switch ((status || "").toLowerCase()) {
+    case "ready":
+      return { label: "Succeeded", tone: "success" };
+    case "failed":
+      return { label: "Failed", tone: "danger" };
+    case "indexing":
+      return { label: "Processing", tone: "warning" };
+    default:
+      return { label: status || "Pending", tone: "neutral" };
+  }
+}
 
 export default function KnowledgeFilesPage() {
+  const { selectedAgentId } = useDashboardAgent();
+  const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
+  const [rows, setRows] = useState<FileSourceRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortKey, setSortKey] = useSortPreference("files");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const next = await fetchFileSources(selectedAgentId);
+        if (cancelled) return;
+        setRows(next);
+        await refreshUsage();
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load file sources");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgentId, refreshUsage]);
+
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    let result = rows;
+    if (q) {
+      result = result.filter((r) => fileNameFromRow(r).toLowerCase().includes(q));
+    }
+    const cmp = makeSortComparator<FileSourceRow>(
+      sortKey,
+      (r) => r.status,
+      (r) => r.last_indexed_at
+    );
+    if (cmp) result = [...result].sort(cmp);
+    return result;
+  }, [rows, searchQuery, sortKey]);
+
+  const allFilteredSelected =
+    filteredRows.length > 0 && filteredRows.every((r) => selected.has(r.id));
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const r of filteredRows) next.delete(r.id);
+        return next;
+      });
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const r of filteredRows) next.add(r.id);
+        return next;
+      });
+    }
+  };
+
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const headerLabel =
+    selected.size > 0
+      ? `${selected.size} of ${rows.length} file${rows.length === 1 ? "" : "s"} selected`
+      : `${rows.length} file${rows.length === 1 ? "" : "s"}`;
+
+  async function bulkDelete() {
+    if (selected.size === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${selected.size} file source${selected.size === 1 ? "" : "s"} and all indexed data? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setBulkDeleting(true);
+    setError(null);
+    try {
+      for (const id of selected) {
+        try {
+          await backendFetch<void>(`/api/v1/knowledge/files/sources/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+          });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Delete failed");
+        }
+      }
+      setSelected(new Set());
+      if (selectedAgentId) {
+        const next = await fetchFileSources(selectedAgentId);
+        setRows(next);
+        await refreshUsage();
+      }
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
+  async function removeSource(sourceId: string) {
+    if (!window.confirm("Delete this file source and all indexed data? This cannot be undone.")) return;
+    setDeletingId(sourceId);
+    setError(null);
+    try {
+      await backendFetch<void>(`/api/v1/knowledge/files/sources/${encodeURIComponent(sourceId)}`, {
+        method: "DELETE",
+      });
+      if (!selectedAgentId) return;
+      const next = await fetchFileSources(selectedAgentId);
+      setRows(next);
+      setSelected((prev) => {
+        const n = new Set(prev);
+        n.delete(sourceId);
+        return n;
+      });
+      await refreshUsage();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete file source");
+    } finally {
+      setDeletingId(null);
+      setMenuOpenId(null);
+    }
+  }
+
+  async function uploadFiles(selectedFiles: FileList | null) {
+    if (!selectedFiles || !selectedAgentId || selectedFiles.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.set("agent_id", selectedAgentId);
+      Array.from(selectedFiles).forEach((file) => form.append("files", file));
+      const uploadRes = await backendFetch<{ results: FileUploadResult[] }>("/api/v1/knowledge/files/upload", {
+        method: "POST",
+        body: form,
+      });
+      const failed = (uploadRes.results ?? []).filter((item) => item.status === "failed");
+      const next = await fetchFileSources(selectedAgentId);
+      setRows(next);
+      await refreshUsage();
+      if (failed.length > 0) {
+        const first = failed[0]?.error_message ?? "One or more files failed to upload.";
+        setError(`${failed.length} file${failed.length === 1 ? "" : "s"} failed: ${first}`);
+      }
+    } catch (e) {
+      if (e instanceof BackendApiError && e.code === "knowledge.storage_budget_exhausted") {
+        setError(
+          "This agent’s knowledge storage is full (website + files share one limit). Delete a source or upgrade your plan, then try again."
+        );
+      } else if (e instanceof BackendApiError && e.code === "knowledge.embedding_not_configured") {
+        setError("Indexing is not configured (missing OpenAI API key on the server). Contact support or check backend configuration.");
+      } else {
+        setError(e instanceof Error ? e.message : "File upload failed");
+      }
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   return (
     <KnowledgeWorkspaceShell>
-      <main className="min-w-0 flex-1 p-4 pb-24 md:p-8 md:pb-8">
+      <main className="min-w-0 flex-1 p-4 pb-32 md:p-8 md:pb-32">
         <KnowledgeMobileSubnav active="files" />
         <div className="mx-auto max-w-5xl">
           <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -42,81 +265,183 @@ export default function KnowledgeFilesPage() {
                 Upload documents to train your agent. Supports .pdf, .txt, .doc, and .docx.
               </p>
             </div>
-            <button
-              type="button"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary flex w-fit items-center gap-2 rounded-ds-md px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors active:scale-[0.98]"
+          </div>
+
+          <CollapsibleSection
+            title="Add a file"
+            hideTitle
+            headerClassName="bg-transparent py-1"
+            headerContent={<div className="text-sm font-semibold text-ds-on-surface">Upload files</div>}
+            defaultExpanded
+            className="mb-8"
+          >
+            <div
+              className="cursor-pointer p-6 text-center transition-colors hover:bg-white"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                void uploadFiles(e.dataTransfer.files);
+              }}
             >
-              <IconUpload className="size-4.5 shrink-0" aria-hidden />
-              Upload files
-            </button>
-          </div>
-
-          <div className="border-ds-outline mb-10 cursor-pointer rounded-ds-xl border-2 border-dashed bg-ds-surface/80 p-10 text-center shadow-sm transition-colors hover:border-ds-primary/50 hover:bg-white">
-            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-ds-sidebar ring-1 ring-ds-outline transition-transform hover:scale-105">
-              <IconCloudUpload className="text-ds-primary size-5" aria-hidden />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                accept=".txt,.md,.csv,.json,.xml,.html,.pdf,.docx"
+                onChange={(e) => {
+                  void uploadFiles(e.target.files);
+                }}
+              />
+              <div className="border-ds-outline mx-auto mb-4 flex flex-col items-center justify-center rounded-ds-xl border-2 border-dashed bg-ds-surface/80 p-8 text-center hover:border-ds-primary/50">
+                <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-ds-sidebar ring-1 ring-ds-outline transition-transform hover:scale-105">
+                  <IconCloudUpload className="text-ds-primary size-5" />
+                </div>
+                <p className="text-ds-on-surface text-sm font-semibold">
+                  {uploading ? "Uploading and indexing files..." : "Drag and drop documents here or click to browse."}
+                </p>
+                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                  Max 50MB per file. Supports TXT, MD, CSV, JSON, XML, HTML, PDF, DOCX. Indexing can take up to a minute
+                  while embeddings are generated.
+                </p>
+              </div>
             </div>
-            <p className="text-ds-on-surface text-sm font-semibold">Drag and drop documents here or click to browse.</p>
-            <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">Max 50MB per file. High-quality extraction enabled.</p>
-          </div>
+          </CollapsibleSection>
 
-          <div className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
-            <div className="border-ds-outline bg-ds-sidebar/90 flex flex-col gap-2 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-              <h2 className="ds-app-kicker text-ds-on-surface font-semibold">File sources</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-ds-on-surface-variant text-xs font-medium">{fileRows.length} files</span>
-                <button
-                  type="button"
-                  className="rounded-ds-md bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-800 transition-opacity hover:opacity-80"
-                >
-                  Delete
-                </button>
+          <section className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="ds-app-section-title text-base">File sources</h2>
+              <KnowledgeSearchInput
+                placeholder="Search files…"
+                className="w-full sm:w-72"
+                value={searchQuery}
+                onChange={setSearchQuery}
+              />
+            </div>
+            <div className="border-ds-outline flex items-center justify-between border-b pb-2">
+              <label className="text-ds-on-surface flex cursor-pointer items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  className="border-ds-outline size-4 rounded"
+                  checked={allFilteredSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all"
+                />
+                <span>Select all</span>
+              </label>
+              <div className="flex items-center gap-3">
+                {selected.size > 0 ? (
+                  <>
+                    <span className="text-ds-on-surface-variant text-xs font-medium">{selected.size} selected</span>
+                    <button
+                      type="button"
+                      onClick={() => void bulkDelete()}
+                      disabled={bulkDeleting}
+                      className="rounded-ds-md bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-800 disabled:opacity-60"
+                    >
+                      {bulkDeleting ? "Deleting…" : "Delete"}
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-ds-on-surface-variant text-xs font-medium">{headerLabel}</span>
+                )}
+                <KnowledgeSortMenu value={sortKey} onChange={setSortKey} />
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-visible">
               <table className="w-full text-left">
                 <thead>
                   <tr className="ds-app-kicker bg-ds-sidebar/80 text-ds-on-surface-variant">
-                    <th className="w-10 px-5 py-3 sm:px-6">
-                      <input type="checkbox" defaultChecked className="border-ds-outline size-4 rounded" aria-label="Select all" />
-                    </th>
+                    <th className="w-10 px-5 py-3 sm:px-6" />
                     <th className="px-4 py-3 font-semibold">File name</th>
+                    <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 font-semibold">Characters</th>
                     <th className="px-4 py-3 font-semibold">Last updated</th>
                     <th className="px-5 py-3 text-right font-semibold sm:px-6">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-ds-outline divide-y">
-                  {fileRows.map((row) => (
-                    <tr key={row.name} className="transition-colors hover:bg-ds-sidebar/50">
-                      <td className="px-5 py-4 sm:px-6">
-                        <input type="checkbox" defaultChecked className="border-ds-outline size-4 rounded" aria-label={`Select ${row.name}`} />
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-3">
-                          {row.icon === "pdf" ? (
-                            <IconPdf className="text-ds-on-surface-variant size-5 shrink-0" aria-hidden />
-                          ) : row.icon === "doc" ? (
-                            <IconDoc className="text-ds-on-surface-variant size-5 shrink-0" aria-hidden />
-                          ) : (
-                            <IconTxt className="text-ds-on-surface-variant size-5 shrink-0" aria-hidden />
-                          )}
-                          <span className="text-ds-on-surface text-sm font-medium">{row.name}</span>
-                        </div>
-                      </td>
-                      <td className="text-ds-on-surface-variant px-4 py-4 font-mono text-xs">{row.characters}</td>
-                      <td className="text-ds-on-surface-variant px-4 py-4 text-xs">{row.updatedAt}</td>
-                      <td className="px-5 py-4 text-right sm:px-6">
-                        <button type="button" className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-1" aria-label="More">
-                          <IconMore className="size-5" />
-                        </button>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="text-ds-on-surface-variant px-4 py-6 text-sm">
+                        Loading file sources...
                       </td>
                     </tr>
-                  ))}
+                  ) : error ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-6 text-sm text-red-700">
+                        {error}
+                      </td>
+                    </tr>
+                  ) : filteredRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-ds-on-surface-variant px-4 py-6 text-sm">
+                        {searchQuery.trim() ? "No files match your search." : "No file sources yet."}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRows.map((row) => (
+                      <tr key={row.id} className="bg-ds-surface transition-colors hover:bg-ds-sidebar/40">
+                        <td className="px-5 py-4 sm:px-6">
+                          <input
+                            type="checkbox"
+                            className="border-ds-outline size-4 rounded"
+                            checked={selected.has(row.id)}
+                            onChange={() => toggleOne(row.id)}
+                            aria-label={`Select ${fileNameFromRow(row)}`}
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-3">
+                            <IconFile className="text-ds-on-surface-variant size-5 shrink-0" />
+                            <span className="text-ds-on-surface text-sm font-medium">{fileNameFromRow(row)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-xs">
+                          {(() => {
+                            const s = sourceStatusPill(row.status);
+                            return <StatusPill label={s.label} tone={s.tone} />;
+                          })()}
+                        </td>
+                        <td className="text-ds-on-surface-variant px-4 py-4 font-mono text-xs">
+                          {row.character_count.toLocaleString()}
+                        </td>
+                        <td className="text-ds-on-surface-variant px-4 py-4 text-xs">
+                          {formatUpdatedAt(row.last_indexed_at)}
+                        </td>
+                        <td className="px-5 py-4 text-right sm:px-6">
+                          <div className="relative inline-flex">
+                            <button
+                              type="button"
+                              className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-1"
+                              aria-label="More"
+                              onClick={() => setMenuOpenId((prev) => (prev === row.id ? null : row.id))}
+                            >
+                              <IconMoreVertical className="size-5" />
+                            </button>
+                            {menuOpenId === row.id ? (
+                              <div className="border-ds-outline bg-ds-surface absolute top-full right-0 z-50 mt-1 min-w-[10rem] rounded-ds-md border py-1 shadow-lg">
+                                <button
+                                  type="button"
+                                  disabled={deletingId === row.id}
+                                  className="text-ds-on-surface hover:bg-ds-sidebar block w-full px-3 py-2 text-left text-sm disabled:opacity-60"
+                                  onClick={() => void removeSource(row.id)}
+                                >
+                                  {deletingId === row.id ? "Deleting..." : "Delete file"}
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         </div>
 
         <DataSourcesSidebar mobile className="lg:hidden" />
@@ -124,92 +449,5 @@ export default function KnowledgeFilesPage() {
 
       <DataSourcesSidebar className="hidden lg:block" />
     </KnowledgeWorkspaceShell>
-  );
-}
-
-function IconBase({
-  className,
-  children,
-  fill = "none",
-  strokeWidth = "1.8",
-}: {
-  className?: string;
-  children: React.ReactNode;
-  fill?: string;
-  strokeWidth?: string;
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill={fill}
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      {children}
-    </svg>
-  );
-}
-
-function IconUpload({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M12 16V4" />
-      <path d="m7 9 5-5 5 5" />
-      <path d="M4 20h16" />
-    </IconBase>
-  );
-}
-
-function IconCloudUpload({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M7 18a4 4 0 1 1 .6-7.95A5 5 0 0 1 17 11h1a3 3 0 0 1 0 6H7Z" />
-      <path d="M12 14V9" />
-      <path d="m10 11 2-2 2 2" />
-    </IconBase>
-  );
-}
-
-function IconPdf({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M6 3h8l4 4v14H6z" />
-      <path d="M14 3v4h4" />
-      <path d="M9 17h6" />
-    </IconBase>
-  );
-}
-
-function IconDoc({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M6 3h8l4 4v14H6z" />
-      <path d="M14 3v4h4" />
-      <path d="M9 11h6M9 14h6M9 17h4" />
-    </IconBase>
-  );
-}
-
-function IconTxt({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M6 3h8l4 4v14H6z" />
-      <path d="M14 3v4h4" />
-      <path d="M9 12h2M13 12h2M10 16h4" />
-    </IconBase>
-  );
-}
-
-function IconMore({ className }: { className?: string }) {
-  return (
-    <IconBase className={className} fill="currentColor" strokeWidth="0">
-      <circle cx="12" cy="5" r="1.7" />
-      <circle cx="12" cy="12" r="1.7" />
-      <circle cx="12" cy="19" r="1.7" />
-    </IconBase>
   );
 }

@@ -11,7 +11,8 @@ def build_system_prompt(system_prompt: str) -> str:
         "- Do not give generic industry advice about unrelated companies or “typical outfitters” unless the excerpts clearly describe "
         "this brand; if the excerpts are mostly navigation or boilerplate, say what you can confirm from them and offer a helpful next step "
         "(e.g. point them to Contact / Shipping pages in the excerpts if those appear).\n"
-        "- If the excerpts do not contain enough information to answer safely, output the fallback message verbatim and nothing else."
+        "- If excerpts include a concrete fact (for example a price like 'PKR 3,490'), answer with that fact directly.\n"
+        "- Only use the fallback when no concrete answer exists in excerpts."
     )
     if custom:
         return f"{custom}\n\n{support}"

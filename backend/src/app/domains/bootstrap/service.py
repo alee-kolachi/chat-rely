@@ -145,21 +145,86 @@ async def _fetch_active_subscription_and_plan(
 async def _ensure_default_subscription(db: AsyncSession, user_id: UUID) -> tuple[SubscriptionDTO, PlanDTO]:
     existing = await _fetch_active_subscription_and_plan(db, user_id)
     if existing:
-        return existing
+        subscription, plan = existing
+        if plan.slug != "free":
+            return subscription, plan
+        await db.execute(
+            text(
+                """
+                update public.subscriptions
+                set plan_id = (
+                  select id from public.plans where slug = 'starter' and is_active = true limit 1
+                ),
+                updated_at = now()
+                where id = :subscription_id
+                """
+            ),
+            {"subscription_id": str(subscription.id)},
+        )
+        refreshed = await _fetch_active_subscription_and_plan(db, user_id)
+        if refreshed is None:
+            raise AppError(
+                code="subscription.bootstrap_failed",
+                message="Failed to upgrade default subscription",
+                status_code=500,
+            )
+        return refreshed
 
-    free_result = await db.execute(
+    starter_result = await db.execute(
         text(
             """
             select id
             from public.plans
-            where slug = 'free' and is_active = true
+            where slug = 'starter' and is_active = true
             limit 1
             """
         )
     )
-    free_row = free_result.mappings().first()
-    if free_row is None:
-        raise AppError(code="plan.not_found", message="Default free plan is missing", status_code=500)
+    starter_row = starter_result.mappings().first()
+    if starter_row is None:
+        created_starter = await db.execute(
+            text(
+                """
+                insert into public.plans (
+                  slug,
+                  name,
+                  monthly_price_cents,
+                  included_conversations,
+                  overage_conversation_cents,
+                  max_agents,
+                  features,
+                  throttle_policy,
+                  is_active
+                ) values (
+                  'starter',
+                  'Starter',
+                  3900,
+                  500,
+                  8,
+                  1,
+                  '{"shopify_enabled": true, "max_enabled_actions_per_agent": 5, "max_file_storage_mb": 100, "max_knowledge_storage_kb": 500, "max_website_crawl_kb": 500, "auto_retrain": false}'::jsonb,
+                  '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 2500, "strong_delay_ms": 8000}'::jsonb,
+                  true
+                )
+                on conflict (slug)
+                do update set
+                  name = excluded.name,
+                  monthly_price_cents = excluded.monthly_price_cents,
+                  included_conversations = excluded.included_conversations,
+                  overage_conversation_cents = excluded.overage_conversation_cents,
+                  max_agents = excluded.max_agents,
+                  features = excluded.features,
+                  throttle_policy = excluded.throttle_policy,
+                  is_active = true,
+                  updated_at = now()
+                returning id
+                """
+            )
+        )
+        created_row = created_starter.mappings().first()
+        if created_row is None:
+            raise AppError(code="plan.not_found", message="Default starter plan is missing", status_code=500)
+        starter_row = created_row
 
     period_start, period_end = _month_period(datetime.now(tz=UTC))
     await db.execute(
@@ -174,7 +239,7 @@ async def _ensure_default_subscription(db: AsyncSession, user_id: UUID) -> tuple
         ),
         {
             "user_id": str(user_id),
-            "plan_id": str(free_row["id"]),
+            "plan_id": str(starter_row["id"]),
             "period_start": period_start,
             "period_end": period_end,
         },

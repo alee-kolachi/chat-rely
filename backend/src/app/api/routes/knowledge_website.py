@@ -9,6 +9,7 @@ from app.domains.knowledge.schemas import (
     WebsiteCrawlRequest,
     WebsiteIndividualRequest,
     WebsiteIngestResponse,
+    WebsitePageUpdateRequest,
     WebsiteSourcePageItemDTO,
     WebsiteSourcePagesResponse,
     WebsiteSitemapRequest,
@@ -18,10 +19,13 @@ from app.domains.knowledge.schemas import (
 from app.domains.knowledge.service import (
     create_and_enqueue_dashboard_website,
     delete_website_source,
+    delete_website_source_page,
+    enqueue_index_website_source_queued,
     get_agent_website_usage,
     get_jobs,
     list_website_source_pages,
     list_website_sources_for_agent,
+    update_website_source_page,
 )
 
 router = APIRouter(prefix="/knowledge/website", tags=["knowledge-website"])
@@ -93,6 +97,7 @@ async def website_source_pages_route(
     rows, total = await list_website_source_pages(db, user.user_id, source_id, offset=offset, limit=limit)
     pages = [
         WebsiteSourcePageItemDTO(
+            id=r["id"],
             url=str(r["url"]),
             status=str(r["status"]),
             depth=int(r["depth"]),
@@ -111,6 +116,39 @@ async def website_source_delete_route(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await delete_website_source(db, user.user_id, source_id)
+    return Response(status_code=204)
+
+
+@router.post("/sources/{source_id}/retrain", response_model=WebsiteIngestResponse)
+async def website_source_retrain_route(
+    source_id: UUID,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WebsiteIngestResponse:
+    source, job = await enqueue_index_website_source_queued(db, source_id, user.user_id)
+    return WebsiteIngestResponse(source=source, job=job)
+
+
+@router.patch("/sources/{source_id}/pages/{page_id}", status_code=204)
+async def website_source_page_update_route(
+    source_id: UUID,
+    page_id: UUID,
+    payload: WebsitePageUpdateRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await update_website_source_page(db, user.user_id, source_id, page_id, payload.url)
+    return Response(status_code=204)
+
+
+@router.delete("/sources/{source_id}/pages/{page_id}", status_code=204)
+async def website_source_page_delete_route(
+    source_id: UUID,
+    page_id: UUID,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await delete_website_source_page(db, user.user_id, source_id, page_id)
     return Response(status_code=204)
 
 

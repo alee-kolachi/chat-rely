@@ -1,5 +1,16 @@
+"use client";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
+import {
+  IconArrowUp,
+  IconFile,
+  IconLanguage,
+  IconQuestion,
+  IconQuote,
+  IconRefresh,
+} from "@/components/knowledge/knowledge-icons";
 import { cn } from "@/lib/utils";
 
 export type KnowledgeWebsiteUsage = {
@@ -8,6 +19,13 @@ export type KnowledgeWebsiteUsage = {
   included_storage_bytes: number;
   used_storage_bytes: number;
   total_links: number;
+  total_files?: number;
+  total_snippets?: number;
+  total_qa_pairs?: number;
+  website_used_bytes?: number;
+  files_used_bytes?: number;
+  snippets_used_bytes?: number;
+  qa_used_bytes?: number;
   show_upgrade: boolean;
   website_crawl_budget_bytes?: number;
   website_crawl_last_job_bytes?: number | null;
@@ -36,25 +54,38 @@ export function DataSourcesSidebar({
   usage,
   usageLoading = false,
 }: DataSourcesSidebarProps) {
-  const crawlSuffix =
-    usage && !usageLoading && (usage.website_crawl_budget_bytes ?? 0) > 0
-      ? ` · Crawl ${formatBytes(usage.website_crawl_budget_bytes ?? 0)}`
-      : "";
-  const summaryLine =
-    usage && !usageLoading
-      ? `${usage.total_links.toLocaleString()} pages indexed · ${formatBytes(usage.used_storage_bytes)} used${crawlSuffix}`
-      : usageLoading && agentId
-        ? "Loading…"
-        : "— pages indexed · — used";
+  const shared = useKnowledgeDataSources();
+  const resolvedAgentId = agentId ?? shared?.agentId;
+  const resolvedUsage = usage ?? shared?.usage ?? null;
+  const resolvedUsageLoading = usage === undefined ? (shared?.usageLoading ?? usageLoading) : usageLoading;
 
-  const planLine = usage && !usageLoading ? `${usage.plan_name} plan` : "Plan";
+  const persistedUsedBytes = resolvedUsage?.used_storage_bytes ?? 0;
+  const shownUsedBytes = persistedUsedBytes;
 
-  const used = usage?.used_storage_bytes ?? 0;
-  const cap = Math.max(1, usage?.included_storage_bytes ?? 1);
+  const summaryLine = (() => {
+    if (resolvedUsage && !resolvedUsageLoading) {
+      const parts: string[] = [];
+      const files = resolvedUsage.total_files ?? 0;
+      const snippets = resolvedUsage.total_snippets ?? 0;
+      const qaPairs = resolvedUsage.total_qa_pairs ?? 0;
+      if (qaPairs > 0) parts.push(`${qaPairs.toLocaleString()} Q&A pair${qaPairs === 1 ? "" : "s"}`);
+      if (snippets > 0) parts.push(`${snippets.toLocaleString()} snippet${snippets === 1 ? "" : "s"}`);
+      if (files > 0) parts.push(`${files.toLocaleString()} file${files === 1 ? "" : "s"}`);
+      if (resolvedUsage.total_links > 0) {
+        parts.push(`${resolvedUsage.total_links.toLocaleString()} page${resolvedUsage.total_links === 1 ? "" : "s"} indexed`);
+      }
+      parts.push(`${formatBytes(shownUsedBytes)} used`);
+      return parts.join(" · ");
+    }
+    return resolvedUsageLoading && resolvedAgentId ? "Loading…" : "— used";
+  })();
+
+  const used = shownUsedBytes;
+  const cap = Math.max(1, resolvedUsage?.included_storage_bytes ?? 1);
   const pct = Math.min(100, Math.round((used / cap) * 100));
-  const overCap = usage ? used > usage.included_storage_bytes : false;
-  const showLimitBlock = Boolean(usage && !usageLoading);
-  const showUpgrade = Boolean(usage?.show_upgrade);
+  const overCap = resolvedUsage ? persistedUsedBytes > resolvedUsage.included_storage_bytes : false;
+  const showLimitBlock = Boolean(resolvedUsage && !resolvedUsageLoading);
+  const showUpgrade = Boolean(resolvedUsage?.show_upgrade);
 
   if (mobile) {
     return (
@@ -69,7 +100,7 @@ export function DataSourcesSidebar({
           <div className="min-w-0">
             <p className="ds-app-kicker text-ds-on-surface font-semibold">Data sources</p>
             <div className="text-ds-on-surface-variant mt-0.5 flex items-center gap-2 text-xs">
-              <IconLanguage className="size-4 shrink-0" aria-hidden />
+              <IconLanguage className="size-4 shrink-0" />
               <span className="truncate">{summaryLine}</span>
             </div>
           </div>
@@ -94,6 +125,11 @@ export function DataSourcesSidebar({
     );
   }
 
+  const qaCount = resolvedUsage?.total_qa_pairs ?? 0;
+  const snippetCount = resolvedUsage?.total_snippets ?? 0;
+  const fileCount = resolvedUsage?.total_files ?? 0;
+  const websitePages = resolvedUsage?.total_links ?? 0;
+
   return (
     <aside
       className={cn(
@@ -102,22 +138,46 @@ export function DataSourcesSidebar({
       )}
     >
       <h2 className="ds-app-section-title mb-6 text-base">Data sources</h2>
-      <div className="space-y-4">
-        <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-surface p-4 shadow-sm">
-          <div className="flex items-center gap-2">
-            <IconLanguage className="text-ds-primary size-5 shrink-0" aria-hidden />
-            <span className="text-ds-on-surface text-sm font-medium">{summaryLine}</span>
-          </div>
-          {usage && !usageLoading ? (
-            <span className="text-ds-on-surface text-sm font-semibold">{planLine}</span>
-          ) : null}
+      <div className="space-y-2">
+        <div className="border-ds-outline divide-ds-outline/60 rounded-ds-md border bg-ds-surface shadow-sm">
+          <SourceTypeRow
+            icon={<IconQuestion className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+            label="Q&A"
+            count={qaCount}
+            bytes={resolvedUsage?.qa_used_bytes ?? 0}
+            loading={resolvedUsageLoading}
+          />
+          <SourceTypeRow
+            icon={<IconQuote className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+            label="Snippets"
+            count={snippetCount}
+            bytes={resolvedUsage?.snippets_used_bytes ?? 0}
+            loading={resolvedUsageLoading}
+            withDivider
+          />
+          <SourceTypeRow
+            icon={<IconFile className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+            label="Files"
+            count={fileCount}
+            bytes={resolvedUsage?.files_used_bytes ?? 0}
+            loading={resolvedUsageLoading}
+            withDivider
+          />
+          <SourceTypeRow
+            icon={<IconLanguage className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+            label="Links"
+            count={websitePages}
+            bytes={resolvedUsage?.website_used_bytes ?? 0}
+            loading={resolvedUsageLoading}
+            withDivider
+          />
         </div>
 
-        <div className="border-ds-outline rounded-ds-lg border bg-ds-surface p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between text-sm">
+        <div className="border-ds-outline rounded-ds-md border bg-ds-surface p-3.5 shadow-sm">
+          <div className="mb-2 flex items-center justify-between text-sm">
             <span className="text-ds-on-surface-variant">Total size</span>
             <span className="text-ds-on-surface text-right font-semibold">
-              {usage && !usageLoading ? (
+              {resolvedUsage && !resolvedUsageLoading ? (
                 <>
                   {formatBytes(used)} / {formatBytes(cap)}
                 </>
@@ -127,7 +187,7 @@ export function DataSourcesSidebar({
             </span>
           </div>
           {showLimitBlock ? (
-            <div className="mb-6 h-2.5 w-full overflow-hidden rounded-full bg-ds-outline/55">
+            <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-ds-outline/55">
               <div
                 className={cn(
                   "from-ds-primary to-ds-secondary h-full bg-gradient-to-r transition-all",
@@ -137,34 +197,8 @@ export function DataSourcesSidebar({
               />
             </div>
           ) : (
-            <div className="mb-6 h-2.5 w-full rounded-full bg-ds-outline/30" />
+            <div className="mb-2 h-2 w-full rounded-full bg-ds-outline/30" />
           )}
-          {usage && !usageLoading && (usage.website_crawl_budget_bytes ?? 0) > 0 ? (
-            <div className="text-ds-on-surface-variant mb-4 space-y-1 text-xs leading-relaxed">
-              <p>
-                Crawl budget:{" "}
-                <span className="text-ds-on-surface font-semibold">
-                  {formatBytes(usage.website_crawl_budget_bytes ?? 0)}
-                </span>{" "}
-                (plan)
-              </p>
-              {usage.website_crawl_last_job_bytes != null && usage.website_crawl_last_job_bytes !== undefined ? (
-                <p>
-                  Crawl used:{" "}
-                  <span className="text-ds-on-surface font-semibold tabular-nums">
-                    {formatBytes(usage.website_crawl_last_job_bytes)} /{" "}
-                    {formatBytes(usage.website_crawl_budget_bytes ?? 0)}
-                  </span>
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-          <button
-            type="button"
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full cursor-pointer rounded-ds-md py-2.5 text-sm font-semibold transition-colors"
-          >
-            Retrain agent
-          </button>
         </div>
 
         {showLimitBlock && (overCap || showUpgrade) ? (
@@ -177,24 +211,20 @@ export function DataSourcesSidebar({
                 </p>
                 <p className="text-ds-on-surface-variant text-sm leading-relaxed">
                   {overCap
-                    ? `You are using ${formatBytes(used)} of ${formatBytes(cap)} included on your ${usage?.plan_name ?? ""} plan.`
-                    : `You are on the ${usage?.plan_name ?? ""} plan. Upgrade for more knowledge storage and features.`}
+                    ? `You are using ${formatBytes(used)} of ${formatBytes(cap)} included on your ${resolvedUsage?.plan_name ?? ""} plan.`
+                    : `You are on the ${resolvedUsage?.plan_name ?? ""} plan. Upgrade for more knowledge storage and features.`}
                 </p>
               </div>
             </div>
             {showUpgrade ? (
               <Link
                 href="/pricing"
-                className="border-ds-outline hover:border-ds-primary/40 group flex w-full cursor-pointer items-center justify-between rounded-ds-lg border bg-ds-surface p-3 text-left shadow-sm transition-colors"
+                className="border-ds-outline hover:border-ds-primary/40 group flex w-full cursor-pointer items-center justify-between rounded-ds-md border bg-ds-surface p-3 text-left shadow-sm transition-colors"
               >
                 <div className="flex items-center gap-2">
-                  <IconArrowUp className="text-ds-primary size-4.5 shrink-0" aria-hidden />
+                  <IconArrowUp className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />
                   <span className="text-ds-on-surface text-sm font-semibold">Upgrade for more data</span>
                 </div>
-                <IconChevron
-                  className="text-ds-on-surface-variant group-hover:text-ds-on-surface size-4 shrink-0"
-                  aria-hidden
-                />
               </Link>
             ) : null}
           </div>
@@ -204,55 +234,38 @@ export function DataSourcesSidebar({
   );
 }
 
-function IconBase({
-  className,
-  children,
-  fill = "none",
-  strokeWidth = "1.8",
+function SourceTypeRow({
+  icon,
+  label,
+  count,
+  bytes,
+  loading,
+  withDivider = false,
 }: {
-  className?: string;
-  children: ReactNode;
-  fill?: string;
-  strokeWidth?: string;
+  icon: ReactNode;
+  label: string;
+  count: number;
+  bytes: number;
+  loading: boolean;
+  withDivider?: boolean;
 }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill={fill}
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      {children}
-    </svg>
-  );
-}
-
-function IconChevron({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="m9 18 6-6-6-6" />
-    </IconBase>
-  );
-}
-
-function IconLanguage({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
-    </IconBase>
-  );
-}
-
-function IconArrowUp({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M12 19V5" />
-      <path d="m7 10 5-5 5 5" />
-    </IconBase>
+    <div className={cn("flex items-center gap-2 px-3 py-2.5", withDivider ? "border-t border-ds-outline/60" : "")}>
+      {icon}
+      <div className="min-w-0 flex-1">
+        <p className="text-ds-on-surface text-sm font-semibold">
+          {loading ? "…" : `${count.toLocaleString()} ${label}`}
+        </p>
+      </div>
+      <span className="text-ds-on-surface-variant text-xs font-medium">{loading ? "…" : formatBytes(bytes)}</span>
+      <button
+        type="button"
+        aria-label={`Retrain ${label.toLowerCase()}`}
+        title="Retrain source"
+        className="text-ds-on-surface-variant hover:text-ds-on-surface cursor-pointer rounded-ds-md p-0.5 transition-colors"
+      >
+        <IconRefresh className="size-3.5" strokeWidth={1.6} />
+      </button>
+    </div>
   );
 }

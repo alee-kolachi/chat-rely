@@ -1,4 +1,5 @@
 import fnmatch
+import io
 import json
 import math
 import re
@@ -13,6 +14,8 @@ from uuid import UUID
 import httpx
 import structlog
 from bs4 import BeautifulSoup
+from docx import Document
+from pypdf import PdfReader
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,9 +31,15 @@ def _parse_html(html: str) -> BeautifulSoup:
 from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.domains.knowledge.schemas import (
+    FileUploadResultDTO,
+    FileSourceListItemDTO,
     IndexJobDTO,
     KnowledgeSourceCreateRequest,
     KnowledgeSourceDTO,
+    QAPairDetailDTO,
+    QAPairListItemDTO,
+    TextSnippetDetailDTO,
+    TextSnippetListItemDTO,
     WebsiteIndividualRequest,
     WebsiteIngestBase,
     WebsiteMode,
@@ -50,18 +59,23 @@ DEFAULT_WEBSITE_CRAWL_KB_PAID = 10240
 # Only this many bytes of each response count toward the crawl budget (and are parsed for text/links).
 _CRAWL_BODY_CHARGE_CAP_BYTES = 400_000
 DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES = 100 * 1024 * 1024
+STARTER_KNOWLEDGE_STORAGE_CAP_BYTES = 500 * 1024
+STARTER_HIDDEN_STORAGE_GRACE_RATIO = 0.23
 # OpenAI embeddings cap is ~300k tokens per request; batch to stay under with headroom.
 _EMBED_BATCH_MAX_TOKENS_EST = 250_000
 _EMBED_BATCH_MAX_INPUTS = 2048
+_CHUNK_PERSIST_BATCH_SIZE = 32
 
 log = structlog.get_logger("knowledge.service")
 
 
-def _charge_bytes_and_html_from_response(response: httpx.Response) -> tuple[int, str]:
-    """Cap per-URL bytes toward the crawl budget so one huge HTML page cannot end the whole job."""
+def _charge_bytes_and_html_from_response(response: httpx.Response, *, remaining_budget_bytes: int) -> tuple[int, str]:
+    """Charge and parse only bytes that still fit within remaining crawl budget."""
     raw = response.content or b""
     n = len(raw)
-    cap = _CRAWL_BODY_CHARGE_CAP_BYTES
+    if remaining_budget_bytes <= 0:
+        return 0, ""
+    cap = min(_CRAWL_BODY_CHARGE_CAP_BYTES, remaining_budget_bytes)
     charged = min(n, cap)
     chunk = raw if n <= cap else raw[:cap]
     enc = response.encoding or "utf-8"
@@ -91,6 +105,52 @@ def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _safe_storage_path(filename: str) -> str:
+    clean = re.sub(r"[^a-zA-Z0-9._-]+", "_", (filename or "upload").strip())[:140]
+    if not clean:
+        clean = "upload"
+    return f"inline/{clean}"
+
+
+def _extract_text_from_file_bytes(filename: str, content_type: str | None, payload: bytes) -> str:
+    name = (filename or "").strip()
+    ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+    ctype = (content_type or "").lower()
+
+    if ext in {"txt", "md", "csv", "json", "xml", "html", "htm"} or ctype.startswith("text/"):
+        return payload.decode("utf-8", errors="replace")
+
+    if ext == "pdf" or ctype == "application/pdf":
+        reader = PdfReader(io.BytesIO(payload))
+        parts: list[str] = []
+        for page in reader.pages:
+            try:
+                parts.append(page.extract_text() or "")
+            except Exception:
+                continue
+        return "\n\n".join(parts)
+
+    if ext == "docx" or "wordprocessingml.document" in ctype:
+        doc = Document(io.BytesIO(payload))
+        return "\n".join(p.text for p in doc.paragraphs if p.text)
+
+    raise AppError(
+        code="knowledge.file_type_unsupported",
+        message="Unsupported file type. Use .txt, .md, .csv, .json, .xml, .html, .pdf, or .docx",
+        status_code=422,
+    )
+
+
+def _truncate_utf8_to_bytes(text: str, max_bytes: int) -> str:
+    """Return text truncated to max UTF-8 bytes without splitting multibyte chars."""
+    if max_bytes <= 0 or not text:
+        return ""
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    return raw[:max_bytes].decode("utf-8", errors="ignore")
+
+
 def _local_xml_tag(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
@@ -98,6 +158,38 @@ def _local_xml_tag(tag: str) -> str:
 def _chunk_text(text_value: str, chunk_size: int = 1200, overlap: int = 200) -> list[str]:
     if not text_value:
         return []
+    # Prefer semantic block chunking first (paragraph-like blocks), then fallback
+    # to fixed-width slicing when a single block is too large.
+    blocks = [b.strip() for b in re.split(r"\n{2,}", text_value) if b.strip()]
+    if blocks:
+        chunks: list[str] = []
+        current = ""
+        for block in blocks:
+            candidate = f"{current}\n\n{block}".strip() if current else block
+            if len(candidate) <= chunk_size:
+                current = candidate
+                continue
+            if current:
+                chunks.append(current)
+            if len(block) <= chunk_size:
+                current = block
+                continue
+            # Oversized block: split with overlap.
+            start = 0
+            while start < len(block):
+                end = min(start + chunk_size, len(block))
+                piece = block[start:end].strip()
+                if piece:
+                    chunks.append(piece)
+                if end >= len(block):
+                    break
+                start = max(0, end - overlap)
+            current = ""
+        if current:
+            chunks.append(current)
+        if chunks:
+            return chunks
+
     chunks: list[str] = []
     start = 0
     while start < len(text_value):
@@ -173,6 +265,17 @@ def _url_passes_filters(url: str, include_rules: list[dict[str, str]], exclude_r
     return False
 
 
+def _canonical_host(host: str) -> str:
+    h = (host or "").strip().lower()
+    if h.startswith("www."):
+        return h[4:]
+    return h
+
+
+def _same_site_host(base_host: str, candidate_host: str) -> bool:
+    return _canonical_host(base_host) == _canonical_host(candidate_host)
+
+
 def _extract_links(base_url: str, html: str) -> list[str]:
     base = urlparse(base_url)
     soup = _parse_html(html)
@@ -185,7 +288,7 @@ def _extract_links(base_url: str, html: str) -> list[str]:
         parsed = urlparse(absolute)
         if parsed.scheme not in {"http", "https"}:
             continue
-        if parsed.netloc != base.netloc:
+        if not _same_site_host(base.netloc, parsed.netloc):
             continue
         normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path or '/'}"
         links.append(normalized)
@@ -233,14 +336,71 @@ def _dedupe_preserve_order_snippets(snippets: list[str]) -> list[str]:
     return out
 
 
+def _json_ld_text_fragments(soup: BeautifulSoup) -> list[str]:
+    """Extract useful product fields from JSON-LD scripts (price is often only here)."""
+    fragments: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for key in ("name", "description", "sku", "priceCurrency", "price"):
+                value = node.get(key)
+                if isinstance(value, (str, int, float)):
+                    text_value = _normalize_text(str(value))
+                    if text_value:
+                        fragments.append(text_value)
+            offers = node.get("offers")
+            if isinstance(offers, dict):
+                walk(offers)
+            elif isinstance(offers, list):
+                for item in offers:
+                    walk(item)
+            for nested_key in ("mainEntity", "itemOffered"):
+                nested = node.get(nested_key)
+                if isinstance(nested, (dict, list)):
+                    walk(nested)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = script.string or script.get_text(" ", strip=True)
+        if not raw or not raw.strip():
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        walk(payload)
+
+    return fragments
+
+
 def _extract_page_text(html: str) -> str:
     soup = _parse_html(html)
     head_frags = _head_meta_text_fragments(soup)
+    json_ld_frags = _json_ld_text_fragments(soup)
     for element in soup(["script", "style", "noscript"]):
         element.decompose()
-    body_text = _normalize_text(soup.get_text(" "))
-    merged = _dedupe_preserve_order_snippets([*head_frags, body_text] if body_text else head_frags)
-    return _normalize_text("\n\n".join(merged))
+    main_candidates = soup.select("main, article, [role='main'], #MainContent, #main-content")
+    if main_candidates:
+        main_text = _normalize_text(" ".join(_normalize_text(c.get_text(" ")) for c in main_candidates))
+        body_text = main_text
+    else:
+        body_text = _normalize_text(soup.get_text(" "))
+    merged = _dedupe_preserve_order_snippets(
+        [*head_frags, *json_ld_frags, body_text] if body_text else [*head_frags, *json_ld_frags]
+    )
+    # Keep paragraph boundaries so chunking can preserve coherent facts.
+    return "\n\n".join(merged).strip()
+
+
+def _extract_page_title(html: str) -> str | None:
+    soup = _parse_html(html)
+    title = soup.find("title")
+    if not title:
+        return None
+    text_value = _normalize_text(title.get_text(" "))
+    return text_value or None
 
 
 def _extract_social_preview_image(html: str, page_url: str) -> str | None:
@@ -343,22 +503,28 @@ def _validate_source_payload(payload: KnowledgeSourceCreateRequest) -> None:
             message="storage_bucket and storage_path are required for file type",
             status_code=422,
         )
+    if payload.type == "text_snippet":
+        body = (payload.raw_text or "").strip()
+        if not body:
+            raise AppError(code="validation.invalid_input", message="raw_text is required for text_snippet type", status_code=422)
 
 
 async def create_source(db: AsyncSession, user_id: UUID, payload: KnowledgeSourceCreateRequest) -> KnowledgeSourceDTO:
     _validate_source_payload(payload)
 
     src_status = (payload.status or "pending").strip() or "pending"
+    raw_for_insert = (payload.raw_text or "").strip() if payload.type == "text_snippet" else None
+
     result = await db.execute(
         text(
             """
             insert into public.knowledge_sources (
-              agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path, metadata
+              agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path, raw_text, metadata
             ) values (
-              :agent_id, :user_id, :type, :title, CAST(:status AS knowledge_source_status), :source_url, :storage_bucket, :storage_path, CAST(:metadata AS jsonb)
+              :agent_id, :user_id, :type, :title, CAST(:status AS knowledge_source_status), :source_url, :storage_bucket, :storage_path, :raw_text, CAST(:metadata AS jsonb)
             )
             returning
-              id, agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path,
+              id, agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path, raw_text,
               metadata, error_message, last_indexed_at, created_at, updated_at
             """
         ),
@@ -371,6 +537,7 @@ async def create_source(db: AsyncSession, user_id: UUID, payload: KnowledgeSourc
             "source_url": payload.source_url,
             "storage_bucket": payload.storage_bucket,
             "storage_path": payload.storage_path,
+            "raw_text": raw_for_insert,
             "metadata": json.dumps(payload.metadata or {}),
         },
     )
@@ -381,7 +548,7 @@ async def create_source(db: AsyncSession, user_id: UUID, payload: KnowledgeSourc
 async def list_sources(db: AsyncSession, user_id: UUID, agent_id: UUID | None = None) -> list[KnowledgeSourceDTO]:
     sql = """
         select
-          id, agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path,
+          id, agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path, raw_text,
           metadata, error_message, last_indexed_at, created_at, updated_at
         from public.knowledge_sources
         where user_id = :user_id
@@ -436,7 +603,7 @@ async def _load_source(db: AsyncSession, source_id: UUID, user_id: UUID) -> Know
         text(
             """
             select
-              id, agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path,
+              id, agent_id, user_id, type, title, status, source_url, storage_bucket, storage_path, raw_text,
               metadata, error_message, last_indexed_at, created_at, updated_at
             from public.knowledge_sources
             where id = :source_id and user_id = :user_id
@@ -513,7 +680,7 @@ async def create_and_enqueue_dashboard_website(
     }
 
     dup = await _find_dashboard_website_duplicate(db, user_id, payload.agent_id, source_url)
-    if dup is not None:
+    if dup is not None and mode != "individual":
         existing_id, dup_reason = dup
         metadata = {
             **metadata,
@@ -534,6 +701,14 @@ async def create_and_enqueue_dashboard_website(
         )
         refreshed_source = await _load_source(db, source.id, user_id)
         return refreshed_source, None
+    if dup is not None and mode == "individual":
+        existing_id, dup_reason = dup
+        metadata = {
+            **metadata,
+            "reindexed_duplicate": True,
+            "duplicate_of_source_id": str(existing_id),
+            "duplicate_reason": dup_reason,
+        }
 
     source = await create_source(
         db,
@@ -598,7 +773,7 @@ async def _crawl_pages(
     progress_hook: Callable[[list[dict[str, object]], int], Awaitable[None]] | None = None,
     progress_every: int = DASHBOARD_CRAWL_PROGRESS_EVERY,
 ) -> tuple[list[dict[str, object]], int, str | None, int, str]:
-    """Crawl HTML pages; stop when cumulative charged body bytes (capped per URL) exceed ``crawl_budget_bytes``."""
+    """Crawl HTML pages; stop when cumulative extracted text bytes exceed ``crawl_budget_bytes``."""
     parsed_seed = urlparse(seed_url)
     seed_normalized = f"{parsed_seed.scheme}://{parsed_seed.netloc}{parsed_seed.path or '/'}"
     if not _url_passes_filters(seed_normalized, include_rules, exclude_rules):
@@ -609,12 +784,12 @@ async def _crawl_pages(
     pages: list[dict[str, object]] = []
     links_discovered = 0
     preview_image_url: str | None = None
-    crawl_http_bytes = 0
+    stored_text_bytes = 0
     stopped_reason = "complete"
 
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=_WEBSITE_CRAWL_HEADERS) as client:
         while queue and len(pages) < max_pages:
-            if crawl_http_bytes >= crawl_budget_bytes and len(pages) > 0:
+            if stored_text_bytes >= crawl_budget_bytes and len(pages) > 0:
                 stopped_reason = "budget"
                 break
             url, depth = queue.popleft()
@@ -625,14 +800,23 @@ async def _crawl_pages(
                 response = await client.get(url)
                 status_code = int(response.status_code)
                 response.raise_for_status()
-                page_bytes, html = _charge_bytes_and_html_from_response(response)
-                crawl_http_bytes += page_bytes
+                _charged, html = _charge_bytes_and_html_from_response(
+                    response, remaining_budget_bytes=_CRAWL_BODY_CHARGE_CAP_BYTES
+                )
                 if preview_image_url is None:
                     preview_image_url = _extract_social_preview_image(html, url)
                 page_text = _extract_page_text(html)
+                page_title = _extract_page_title(html)
+                remaining_storage = max(0, crawl_budget_bytes - stored_text_bytes)
+                if remaining_storage <= 0 and len(pages) > 0:
+                    stopped_reason = "budget"
+                    break
+                page_text = _truncate_utf8_to_bytes(page_text, remaining_storage)
+                text_bytes = len(page_text.encode("utf-8")) if page_text else 0
+                stored_text_bytes += text_bytes
                 links = _extract_links(url, html)
                 links_discovered += len(links)
-                allow_more_links = crawl_http_bytes < crawl_budget_bytes
+                allow_more_links = stored_text_bytes < crawl_budget_bytes
                 for link in links:
                     if link in seen:
                         continue
@@ -640,19 +824,32 @@ async def _crawl_pages(
                         continue
                     if allow_more_links and len(pages) + len(queue) < max_pages * 4:
                         queue.append((link, depth + 1))
-                pages.append({"url": url, "depth": depth, "http_status": status_code, "text": page_text})
+                pages.append(
+                    {
+                        "url": url,
+                        "depth": depth,
+                        "http_status": status_code,
+                        "text": page_text,
+                        "title": page_title,
+                    }
+                )
                 if progress_hook and (
                     len(pages) % max(1, progress_every) == 0 or len(pages) >= max_pages
                 ):
-                    await progress_hook(list(pages), crawl_http_bytes)
+                    await progress_hook(list(pages), stored_text_bytes)
+                if stored_text_bytes >= crawl_budget_bytes:
+                    stopped_reason = "budget"
+                    break
                 if len(pages) >= max_pages:
                     stopped_reason = "max_pages_safety"
                     break
             except Exception:
-                pages.append({"url": url, "depth": depth, "http_status": None, "text": ""})
+                pages.append({"url": url, "depth": depth, "http_status": None, "text": "", "title": None})
                 if progress_hook and len(pages) % max(1, progress_every) == 0:
-                    await progress_hook(list(pages), crawl_http_bytes)
-    return pages[:max_pages], links_discovered, preview_image_url, crawl_http_bytes, stopped_reason
+                    await progress_hook(list(pages), stored_text_bytes)
+    if stopped_reason == "complete" and len(pages) < max_pages:
+        stopped_reason = "no_more_links"
+    return pages[:max_pages], links_discovered, preview_image_url, stored_text_bytes, stopped_reason
 
 
 def _sitemap_seed_urls(start_url: str) -> list[str]:
@@ -723,33 +920,56 @@ async def _collect_sitemap_urls(
 async def _fetch_pages_for_urls(
     urls: list[str],
     *,
-    crawl_budget_bytes: int,
+    crawl_budget_bytes: int | None,
 ) -> tuple[list[dict[str, object]], int, str | None, int, str]:
-    """Fetch each URL; each URL charges at most ``_CRAWL_BODY_CHARGE_CAP_BYTES`` toward the crawl budget."""
+    """Fetch each URL; optionally stop when extracted text bytes reach crawl budget."""
     pages: list[dict[str, object]] = []
     links_discovered = 0
     preview_image_url: str | None = None
-    crawl_http_bytes = 0
+    stored_text_bytes = 0
     stopped_reason = "complete"
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=_WEBSITE_CRAWL_HEADERS) as client:
         for url in urls:
-            if crawl_http_bytes >= crawl_budget_bytes and len(pages) > 0:
+            if crawl_budget_bytes is not None and stored_text_bytes >= crawl_budget_bytes and len(pages) > 0:
                 stopped_reason = "budget"
                 break
             try:
                 response = await client.get(url)
                 status_code = int(response.status_code)
                 response.raise_for_status()
-                charged, html = _charge_bytes_and_html_from_response(response)
-                crawl_http_bytes += charged
+                _charged, html = _charge_bytes_and_html_from_response(
+                    response, remaining_budget_bytes=_CRAWL_BODY_CHARGE_CAP_BYTES
+                )
                 if preview_image_url is None:
                     preview_image_url = _extract_social_preview_image(html, url)
                 page_text = _extract_page_text(html)
-                pages.append({"url": url, "depth": 0, "http_status": status_code, "text": page_text})
+                page_title = _extract_page_title(html)
+                if crawl_budget_bytes is not None:
+                    remaining_storage = max(0, crawl_budget_bytes - stored_text_bytes)
+                    if remaining_storage <= 0 and len(pages) > 0:
+                        stopped_reason = "budget"
+                        break
+                    page_text = _truncate_utf8_to_bytes(page_text, remaining_storage)
+                text_bytes = len(page_text.encode("utf-8")) if page_text else 0
+                stored_text_bytes += text_bytes
+                pages.append(
+                    {
+                        "url": url,
+                        "depth": 0,
+                        "http_status": status_code,
+                        "text": page_text,
+                        "title": page_title,
+                    }
+                )
                 links_discovered += len(_extract_links(url, html))
+                if crawl_budget_bytes is not None and stored_text_bytes >= crawl_budget_bytes:
+                    stopped_reason = "budget"
+                    break
             except Exception:
-                pages.append({"url": url, "depth": 0, "http_status": None, "text": ""})
-    return pages, links_discovered, preview_image_url, crawl_http_bytes, stopped_reason
+                pages.append({"url": url, "depth": 0, "http_status": None, "text": "", "title": None})
+    if stopped_reason == "complete":
+        stopped_reason = "no_more_links"
+    return pages, links_discovered, preview_image_url, stored_text_bytes, stopped_reason
 
 
 async def _upsert_knowledge_source_page(
@@ -910,21 +1130,24 @@ async def _dashboard_fetch_planned_urls_in_batches(
     """Fetch HTML for URLs discovered via sitemap in small batches; commit after each batch."""
     if not urls:
         return [], 0, None, 0, "complete"
-    total_http = 0
+    total_saved = 0
     all_pages: list[dict[str, object]] = []
     preview: str | None = None
     stopped = "complete"
     links_discovered = 0
     n = len(urls)
     for start in range(0, n, DASHBOARD_CRAWL_CONTENT_BATCH):
+        if total_saved >= crawl_budget_bytes and len(all_pages) > 0:
+            stopped = "budget"
+            break
         batch_urls = urls[start : start + DASHBOARD_CRAWL_CONTENT_BATCH]
-        budget_left = max(0, crawl_budget_bytes - total_http)
-        batch_pages, ld, pv, b_used, st = await _fetch_pages_for_urls(batch_urls, crawl_budget_bytes=budget_left)
-        total_http += b_used
+        # Enforce budget between batches; once started, finish the current batch.
+        batch_pages, ld, pv, b_used, st = await _fetch_pages_for_urls(batch_urls, crawl_budget_bytes=None)
+        total_saved += b_used
         links_discovered += ld
         if preview is None and pv:
             preview = pv
-        if st != "complete":
+        if st == "budget" and stopped == "complete":
             stopped = st
         for p in batch_pages:
             p.setdefault("depth", 0)
@@ -937,16 +1160,16 @@ async def _dashboard_fetch_planned_urls_in_batches(
             job_id=job_id,
             pages_snapshot=all_pages,
             pages_total_cap=n,
-            crawl_http_bytes_so_far=total_http,
+            crawl_http_bytes_so_far=total_saved,
         )
         await db.commit()
-        if stopped != "complete":
+        if stopped == "budget":
             break
     await _exclude_remaining_queued_pages_for_run(
         db, knowledge_source_id=source.id, crawl_run_id=crawl_run_id
     )
     await db.commit()
-    return all_pages, links_discovered, preview, total_http, stopped
+    return all_pages, links_discovered, preview, total_saved, stopped
 
 
 def _indexing_failure_row(exc: BaseException) -> tuple[str, dict[str, object]]:
@@ -1114,8 +1337,13 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
         crawl_run_id = await _create_crawl_run(db, source, user_id, crawl_settings)
         await db.commit()
 
-        plan_slug, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
-        crawl_budget_bytes = _website_crawl_budget_bytes(plan_slug, plan_features)
+        _plan_slug, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+        included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+        effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+        currently_used_storage_bytes = await _agent_used_storage_bytes(
+            db, user_id=user_id, agent_id=source.agent_id
+        )
+        crawl_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
         pages_persisted_incrementally = False
         dashboard_planned_url_count: int | None = None
 
@@ -1170,20 +1398,19 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                         text(
                             """
                             update public.indexing_jobs
-                            set pages_total = :cap, pages_processed = 0, progress_pct = 4, phase = 'crawling',
+                            set pages_total = 0, pages_processed = 0, progress_pct = 4, phase = 'crawling',
                                 metrics = coalesce(metrics, '{}'::jsonb) || cast(:extra as jsonb)
                             where id = :job_id
                             """
                         ),
                         {
                             "job_id": str(job_id),
-                            "cap": max_pages,
                             "extra": json.dumps({"crawl_phase": "bfs_fetch", "discovery": "bfs"}),
                         },
                     )
                     await db.commit()
 
-                    async def _bfs_progress(snapshot: list[dict[str, object]]) -> None:
+                    async def _bfs_progress(snapshot: list[dict[str, object]], _bytes_so_far: int) -> None:
                         await _dashboard_flush_crawl_pages(
                             db,
                             source_id=source.id,
@@ -1191,7 +1418,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                             user_id=user_id,
                             job_id=job_id,
                             pages_snapshot=snapshot,
-                            pages_total_cap=max_pages,
+                            pages_total_cap=max(1, len(snapshot)),
                         )
                         await db.commit()
 
@@ -1203,7 +1430,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                         crawl_budget_bytes=crawl_budget_bytes,
                         progress_hook=_bfs_progress,
                     )
-                    await _bfs_progress(pages)
+                    await _bfs_progress(pages, crawl_http_bytes)
                     pages_persisted_incrementally = True
             else:
                 pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = await _crawl_pages(
@@ -1260,11 +1487,41 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
         # Persist crawled URLs before embedding so failures later (e.g. OpenAI) do not roll back page rows.
         await db.commit()
 
-        text_content = "\n\n".join(str(page["text"]) for page in usable_pages)
         indexed_source_bytes = sum(len(str(p["text"]).encode("utf-8")) for p in usable_pages)
-        chunks = _chunk_text(text_content)
-        if not chunks:
+        chunk_records: list[dict[str, object]] = []
+        for page in usable_pages:
+            page_url = str(page.get("url") or source.source_url or "")
+            page_text = str(page.get("text") or "")
+            page_title = str(page.get("title") or source.title or "").strip()
+            prefix_parts = [p for p in [page_title, page_url] if p]
+            chunk_prefix = " | ".join(prefix_parts).strip()
+            for page_chunk_index, chunk in enumerate(_chunk_text(page_text)):
+                chunk_with_context = f"{chunk_prefix}\n\n{chunk}".strip() if chunk_prefix else chunk
+                chunk_records.append(
+                    {
+                        "content": chunk_with_context,
+                        "raw_content": chunk,
+                        "page_url": page_url,
+                        "page_title": page_title,
+                        "page_chunk_index": page_chunk_index,
+                    }
+                )
+
+        if not chunk_records:
             raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from website text", status_code=422)
+
+        best_title = next((str(p.get("title") or "").strip() for p in usable_pages if str(p.get("title") or "").strip()), "")
+        if best_title:
+            await db.execute(
+                text(
+                    """
+                    update public.knowledge_sources
+                    set title = :title
+                    where id = :source_id
+                    """
+                ),
+                {"source_id": str(source.id), "title": best_title[:255]},
+            )
 
         await db.execute(
             text(
@@ -1274,10 +1531,10 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 where id = :job_id
                 """
             ),
-            {"job_id": str(job_id), "chunks_total": len(chunks)},
+            {"job_id": str(job_id), "chunks_total": len(chunk_records)},
         )
 
-        embeddings = await _embed_texts(chunks)
+        embeddings = await _embed_texts([str(rec["content"]) for rec in chunk_records])
         await db.execute(
             text(
                 """
@@ -1293,35 +1550,57 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             {"source_id": str(source.id)},
         )
 
-        for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
-            if len(embedding) != EMBEDDING_DIMENSION:
-                raise AppError(
-                    code="knowledge.embedding_dimension_mismatch",
-                    message="Embedding dimension does not match vector column",
-                    status_code=500,
-                    details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
-                )
-            await db.execute(
-                text(
-                    """
-                    insert into public.knowledge_chunks (
-                      agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
-                    ) values (
-                      :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
+        chunks_persisted = 0
+        storage_stopped_reason = "complete"
+        for batch_start in range(0, len(chunk_records), _CHUNK_PERSIST_BATCH_SIZE):
+            batch_end = min(batch_start + _CHUNK_PERSIST_BATCH_SIZE, len(chunk_records))
+            for idx in range(batch_start, batch_end):
+                rec = chunk_records[idx]
+                chunk = str(rec["content"])
+                embedding = embeddings[idx]
+                if len(embedding) != EMBEDDING_DIMENSION:
+                    raise AppError(
+                        code="knowledge.embedding_dimension_mismatch",
+                        message="Embedding dimension does not match vector column",
+                        status_code=500,
+                        details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
                     )
-                    """
-                ),
-                {
-                    "agent_id": str(source.agent_id),
-                    "user_id": str(user_id),
-                    "knowledge_source_id": str(source.id),
-                    "chunk_index": idx,
-                    "content": chunk,
-                    "embedding": _vector_literal(embedding),
-                    "token_count": _token_estimate(chunk),
-                    "metadata": json.dumps({"source_url": source.source_url, "chunk_index": idx}),
-                },
-            )
+                await db.execute(
+                    text(
+                        """
+                        insert into public.knowledge_chunks (
+                          agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
+                        ) values (
+                          :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
+                        )
+                        """
+                    ),
+                    {
+                        "agent_id": str(source.agent_id),
+                        "user_id": str(user_id),
+                        "knowledge_source_id": str(source.id),
+                        "chunk_index": idx,
+                        "content": chunk,
+                        "embedding": _vector_literal(embedding),
+                        "token_count": _token_estimate(chunk),
+                        "metadata": json.dumps(
+                            {
+                                "source_url": source.source_url,
+                                "page_url": rec.get("page_url"),
+                                "page_title": rec.get("page_title"),
+                                "raw_content": rec.get("raw_content"),
+                                "chunk_index": idx,
+                                "page_chunk_index": rec.get("page_chunk_index"),
+                            }
+                        ),
+                    },
+                )
+                chunks_persisted += 1
+            await db.commit()
+            used_after_batch = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=source.agent_id)
+            if used_after_batch >= effective_storage_cap_bytes:
+                storage_stopped_reason = "saved_storage_budget"
+                break
 
         await db.execute(
             text(
@@ -1336,11 +1615,12 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
         planned_urls = dashboard_planned_url_count if dashboard_planned_url_count is not None else len(pages)
         success_metrics = json.dumps(
             {
-                "chunk_count": len(chunks),
+                "chunk_count": chunks_persisted,
                 "indexed_source_bytes": indexed_source_bytes,
                 "crawl_http_bytes": crawl_http_bytes,
                 "crawl_budget_bytes": crawl_budget_bytes,
                 "crawl_stopped_reason": crawl_stopped_reason,
+                "storage_stopped_reason": storage_stopped_reason,
                 "urls_planned": planned_urls,
                 "urls_fetched": len(pages),
             }
@@ -1352,6 +1632,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
                     pages_total = :pages_total,
                     pages_processed = :pages_processed,
+                    chunks_embedded = :chunks_embedded,
                     metrics = cast(:metrics as jsonb)
                 where id = :job_id
                 """
@@ -1360,6 +1641,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 "job_id": str(job_id),
                 "pages_total": planned_urls,
                 "pages_processed": len(pages),
+                "chunks_embedded": chunks_persisted,
                 "metrics": success_metrics,
             },
         )
@@ -1409,6 +1691,732 @@ async def index_website_source(
     return source_out, refreshed or job
 
 
+async def index_file_source(
+    db: AsyncSession, source_id: UUID, user_id: UUID
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    source = await _load_source(db, source_id, user_id)
+    if source.type != "file":
+        raise AppError(code="validation.invalid_input", message="Only file sources are supported", status_code=422)
+    if not source.storage_bucket or not source.storage_path:
+        raise AppError(code="validation.invalid_input", message="File source is missing storage reference", status_code=422)
+
+    job = await _create_job(db, source, user_id)
+    await _set_job_running(db, job.id)
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set status = 'indexing', error_message = null
+            where id = :source_id
+            """
+        ),
+        {"source_id": str(source.id)},
+    )
+    await db.commit()
+
+    try:
+        metadata = dict(source.metadata or {})
+        text_content = str(metadata.get("extracted_text") or metadata.get("text") or metadata.get("content") or "").strip()
+        if not text_content:
+            raise AppError(
+                code="knowledge.file_text_missing",
+                message="File text is not available for indexing. Re-upload with extracted text metadata.",
+                status_code=422,
+            )
+
+        _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+        included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+        effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+        currently_used_storage_bytes = await _agent_used_storage_bytes(
+            db, user_id=user_id, agent_id=source.agent_id
+        )
+        remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+        indexed_text = _truncate_utf8_to_bytes(text_content, remaining_budget_bytes)
+        if not indexed_text:
+            raise AppError(
+                code="knowledge.storage_budget_exhausted",
+                message="Knowledge storage limit reached. Upgrade to add more file content.",
+                status_code=422,
+            )
+
+        chunks = _chunk_text(indexed_text)
+        if not chunks:
+            raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from file text", status_code=422)
+
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'chunking', chunks_total = :chunks_total, progress_pct = 45
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job.id), "chunks_total": len(chunks)},
+        )
+
+        embeddings = await _embed_texts(chunks)
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'embedding', chunks_embedded = :chunks_embedded, progress_pct = 75
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job.id), "chunks_embedded": len(embeddings)},
+        )
+        await db.execute(
+            text("delete from public.knowledge_chunks where knowledge_source_id = :source_id"),
+            {"source_id": str(source.id)},
+        )
+
+        for idx, chunk in enumerate(chunks):
+            embedding = embeddings[idx]
+            if len(embedding) != EMBEDDING_DIMENSION:
+                raise AppError(
+                    code="knowledge.embedding_dimension_mismatch",
+                    message="Embedding dimension does not match vector column",
+                    status_code=500,
+                    details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
+                )
+            await db.execute(
+                text(
+                    """
+                    insert into public.knowledge_chunks (
+                      agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
+                    ) values (
+                      :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "agent_id": str(source.agent_id),
+                    "user_id": str(user_id),
+                    "knowledge_source_id": str(source.id),
+                    "chunk_index": idx,
+                    "content": chunk,
+                    "embedding": _vector_literal(embedding),
+                    "token_count": _token_estimate(chunk),
+                    "metadata": json.dumps(
+                        {
+                            "source_type": "file",
+                            "storage_bucket": source.storage_bucket,
+                            "storage_path": source.storage_path,
+                            "chunk_index": idx,
+                        }
+                    ),
+                },
+            )
+
+        await db.execute(
+            text(
+                """
+                update public.knowledge_sources
+                set status = 'ready', last_indexed_at = now(), error_message = null
+                where id = :source_id
+                """
+            ),
+            {"source_id": str(source.id)},
+        )
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
+                    chunks_embedded = :chunks_embedded,
+                    metrics = cast(:metrics as jsonb)
+                where id = :job_id
+                """
+            ),
+            {
+                "job_id": str(job.id),
+                "chunks_embedded": len(chunks),
+                "metrics": json.dumps(
+                    {
+                        "chunk_count": len(chunks),
+                        "indexed_source_bytes": len(indexed_text.encode("utf-8")),
+                        "storage_stopped_reason": "complete",
+                    }
+                ),
+            },
+        )
+        await db.commit()
+    except Exception as exc:
+        await _finalize_indexing_failure(
+            db,
+            job_id=job.id,
+            source_id=source.id,
+            crawl_run_id=None,
+            exc=exc,
+        )
+        if isinstance(exc, AppError):
+            raise
+        raise AppError(code="knowledge.indexing_failed", message="Indexing job failed", status_code=500) from exc
+
+    refreshed = await get_latest_job(db, source_id, user_id)
+    source_out = await _load_source(db, source_id, user_id)
+    return source_out, refreshed or job
+
+
+async def index_text_snippet_source(
+    db: AsyncSession, source_id: UUID, user_id: UUID
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    source = await _load_source(db, source_id, user_id)
+    if source.type != "text_snippet":
+        raise AppError(code="validation.invalid_input", message="Only text_snippet sources are supported", status_code=422)
+
+    job = await _create_job(db, source, user_id)
+    await _set_job_running(db, job.id)
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set status = 'indexing', error_message = null
+            where id = :source_id
+            """
+        ),
+        {"source_id": str(source.id)},
+    )
+    await db.commit()
+
+    try:
+        text_content = str(source.raw_text or "").strip()
+        if not text_content:
+            raise AppError(
+                code="knowledge.snippet_text_missing",
+                message="Snippet text is empty; add body text before indexing.",
+                status_code=422,
+            )
+
+        _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+        included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+        effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+        currently_used_storage_bytes = await _agent_used_storage_bytes(
+            db, user_id=user_id, agent_id=source.agent_id
+        )
+        remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+        indexed_text = _truncate_utf8_to_bytes(text_content, remaining_budget_bytes)
+        if not indexed_text:
+            raise AppError(
+                code="knowledge.storage_budget_exhausted",
+                message="Knowledge storage limit reached. Upgrade to add more snippet content.",
+                status_code=422,
+            )
+
+        chunks = _chunk_text(indexed_text)
+        if not chunks:
+            raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from snippet text", status_code=422)
+
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'chunking', chunks_total = :chunks_total, progress_pct = 45
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job.id), "chunks_total": len(chunks)},
+        )
+
+        embeddings = await _embed_texts(chunks)
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'embedding', chunks_embedded = :chunks_embedded, progress_pct = 75
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job.id), "chunks_embedded": len(embeddings)},
+        )
+        await db.execute(
+            text("delete from public.knowledge_chunks where knowledge_source_id = :source_id"),
+            {"source_id": str(source.id)},
+        )
+
+        for idx, chunk in enumerate(chunks):
+            embedding = embeddings[idx]
+            if len(embedding) != EMBEDDING_DIMENSION:
+                raise AppError(
+                    code="knowledge.embedding_dimension_mismatch",
+                    message="Embedding dimension does not match vector column",
+                    status_code=500,
+                    details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
+                )
+            await db.execute(
+                text(
+                    """
+                    insert into public.knowledge_chunks (
+                      agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
+                    ) values (
+                      :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "agent_id": str(source.agent_id),
+                    "user_id": str(user_id),
+                    "knowledge_source_id": str(source.id),
+                    "chunk_index": idx,
+                    "content": chunk,
+                    "embedding": _vector_literal(embedding),
+                    "token_count": _token_estimate(chunk),
+                    "metadata": json.dumps(
+                        {
+                            "source_type": "text_snippet",
+                            "snippet_title": source.title,
+                            "chunk_index": idx,
+                        }
+                    ),
+                },
+            )
+
+        await db.execute(
+            text(
+                """
+                update public.knowledge_sources
+                set status = 'ready', last_indexed_at = now(), error_message = null
+                where id = :source_id
+                """
+            ),
+            {"source_id": str(source.id)},
+        )
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
+                    chunks_embedded = :chunks_embedded,
+                    metrics = cast(:metrics as jsonb)
+                where id = :job_id
+                """
+            ),
+            {
+                "job_id": str(job.id),
+                "chunks_embedded": len(chunks),
+                "metrics": json.dumps(
+                    {
+                        "chunk_count": len(chunks),
+                        "indexed_source_bytes": len(indexed_text.encode("utf-8")),
+                        "storage_stopped_reason": "complete",
+                    }
+                ),
+            },
+        )
+        await db.commit()
+    except Exception as exc:
+        await _finalize_indexing_failure(
+            db,
+            job_id=job.id,
+            source_id=source.id,
+            crawl_run_id=None,
+            exc=exc,
+        )
+        if isinstance(exc, AppError):
+            raise
+        raise AppError(code="knowledge.indexing_failed", message="Indexing job failed", status_code=500) from exc
+
+    refreshed = await get_latest_job(db, source_id, user_id)
+    source_out = await _load_source(db, source_id, user_id)
+    return source_out, refreshed or job
+
+
+def _qa_pair_index_text(question: str, answer: str) -> str:
+    q = (question or "").strip()
+    a = (answer or "").strip()
+    return f"Question: {q}\n\nAnswer: {a}"
+
+
+async def index_qa_source(db: AsyncSession, source_id: UUID, user_id: UUID) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    source = await _load_source(db, source_id, user_id)
+    if source.type != "q_and_a":
+        raise AppError(code="validation.invalid_input", message="Only q_and_a sources are supported", status_code=422)
+
+    qa_row = (
+        await db.execute(
+            text(
+                """
+                select q.question, q.answer
+                from public.knowledge_qa_items q
+                join public.knowledge_sources s on s.id = q.knowledge_source_id
+                where q.knowledge_source_id = :source_id and s.user_id = :user_id and s.type = 'q_and_a'
+                order by q.created_at asc
+                limit 1
+                """
+            ),
+            {"source_id": str(source.id), "user_id": str(user_id)},
+        )
+    ).mappings().first()
+    if qa_row is None:
+        raise AppError(
+            code="knowledge.qa_row_missing",
+            message="Q&A pair has no question/answer row to index.",
+            status_code=422,
+        )
+
+    job = await _create_job(db, source, user_id)
+    await _set_job_running(db, job.id)
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set status = 'indexing', error_message = null
+            where id = :source_id
+            """
+        ),
+        {"source_id": str(source.id)},
+    )
+    await db.commit()
+
+    try:
+        text_content = _normalize_text(_qa_pair_index_text(str(qa_row["question"]), str(qa_row["answer"])))
+        if not text_content:
+            raise AppError(
+                code="knowledge.qa_text_missing",
+                message="Q&A text is empty; add a question and answer before indexing.",
+                status_code=422,
+            )
+
+        _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+        included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+        effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+        currently_used_storage_bytes = await _agent_used_storage_bytes(
+            db, user_id=user_id, agent_id=source.agent_id
+        )
+        remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+        indexed_text = _truncate_utf8_to_bytes(text_content, remaining_budget_bytes)
+        if not indexed_text:
+            raise AppError(
+                code="knowledge.storage_budget_exhausted",
+                message="Knowledge storage limit reached. Upgrade to add more Q&A content.",
+                status_code=422,
+            )
+
+        chunks = _chunk_text(indexed_text)
+        if not chunks:
+            raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from Q&A text", status_code=422)
+
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'chunking', chunks_total = :chunks_total, progress_pct = 45
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job.id), "chunks_total": len(chunks)},
+        )
+
+        embeddings = await _embed_texts(chunks)
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set phase = 'embedding', chunks_embedded = :chunks_embedded, progress_pct = 75
+                where id = :job_id
+                """
+            ),
+            {"job_id": str(job.id), "chunks_embedded": len(embeddings)},
+        )
+        await db.execute(
+            text("delete from public.knowledge_chunks where knowledge_source_id = :source_id"),
+            {"source_id": str(source.id)},
+        )
+
+        for idx, chunk in enumerate(chunks):
+            embedding = embeddings[idx]
+            if len(embedding) != EMBEDDING_DIMENSION:
+                raise AppError(
+                    code="knowledge.embedding_dimension_mismatch",
+                    message="Embedding dimension does not match vector column",
+                    status_code=500,
+                    details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
+                )
+            await db.execute(
+                text(
+                    """
+                    insert into public.knowledge_chunks (
+                      agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
+                    ) values (
+                      :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "agent_id": str(source.agent_id),
+                    "user_id": str(user_id),
+                    "knowledge_source_id": str(source.id),
+                    "chunk_index": idx,
+                    "content": chunk,
+                    "embedding": _vector_literal(embedding),
+                    "token_count": _token_estimate(chunk),
+                    "metadata": json.dumps(
+                        {
+                            "source_type": "q_and_a",
+                            "chunk_index": idx,
+                        }
+                    ),
+                },
+            )
+
+        await db.execute(
+            text(
+                """
+                update public.knowledge_sources
+                set status = 'ready', last_indexed_at = now(), error_message = null
+                where id = :source_id
+                """
+            ),
+            {"source_id": str(source.id)},
+        )
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
+                    chunks_embedded = :chunks_embedded,
+                    metrics = cast(:metrics as jsonb)
+                where id = :job_id
+                """
+            ),
+            {
+                "job_id": str(job.id),
+                "chunks_embedded": len(chunks),
+                "metrics": json.dumps(
+                    {
+                        "chunk_count": len(chunks),
+                        "indexed_source_bytes": len(indexed_text.encode("utf-8")),
+                        "storage_stopped_reason": "complete",
+                    }
+                ),
+            },
+        )
+        await db.commit()
+    except Exception as exc:
+        await _finalize_indexing_failure(
+            db,
+            job_id=job.id,
+            source_id=source.id,
+            crawl_run_id=None,
+            exc=exc,
+        )
+        if isinstance(exc, AppError):
+            raise
+        raise AppError(code="knowledge.indexing_failed", message="Indexing job failed", status_code=500) from exc
+
+    refreshed = await get_latest_job(db, source_id, user_id)
+    source_out = await _load_source(db, source_id, user_id)
+    return source_out, refreshed or job
+
+
+async def create_and_index_text_snippet(
+    db: AsyncSession, *, user_id: UUID, agent_id: UUID, title: str, snippet_text: str
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    body = (snippet_text or "").strip()
+    if not body:
+        raise AppError(code="validation.invalid_input", message="Snippet text cannot be empty", status_code=422)
+    t = (title or "").strip()[:255]
+    if not t:
+        raise AppError(code="validation.invalid_input", message="Snippet title cannot be empty", status_code=422)
+
+    _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+    currently_used_storage_bytes = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=agent_id)
+    remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+    if remaining_budget_bytes <= 0:
+        raise AppError(
+            code="knowledge.storage_budget_exhausted",
+            message="Knowledge storage limit reached. Remove or delete indexed content, or upgrade your plan.",
+            status_code=422,
+        )
+
+    source = await create_source(
+        db,
+        user_id,
+        KnowledgeSourceCreateRequest(
+            agent_id=agent_id,
+            type="text_snippet",
+            title=t,
+            raw_text=body,
+            metadata={"origin": "dashboard_text_snippet"},
+        ),
+    )
+    return await index_text_snippet_source(db, source.id, user_id)
+
+
+async def create_and_index_qa_pair(
+    db: AsyncSession, *, user_id: UUID, agent_id: UUID, question: str, answer: str
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    q = (question or "").strip()
+    a = (answer or "").strip()
+    if not q or not a:
+        raise AppError(code="validation.invalid_input", message="Question and answer are required", status_code=422)
+    title = q[:255] if q else "Q&A"
+
+    _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+    currently_used_storage_bytes = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=agent_id)
+    remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+    if remaining_budget_bytes <= 0:
+        raise AppError(
+            code="knowledge.storage_budget_exhausted",
+            message="Knowledge storage limit reached. Remove or delete indexed content, or upgrade your plan.",
+            status_code=422,
+        )
+
+    source = await create_source(
+        db,
+        user_id,
+        KnowledgeSourceCreateRequest(
+            agent_id=agent_id,
+            type="q_and_a",
+            title=title,
+            metadata={"origin": "dashboard_qa"},
+        ),
+    )
+    try:
+        await db.execute(
+            text(
+                """
+                insert into public.knowledge_qa_items (knowledge_source_id, question, answer)
+                values (:knowledge_source_id, :question, :answer)
+                """
+            ),
+            {"knowledge_source_id": str(source.id), "question": q, "answer": a},
+        )
+        await db.commit()
+    except Exception:
+        await db.execute(
+            text("delete from public.knowledge_sources where id = :id and user_id = :user_id"),
+            {"id": str(source.id), "user_id": str(user_id)},
+        )
+        await db.commit()
+        raise
+
+    return await index_qa_source(db, source.id, user_id)
+
+
+async def create_failed_uploaded_file_source(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    filename: str,
+    content_type: str | None,
+    uploaded_bytes: int,
+    error_message: str,
+) -> FileUploadResultDTO:
+    source = await create_source(
+        db,
+        user_id,
+        KnowledgeSourceCreateRequest(
+            agent_id=agent_id,
+            type="file",
+            title=(filename or "Uploaded file").strip()[:255] or "Uploaded file",
+            storage_bucket="inline-upload",
+            storage_path=_safe_storage_path(filename),
+            status="failed",
+            metadata={
+                "origin": "dashboard_file_upload",
+                "filename": filename,
+                "content_type": content_type,
+                "uploaded_bytes": uploaded_bytes,
+            },
+        ),
+    )
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set error_message = :error_message, updated_at = now()
+            where id = :source_id and user_id = :user_id
+            """
+        ),
+        {"source_id": str(source.id), "user_id": str(user_id), "error_message": error_message},
+    )
+    await db.commit()
+    failed = await _load_source(db, source.id, user_id)
+    return FileUploadResultDTO(source=failed, job=None, status="failed", error_message=failed.error_message)
+
+
+async def create_and_index_uploaded_file(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    filename: str,
+    content_type: str | None,
+    payload: bytes,
+) -> FileUploadResultDTO:
+    if not payload:
+        raise AppError(code="knowledge.file_empty", message="Uploaded file is empty", status_code=422)
+    if len(payload) > 50 * 1024 * 1024:
+        raise AppError(code="knowledge.file_too_large", message="Max file size is 50MB", status_code=422)
+
+    extracted = _normalize_text(_extract_text_from_file_bytes(filename, content_type, payload))
+    if not extracted:
+        raise AppError(code="knowledge.file_text_missing", message="Could not extract readable text from file", status_code=422)
+
+    _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+    currently_used_storage_bytes = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=agent_id)
+    remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+    if remaining_budget_bytes <= 0:
+        return await create_failed_uploaded_file_source(
+            db,
+            user_id=user_id,
+            agent_id=agent_id,
+            filename=filename,
+            content_type=content_type,
+            uploaded_bytes=len(payload),
+            error_message="Knowledge storage limit reached. Remove indexed content or upgrade your plan.",
+        )
+
+    extracted_bytes = len(extracted.encode("utf-8"))
+    if extracted_bytes > remaining_budget_bytes:
+        return await create_failed_uploaded_file_source(
+            db,
+            user_id=user_id,
+            agent_id=agent_id,
+            filename=filename,
+            content_type=content_type,
+            uploaded_bytes=len(payload),
+            error_message=(
+                f"File exceeds remaining storage budget ({extracted_bytes}B needed, "
+                f"{remaining_budget_bytes}B available)."
+            ),
+        )
+
+    title = (filename or "Uploaded file").strip()[:255] or "Uploaded file"
+    source = await create_source(
+        db,
+        user_id,
+        KnowledgeSourceCreateRequest(
+            agent_id=agent_id,
+            type="file",
+            title=title,
+            storage_bucket="inline-upload",
+            storage_path=_safe_storage_path(filename),
+            metadata={
+                "origin": "dashboard_file_upload",
+                "filename": filename,
+                "content_type": content_type,
+                "uploaded_bytes": len(payload),
+                "extracted_text": extracted,
+            },
+        ),
+    )
+    try:
+        source_out, job = await index_file_source(db, source.id, user_id)
+        return FileUploadResultDTO(source=source_out, job=job, status="succeeded", error_message=None)
+    except AppError:
+        failed = await _load_source(db, source.id, user_id)
+        return FileUploadResultDTO(source=failed, job=None, status="failed", error_message=failed.error_message)
+
+
 async def get_jobs(db: AsyncSession, source_id: UUID, user_id: UUID) -> list[IndexJobDTO]:
     result = await db.execute(
         text(
@@ -1454,6 +2462,8 @@ async def list_website_sources_for_agent(
     )
     if agent_check.mappings().first() is None:
         raise AppError(code="agents.not_found", message="Agent not found", status_code=404)
+    _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
 
     result = await db.execute(
         text(
@@ -1463,6 +2473,7 @@ async def list_website_sources_for_agent(
               s.agent_id,
               s.title,
               s.source_url,
+              s.metadata,
               s.status::text as status,
               s.last_indexed_at,
               coalesce(cnt.c, 0) as link_count,
@@ -1478,11 +2489,6 @@ async def list_website_sources_for_agent(
               select count(*)::int as c
               from public.knowledge_source_pages p
               where p.knowledge_source_id = s.id
-                and p.status in (
-                  'parsed'::public.crawl_page_status,
-                  'failed'::public.crawl_page_status,
-                  'fetched'::public.crawl_page_status
-                )
             ) cnt on true
             left join lateral (
               select status, phase, pages_total, pages_processed, progress_pct, metrics
@@ -1508,6 +2514,7 @@ async def list_website_sources_for_agent(
             row.get("job_metrics"),
             row.get("job_pages_total"),
             row.get("job_pages_processed"),
+            storage_cap_bytes=storage_cap_bytes,
         )
         out.append(
             WebsiteSourceListItemDTO(
@@ -1525,9 +2532,59 @@ async def list_website_sources_for_agent(
                 job_pages_processed=int(row["job_pages_processed"]) if row.get("job_pages_processed") is not None else None,
                 job_progress_pct=int(row["job_progress_pct"]) if row.get("job_progress_pct") is not None else None,
                 job_crawl_limit_exceeded=lim,
+                reindexed_duplicate=bool((row.get("metadata") or {}).get("reindexed_duplicate", False)),
             )
         )
     return out
+
+
+async def list_file_sources_for_agent(
+    db: AsyncSession, user_id: UUID, agent_id: UUID
+) -> list[FileSourceListItemDTO]:
+    agent_check = await db.execute(
+        text("select id from public.agents where id = :agent_id and user_id = :user_id"),
+        {"agent_id": str(agent_id), "user_id": str(user_id)},
+    )
+    if agent_check.mappings().first() is None:
+        raise AppError(code="agents.not_found", message="Agent not found", status_code=404)
+
+    result = await db.execute(
+        text(
+            """
+            select
+              s.id,
+              s.agent_id,
+              s.title,
+              s.storage_bucket,
+              s.storage_path,
+              s.status::text as status,
+              s.last_indexed_at,
+              coalesce(chars.character_count, 0) as character_count,
+              j.status::text as latest_job_status,
+              j.phase::text as latest_job_phase,
+              j.progress_pct as job_progress_pct
+            from public.knowledge_sources s
+            left join lateral (
+              select coalesce(sum(char_length(c.content))::bigint, 0) as character_count
+              from public.knowledge_chunks c
+              where c.knowledge_source_id = s.id
+            ) chars on true
+            left join lateral (
+              select status, phase, progress_pct
+              from public.indexing_jobs j2
+              where j2.knowledge_source_id = s.id
+              order by j2.created_at desc
+              limit 1
+            ) j on true
+            where s.user_id = :user_id
+              and s.agent_id = :agent_id
+              and s.type = 'file'
+            order by s.created_at desc
+            """
+        ),
+        {"user_id": str(user_id), "agent_id": str(agent_id)},
+    )
+    return [FileSourceListItemDTO.model_validate(row) for row in result.mappings().all()]
 
 
 async def list_website_source_pages(
@@ -1555,11 +2612,6 @@ async def list_website_source_pages(
                 select count(*)::int as c
                 from public.knowledge_source_pages p
                 where p.knowledge_source_id = :source_id and p.user_id = :user_id
-                  and p.status in (
-                    'parsed'::public.crawl_page_status,
-                    'failed'::public.crawl_page_status,
-                    'fetched'::public.crawl_page_status
-                  )
                 """
             ),
             {"source_id": str(source_id), "user_id": str(user_id)},
@@ -1571,14 +2623,9 @@ async def list_website_source_pages(
         await db.execute(
             text(
                 """
-                select p.url, p.status::text as status, p.depth, p.last_crawled_at as last_indexed_at, p.http_status
+                select p.id, p.url, p.status::text as status, p.depth, p.last_crawled_at as last_indexed_at, p.http_status
                 from public.knowledge_source_pages p
                 where p.knowledge_source_id = :source_id and p.user_id = :user_id
-                  and p.status in (
-                    'parsed'::public.crawl_page_status,
-                    'failed'::public.crawl_page_status,
-                    'fetched'::public.crawl_page_status
-                  )
                 order by p.url asc
                 limit :limit offset :offset
                 """
@@ -1606,6 +2653,561 @@ async def delete_website_source(db: AsyncSession, user_id: UUID, source_id: UUID
     await db.commit()
 
 
+async def delete_website_source_page(
+    db: AsyncSession, user_id: UUID, source_id: UUID, page_id: UUID
+) -> None:
+    """Remove a single crawled page row + its associated chunks from the parent website source."""
+    page = (
+        await db.execute(
+            text(
+                """
+                select p.id, p.url
+                from public.knowledge_source_pages p
+                join public.knowledge_sources s on s.id = p.knowledge_source_id
+                where p.id = :page_id
+                  and p.knowledge_source_id = :source_id
+                  and s.user_id = :user_id
+                  and s.type = 'website'
+                """
+            ),
+            {"page_id": str(page_id), "source_id": str(source_id), "user_id": str(user_id)},
+        )
+    ).mappings().first()
+    if page is None:
+        raise AppError(code="knowledge.page_not_found", message="Website page not found", status_code=404)
+    await db.execute(
+        text(
+            """
+            delete from public.knowledge_chunks
+            where knowledge_source_id = :source_id
+              and metadata->>'page_url' = :url
+            """
+        ),
+        {"source_id": str(source_id), "url": str(page["url"])},
+    )
+    await db.execute(
+        text("delete from public.knowledge_source_pages where id = :page_id"),
+        {"page_id": str(page_id)},
+    )
+    await db.commit()
+
+
+async def update_website_source_page(
+    db: AsyncSession,
+    user_id: UUID,
+    source_id: UUID,
+    page_id: UUID,
+    new_url: str,
+) -> None:
+    """Replace a single page's URL/content: refetch, re-embed, swap in new chunks for the page."""
+    page = (
+        await db.execute(
+            text(
+                """
+                select p.id, p.url, p.knowledge_source_id, s.agent_id, s.source_url
+                from public.knowledge_source_pages p
+                join public.knowledge_sources s on s.id = p.knowledge_source_id
+                where p.id = :page_id
+                  and p.knowledge_source_id = :source_id
+                  and s.user_id = :user_id
+                  and s.type = 'website'
+                """
+            ),
+            {"page_id": str(page_id), "source_id": str(source_id), "user_id": str(user_id)},
+        )
+    ).mappings().first()
+    if page is None:
+        raise AppError(code="knowledge.page_not_found", message="Website page not found", status_code=404)
+
+    cleaned_url = (new_url or "").strip()
+    if not cleaned_url:
+        raise AppError(code="knowledge.invalid_url", message="URL cannot be empty", status_code=422)
+
+    old_url = str(page["url"])
+    agent_id = UUID(str(page["agent_id"]))
+    source_url = page["source_url"] if page["source_url"] is not None else None
+
+    if cleaned_url != old_url:
+        conflict = (
+            await db.execute(
+                text(
+                    """
+                    select id
+                    from public.knowledge_source_pages
+                    where knowledge_source_id = :sid and url = :url and id <> :pid
+                    """
+                ),
+                {"sid": str(source_id), "url": cleaned_url, "pid": str(page_id)},
+            )
+        ).mappings().first()
+        if conflict is not None:
+            raise AppError(
+                code="knowledge.page_url_conflict",
+                message="Another page with this URL already exists in this source",
+                status_code=409,
+            )
+
+    await db.execute(
+        text(
+            """
+            delete from public.knowledge_chunks
+            where knowledge_source_id = :source_id
+              and metadata->>'page_url' = :url
+            """
+        ),
+        {"source_id": str(source_id), "url": old_url},
+    )
+
+    await db.execute(
+        text(
+            """
+            update public.knowledge_source_pages
+            set url = :url,
+                status = 'queued'::public.crawl_page_status,
+                http_status = null,
+                last_crawled_at = null
+            where id = :page_id
+            """
+        ),
+        {"url": cleaned_url, "page_id": str(page_id)},
+    )
+    await db.commit()
+
+    pages, _, _, _, _ = await _fetch_pages_for_urls([cleaned_url], crawl_budget_bytes=None)
+    page_data = pages[0] if pages else {"text": "", "title": None, "http_status": None}
+    page_text = str(page_data.get("text") or "")
+    page_title = str(page_data.get("title") or "").strip()
+    http_status = page_data.get("http_status")
+
+    if not page_text.strip():
+        await db.execute(
+            text(
+                """
+                update public.knowledge_source_pages
+                set status = 'failed'::public.crawl_page_status,
+                    http_status = :http,
+                    last_crawled_at = now()
+                where id = :page_id
+                """
+            ),
+            {"page_id": str(page_id), "http": http_status},
+        )
+        await db.commit()
+        return
+
+    prefix_parts = [p for p in [page_title, cleaned_url] if p]
+    chunk_prefix = " | ".join(prefix_parts).strip()
+    chunk_records: list[dict[str, object]] = []
+    for page_chunk_index, chunk in enumerate(_chunk_text(page_text)):
+        chunk_with_context = f"{chunk_prefix}\n\n{chunk}".strip() if chunk_prefix else chunk
+        chunk_records.append(
+            {
+                "content": chunk_with_context,
+                "raw_content": chunk,
+                "page_chunk_index": page_chunk_index,
+            }
+        )
+
+    if not chunk_records:
+        await db.execute(
+            text(
+                """
+                update public.knowledge_source_pages
+                set status = 'parsed'::public.crawl_page_status,
+                    http_status = :http,
+                    last_crawled_at = now()
+                where id = :page_id
+                """
+            ),
+            {"page_id": str(page_id), "http": http_status},
+        )
+        await db.commit()
+        return
+
+    embeddings = await _embed_texts([str(rec["content"]) for rec in chunk_records])
+
+    max_idx_row = (
+        await db.execute(
+            text(
+                "select coalesce(max(chunk_index), -1) as m from public.knowledge_chunks where knowledge_source_id = :sid"
+            ),
+            {"sid": str(source_id)},
+        )
+    ).mappings().first()
+    base_idx = int(max_idx_row["m"]) + 1 if max_idx_row else 0
+
+    for offset, (rec, embedding) in enumerate(zip(chunk_records, embeddings)):
+        if len(embedding) != EMBEDDING_DIMENSION:
+            raise AppError(
+                code="knowledge.embedding_dimension_mismatch",
+                message="Embedding dimension does not match vector column",
+                status_code=500,
+                details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
+            )
+        chunk = str(rec["content"])
+        idx = base_idx + offset
+        await db.execute(
+            text(
+                """
+                insert into public.knowledge_chunks (
+                  agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
+                ) values (
+                  :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
+                )
+                """
+            ),
+            {
+                "agent_id": str(agent_id),
+                "user_id": str(user_id),
+                "knowledge_source_id": str(source_id),
+                "chunk_index": idx,
+                "content": chunk,
+                "embedding": _vector_literal(embedding),
+                "token_count": _token_estimate(chunk),
+                "metadata": json.dumps(
+                    {
+                        "source_url": source_url,
+                        "page_url": cleaned_url,
+                        "page_title": page_title,
+                        "raw_content": rec.get("raw_content"),
+                        "chunk_index": idx,
+                        "page_chunk_index": rec.get("page_chunk_index"),
+                    }
+                ),
+            },
+        )
+
+    await db.execute(
+        text(
+            """
+            update public.knowledge_source_pages
+            set status = 'parsed'::public.crawl_page_status,
+                http_status = :http,
+                last_crawled_at = now()
+            where id = :page_id
+            """
+        ),
+        {"page_id": str(page_id), "http": http_status},
+    )
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set last_indexed_at = now()
+            where id = :sid
+            """
+        ),
+        {"sid": str(source_id)},
+    )
+    await db.commit()
+
+
+async def delete_file_source(db: AsyncSession, user_id: UUID, source_id: UUID) -> None:
+    result = await db.execute(
+        text(
+            """
+            delete from public.knowledge_sources
+            where id = :source_id and user_id = :user_id and type = 'file'
+            returning id
+            """
+        ),
+        {"source_id": str(source_id), "user_id": str(user_id)},
+    )
+    if result.first() is None:
+        raise AppError(code="knowledge.source_not_found", message="File source not found", status_code=404)
+    await db.commit()
+
+
+async def list_text_snippet_sources_for_agent(
+    db: AsyncSession, user_id: UUID, agent_id: UUID
+) -> list[TextSnippetListItemDTO]:
+    agent_check = await db.execute(
+        text("select id from public.agents where id = :agent_id and user_id = :user_id"),
+        {"agent_id": str(agent_id), "user_id": str(user_id)},
+    )
+    if agent_check.mappings().first() is None:
+        raise AppError(code="agents.not_found", message="Agent not found", status_code=404)
+
+    result = await db.execute(
+        text(
+            """
+            select
+              s.id,
+              s.agent_id,
+              s.title,
+              s.status::text as status,
+              s.last_indexed_at,
+              s.updated_at,
+              coalesce(chars.character_count, 0) as character_count,
+              coalesce(left(s.raw_text, 400), '') as preview,
+              j.status::text as latest_job_status,
+              j.phase::text as latest_job_phase,
+              j.progress_pct as job_progress_pct
+            from public.knowledge_sources s
+            left join lateral (
+              select coalesce(sum(char_length(c.content))::bigint, 0) as character_count
+              from public.knowledge_chunks c
+              where c.knowledge_source_id = s.id
+            ) chars on true
+            left join lateral (
+              select status, phase, progress_pct
+              from public.indexing_jobs j2
+              where j2.knowledge_source_id = s.id
+              order by j2.created_at desc
+              limit 1
+            ) j on true
+            where s.user_id = :user_id
+              and s.agent_id = :agent_id
+              and s.type = 'text_snippet'
+            order by s.updated_at desc
+            """
+        ),
+        {"user_id": str(user_id), "agent_id": str(agent_id)},
+    )
+    return [TextSnippetListItemDTO.model_validate(row) for row in result.mappings().all()]
+
+
+async def get_text_snippet_detail(db: AsyncSession, user_id: UUID, source_id: UUID) -> TextSnippetDetailDTO:
+    row = (
+        await db.execute(
+            text(
+                """
+                select
+                  id,
+                  agent_id,
+                  title,
+                  coalesce(raw_text, '') as text,
+                  status::text as status,
+                  last_indexed_at,
+                  updated_at
+                from public.knowledge_sources
+                where id = :source_id and user_id = :user_id and type = 'text_snippet'
+                """
+            ),
+            {"source_id": str(source_id), "user_id": str(user_id)},
+        )
+    ).mappings().first()
+    if row is None:
+        raise AppError(code="knowledge.source_not_found", message="Text snippet not found", status_code=404)
+    return TextSnippetDetailDTO(
+        id=row["id"],
+        agent_id=row["agent_id"],
+        title=str(row["title"]),
+        text=str(row["text"]),
+        status=str(row["status"]),
+        last_indexed_at=row["last_indexed_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+async def update_text_snippet_source(
+    db: AsyncSession, user_id: UUID, source_id: UUID, *, title: str, snippet_text: str
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    src = await _load_source(db, source_id, user_id)
+    if src.type != "text_snippet":
+        raise AppError(code="validation.invalid_input", message="Only text_snippet sources can be updated here", status_code=422)
+    body = (snippet_text or "").strip()
+    t = (title or "").strip()[:255]
+    if not body or not t:
+        raise AppError(code="validation.invalid_input", message="Title and text are required", status_code=422)
+
+    _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+    currently_used_storage_bytes = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=src.agent_id)
+    remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+    if remaining_budget_bytes <= 0:
+        raise AppError(
+            code="knowledge.storage_budget_exhausted",
+            message="Knowledge storage limit reached. Remove or delete indexed content, or upgrade your plan.",
+            status_code=422,
+        )
+
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set title = :title, raw_text = :raw_text, status = 'pending', error_message = null, updated_at = now()
+            where id = :source_id and user_id = :user_id and type = 'text_snippet'
+            """
+        ),
+        {"title": t, "raw_text": body, "source_id": str(source_id), "user_id": str(user_id)},
+    )
+    await db.commit()
+    return await index_text_snippet_source(db, source_id, user_id)
+
+
+async def delete_text_snippet_source(db: AsyncSession, user_id: UUID, source_id: UUID) -> None:
+    result = await db.execute(
+        text(
+            """
+            delete from public.knowledge_sources
+            where id = :source_id and user_id = :user_id and type = 'text_snippet'
+            returning id
+            """
+        ),
+        {"source_id": str(source_id), "user_id": str(user_id)},
+    )
+    if result.first() is None:
+        raise AppError(code="knowledge.source_not_found", message="Text snippet not found", status_code=404)
+    await db.commit()
+
+
+async def list_qa_sources_for_agent(db: AsyncSession, user_id: UUID, agent_id: UUID) -> list[QAPairListItemDTO]:
+    agent_check = await db.execute(
+        text("select id from public.agents where id = :agent_id and user_id = :user_id"),
+        {"agent_id": str(agent_id), "user_id": str(user_id)},
+    )
+    if agent_check.mappings().first() is None:
+        raise AppError(code="agents.not_found", message="Agent not found", status_code=404)
+
+    result = await db.execute(
+        text(
+            """
+            select
+              s.id,
+              s.agent_id,
+              s.title,
+              s.status::text as status,
+              s.last_indexed_at,
+              s.updated_at,
+              q.question,
+              coalesce(left(q.answer, 400), '') as answer_preview,
+              coalesce(chars.character_count, 0) as character_count,
+              j.status::text as latest_job_status,
+              j.phase::text as latest_job_phase,
+              j.progress_pct as job_progress_pct
+            from public.knowledge_sources s
+            inner join public.knowledge_qa_items q on q.knowledge_source_id = s.id
+            left join lateral (
+              select coalesce(sum(char_length(c.content))::bigint, 0) as character_count
+              from public.knowledge_chunks c
+              where c.knowledge_source_id = s.id
+            ) chars on true
+            left join lateral (
+              select status, phase, progress_pct
+              from public.indexing_jobs j2
+              where j2.knowledge_source_id = s.id
+              order by j2.created_at desc
+              limit 1
+            ) j on true
+            where s.user_id = :user_id
+              and s.agent_id = :agent_id
+              and s.type = 'q_and_a'
+            order by s.updated_at desc
+            """
+        ),
+        {"user_id": str(user_id), "agent_id": str(agent_id)},
+    )
+    return [QAPairListItemDTO.model_validate(row) for row in result.mappings().all()]
+
+
+async def get_qa_pair_detail(db: AsyncSession, user_id: UUID, source_id: UUID) -> QAPairDetailDTO:
+    row = (
+        await db.execute(
+            text(
+                """
+                select
+                  s.id,
+                  s.agent_id,
+                  q.question,
+                  q.answer,
+                  s.status::text as status,
+                  s.last_indexed_at,
+                  s.updated_at
+                from public.knowledge_sources s
+                inner join public.knowledge_qa_items q on q.knowledge_source_id = s.id
+                where s.id = :source_id and s.user_id = :user_id and s.type = 'q_and_a'
+                order by q.created_at asc
+                limit 1
+                """
+            ),
+            {"source_id": str(source_id), "user_id": str(user_id)},
+        )
+    ).mappings().first()
+    if row is None:
+        raise AppError(code="knowledge.source_not_found", message="Q&A pair not found", status_code=404)
+    return QAPairDetailDTO(
+        id=row["id"],
+        agent_id=row["agent_id"],
+        question=str(row["question"]),
+        answer=str(row["answer"]),
+        status=str(row["status"]),
+        last_indexed_at=row["last_indexed_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+async def update_qa_pair_source(
+    db: AsyncSession, user_id: UUID, source_id: UUID, *, question: str, answer: str
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    src = await _load_source(db, source_id, user_id)
+    if src.type != "q_and_a":
+        raise AppError(code="validation.invalid_input", message="Only q_and_a sources can be updated here", status_code=422)
+    q = (question or "").strip()
+    a = (answer or "").strip()
+    if not q or not a:
+        raise AppError(code="validation.invalid_input", message="Question and answer are required", status_code=422)
+    title = q[:255]
+
+    _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+    currently_used_storage_bytes = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=src.agent_id)
+    remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+    if remaining_budget_bytes <= 0:
+        raise AppError(
+            code="knowledge.storage_budget_exhausted",
+            message="Knowledge storage limit reached. Remove or delete indexed content, or upgrade your plan.",
+            status_code=422,
+        )
+
+    upd = await db.execute(
+        text(
+            """
+            update public.knowledge_qa_items q
+            set question = :question, answer = :answer, updated_at = now()
+            from public.knowledge_sources s
+            where q.knowledge_source_id = s.id
+              and s.id = :source_id and s.user_id = :user_id and s.type = 'q_and_a'
+            returning q.id
+            """
+        ),
+        {"question": q, "answer": a, "source_id": str(source_id), "user_id": str(user_id)},
+    )
+    if upd.first() is None:
+        raise AppError(code="knowledge.source_not_found", message="Q&A pair not found", status_code=404)
+
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set title = :title, status = 'pending', error_message = null, updated_at = now()
+            where id = :source_id and user_id = :user_id and type = 'q_and_a'
+            """
+        ),
+        {"title": title, "source_id": str(source_id), "user_id": str(user_id)},
+    )
+    await db.commit()
+    return await index_qa_source(db, source_id, user_id)
+
+
+async def delete_qa_source(db: AsyncSession, user_id: UUID, source_id: UUID) -> None:
+    result = await db.execute(
+        text(
+            """
+            delete from public.knowledge_sources
+            where id = :source_id and user_id = :user_id and type = 'q_and_a'
+            returning id
+            """
+        ),
+        {"source_id": str(source_id), "user_id": str(user_id)},
+    )
+    if result.first() is None:
+        raise AppError(code="knowledge.source_not_found", message="Q&A pair not found", status_code=404)
+    await db.commit()
+
+
 def _included_storage_bytes_from_plan_features(features: dict[str, object]) -> int:
     if not isinstance(features, dict):
         return DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES
@@ -1616,6 +3218,34 @@ def _included_storage_bytes_from_plan_features(features: dict[str, object]) -> i
     if isinstance(mb, (int, float)) and mb > 0:
         return int(mb * 1024 * 1024)
     return DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES
+
+
+def _effective_storage_cap_bytes(included_storage_bytes: int) -> int:
+    """
+    Internal allowance only: starter 500KB plans receive hidden +23% storage headroom.
+    """
+    if included_storage_bytes == STARTER_KNOWLEDGE_STORAGE_CAP_BYTES:
+        return int(included_storage_bytes * (1 + STARTER_HIDDEN_STORAGE_GRACE_RATIO))
+    return included_storage_bytes
+
+
+async def _agent_used_storage_bytes(db: AsyncSession, *, user_id: UUID, agent_id: UUID) -> int:
+    usage_row = (
+        await db.execute(
+            text(
+                """
+                select coalesce(sum(
+                  octet_length(c.content)
+                )::bigint, 0) as used_bytes
+                from public.knowledge_chunks c
+                join public.knowledge_sources s on s.id = c.knowledge_source_id
+                where s.agent_id = :agent_id and s.user_id = :user_id
+                """
+            ),
+            {"agent_id": str(agent_id), "user_id": str(user_id)},
+        )
+    ).mappings().one()
+    return int(usage_row["used_bytes"] or 0)
 
 
 def _website_crawl_budget_bytes(plan_slug: str, features: dict[str, Any]) -> int:
@@ -1642,12 +3272,25 @@ def _coerce_job_metrics(metrics: object) -> dict[str, Any]:
     return {}
 
 
-def _job_crawl_limit_exceeded(job_status: str | None, metrics: object, pages_total: object, pages_processed: object) -> bool:
+def _job_crawl_limit_exceeded(
+    job_status: str | None,
+    metrics: object,
+    pages_total: object,
+    pages_processed: object,
+    storage_cap_bytes: int | None = None,
+) -> bool:
     if (job_status or "").lower() != "succeeded":
         return False
     m = _coerce_job_metrics(metrics)
     if str(m.get("crawl_stopped_reason")) != "budget":
         return False
+    if storage_cap_bytes is not None and storage_cap_bytes > 0:
+        try:
+            indexed_bytes = int(m.get("indexed_source_bytes") or 0)
+        except (TypeError, ValueError):
+            indexed_bytes = 0
+        if indexed_bytes < int(storage_cap_bytes * 0.95):
+            return False
     try:
         pt = int(pages_total) if pages_total is not None else None
         pp = int(pages_processed) if pages_processed is not None else None
@@ -1748,7 +3391,33 @@ async def get_agent_website_usage(db: AsyncSession, user_id: UUID, agent_id: UUI
         await db.execute(
             text(
                 """
+                with chunk_bytes as (
+                  select
+                    s.type::text as type,
+                    coalesce(sum(
+                      octet_length(c.content)
+                    )::bigint, 0) as bytes
+                  from public.knowledge_sources s
+                  left join public.knowledge_chunks c on c.knowledge_source_id = s.id
+                  where s.agent_id = :agent_id and s.user_id = :user_id
+                  group by s.type
+                )
                 select
+                  coalesce((
+                    select count(*)::bigint
+                    from public.knowledge_sources s
+                    where s.agent_id = :agent_id and s.user_id = :user_id and s.type = 'file'
+                  ), 0) as total_files,
+                  coalesce((
+                    select count(*)::bigint
+                    from public.knowledge_sources s
+                    where s.agent_id = :agent_id and s.user_id = :user_id and s.type = 'text_snippet'
+                  ), 0) as total_snippets,
+                  coalesce((
+                    select count(*)::bigint
+                    from public.knowledge_sources s
+                    where s.agent_id = :agent_id and s.user_id = :user_id and s.type = 'q_and_a'
+                  ), 0) as total_qa_pairs,
                   coalesce((
                     select count(*)::bigint
                     from public.knowledge_source_pages p
@@ -1760,12 +3429,11 @@ async def get_agent_website_usage(db: AsyncSession, user_id: UUID, agent_id: UUI
                         'fetched'::public.crawl_page_status
                       )
                   ), 0) as total_links,
-                  coalesce((
-                    select sum(octet_length(c.content))::bigint
-                    from public.knowledge_chunks c
-                    join public.knowledge_sources s on s.id = c.knowledge_source_id
-                    where s.agent_id = :agent_id and s.user_id = :user_id and s.type = 'website'
-                  ), 0) as used_bytes
+                  coalesce((select sum(bytes) from chunk_bytes), 0) as used_bytes,
+                  coalesce((select bytes from chunk_bytes where type = 'website'), 0) as website_used_bytes,
+                  coalesce((select bytes from chunk_bytes where type = 'file'), 0) as files_used_bytes,
+                  coalesce((select bytes from chunk_bytes where type = 'text_snippet'), 0) as snippets_used_bytes,
+                  coalesce((select bytes from chunk_bytes where type = 'q_and_a'), 0) as qa_used_bytes
                 """
             ),
             {"agent_id": str(agent_id), "user_id": str(user_id)},
@@ -1777,6 +3445,13 @@ async def get_agent_website_usage(db: AsyncSession, user_id: UUID, agent_id: UUI
     included = _included_storage_bytes_from_plan_features(features)
     used = int(usage_row["used_bytes"] or 0)
     total_links = int(usage_row["total_links"] or 0)
+    total_files = int(usage_row["total_files"] or 0)
+    total_snippets = int(usage_row["total_snippets"] or 0)
+    total_qa_pairs = int(usage_row["total_qa_pairs"] or 0)
+    website_used = int(usage_row.get("website_used_bytes") or 0)
+    files_used = int(usage_row.get("files_used_bytes") or 0)
+    snippets_used = int(usage_row.get("snippets_used_bytes") or 0)
+    qa_used = int(usage_row.get("qa_used_bytes") or 0)
     show_upgrade = plan_slug == "free" or used > included
     crawl_budget = _website_crawl_budget_bytes(plan_slug, features)
 
@@ -1835,6 +3510,13 @@ async def get_agent_website_usage(db: AsyncSession, user_id: UUID, agent_id: UUI
         included_storage_bytes=included,
         used_storage_bytes=used,
         total_links=total_links,
+        total_files=total_files,
+        total_snippets=total_snippets,
+        total_qa_pairs=total_qa_pairs,
+        website_used_bytes=website_used,
+        files_used_bytes=files_used,
+        snippets_used_bytes=snippets_used,
+        qa_used_bytes=qa_used,
         show_upgrade=show_upgrade,
         website_crawl_budget_bytes=crawl_budget,
         website_crawl_last_job_bytes=crawl_bytes_for_ui,

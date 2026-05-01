@@ -13,7 +13,11 @@ from app.domains.knowledge.schemas import (
 from app.domains.knowledge.service import (
     create_source,
     get_jobs,
+    index_file_source,
+    index_qa_source,
+    index_text_snippet_source,
     index_website_source,
+    _load_source,
     list_sources,
 )
 
@@ -46,7 +50,15 @@ async def index_source_route(
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SourceIndexResponse:
-    source, job = await index_website_source(db, source_id, user.user_id)
+    source_row = await _load_source(db, source_id, user.user_id)
+    if source_row.type == "file":
+        source, job = await index_file_source(db, source_id, user.user_id)
+    elif source_row.type == "text_snippet":
+        source, job = await index_text_snippet_source(db, source_id, user.user_id)
+    elif source_row.type == "q_and_a":
+        source, job = await index_qa_source(db, source_id, user.user_id)
+    else:
+        source, job = await index_website_source(db, source_id, user.user_id)
     return SourceIndexResponse(source=source, job=job)
 
 

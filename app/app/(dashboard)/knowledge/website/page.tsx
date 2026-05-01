@@ -1,9 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DataSourcesSidebar, type KnowledgeWebsiteUsage } from "@/components/knowledge/data-sources-sidebar";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
+import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
+import {
+  ConfirmDialog,
+  KnowledgeSearchInput,
+  KnowledgeSortMenu,
+  StatusPill,
+  pageStatusPill,
+} from "@/components/knowledge/knowledge-controls";
+import {
+  IconChevron,
+  IconInfo,
+  IconLanguage,
+  IconMore,
+} from "@/components/knowledge/knowledge-icons";
 import { KnowledgeMobileSubnav } from "@/components/knowledge/knowledge-mobile-subnav";
 import { KnowledgeWorkspaceShell } from "@/components/knowledge/knowledge-workspace-shell";
+import {
+  makeSortComparator,
+  useSortPreference,
+} from "@/components/knowledge/use-sort-preference";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
@@ -37,9 +55,11 @@ type WebsiteSourceListRow = {
   job_pages_processed?: number | null;
   job_progress_pct?: number | null;
   job_crawl_limit_exceeded?: boolean;
+  reindexed_duplicate?: boolean;
 };
 
 type WebsitePageItem = {
+  id: string;
   url: string;
   status: string;
   depth: number;
@@ -48,6 +68,7 @@ type WebsitePageItem = {
 };
 
 const WEBSITE_PAGE_BATCH = 10;
+const WEBSITE_PAGE_SEARCH_LIMIT = 500;
 
 const OPERATOR_OPTIONS: Array<{ label: string; value: PathOperatorApi }> = [
   { label: "Starts with", value: "starts_with" },
@@ -85,14 +106,19 @@ async function fetchWebsiteSources(agentId: string): Promise<WebsiteSourceListRo
   return data.sources;
 }
 
-async function fetchWebsiteUsage(agentId: string): Promise<KnowledgeWebsiteUsage> {
-  return backendFetch<KnowledgeWebsiteUsage>(
-    `/api/v1/knowledge/website/usage?agent_id=${encodeURIComponent(agentId)}`
+async function fetchAllPages(sourceId: string): Promise<WebsitePageItem[]> {
+  const data = await backendFetch<{
+    pages: WebsitePageItem[];
+    total: number;
+  }>(
+    `/api/v1/knowledge/website/sources/${encodeURIComponent(sourceId)}/pages?offset=0&limit=${WEBSITE_PAGE_SEARCH_LIMIT}`
   );
+  return data.pages;
 }
 
 export default function KnowledgeWebsitePage() {
   const { selectedAgentId } = useDashboardAgent();
+  const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
   const [sourceType, setSourceType] = useState<SourceType>("crawl");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [addLinksExpanded, setAddLinksExpanded] = useState(true);
@@ -102,11 +128,14 @@ export default function KnowledgeWebsitePage() {
   const [excludeChips, setExcludeChips] = useState<PathChip[]>([]);
   const [sources, setSources] = useState<WebsiteSourceListRow[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
-  const [usage, setUsage] = useState<KnowledgeWebsiteUsage | null>(null);
-  const [usageLoading, setUsageLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [sortKey, setSortKey] = useSortPreference("website");
+  const [pageCache, setPageCache] = useState<Record<string, WebsitePageItem[]>>({});
+  const [searchPagesLoading, setSearchPagesLoading] = useState(false);
 
   const supportsAdvancedOptions = sourceType !== "individual";
   const submitLabel =
@@ -124,23 +153,15 @@ export default function KnowledgeWebsitePage() {
       await Promise.resolve();
       if (cancelled) return;
       setSourcesLoading(true);
-      setUsageLoading(true);
       setError(null);
       try {
-        const [nextSources, nextUsage] = await Promise.all([
-          fetchWebsiteSources(selectedAgentId),
-          fetchWebsiteUsage(selectedAgentId),
-        ]);
+        const nextSources = await fetchWebsiteSources(selectedAgentId);
         if (cancelled) return;
         setSources(nextSources);
-        setUsage(nextUsage);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load sources");
       } finally {
-        if (!cancelled) {
-          setSourcesLoading(false);
-          setUsageLoading(false);
-        }
+        if (!cancelled) setSourcesLoading(false);
       }
     })();
     return () => {
@@ -151,13 +172,12 @@ export default function KnowledgeWebsitePage() {
   const silentRefreshSources = useCallback(async () => {
     if (!selectedAgentId) return;
     try {
-      const [s, u] = await Promise.all([fetchWebsiteSources(selectedAgentId), fetchWebsiteUsage(selectedAgentId)]);
+      const [s] = await Promise.all([fetchWebsiteSources(selectedAgentId), refreshUsage()]);
       setSources(s);
-      setUsage(u);
     } catch {
       /* ignore */
     }
-  }, [selectedAgentId]);
+  }, [selectedAgentId, refreshUsage]);
 
   const indexingActive = useMemo(
     () =>
@@ -185,11 +205,116 @@ export default function KnowledgeWebsitePage() {
     return () => window.clearInterval(id);
   }, [selectedAgentId, indexingActive, silentRefreshSources]);
 
+  // Eagerly fetch all pages for sources when search is active, so the search can
+  // also match nested URLs and auto-expand the matching parent.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    let cancelled = false;
+    void (async () => {
+      setSearchPagesLoading(true);
+      const missing = sources.filter((s) => !pageCache[s.id]);
+      try {
+        const fetched = await Promise.all(
+          missing.map(async (s) => [s.id, await fetchAllPages(s.id)] as const)
+        );
+        if (cancelled) return;
+        if (fetched.length > 0) {
+          setPageCache((prev) => {
+            const next = { ...prev };
+            for (const [sid, pages] of fetched) next[sid] = pages;
+            return next;
+          });
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setSearchPagesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery, sources, pageCache]);
+
   const filteredSources = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return sources;
-    return sources.filter((s) => (s.source_url ?? "").toLowerCase().includes(q) || s.title.toLowerCase().includes(q));
-  }, [sources, searchQuery]);
+    let result = sources;
+    if (q) {
+      result = sources.filter((s) => {
+        const matchTop =
+          (s.source_url ?? "").toLowerCase().includes(q) ||
+          s.title.toLowerCase().includes(q);
+        if (matchTop) return true;
+        const cached = pageCache[s.id];
+        if (!cached) return false;
+        return cached.some((p) => p.url.toLowerCase().includes(q));
+      });
+    }
+    const cmp = makeSortComparator<WebsiteSourceListRow>(
+      sortKey,
+      (r) => r.status,
+      (r) => r.last_indexed_at
+    );
+    if (cmp) result = [...result].sort(cmp);
+    return result;
+  }, [sources, searchQuery, sortKey, pageCache]);
+
+  const allFilteredSelected =
+    filteredSources.length > 0 && filteredSources.every((s) => selected.has(s.id));
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const s of filteredSources) next.delete(s.id);
+        return next;
+      });
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const s of filteredSources) next.add(s.id);
+        return next;
+      });
+    }
+  };
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  async function handleBulkDelete() {
+    if (selected.size === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${selected.size} website source${selected.size === 1 ? "" : "s"} and all indexed pages? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setBulkDeleting(true);
+    setError(null);
+    try {
+      for (const id of selected) {
+        try {
+          await backendFetch<void>(`/api/v1/knowledge/website/sources/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+          });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Delete failed");
+        }
+      }
+      setSelected(new Set());
+      await silentRefreshSources();
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!selectedAgentId || !urlInput.trim()) {
@@ -243,9 +368,12 @@ export default function KnowledgeWebsitePage() {
     }
   }
 
+  const searchActive = searchQuery.trim().length > 0;
+  const lowerQuery = searchQuery.trim().toLowerCase();
+
   return (
     <KnowledgeWorkspaceShell>
-      <main className="min-w-0 flex-1 p-4 pb-24 [&_button]:cursor-pointer [&_select]:cursor-pointer md:p-8 md:pb-8">
+      <main className="min-w-0 flex-1 p-4 pb-32 [&_button]:cursor-pointer [&_select]:cursor-pointer md:p-8 md:pb-32">
         <KnowledgeMobileSubnav active="website" />
 
         <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -255,13 +383,6 @@ export default function KnowledgeWebsitePage() {
               Crawl pages or submit sitemaps so your agent stays aligned with live content.
             </p>
           </div>
-          <button
-            type="button"
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar flex w-fit cursor-pointer items-center gap-2 rounded-ds-md border bg-white px-4 py-2 text-sm font-medium shadow-sm transition-colors"
-          >
-            <IconInfo className="text-ds-primary size-4 shrink-0" aria-hidden />
-            Learn more
-          </button>
         </div>
 
         {error ? (
@@ -270,43 +391,56 @@ export default function KnowledgeWebsitePage() {
           </div>
         ) : null}
 
-        <section className="border-ds-outline mb-10 overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
-          <button
-            type="button"
-            className="border-ds-outline bg-ds-sidebar/90 hover:bg-ds-sidebar flex w-full cursor-pointer items-center justify-between border-b px-5 py-4 text-left transition-colors sm:px-6 sm:py-5"
+        <section className="border-ds-outline mb-8 overflow-hidden rounded-ds-xl border bg-ds-surface">
+          <div
+            className="border-ds-outline flex cursor-pointer items-center justify-between border-b px-5 py-1.5 sm:px-6"
+            role="button"
+            tabIndex={0}
+            aria-expanded={addLinksExpanded}
             onClick={() => setAddLinksExpanded((p) => !p)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setAddLinksExpanded((p) => !p);
+              }
+            }}
           >
-            <h2 className="ds-app-section-title text-base">Add links</h2>
-            <IconChevron
-              className={cn(
-                "text-ds-on-surface-variant size-5 shrink-0 transition-transform",
-                addLinksExpanded ? "rotate-90" : ""
-              )}
-              aria-hidden
-            />
-          </button>
+            <div className="flex min-w-0 flex-wrap gap-5">
+              {(["crawl", "sitemap", "individual"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={cn(
+                    "cursor-pointer pt-1.5 pb-1 text-sm font-medium transition-colors",
+                    sourceType === key
+                      ? "text-ds-primary border-ds-primary border-b-2 font-semibold"
+                      : "text-ds-on-surface-variant hover:text-ds-on-surface"
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSourceTypeChange(key);
+                  }}
+                >
+                  {key === "crawl" ? "Crawl links" : key === "sitemap" ? "Sitemap" : "Individual link"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAddLinksExpanded((p) => !p);
+              }}
+              aria-expanded={addLinksExpanded}
+              aria-label="Toggle add links section"
+            >
+              <IconChevron className={cn("size-5 transition-transform", addLinksExpanded ? "rotate-90" : "")} />
+            </button>
+          </div>
 
           {addLinksExpanded ? (
             <>
-              <div className="border-ds-outline overflow-x-auto px-5 sm:px-6">
-                <div className="flex min-w-max gap-6">
-                  {(["crawl", "sitemap", "individual"] as const).map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={cn(
-                        "cursor-pointer py-4 text-sm font-medium transition-colors",
-                        sourceType === key
-                          ? "text-ds-primary border-ds-primary border-b-2 font-semibold"
-                          : "text-ds-on-surface-variant hover:text-ds-on-surface"
-                      )}
-                      onClick={() => handleSourceTypeChange(key)}
-                    >
-                      {key === "crawl" ? "Crawl links" : key === "sitemap" ? "Sitemap" : "Individual link"}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               <div className="space-y-6 p-5 sm:p-6">
                 <div className="space-y-2">
@@ -323,7 +457,6 @@ export default function KnowledgeWebsitePage() {
                       </select>
                       <IconChevron
                         className="text-ds-on-surface-variant pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 rotate-90"
-                        aria-hidden
                       />
                     </div>
                     <input
@@ -334,7 +467,7 @@ export default function KnowledgeWebsitePage() {
                     />
                   </div>
                   <div className="mt-2 flex items-start gap-2">
-                    <IconInfo className="text-ds-on-surface-variant mt-0.5 size-4 shrink-0" aria-hidden />
+                    <IconInfo className="text-ds-on-surface-variant mt-0.5 size-4 shrink-0" />
                     <p className="text-ds-on-surface-variant text-xs leading-relaxed">
                       For Shopify, prefer your <strong className="text-ds-on-surface">sitemap.xml</strong> under Sitemap
                       to reduce duplicate pages. Include/exclude path rules apply to crawled or sitemap URLs.
@@ -351,7 +484,6 @@ export default function KnowledgeWebsitePage() {
                     >
                       <IconChevron
                         className={cn("size-4 transition-transform", showAdvancedOptions ? "rotate-90" : "")}
-                        aria-hidden
                       />
                       Advanced options
                     </button>
@@ -397,41 +529,78 @@ export default function KnowledgeWebsitePage() {
         <section className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="ds-app-section-title text-base">Link sources</h2>
-            <SearchInput
-              placeholder="Search…"
-              className="w-full sm:w-64"
+            <KnowledgeSearchInput
+              placeholder="Search links and sub-pages…"
+              className="w-full sm:w-72"
               value={searchQuery}
-              onChange={(v) => setSearchQuery(v)}
+              onChange={setSearchQuery}
             />
           </div>
 
+          {searchActive && searchPagesLoading ? (
+            <p className="text-ds-on-surface-variant text-xs">Searching nested pages…</p>
+          ) : null}
+
           <div className="border-ds-outline flex flex-col gap-2 border-b pb-2 sm:flex-row sm:items-center sm:justify-between">
             <label className="text-ds-on-surface flex cursor-pointer items-center gap-3 text-sm">
-              <input type="checkbox" className="border-ds-outline text-ds-primary size-4 cursor-pointer rounded" />
+              <input
+                type="checkbox"
+                className="border-ds-outline text-ds-primary size-4 cursor-pointer rounded"
+                checked={allFilteredSelected}
+                onChange={toggleSelectAll}
+              />
               <span className="font-semibold">Select all</span>
             </label>
-            <button type="button" className="text-ds-on-surface-variant flex cursor-pointer items-center gap-1 text-sm">
-              <span>Sort by:</span>
-              <span className="text-ds-on-surface font-semibold">Default</span>
-              <IconChevron className="size-4 rotate-90" aria-hidden />
-            </button>
+            <div className="flex items-center gap-3">
+              {selected.size > 0 ? (
+                <>
+                  <span className="text-ds-on-surface-variant text-xs font-medium">{selected.size} selected</span>
+                  <button
+                    type="button"
+                    onClick={() => void handleBulkDelete()}
+                    disabled={bulkDeleting}
+                    className="rounded-ds-md bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-800 disabled:opacity-60"
+                  >
+                    {bulkDeleting ? "Deleting…" : "Delete"}
+                  </button>
+                </>
+              ) : null}
+              <KnowledgeSortMenu value={sortKey} onChange={setSortKey} />
+            </div>
           </div>
 
-          {sourcesLoading ? (
-            <p className="text-ds-on-surface-variant text-sm">Loading sources…</p>
-          ) : filteredSources.length === 0 ? (
-            <p className="text-ds-on-surface-variant text-sm">No website sources yet. Add one above.</p>
-          ) : (
-            filteredSources.map((row) => (
-              <WebsiteSourceRow key={row.id} source={row} onSourcesRefresh={silentRefreshSources} onError={setError} />
-            ))
-          )}
+          <div className="space-y-1.5">
+            {sourcesLoading ? (
+              <p className="text-ds-on-surface-variant text-sm">Loading sources…</p>
+            ) : filteredSources.length === 0 ? (
+              <p className="text-ds-on-surface-variant text-sm">
+                {searchActive ? "No links match your search." : "No website sources yet. Add one above."}
+              </p>
+            ) : (
+              filteredSources.map((row) => (
+                <WebsiteSourceRow
+                  key={row.id}
+                  source={row}
+                  onSourcesRefresh={silentRefreshSources}
+                  onError={setError}
+                  checked={selected.has(row.id)}
+                  onToggleSelect={() => toggleOne(row.id)}
+                  forceExpanded={searchActive}
+                  searchQuery={lowerQuery}
+                  cachedPages={pageCache[row.id]}
+                  onPagesCached={(pages) =>
+                    setPageCache((prev) => ({ ...prev, [row.id]: pages }))
+                  }
+                />
+              ))
+            )}
+          </div>
         </section>
 
-        <DataSourcesSidebar mobile className="lg:hidden" agentId={selectedAgentId} usage={usage} usageLoading={usageLoading} />
+        <DataSourcesSidebar mobile className="lg:hidden" />
       </main>
 
-      <DataSourcesSidebar className="hidden lg:block" agentId={selectedAgentId} usage={usage} usageLoading={usageLoading} />
+      <DataSourcesSidebar className="hidden lg:block" />
     </KnowledgeWorkspaceShell>
   );
 }
@@ -485,7 +654,6 @@ function PathRuleBlock({
           </select>
           <IconChevron
             className="text-ds-on-surface-variant pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 rotate-90"
-            aria-hidden
           />
         </div>
         <input
@@ -511,50 +679,36 @@ function PathRuleBlock({
   );
 }
 
-function SearchInput({
-  placeholder,
-  className,
-  value,
-  onChange,
-}: {
-  placeholder: string;
-  className?: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className={cn("relative", className)}>
-      <IconSearch
-        className="text-ds-on-surface-variant pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2"
-        aria-hidden
-      />
-      <input
-        className="ds-app-field rounded-ds-lg py-2 pr-4"
-        style={{ paddingLeft: "2.9rem" }}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </div>
-  );
-}
-
 function WebsiteSourceRow({
   source,
   onSourcesRefresh,
   onError,
+  checked,
+  onToggleSelect,
+  forceExpanded,
+  searchQuery,
+  cachedPages,
+  onPagesCached,
 }: {
   source: WebsiteSourceListRow;
   onSourcesRefresh: () => Promise<void>;
   onError: (message: string | null) => void;
+  checked: boolean;
+  onToggleSelect: () => void;
+  forceExpanded: boolean;
+  searchQuery: string;
+  cachedPages: WebsitePageItem[] | undefined;
+  onPagesCached: (pages: WebsitePageItem[]) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [userExpanded, setUserExpanded] = useState(false);
+  const expanded = forceExpanded || userExpanded;
   const [menuOpen, setMenuOpen] = useState(false);
   const [pageItems, setPageItems] = useState<WebsitePageItem[]>([]);
   const [pageTotal, setPageTotal] = useState<number | null>(null);
   const [pagesLoading, setPagesLoading] = useState(false);
   const [pagesLoadingMore, setPagesLoadingMore] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [retraining, setRetraining] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -570,6 +724,7 @@ function WebsiteSourceRow({
 
   useEffect(() => {
     if (!expanded) return;
+    if (cachedPages) return;
     let cancelled = false;
     void (async () => {
       setPagesLoading(true);
@@ -589,7 +744,7 @@ function WebsiteSourceRow({
       } catch (e) {
         if (!cancelled) {
           onError(e instanceof Error ? e.message : "Failed to load URLs");
-          setExpanded(false);
+          setUserExpanded(false);
         }
       } finally {
         setPagesLoading(false);
@@ -598,29 +753,41 @@ function WebsiteSourceRow({
     return () => {
       cancelled = true;
     };
-  }, [expanded, source.id, source.link_count, source.last_indexed_at, onError]);
+  }, [expanded, source.id, source.link_count, source.last_indexed_at, onError, cachedPages]);
 
-  async function loadMore() {
-    if (pageTotal === null || pageItems.length >= pageTotal) return;
-    setPagesLoadingMore(true);
+  async function loadPages(nextOffset: number, nextLimit: number, append: boolean) {
     onError(null);
     try {
-      const offset = pageItems.length;
       const data = await backendFetch<{
         pages: WebsitePageItem[];
         total: number;
         offset: number;
         limit: number;
       }>(
-        `/api/v1/knowledge/website/sources/${encodeURIComponent(source.id)}/pages?offset=${offset}&limit=${WEBSITE_PAGE_BATCH}`
+        `/api/v1/knowledge/website/sources/${encodeURIComponent(source.id)}/pages?offset=${nextOffset}&limit=${nextLimit}`
       );
-      setPageItems((prev) => [...prev, ...data.pages]);
+      const merged = append ? [...pageItems, ...data.pages] : data.pages;
+      setPageItems(merged);
       setPageTotal(data.total);
+      if (merged.length >= data.total) onPagesCached(merged);
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Failed to load more URLs");
+      onError(e instanceof Error ? e.message : "Failed to load URLs");
+    }
+  }
+
+  async function loadMore() {
+    if (pageTotal === null || pageItems.length >= pageTotal) return;
+    setPagesLoadingMore(true);
+    try {
+      await loadPages(pageItems.length, WEBSITE_PAGE_BATCH, true);
     } finally {
       setPagesLoadingMore(false);
     }
+  }
+
+  async function refreshPagesAfterMutation() {
+    const initialLimit = Math.max(WEBSITE_PAGE_BATCH, pageItems.length || WEBSITE_PAGE_BATCH);
+    await loadPages(0, initialLimit, false);
   }
 
   async function handleDelete() {
@@ -647,40 +814,100 @@ function WebsiteSourceRow({
     }
   }
 
-  const canLoadMore = pageTotal !== null && pageItems.length < pageTotal;
+  async function handleRetrain() {
+    setMenuOpen(false);
+    setRetraining(true);
+    onError(null);
+    try {
+      await backendFetch<void>(`/api/v1/knowledge/website/sources/${encodeURIComponent(source.id)}/retrain`, {
+        method: "POST",
+      });
+      await onSourcesRefresh();
+      await refreshPagesAfterMutation();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Failed to retrain source");
+    } finally {
+      setRetraining(false);
+    }
+  }
+
+  const displayedPageItems = cachedPages ?? pageItems;
+  const effectivePageTotal = cachedPages ? cachedPages.length : pageTotal;
+  const canLoadMore = effectivePageTotal !== null && displayedPageItems.length < effectivePageTotal;
 
   const showIndexedRatio =
     source.job_pages_total != null &&
     source.job_pages_total > 0 &&
+    !source.job_crawl_limit_exceeded &&
     (source.status === "indexing" ||
       source.latest_job_status === "queued" ||
       source.latest_job_status === "running" ||
       ((source.job_pages_processed ?? 0) < source.job_pages_total &&
         (source.latest_job_status === "succeeded" || source.status === "ready")));
 
+  const reindexedDuplicate = Boolean(source.reindexed_duplicate);
+  const statusSummary = reindexedDuplicate
+    ? "reindexed"
+    : source.latest_job_phase
+      ? source.latest_job_phase
+      : source.status === "indexing"
+        ? "indexing"
+        : source.status;
+
+  const visiblePages = useMemo(() => {
+    const filtered = searchQuery
+      ? displayedPageItems.filter((p) => p.url.toLowerCase().includes(searchQuery))
+      : displayedPageItems;
+    const statusRank = (status: string): number => {
+      switch ((status || "").toLowerCase()) {
+        case "parsed":
+          return 0;
+        case "excluded":
+          return 1;
+        case "failed":
+          return 2;
+        default:
+          return 3;
+      }
+    };
+    return [...filtered].sort((a, b) => {
+      const rankDelta = statusRank(a.status) - statusRank(b.status);
+      if (rankDelta !== 0) return rankDelta;
+      return a.url.localeCompare(b.url);
+    });
+  }, [displayedPageItems, searchQuery]);
+
   return (
-    <div className="border-ds-outline border-b last:border-0">
-      <div className="flex items-center py-4">
-        <input type="checkbox" className="border-ds-outline text-ds-primary mr-4 size-4 shrink-0 cursor-pointer rounded" />
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <IconLanguage className="text-ds-on-surface-variant size-5 shrink-0" aria-hidden />
+    <div className="border-ds-outline bg-ds-surface border-b/70 transition-colors last:border-0 hover:bg-ds-sidebar/40">
+      <div className="flex items-center py-3">
+        <input
+          type="checkbox"
+          className="border-ds-outline text-ds-primary mr-3 size-3.5 shrink-0 cursor-pointer rounded"
+          checked={checked}
+          onChange={onToggleSelect}
+          aria-label={`Select ${source.title || source.source_url || "source"}`}
+        />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <IconLanguage className="text-ds-on-surface-variant size-4 shrink-0" />
           <div className="min-w-0">
-            <p className="text-ds-on-surface truncate text-sm font-semibold">{source.source_url ?? source.title}</p>
-            <p className="text-ds-on-surface-variant text-xs">
-              {formatRelativeTime(source.last_indexed_at)} · Pages: {source.link_count}
-              {source.latest_job_phase ? ` · ${source.latest_job_phase}` : ""}
-              {source.status === "indexing" ? " · Indexing…" : ""}
+            <div className="flex items-center gap-1.5">
+              <p className="text-ds-on-surface truncate text-[13px] font-medium">
+                {source.title || source.source_url || "Website source"}
+              </p>
+            </div>
+            <p className="text-ds-on-surface-variant text-[11px]">
+              {formatRelativeTime(source.last_indexed_at)} · {source.link_count} links
+              {showIndexedRatio && source.job_pages_total
+                ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} indexed`
+                : ""}
+              {statusSummary ? ` · ${statusSummary}` : ""}
             </p>
           </div>
         </div>
-        {showIndexedRatio ? (
+        {!showIndexedRatio && source.job_crawl_limit_exceeded ? (
           <div className="text-ds-on-surface-variant mr-2 hidden max-w-[min(14rem,40%)] shrink-0 flex-col items-end text-right text-xs sm:flex">
-            <span className="tabular-nums">
-              {source.job_pages_processed ?? 0}/{source.job_pages_total} indexed
-            </span>
-            {source.job_crawl_limit_exceeded ? (
-              <span className="text-amber-800 mt-0.5 font-medium dark:text-amber-200">Limit exceeded</span>
-            ) : null}
+            <span className="tabular-nums">{source.job_pages_processed ?? 0} pages indexed</span>
+            <span className="mt-0.5 font-medium text-rose-700 dark:text-rose-300">Size limit exceeded</span>
           </div>
         ) : null}
         <div ref={menuRef} className="text-ds-on-surface-variant relative flex shrink-0 items-center gap-2">
@@ -696,7 +923,7 @@ function WebsiteSourceRow({
               setMenuOpen((v) => !v);
             }}
           >
-            <IconMore className="size-5" />
+            <IconMore className="size-4" />
           </button>
           {menuOpen ? (
             <div
@@ -706,7 +933,16 @@ function WebsiteSourceRow({
               <button
                 type="button"
                 role="menuitem"
-                disabled={deleting}
+                disabled={deleting || retraining}
+                className="text-ds-on-surface hover:bg-ds-sidebar block w-full cursor-pointer px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleRetrain()}
+              >
+                {retraining ? "Retraining…" : "Retrain"}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={deleting || retraining}
                 className="text-ds-on-surface hover:bg-ds-sidebar block w-full cursor-pointer px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void handleDelete()}
               >
@@ -719,18 +955,17 @@ function WebsiteSourceRow({
             className="hover:text-ds-on-surface cursor-pointer rounded-ds-md p-1 transition-colors"
             aria-label={expanded ? "Hide indexed URLs" : "Show indexed URLs"}
             aria-expanded={expanded}
-            onClick={() => setExpanded((v) => !v)}
+            onClick={() => setUserExpanded((v) => !v)}
           >
             <IconChevron
-              className={cn("size-5 shrink-0 transition-transform", expanded ? "rotate-90" : "")}
-              aria-hidden
+              className={cn("size-4 shrink-0 transition-transform", expanded ? "rotate-90" : "")}
             />
           </button>
         </div>
       </div>
       {expanded ? (
-        <div className="bg-ds-sidebar py-2.5 pr-3 pl-10 sm:pl-14">
-          {pagesLoading ? (
+        <div className="bg-ds-sidebar/35 py-2 pr-3 pl-8 sm:pl-10">
+          {pagesLoading && pageItems.length === 0 ? (
             <div className="text-ds-on-surface-variant space-y-2.5 py-1" aria-busy="true" aria-live="polite">
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-full max-w-lg animate-pulse rounded-sm" />
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[92%] max-w-md animate-pulse rounded-sm" />
@@ -738,26 +973,30 @@ function WebsiteSourceRow({
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[78%] max-w-xs animate-pulse rounded-sm" />
               <p className="text-ds-on-surface-variant pt-1 text-xs leading-relaxed">Loading indexed URLs…</p>
             </div>
-          ) : pageTotal === 0 ? (
+          ) : visiblePages.length === 0 ? (
             <p className="text-ds-on-surface-variant py-1 text-sm leading-relaxed">
-              No indexed URLs yet. Finish indexing to see links here.
+              {searchQuery ? "No indexed URLs match your search." : "No indexed URLs yet. Finish indexing to see links here."}
             </p>
           ) : (
             <>
-              <ul className="divide-ds-outline/40 max-h-72 divide-y overflow-y-auto">
-                {pageItems.map((p) => (
-                  <li key={p.url} className="min-w-0 py-2.5 first:pt-0 last:pb-0">
-                    <p className="text-ds-on-surface truncate text-sm leading-snug" title={p.url}>
-                      {p.url}
-                    </p>
-                    <p className="text-ds-on-surface-variant mt-0.5 text-xs leading-relaxed">
-                      {p.status}
-                      {p.http_status != null ? ` · HTTP ${p.http_status}` : ""} · depth {p.depth}
-                    </p>
-                  </li>
+              <ul className="divide-ds-outline/30 divide-y">
+                {visiblePages.map((p) => (
+                  <PageRow
+                    key={p.id || p.url}
+                    page={p}
+                    sourceId={source.id}
+                    sourceLimitExceeded={Boolean(source.job_crawl_limit_exceeded)}
+                    onChange={() =>
+                      void (async () => {
+                        await onSourcesRefresh();
+                        await refreshPagesAfterMutation();
+                      })()
+                    }
+                    onError={onError}
+                  />
                 ))}
               </ul>
-              {canLoadMore ? (
+              {!searchQuery && canLoadMore ? (
                 <button
                   type="button"
                   disabled={pagesLoadingMore}
@@ -775,74 +1014,179 @@ function WebsiteSourceRow({
   );
 }
 
-function IconBase({
-  className,
-  children,
-  fill = "none",
-  strokeWidth = "1.8",
+function PageRow({
+  page,
+  sourceId,
+  sourceLimitExceeded,
+  onChange,
+  onError,
 }: {
-  className?: string;
-  children: ReactNode;
-  fill?: string;
-  strokeWidth?: string;
+  page: WebsitePageItem;
+  sourceId: string;
+  sourceLimitExceeded: boolean;
+  onChange: () => void;
+  onError: (message: string | null) => void;
 }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill={fill}
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      {children}
-    </svg>
-  );
-}
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [excludeOpen, setExcludeOpen] = useState(false);
+  const [editUrl, setEditUrl] = useState(page.url);
+  const [busy, setBusy] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const pill =
+    page.status?.toLowerCase() === "excluded" && sourceLimitExceeded
+      ? { label: "Size Limit Exceeded", tone: "danger" as const }
+      : page.status?.toLowerCase() === "failed"
+        ? {
+            label: page.http_status ? `Failed (HTTP ${page.http_status})` : "Failed (Fetch error)",
+            tone: "danger" as const,
+          }
+        : pageStatusPill(page.status);
 
-function IconChevron({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="m9 18 6-6-6-6" />
-    </IconBase>
-  );
-}
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (ev: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [menuOpen]);
 
-function IconInfo({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 10v6M12 7.5h.01" />
-    </IconBase>
-  );
-}
+  async function saveEdit() {
+    const trimmed = editUrl.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    onError(null);
+    try {
+      await backendFetch<void>(
+        `/api/v1/knowledge/website/sources/${encodeURIComponent(sourceId)}/pages/${encodeURIComponent(page.id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ url: trimmed }),
+        }
+      );
+      setEditOpen(false);
+      onChange();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Failed to update link");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-function IconSearch({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </IconBase>
-  );
-}
+  async function confirmExclude() {
+    setBusy(true);
+    onError(null);
+    try {
+      await backendFetch<void>(
+        `/api/v1/knowledge/website/sources/${encodeURIComponent(sourceId)}/pages/${encodeURIComponent(page.id)}`,
+        { method: "DELETE" }
+      );
+      setExcludeOpen(false);
+      onChange();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Failed to exclude link");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-function IconLanguage({ className }: { className?: string }) {
   return (
-    <IconBase className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
-    </IconBase>
-  );
-}
+    <li className="min-w-0 py-2 first:pt-0 last:pb-0">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-ds-on-surface truncate text-xs leading-snug" title={page.url}>
+              {page.url}
+            </p>
+            <StatusPill label={pill.label} tone={pill.tone} className="shrink-0 text-[10px]" />
+          </div>
+        </div>
+        <div ref={menuRef} className="relative shrink-0">
+          <button
+            type="button"
+            className="text-ds-on-surface-variant hover:text-ds-on-surface cursor-pointer rounded-ds-md p-1 transition-colors"
+            aria-label="Page actions"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <IconMore className="size-4" />
+          </button>
+          {menuOpen ? (
+            <div
+              role="menu"
+              className="border-ds-outline bg-ds-surface absolute top-full right-0 z-20 mt-1 min-w-[10rem] rounded-ds-md border py-1 shadow-lg"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="text-ds-on-surface hover:bg-ds-sidebar block w-full cursor-pointer px-3 py-2 text-left text-sm"
+                onClick={() => {
+                  setEditUrl(page.url);
+                  setEditOpen(true);
+                  setMenuOpen(false);
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="text-ds-on-surface hover:bg-ds-sidebar block w-full cursor-pointer px-3 py-2 text-left text-sm"
+                onClick={() => {
+                  setExcludeOpen(true);
+                  setMenuOpen(false);
+                }}
+              >
+                Exclude
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
-function IconMore({ className }: { className?: string }) {
-  return (
-    <IconBase className={className} fill="currentColor" strokeWidth="0">
-      <circle cx="5" cy="12" r="1.7" />
-      <circle cx="12" cy="12" r="1.7" />
-      <circle cx="19" cy="12" r="1.7" />
-    </IconBase>
+      <ConfirmDialog
+        open={editOpen}
+        title="Edit link"
+        message="Saving will refetch and re-index this URL, replacing any existing indexed knowledge for it."
+        confirmLabel={busy ? "Saving…" : "Save"}
+        cancelLabel="Cancel"
+        busy={busy}
+        onCancel={() => {
+          if (!busy) setEditOpen(false);
+        }}
+        onConfirm={() => void saveEdit()}
+        maxWidthClassName="max-w-2xl"
+      >
+        <div className="space-y-1">
+          <label className="text-ds-on-surface-variant text-xs font-medium">URL</label>
+          <input
+            className="ds-app-field rounded-ds-lg w-full"
+            value={editUrl}
+            onChange={(e) => setEditUrl(e.target.value)}
+            placeholder="https://example.com/page"
+            disabled={busy}
+          />
+        </div>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={excludeOpen}
+        title="Exclude link"
+        message={`Remove ${page.url} from this website source? Its indexed text will be deleted.`}
+        confirmLabel="Exclude"
+        cancelLabel="Cancel"
+        destructive
+        busy={busy}
+        onCancel={() => {
+          if (!busy) setExcludeOpen(false);
+        }}
+        onConfirm={() => void confirmExclude()}
+        maxWidthClassName="max-w-2xl"
+      />
+    </li>
   );
 }

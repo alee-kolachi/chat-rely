@@ -6,6 +6,7 @@ for agentic actions (Shopify, policies) per `supabase/RULES.md`.
 """
 
 from datetime import UTC, datetime
+import re
 from typing import Any
 from uuid import UUID
 
@@ -29,8 +30,10 @@ from app.domains.runtime.schemas import RuntimeChatRequest, RuntimeChatResponse
 # pages often score ~0.45–0.55 vs natural questions; 0.72 filters everything out.
 RAG_RELAX_MIN_SIMILARITY = 0.43
 # After threshold passes, keep at most this many merged candidates; the model sees top N only.
-RAG_MERGED_CHUNK_CAP = 10
-RAG_PROMPT_CHUNK_COUNT = 5
+RAG_MERGED_CHUNK_CAP = 20
+RAG_PROMPT_CHUNK_COUNT = 8
+RAG_ANN_CANDIDATE_POOL = 60
+RAG_LEXICAL_CANDIDATE_POOL = 40
 
 
 def _resolve_runtime_model(model: str) -> str:
@@ -202,6 +205,43 @@ async def _match_chunks_with_embedding(
     return [dict(row) for row in result.mappings().all()]
 
 
+async def _match_chunks_lexical(
+    db: AsyncSession,
+    agent_id: UUID,
+    query_text: str,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    q = (query_text or "").strip()
+    if not q:
+        return []
+    result = await db.execute(
+        text(
+            """
+            select
+              c.id,
+              c.knowledge_source_id,
+              c.content,
+              c.metadata,
+              ts_rank_cd(
+                to_tsvector('simple', coalesce(c.content, '')),
+                websearch_to_tsquery('simple', :query_text)
+              )::double precision as lexical_score
+            from public.knowledge_chunks c
+            where c.agent_id = cast(:agent_id as uuid)
+              and to_tsvector('simple', coalesce(c.content, '')) @@ websearch_to_tsquery('simple', :query_text)
+            order by lexical_score desc
+            limit :limit
+            """
+        ),
+        {"agent_id": str(agent_id), "query_text": q, "limit": limit},
+    )
+    rows = [dict(r) for r in result.mappings().all()]
+    for row in rows:
+        row["similarity"] = float(row.get("similarity") or 0.0)
+    return rows
+
+
 async def _retrieve_context(
     db: AsyncSession,
     agent_id: UUID,
@@ -257,11 +297,27 @@ async def _retrieve_merged_chunks_for_message(
     merged = await merged_at(min_similarity)
     if not merged and min_similarity > RAG_RELAX_MIN_SIMILARITY:
         merged = await merged_at(RAG_RELAX_MIN_SIMILARITY)
-    if not merged:
-        merged = await _match_top_chunks_ann(
-            db, agent_id, raw_embedding, limit=max(RAG_PROMPT_CHUNK_COUNT, match_count)
+    ann_candidates: list[list[dict[str, Any]]] = [
+        await _match_top_chunks_ann(
+            db, agent_id, raw_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count)
         )
-    return merged[:RAG_MERGED_CHUNK_CAP]
+    ]
+    if expanded_embedding is not None:
+        ann_candidates.append(
+            await _match_top_chunks_ann(
+                db, agent_id, expanded_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count)
+            )
+        )
+    lexical_candidates: list[list[dict[str, Any]]] = [
+        await _match_chunks_lexical(db, agent_id, msg, limit=RAG_LEXICAL_CANDIDATE_POOL)
+    ]
+    if exp and exp != msg:
+        lexical_candidates.append(
+            await _match_chunks_lexical(db, agent_id, exp, limit=RAG_LEXICAL_CANDIDATE_POOL)
+        )
+    merged = _merge_chunks_by_best_similarity([merged, *ann_candidates, *lexical_candidates])
+    reranked = _rerank_chunks_for_query(merged, msg)
+    return reranked[:RAG_MERGED_CHUNK_CAP]
 
 
 def _merge_chunks_by_best_similarity(chunks_lists: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -276,6 +332,37 @@ def _merge_chunks_by_best_similarity(chunks_lists: list[list[dict[str, Any]]]) -
             if prev is None or float(row.get("similarity") or 0) > float(prev.get("similarity") or 0):
                 by_id[cid] = row
     return sorted(by_id.values(), key=lambda r: float(r.get("similarity") or 0), reverse=True)
+
+
+def _extract_query_terms(query_text: str) -> set[str]:
+    return {t for t in re.findall(r"[a-zA-Z0-9]{4,}", (query_text or "").casefold())}
+
+
+def _rerank_chunks_for_query(chunks: list[dict[str, Any]], query_text: str) -> list[dict[str, Any]]:
+    if not chunks:
+        return chunks
+    query_terms = _extract_query_terms(query_text)
+    if not query_terms:
+        return sorted(chunks, key=lambda r: float(r.get("similarity") or 0.0), reverse=True)
+
+    def score(row: dict[str, Any]) -> tuple[float, float]:
+        sim = float(row.get("similarity") or 0.0)
+        lex = float(row.get("lexical_score") or 0.0)
+        text = str(row.get("content") or "").casefold()
+        coverage = sum(1 for term in query_terms if term in text) / max(1, len(query_terms))
+        return (sim + (coverage * 0.20) + (lex * 0.25), sim)
+
+    return sorted(chunks, key=score, reverse=True)
+
+
+def _looks_like_fallback_response(answer: str, fallback_message: str) -> bool:
+    a = (answer or "").strip().casefold()
+    f = (fallback_message or "").strip().casefold()
+    if not a:
+        return True
+    if f and a == f:
+        return True
+    return "not fully sure based on available information" in a
 
 
 async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest) -> RuntimeChatResponse:
@@ -325,7 +412,6 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             f"[Excerpt {idx + 1}]\n{chunk['content']}" for idx, chunk in enumerate(prompt_chunks)
         )
         grounded_user = build_grounded_user_prompt(context_block, fallback_message, payload.message)
-
     lc_messages = build_turn_messages(
         system_content=system_content,
         history_without_current_user=history,
@@ -337,6 +423,26 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         fallback_message=fallback_message,
         thread_id=str(conversation_id),
     )
+    if has_context and _looks_like_fallback_response(answer, fallback_message):
+        retry_user = (
+            f"{grounded_user}\n\n"
+            "Important: Retrieved excerpts are available above. "
+            "Answer strictly from those excerpts and cite concrete facts present in them. "
+            "Only use fallback if there is truly no relevant fact."
+        )
+        retry_messages = build_turn_messages(
+            system_content=system_content,
+            history_without_current_user=history,
+            grounded_user_content=retry_user,
+        )
+        retry_answer, retry_fallback_used = await invoke_runtime_chat_graph(
+            messages=retry_messages,
+            model=model,
+            fallback_message=fallback_message,
+            thread_id=str(conversation_id),
+        )
+        if not _looks_like_fallback_response(retry_answer, fallback_message):
+            answer, fallback_used = retry_answer, retry_fallback_used
 
     assistant_message = await append_message(
         db,
