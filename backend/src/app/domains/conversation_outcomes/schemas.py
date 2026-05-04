@@ -36,6 +36,10 @@ class ConversationOutcomePayload(BaseModel):
     evidence: str = ""
     training_topics: list[TrainingTopicItem] = Field(default_factory=list)
     needs_follow_up_training: bool = False
+    #: Canonical label for the customer's main goal (catalog match or new intent from closure LLM).
+    primary_intent: str = ""
+    #: Stable slug: either an existing catalog slug or slugified new_intent_label.
+    primary_intent_slug: str = ""
 
 
 class ConversationOutcomeDTO(BaseModel):
@@ -61,6 +65,10 @@ class ConversationOutcomeLLMResult(BaseModel):
     evidence: str = ""
     training_topics: list[str] = Field(default_factory=list)
     needs_follow_up_training: bool = False
+    #: Must be an exact slug from the intent catalog passed in the prompt, or null.
+    matched_intent_slug: str | None = None
+    #: When no catalog entry fits, a short canonical label for a new intent (catalog was empty or no match).
+    new_intent_label: str | None = None
 
 
 class TurnSignals(BaseModel):

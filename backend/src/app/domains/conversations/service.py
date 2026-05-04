@@ -209,6 +209,41 @@ async def append_message(
     return message
 
 
+async def merge_client_context_metadata(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    locale: str | None,
+    country_code: str | None,
+) -> None:
+    patch: dict[str, str] = {}
+    if locale and (lo := locale.strip()[:64]):
+        patch["locale"] = lo
+    if country_code:
+        cc = country_code.strip().upper()
+        if len(cc) == 2 and cc.isalpha():
+            patch["country_code"] = cc
+    if not patch:
+        return
+    await db.execute(
+        text(
+            """
+            update public.conversations
+            set metadata = coalesce(metadata, '{}'::jsonb) || cast(:patch as jsonb),
+                updated_at = now()
+            where id = :conversation_id and user_id = :user_id
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "patch": json.dumps(patch),
+        },
+    )
+    await db.commit()
+
+
 # Set when a teammate sends an assistant message from the dashboard (or API); runtime skips the LLM.
 OPERATOR_ENGAGED_META_KEY = "operator_engaged"
 

@@ -30,6 +30,10 @@ class RuntimeChatRequest(BaseModel):
     creativity_override: float | None = Field(default=None, ge=0.0, le=1.0)
     visitor_email: str | None = None
     request_human: bool = False
+    #: Browser locale (e.g. en-US); stored on conversation metadata for analytics.
+    locale: str | None = None
+    #: ISO 3166-1 alpha-2 country from host page or checkout; stored on conversation metadata.
+    country_code: str | None = None
 
 
 class RuntimeChatResponse(BaseModel):

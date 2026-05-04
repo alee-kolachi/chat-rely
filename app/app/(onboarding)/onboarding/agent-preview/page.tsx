@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
+import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
 import { BackendApiError, backendNdjsonStream } from "@/lib/backend-api";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
@@ -254,23 +255,35 @@ export default function AgentPreviewOnboardingPage() {
                       </div>
                     </div>
                     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-white p-4 text-sm leading-relaxed sm:p-5">
-                      {messages.map((message, idx) => (
-                        <div
-                          key={`${message.from}-${idx}`}
-                          className={
-                            message.from === "user"
-                              ? "bg-ds-primary ml-auto max-w-[92%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-ds-on-primary sm:max-w-[88%]"
-                              : "border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-4 py-2.5 text-ds-on-surface sm:max-w-[88%]"
-                          }
-                        >
-                          {message.from === "assistant" ? (
-                            <AssistantMarkdown>{message.text}</AssistantMarkdown>
-                          ) : (
-                            message.text
-                          )}
-                        </div>
-                      ))}
-                      {isSending ? <p className="text-ds-on-surface-variant text-sm">Thinking...</p> : null}
+                      {messages.map((message, idx) => {
+                        const isStreamingAssistant =
+                          message.from === "assistant" &&
+                          isSending &&
+                          idx === messages.length - 1 &&
+                          !message.text.trim();
+                        return (
+                          <div
+                            key={`${message.from}-${idx}`}
+                            className={
+                              message.from === "user"
+                                ? "bg-ds-primary ml-auto max-w-[92%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-ds-on-primary sm:max-w-[88%]"
+                                : isStreamingAssistant
+                                  ? "border-ds-outline flex max-w-[92%] items-center leading-none rounded-2xl rounded-tl-sm border bg-ds-sidebar px-3 py-2 text-ds-on-surface sm:max-w-[88%]"
+                                  : "border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-4 py-2.5 text-ds-on-surface sm:max-w-[88%]"
+                            }
+                          >
+                            {message.from === "assistant" ? (
+                              isStreamingAssistant ? (
+                                <AssistantThinkingDots />
+                              ) : (
+                                <AssistantMarkdown>{message.text}</AssistantMarkdown>
+                              )
+                            ) : (
+                              message.text
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                     <div className="border-ds-outline shrink-0 border-t bg-white p-3 sm:p-4">
                       <form onSubmit={handleSend} className="flex items-center gap-2 sm:gap-3">

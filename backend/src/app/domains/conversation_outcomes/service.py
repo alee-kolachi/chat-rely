@@ -23,6 +23,72 @@ from app.domains.conversations.service import get_conversation, list_messages
 
 log = structlog.get_logger("conversation_outcomes")
 
+# Top past intents shown to the closure model so it reuses stable slugs/labels.
+INTENT_CATALOG_LIMIT = 10
+
+
+async def fetch_agent_intent_catalog(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    exclude_conversation_id: UUID,
+    limit: int = INTENT_CATALOG_LIMIT,
+) -> list[tuple[str, str]]:
+    """(slug, label) pairs by frequency desc, excluding the conversation being scored."""
+    result = await db.execute(
+        text(
+            """
+            select
+              nullif(trim(o.payload->>'primary_intent_slug'), '') as slug,
+              max(nullif(trim(o.payload->>'primary_intent'), '')) as label,
+              count(*)::int as n
+            from public.conversation_outcomes o
+            join public.conversations c on c.id = o.conversation_id
+            where c.user_id = cast(:user_id as uuid)
+              and c.agent_id = cast(:agent_id as uuid)
+              and o.conversation_id <> cast(:exclude as uuid)
+              and length(coalesce(nullif(trim(o.payload->>'primary_intent_slug'), ''), '')) > 0
+            group by 1
+            order by n desc, slug asc
+            limit :lim
+            """
+        ),
+        {
+            "user_id": str(user_id),
+            "agent_id": str(agent_id),
+            "exclude": str(exclude_conversation_id),
+            "lim": limit,
+        },
+    )
+    rows = result.mappings().all()
+    out: list[tuple[str, str]] = []
+    for r in rows:
+        slug = str(r["slug"] or "").strip()
+        if not slug:
+            continue
+        label = (str(r["label"] or slug).strip() or slug)[:200]
+        out.append((slug, label))
+    return out
+
+
+def resolve_primary_intent_from_llm(
+    llm_result: ConversationOutcomeLLMResult,
+    catalog: list[tuple[str, str]],
+) -> tuple[str, str]:
+    """Map catalog / new-label fields to (primary_intent_slug, primary_intent)."""
+    slug_to_label = {s.strip(): (lab or s).strip()[:200] for s, lab in catalog if s.strip()}
+    by_lower = {s.lower(): s for s in slug_to_label}
+    matched = (llm_result.matched_intent_slug or "").strip()
+    if matched:
+        canon = matched if matched in slug_to_label else by_lower.get(matched.lower())
+        if canon is not None and canon in slug_to_label:
+            return canon, slug_to_label[canon]
+    new_label = (llm_result.new_intent_label or "").strip()[:200]
+    if len(new_label) >= 2:
+        return slugify_topic_label(new_label), new_label
+    return "", ""
+
 
 def _format_transcript(messages: list[MessageDTO]) -> str:
     lines: list[str] = []
@@ -48,7 +114,12 @@ def _collect_turn_signal_blobs(messages: list[MessageDTO]) -> list[dict[str, obj
     return out
 
 
-async def _invoke_closure_llm(transcript: str, conversation_status: str) -> ConversationOutcomeLLMResult:
+async def _invoke_closure_llm(
+    transcript: str,
+    conversation_status: str,
+    *,
+    intent_catalog: list[tuple[str, str]],
+) -> ConversationOutcomeLLMResult:
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_openai import ChatOpenAI
 
@@ -68,6 +139,27 @@ async def _invoke_closure_llm(transcript: str, conversation_status: str) -> Conv
         max_retries=2,
     )
     structured = llm.with_structured_output(ConversationOutcomeLLMResult)
+    if intent_catalog:
+        catalog_json = json.dumps(
+            [{"slug": s, "label": lab} for s, lab in intent_catalog],
+            ensure_ascii=False,
+        )
+        intent_rules = (
+            "Intent catalog (reuse a stable slug when the transcript clearly fits one of these). "
+            "Set matched_intent_slug to the EXACT slug string from the list when one clearly matches "
+            "the customer's main goal. If none are a good fit, set matched_intent_slug to null and "
+            "set new_intent_label to one short canonical phrase for a new intent (do not paraphrase "
+            "an existing label when a list entry already fits). "
+            "Only one of matched_intent_slug or new_intent_label should be non-null; prefer the catalog "
+            "when uncertain between a close synonym and an existing entry."
+        )
+    else:
+        catalog_json = "[]"
+        intent_rules = (
+            "No intent catalog exists yet for this agent. Set matched_intent_slug to null and "
+            "new_intent_label to one short canonical phrase for the customer's main goal, or null if unclear."
+        )
+
     sys = SystemMessage(
         content=(
             "You analyze a completed customer support chat. "
@@ -77,11 +169,14 @@ async def _invoke_closure_llm(transcript: str, conversation_status: str) -> Conv
             "If the user left frustrated without a real fix, resolved_by_agent=false. "
             "escalated_to_human applies when handoff to humans was the correct outcome. "
             "training_topics: short phrases for KB gaps (empty if none). "
+            f"{intent_rules} "
             f"Conversation status field from system: {conversation_status}."
         )
     )
     human = HumanMessage(
         content=(
+            "Intent_catalog_json:\n"
+            f"{catalog_json}\n\n"
             "Transcript:\n\n"
             f"{transcript}\n\n"
             "Return structured outcome fields only."
@@ -135,6 +230,8 @@ def _fallback_payload(conversation_status: str) -> ConversationOutcomePayload:
         evidence="Outcome analysis unavailable (LLM not configured or failed).",
         training_topics=[],
         needs_follow_up_training=False,
+        primary_intent="",
+        primary_intent_slug="",
     )
 
 
@@ -158,6 +255,8 @@ async def analyze_and_persist_outcome(
             evidence="No transcript.",
             training_topics=[],
             needs_follow_up_training=False,
+            primary_intent="",
+            primary_intent_slug="",
         )
         return await _upsert_outcome_row(
             db,
@@ -178,9 +277,17 @@ async def analyze_and_persist_outcome(
     model_used = settings.openai_chat_model or "gpt-4o-mini"
 
     try:
+        intent_catalog = await fetch_agent_intent_catalog(
+            db,
+            user_id=user_id,
+            agent_id=conv.agent_id,
+            exclude_conversation_id=conversation_id,
+            limit=INTENT_CATALOG_LIMIT,
+        )
         llm_result = await _invoke_closure_llm(
             transcript + hint_block,
-            conversation_status=conv.status,
+            conv.status,
+            intent_catalog=intent_catalog,
         )
         topics: list[TrainingTopicItem] = []
         seen: set[str] = set()
@@ -194,6 +301,8 @@ async def analyze_and_persist_outcome(
             seen.add(slug)
             topics.append(TrainingTopicItem(slug=slug, label=label[:200]))
 
+        intent_slug, intent_label = resolve_primary_intent_from_llm(llm_result, intent_catalog)
+
         payload = ConversationOutcomePayload(
             resolved_by_agent=llm_result.resolved_by_agent,
             resolution_confidence=llm_result.resolution_confidence,
@@ -201,6 +310,8 @@ async def analyze_and_persist_outcome(
             evidence=(llm_result.evidence or "")[:4000],
             training_topics=topics,
             needs_follow_up_training=llm_result.needs_follow_up_training or bool(topics),
+            primary_intent=intent_label,
+            primary_intent_slug=intent_slug,
         )
     except Exception as exc:
         log.warning("closure_llm.failed", conversation_id=str(conversation_id), error=str(exc))

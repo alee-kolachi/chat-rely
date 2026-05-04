@@ -12,6 +12,8 @@ from app.domains.agents.schemas import (
     AgentUpdateRequest,
 )
 from app.domains.agents.service import create_agent, list_agents, update_agent
+from app.domains.analytics.schemas import AgentAnalyticsResponse
+from app.domains.analytics.service import build_agent_analytics
 from app.domains.dashboard.schemas import AgentDashboardResponse
 from app.domains.dashboard.service import build_agent_dashboard
 
@@ -60,6 +62,29 @@ async def get_agent_dashboard_route(
     db: AsyncSession = Depends(get_db),
 ) -> AgentDashboardResponse:
     return await build_agent_dashboard(
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        range_key=range_key,
+        range_from=range_from,
+        range_to=range_to,
+        tick_lifecycle=True,
+    )
+
+
+@router.get("/{agent_id}/analytics", response_model=AgentAnalyticsResponse)
+async def get_agent_analytics_route(
+    agent_id: UUID,
+    range_key: str | None = Query(
+        default=None,
+        description="7d, 30d, 90d, 365d (ignored if from/to set)",
+    ),
+    range_from: datetime | None = Query(default=None, alias="from"),
+    range_to: datetime | None = Query(default=None, alias="to"),
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AgentAnalyticsResponse:
+    return await build_agent_analytics(
         db,
         user_id=user.user_id,
         agent_id=agent_id,

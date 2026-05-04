@@ -1,46 +1,170 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
+import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { backendFetch } from "@/lib/backend-api";
+import {
+  buildTimeSeriesChartModel,
+  CHART_VB_H,
+  CHART_VB_W,
+} from "@/lib/dashboard-chart-model";
 import { cn } from "@/lib/utils";
 
-const kpis = [
-  { label: "Total chats", value: "48,216", delta: "+12.4%", positive: true },
-  { label: "Resolved by AI", value: "87.1%", delta: "+3.2%", positive: true },
-  { label: "Escalations", value: "5.8%", delta: "-1.1%", positive: true },
-  { label: "Avg response time", value: "58s", delta: "-9s", positive: true },
-];
+type AnalyticsPayload = {
+  range_from: string;
+  range_to: string;
+  conversations_started: number;
+  resolved_by_agent_pct: number | null;
+  escalations_pct: number | null;
+  avg_response_time_ms: number | null;
+  series: { bucket_date: string; count: number }[];
+  top_intents: { key: string; label: string; count: number }[];
+  sentiment: { bucket: string; count: number; pct: number | null }[];
+  countries: { key: string; label: string; count: number }[];
+  quality: { key: string; label: string; value: string; hint: string }[];
+};
 
-const channels = [
+const staticChannels = [
   { label: "Website Widget", value: 58, color: "bg-ds-secondary" },
   { label: "WhatsApp", value: 21, color: "bg-ds-accent-pink" },
   { label: "Instagram", value: 13, color: "bg-ds-tertiary" },
   { label: "Email", value: 8, color: "bg-ds-outline" },
 ];
 
-const topIntents = [
-  { name: "Order Tracking", volume: "13,420", change: "+8%" },
-  { name: "Refund Policy", volume: "9,188", change: "+4%" },
-  { name: "Product Sizing", volume: "6,731", change: "+2%" },
-  { name: "Payment Failure", volume: "4,902", change: "-3%" },
-  { name: "Shipping Delays", volume: "3,564", change: "+6%" },
-];
+function formatAvgResponse(ms: number | null | undefined): string {
+  if (ms == null || Number.isNaN(ms)) return "—";
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
 
-const countries = [
-  { code: "USA", percentage: 42, barWidth: "85%", color: "bg-ds-secondary" },
-  { code: "UK", percentage: 15, barWidth: "35%", color: "bg-ds-accent-pink" },
-  { code: "GER", percentage: 12, barWidth: "25%", color: "bg-ds-tertiary" },
-  { code: "CAN", percentage: 10, barWidth: "20%", color: "bg-ds-outline" },
-];
+function formatKpiNumber(n: number): string {
+  return n.toLocaleString();
+}
 
-const qualitySignals: {
-  label: string;
-  value: string;
-  hint: string;
-  suffix?: string;
-}[] = [
-  { label: "CSAT (post-chat)", value: "4.6", suffix: "/ 5", hint: "+0.2 vs prior period" },
-  { label: "First-contact resolution", value: "82%", hint: "AI-handled, no reopen" },
-  { label: "Negative tone → resolved", value: "74%", hint: "Ended with positive outcome" },
-];
+const DONUT_R = 40;
+const DONUT_C = 2 * Math.PI * DONUT_R;
 
 export default function AnalyticsPage() {
+  const { selectedAgentId, agentsLoading } = useDashboardAgent();
+  const [preset, setPreset] = useState<RangePreset>("30d");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [data, setData] = useState<AnalyticsPayload | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const analyticsUrl = useMemo(() => {
+    if (!selectedAgentId) return null;
+    const base = `/api/v1/agents/${selectedAgentId}/analytics`;
+    if (preset === "custom") {
+      if (!customFrom || !customTo) return null;
+      const fromIso = new Date(`${customFrom}T00:00:00.000Z`).toISOString();
+      const toIso = new Date(`${customTo}T23:59:59.999Z`).toISOString();
+      const q = new URLSearchParams({ from: fromIso, to: toIso });
+      return `${base}?${q.toString()}`;
+    }
+    const q = new URLSearchParams({ range_key: preset });
+    return `${base}?${q.toString()}`;
+  }, [selectedAgentId, preset, customFrom, customTo]);
+
+  const load = useCallback(async () => {
+    if (!analyticsUrl) {
+      setData(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await backendFetch<AnalyticsPayload>(analyticsUrl);
+      setData(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load analytics");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [analyticsUrl]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void load();
+    });
+  }, [load]);
+
+  const timeSeriesChart = useMemo(
+    () => buildTimeSeriesChartModel(data?.series),
+    [data?.series]
+  );
+
+  const countryMax = useMemo(() => {
+    const rows = data?.countries ?? [];
+    if (!rows.length) return 1;
+    return Math.max(...rows.map((c) => c.count), 1);
+  }, [data?.countries]);
+
+  const sentimentDonut = useMemo(() => {
+    const rows = data?.sentiment ?? [];
+    const pos = rows.find((s) => s.bucket === "positive");
+    const neu = rows.find((s) => s.bucket === "neutral");
+    const neg = rows.find((s) => s.bucket === "negative");
+    const pPos = pos?.pct ?? 0;
+    const pNeu = neu?.pct ?? 0;
+    const pNeg = neg?.pct ?? 0;
+    const total = (pos?.count ?? 0) + (neu?.count ?? 0) + (neg?.count ?? 0);
+    const arcPos = (pPos / 100) * DONUT_C;
+    const arcNeu = (pNeu / 100) * DONUT_C;
+    const arcNeg = (pNeg / 100) * DONUT_C;
+    return {
+      total,
+      pPos,
+      pNeu,
+      pNeg,
+      arcPos,
+      arcNeu,
+      arcNeg,
+      dashPos: `${arcPos} ${DONUT_C - arcPos}`,
+      dashNeu: `${arcNeu} ${DONUT_C - arcNeu}`,
+      dashNeg: `${arcNeg} ${DONUT_C - arcNeg}`,
+      offsetNeu: -arcPos,
+      offsetNeg: -(arcPos + arcNeu),
+    };
+  }, [data?.sentiment]);
+
+  const kpis = useMemo(() => {
+    const started = data?.conversations_started ?? 0;
+    const resolved = data?.resolved_by_agent_pct;
+    const esc = data?.escalations_pct;
+    const avgMs = data?.avg_response_time_ms;
+    return [
+      {
+        label: "Total chats",
+        value: loading ? "…" : data ? formatKpiNumber(started) : "—",
+        delta: "—",
+        positive: true,
+      },
+      {
+        label: "Resolved by AI",
+        value:
+          loading ? "…" : resolved != null ? `${resolved}%` : data ? "—" : "—",
+        delta: "—",
+        positive: true,
+      },
+      {
+        label: "Escalations",
+        value: loading ? "…" : esc != null ? `${esc}%` : data ? "—" : "—",
+        delta: "—",
+        positive: true,
+      },
+      {
+        label: "Avg response time",
+        value: loading ? "…" : formatAvgResponse(avgMs ?? null),
+        delta: "—",
+        positive: true,
+      },
+    ];
+  }, [data, loading]);
+
   return (
     <div className="ds-app-shell p-6 md:p-8">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
@@ -51,21 +175,23 @@ export default function AnalyticsPage() {
               Performance, volume, and quality across all channels.
             </p>
           </div>
-          <div className="border-ds-outline bg-ds-surface inline-flex w-fit flex-wrap items-center gap-1 rounded-ds-lg border p-1 shadow-sm">
-            {(["7 days", "30 days", "90 days"] as const).map((label, i) => (
-              <button
-                key={label}
-                type="button"
-                className={cn(
-                  "rounded-ds-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  i === 1 ? "bg-ds-primary text-ds-on-primary shadow-sm" : "text-ds-on-surface-variant hover:text-ds-on-surface"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <DashboardRangePicker
+            preset={preset}
+            onPresetChange={setPreset}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomFromChange={setCustomFrom}
+            onCustomToChange={setCustomTo}
+          />
         </div>
+
+        {agentsLoading ? (
+          <p className="text-ds-on-surface-variant text-sm">Loading workspace…</p>
+        ) : null}
+        {!agentsLoading && !selectedAgentId ? (
+          <p className="text-ds-on-surface-variant text-sm">Select an agent from the header to view analytics.</p>
+        ) : null}
+        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {kpis.map((kpi) => (
@@ -76,7 +202,11 @@ export default function AnalyticsPage() {
                 <span
                   className={cn(
                     "shrink-0 rounded-ds-md px-2 py-1 text-xs font-semibold",
-                    kpi.positive ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                    kpi.delta === "—"
+                      ? "bg-ds-sidebar text-ds-on-surface-variant"
+                      : kpi.positive
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-rose-100 text-rose-800"
                   )}
                 >
                   {kpi.delta}
@@ -90,46 +220,115 @@ export default function AnalyticsPage() {
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm xl:col-span-2">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
               <h2 className="ds-app-section-title">Conversation trend</h2>
-              <span className="text-ds-on-surface-variant text-xs">Daily volume</span>
+              <span className="text-ds-on-surface-variant text-xs">Daily volume (conversations started)</span>
             </div>
-            <div className="h-64 text-[var(--ds-chart-grid)]">
-              <svg className="h-full w-full" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden>
-                <line x1="0" y1="20" x2="900" y2="20" stroke="currentColor" strokeWidth="1" />
-                <line x1="0" y1="80" x2="900" y2="80" stroke="currentColor" strokeWidth="1" />
-                <line x1="0" y1="140" x2="900" y2="140" stroke="currentColor" strokeWidth="1" />
-                <line x1="0" y1="200" x2="900" y2="200" stroke="currentColor" strokeWidth="1" />
-                <line x1="0" y1="250" x2="900" y2="250" stroke="currentColor" strokeWidth="1" />
-                <defs>
-                  <linearGradient id="analyticsTrendFill" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="var(--ds-primary)" stopOpacity="0.2" />
-                    <stop offset="100%" stopColor="var(--ds-primary)" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d="M0,210 C70,195 130,205 190,180 C250,155 320,170 380,130 C440,90 510,120 570,95 C630,70 700,85 760,60 C820,45 860,55 900,40 V250 H0 Z"
-                  fill="url(#analyticsTrendFill)"
-                />
-                <path
-                  d="M0,210 C70,195 130,205 190,180 C250,155 320,170 380,130 C440,90 510,120 570,95 C630,70 700,85 760,60 C820,45 860,55 900,40"
-                  fill="none"
-                  stroke="var(--ds-chart-line)"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-            <div className="text-ds-on-surface-variant mt-3 flex justify-between text-[11px] font-semibold tracking-wide uppercase">
-              <span>Day 1</span>
-              <span>Day 10</span>
-              <span>Day 20</span>
-              <span>Day 30</span>
+            <div className="text-ds-on-surface-variant relative mx-auto aspect-[5/2] w-full min-h-[200px] max-h-[280px] text-[var(--ds-chart-grid)]">
+              {loading ? (
+                <div className="flex h-full min-h-[200px] w-full items-center justify-center text-sm">Loading chart…</div>
+              ) : timeSeriesChart ? (
+                <svg
+                  className="block h-full w-full font-sans"
+                  viewBox={`0 0 ${CHART_VB_W} ${CHART_VB_H}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  role="img"
+                  aria-label="Conversation trend by day"
+                >
+                  <defs>
+                    <linearGradient id="analyticsTrendAreaFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--ds-primary)" stopOpacity={0.22} />
+                      <stop offset="100%" stopColor="var(--ds-primary)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <path d={timeSeriesChart.areaPath} fill="url(#analyticsTrendAreaFill)" stroke="none" />
+                  <g opacity={0.9}>
+                    {timeSeriesChart.yTicks.map((tick) => {
+                      const gy = timeSeriesChart.yAtTick(tick);
+                      return (
+                        <line
+                          key={`gy-${tick}`}
+                          x1={timeSeriesChart.padL}
+                          y1={gy}
+                          x2={timeSeriesChart.padL + timeSeriesChart.innerW}
+                          y2={gy}
+                          stroke="currentColor"
+                          strokeWidth={1}
+                          opacity={0.22}
+                        />
+                      );
+                    })}
+                    <line
+                      x1={timeSeriesChart.padL}
+                      y1={timeSeriesChart.padT}
+                      x2={timeSeriesChart.padL}
+                      y2={timeSeriesChart.xAxisY}
+                      stroke="currentColor"
+                      strokeWidth={1}
+                      opacity={0.35}
+                    />
+                    <line
+                      x1={timeSeriesChart.padL}
+                      y1={timeSeriesChart.xAxisY}
+                      x2={timeSeriesChart.padL + timeSeriesChart.innerW}
+                      y2={timeSeriesChart.xAxisY}
+                      stroke="currentColor"
+                      strokeWidth={1}
+                      opacity={0.4}
+                    />
+                  </g>
+                  {timeSeriesChart.yTicks.map((tick) => {
+                    const gy = timeSeriesChart.yAtTick(tick);
+                    return (
+                      <text
+                        key={`yl-${tick}`}
+                        x={timeSeriesChart.padL - 12}
+                        y={gy}
+                        textAnchor="end"
+                        dominantBaseline="middle"
+                        fill="currentColor"
+                        fontSize={12}
+                        opacity={0.88}
+                        style={{ fontVariantNumeric: "tabular-nums" }}
+                      >
+                        {tick}
+                      </text>
+                    );
+                  })}
+                  {timeSeriesChart.xLabels.map((item, j) => (
+                    <text
+                      key={`xl-${item.label}-${j}`}
+                      x={item.x}
+                      y={timeSeriesChart.xTickY}
+                      textAnchor="middle"
+                      dominantBaseline="hanging"
+                      fill="currentColor"
+                      fontSize={12}
+                      opacity={0.88}
+                    >
+                      {item.label}
+                    </text>
+                  ))}
+                  <path
+                    d={timeSeriesChart.path}
+                    fill="none"
+                    stroke="var(--ds-chart-line)"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-sm">No data for this range.</div>
+              )}
             </div>
           </article>
 
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
-            <h2 className="ds-app-section-title mb-5">Channel split</h2>
+            <h2 className="ds-app-section-title mb-2">Channel split</h2>
+            <p className="text-ds-on-surface-variant mb-4 text-xs leading-relaxed">
+              Placeholder until multi-channel traffic is tracked.
+            </p>
             <div className="space-y-4">
-              {channels.map((channel) => (
+              {staticChannels.map((channel) => (
                 <div key={channel.label}>
                   <div className="mb-2 flex items-center justify-between text-sm">
                     <span className="text-ds-on-surface font-medium">{channel.label}</span>
@@ -147,44 +346,64 @@ export default function AnalyticsPage() {
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Top intents</h2>
-            <div className="space-y-3">
-              {topIntents.map((intent) => (
-                <div
-                  key={intent.name}
-                  className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-sidebar/60 px-4 py-3"
-                >
-                  <div>
-                    <p className="text-ds-on-surface text-sm font-semibold">{intent.name}</p>
-                    <p className="text-ds-on-surface-variant text-xs">{intent.volume} conversations</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "text-xs font-semibold",
-                      intent.change.startsWith("-") ? "text-rose-600" : "text-emerald-700"
-                    )}
+            {loading ? (
+              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            ) : (data?.top_intents ?? []).length === 0 ? (
+              <p className="text-ds-on-surface-variant text-sm">
+                No intent labels yet. They appear after conversations close and outcomes are analyzed.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {(data?.top_intents ?? []).map((intent) => (
+                  <div
+                    key={intent.key}
+                    className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-sidebar/60 px-4 py-3"
                   >
-                    {intent.change}
-                  </span>
-                </div>
-              ))}
-            </div>
+                    <div>
+                      <p className="text-ds-on-surface text-sm font-semibold">{intent.label}</p>
+                      <p className="text-ds-on-surface-variant text-xs">
+                        {formatKpiNumber(intent.count)} conversations
+                      </p>
+                    </div>
+                    <span className="text-ds-on-surface-variant text-xs font-semibold">—</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </article>
 
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Country usage</h2>
-            <div className="space-y-4">
-              {countries.map((country) => (
-                <div key={country.code} className="flex items-center gap-4">
-                  <span className="text-ds-on-surface-variant w-10 text-xs font-semibold">{country.code}</span>
-                  <div className="bg-ds-outline/60 h-2.5 flex-1 overflow-hidden rounded-full">
-                    <div className={cn("h-full rounded-full", country.color)} style={{ width: country.barWidth }} />
-                  </div>
-                  <span className="text-ds-on-surface w-12 text-right text-xs font-semibold">{country.percentage}%</span>
-                </div>
-              ))}
-            </div>
+            {loading ? (
+              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            ) : (data?.countries ?? []).length === 0 ? (
+              <p className="text-ds-on-surface-variant text-sm">No conversations in this range.</p>
+            ) : (
+              <div className="space-y-4">
+                {(data?.countries ?? []).map((country) => {
+                  const pct = Math.round((100 * country.count) / countryMax);
+                  return (
+                    <div key={country.key} className="flex items-center gap-4">
+                      <span className="text-ds-on-surface-variant w-12 shrink-0 text-xs font-semibold">
+                        {country.label}
+                      </span>
+                      <div className="bg-ds-outline/60 h-2.5 min-w-0 flex-1 overflow-hidden rounded-full">
+                        <div
+                          className="bg-ds-secondary h-full rounded-full"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-ds-on-surface w-10 shrink-0 text-right text-xs font-semibold">
+                        {country.count}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <p className="text-ds-on-surface-variant mt-4 text-xs leading-relaxed">
-              Share of conversations grouped by detected customer country.
+              From <code className="text-ds-on-surface">country_code</code> sent with the chat widget or API. Unknown
+              means the client did not report a country.
             </p>
           </article>
         </section>
@@ -192,76 +411,86 @@ export default function AnalyticsPage() {
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Customer sentiment</h2>
-            <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-center xl:justify-start">
-              <div className="relative h-44 w-44 shrink-0">
-                <svg className="h-full w-full" viewBox="0 0 100 100" aria-hidden>
-                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="var(--ds-outline)" strokeWidth="10" />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="var(--ds-secondary)"
-                    strokeWidth="10"
-                    strokeDasharray="175 251"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#f59e0b"
-                    strokeWidth="10"
-                    strokeDasharray="45 251"
-                    strokeDashoffset="-175"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="var(--ds-accent-pink)"
-                    strokeWidth="10"
-                    strokeDasharray="31 251"
-                    strokeDashoffset="-220"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="ds-app-metric-value text-2xl">69%</span>
-                  <span className="ds-app-kicker">Positive</span>
+            {loading ? (
+              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            ) : sentimentDonut.total === 0 ? (
+              <p className="text-ds-on-surface-variant text-sm">
+                No per-turn sentiment yet. Sentiment is inferred from assistant replies after each turn.
+              </p>
+            ) : (
+              <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-center xl:justify-start">
+                <div className="relative h-44 w-44 shrink-0">
+                  <svg className="h-full w-full" viewBox="0 0 100 100" aria-hidden>
+                    <circle cx="50" cy="50" r={DONUT_R} fill="transparent" stroke="var(--ds-outline)" strokeWidth="10" />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={DONUT_R}
+                      fill="transparent"
+                      stroke="var(--ds-secondary)"
+                      strokeWidth="10"
+                      strokeDasharray={sentimentDonut.dashPos}
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={DONUT_R}
+                      fill="transparent"
+                      stroke="#f59e0b"
+                      strokeWidth="10"
+                      strokeDasharray={sentimentDonut.dashNeu}
+                      strokeDashoffset={sentimentDonut.offsetNeu}
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={DONUT_R}
+                      fill="transparent"
+                      stroke="var(--ds-accent-pink)"
+                      strokeWidth="10"
+                      strokeDasharray={sentimentDonut.dashNeg}
+                      strokeDashoffset={sentimentDonut.offsetNeg}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="ds-app-metric-value text-2xl">{Math.round(sentimentDonut.pPos)}%</span>
+                    <span className="ds-app-kicker">Positive</span>
+                  </div>
+                </div>
+                <div className="w-full min-w-0 flex-1 space-y-3 sm:max-w-md">
+                  <LegendItem color="bg-ds-secondary" label="Positive" value={`${Math.round(sentimentDonut.pPos)}%`} />
+                  <LegendItem color="bg-amber-500" label="Neutral" value={`${Math.round(sentimentDonut.pNeu)}%`} />
+                  <LegendItem color="bg-ds-accent-pink" label="Negative" value={`${Math.round(sentimentDonut.pNeg)}%`} />
                 </div>
               </div>
-              <div className="w-full min-w-0 flex-1 space-y-3 sm:max-w-md">
-                <LegendItem color="bg-ds-secondary" label="Positive" value="69%" />
-                <LegendItem color="bg-amber-500" label="Neutral" value="18%" />
-                <LegendItem color="bg-ds-accent-pink" label="Negative" value="13%" />
-              </div>
-            </div>
+            )}
+            <p className="text-ds-on-surface-variant mt-4 text-xs leading-relaxed">
+              Based on the last assistant-classified tone per conversation (frustrated counts as negative).
+            </p>
           </article>
 
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Conversation quality</h2>
-            <div className="space-y-3">
-              {qualitySignals.map((row) => (
-                <div
-                  key={row.label}
-                  className="border-ds-outline flex flex-col gap-1 rounded-ds-lg border bg-ds-sidebar/60 px-4 py-3"
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-ds-on-surface text-sm font-semibold">{row.label}</p>
-                    <p className="text-ds-on-surface shrink-0 text-sm font-semibold tabular-nums">
-                      {row.value}
-                      {row.suffix ? (
-                        <span className="text-ds-on-surface-variant font-medium">{row.suffix}</span>
-                      ) : null}
-                    </p>
+            {loading ? (
+              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            ) : (
+              <div className="space-y-3">
+                {(data?.quality ?? []).map((row) => (
+                  <div
+                    key={row.key}
+                    className="border-ds-outline flex flex-col gap-1 rounded-ds-lg border bg-ds-sidebar/60 px-4 py-3"
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-ds-on-surface text-sm font-semibold">{row.label}</p>
+                      <p className="text-ds-on-surface shrink-0 text-sm font-semibold tabular-nums">{row.value}</p>
+                    </div>
+                    <p className="text-ds-on-surface-variant text-xs">{row.hint}</p>
                   </div>
-                  <p className="text-ds-on-surface-variant text-xs">{row.hint}</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
             <p className="text-ds-on-surface-variant mt-4 text-xs leading-relaxed">
-              Quality metrics alongside sentiment help spot gaps between tone and outcomes.
+              Derived from stored outcomes and per-turn signals—no separate post-chat survey.
             </p>
           </article>
         </section>

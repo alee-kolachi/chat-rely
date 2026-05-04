@@ -38,9 +38,14 @@ function isRouteActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function hasActiveChild(pathname: string, children: { href: string }[]) {
+  return children.some((child) => pathname === child.href || pathname.startsWith(`${child.href}/`));
+}
+
 export function DashboardTopbar() {
   const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [mobileOpenSections, setMobileOpenSections] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!isMenuOpen) return;
@@ -50,6 +55,14 @@ export function DashboardTopbar() {
       document.body.style.overflow = prev;
     };
   }, [isMenuOpen]);
+
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    mobileNavItems.forEach((item) => {
+      if (item.children) next[item.href] = hasActiveChild(pathname, item.children);
+    });
+    queueMicrotask(() => setMobileOpenSections((prev) => ({ ...next, ...prev })));
+  }, [pathname]);
 
   const mobileMenu = isMenuOpen ? (
       <div className="fixed inset-0 z-[200] md:hidden" role="dialog" aria-modal="true">
@@ -74,22 +87,43 @@ export function DashboardTopbar() {
 
           <nav className="space-y-1">
             {mobileNavItems.map((item) => {
-              const active = isRouteActive(pathname, item.href);
+              const childActive = item.children ? hasActiveChild(pathname, item.children) : false;
+              const active = isRouteActive(pathname, item.href) || childActive;
+              const sectionOpen = item.children ? mobileOpenSections[item.href] : false;
+
               return (
                 <div key={item.href}>
-                  <Link
-                    href={item.href}
-                    onClick={() => setIsMenuOpen(false)}
-                    className={cn(
-                      "flex min-h-11 items-center rounded-lg border border-transparent px-3 py-2 text-sm transition-all touch-manipulation",
-                      "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                      active && "border-zinc-300 bg-white text-ds-on-surface font-semibold shadow-sm"
-                    )}
-                  >
-                    {item.label}
-                  </Link>
+                  {item.children ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMobileOpenSections((prev) => ({ ...prev, [item.href]: !prev[item.href] }))
+                      }
+                      className={cn(
+                        "flex min-h-11 w-full items-center justify-between rounded-lg border border-transparent px-3 py-2 text-left text-sm transition-all touch-manipulation",
+                        "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                        active && "border-zinc-300 bg-white text-ds-on-surface font-semibold shadow-sm"
+                      )}
+                      aria-expanded={sectionOpen}
+                    >
+                      {item.label}
+                      <IconChevronSmall className={cn("size-4 shrink-0 transition-transform", sectionOpen && "rotate-90")} />
+                    </button>
+                  ) : (
+                    <Link
+                      href={item.href}
+                      onClick={() => setIsMenuOpen(false)}
+                      className={cn(
+                        "flex min-h-11 items-center rounded-lg border border-transparent px-3 py-2 text-sm transition-all touch-manipulation",
+                        "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                        active && "border-zinc-300 bg-white text-ds-on-surface font-semibold shadow-sm"
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  )}
 
-                  {item.children && (
+                  {item.children && sectionOpen && (
                     <div className="border-ds-outline/70 mt-1 ml-4 flex flex-col gap-1 border-l pl-3">
                       {item.children.map((child) => {
                         const childActive = isRouteActive(pathname, child.href);
@@ -134,6 +168,23 @@ export function DashboardTopbar() {
 
       {mobileMenu && typeof document !== "undefined" ? createPortal(mobileMenu, document.body) : null}
     </>
+  );
+}
+
+function IconChevronSmall({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -51,10 +51,16 @@ function hasActiveChild(pathname: string, children: NavChild[]) {
   return children.some((child) => child.href && isRouteActive(pathname, child.href));
 }
 
+/** Collapsed rail: same layout for links and flyout triggers so icons line up. */
+const collapsedRailItemClass =
+  "flex w-full min-h-10 shrink-0 items-center justify-center rounded-lg border border-transparent p-2 text-sm transition-all text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface";
+
 export function DashboardSidebar() {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [collapsedFlyoutHref, setCollapsedFlyoutHref] = useState<string | null>(null);
+  const flyoutContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedCollapsed = window.localStorage.getItem("dashboard-sidebar-collapsed");
@@ -68,6 +74,29 @@ export function DashboardSidebar() {
     });
     queueMicrotask(() => setOpenSections((prev) => ({ ...nextOpenSections, ...prev })));
   }, [pathname]);
+
+  useEffect(() => {
+    setCollapsedFlyoutHref(null);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!collapsedFlyoutHref) return;
+    function handlePointerDown(event: MouseEvent | PointerEvent) {
+      const el = flyoutContainerRef.current;
+      if (el && !el.contains(event.target as Node)) {
+        setCollapsedFlyoutHref(null);
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setCollapsedFlyoutHref(null);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [collapsedFlyoutHref]);
 
   function toggleSidebar() {
     setIsCollapsed((prev) => {
@@ -114,8 +143,14 @@ export function DashboardSidebar() {
           const sectionOpen = item.children ? openSections[item.href] : false;
           const showAsActive = itemActive || childActive;
 
+          const flyoutOpen = isCollapsed && item.children && collapsedFlyoutHref === item.href;
+
           return (
-            <div key={item.href} className="group relative">
+            <div
+              key={item.href}
+              ref={isCollapsed && item.children && collapsedFlyoutHref === item.href ? flyoutContainerRef : undefined}
+              className="group relative"
+            >
               {item.children && !isCollapsed ? (
                 <button
                   type="button"
@@ -136,14 +171,28 @@ export function DashboardSidebar() {
                     )}
                   />
                 </button>
+              ) : item.children && isCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => setCollapsedFlyoutHref((prev) => (prev === item.href ? null : item.href))}
+                  title={item.label}
+                  aria-expanded={flyoutOpen}
+                  aria-haspopup="true"
+                  className={cn(
+                    collapsedRailItemClass,
+                    showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
+                  )}
+                >
+                  {item.icon("size-5 shrink-0")}
+                </button>
               ) : (
                 <Link
                   href={item.href}
                   title={isCollapsed ? item.label : undefined}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
-                    "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                    isCollapsed && "justify-center px-2",
+                    isCollapsed
+                      ? collapsedRailItemClass
+                      : "flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
                     showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
                   )}
                 >
@@ -152,9 +201,42 @@ export function DashboardSidebar() {
                 </Link>
               )}
 
-              {isCollapsed && (
+              {isCollapsed && !item.children && (
                 <div className="bg-ds-primary text-ds-on-primary pointer-events-none absolute top-1/2 left-full z-20 ml-2 -translate-y-1/2 rounded-md px-2 py-1 text-xs opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
                   {item.label}
+                </div>
+              )}
+
+              {isCollapsed && item.children && flyoutOpen && (
+                <div
+                  role="menu"
+                  className="border-ds-outline bg-ds-surface absolute top-0 left-full z-30 ml-1 flex min-w-[11rem] flex-col gap-0.5 rounded-lg border p-1 shadow-lg"
+                >
+                  <p className="text-ds-on-surface-variant px-2 py-1 text-[10px] font-semibold tracking-wide uppercase">
+                    {item.label}
+                  </p>
+                  {item.children.map((child) => {
+                    const baseChildClass =
+                      "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/35 rounded-md px-2 py-2 text-left text-xs transition-colors";
+
+                    if (child.action === "logout") {
+                      return <LogoutButton key={`${item.href}-${child.label}`} className={baseChildClass} />;
+                    }
+
+                    const childHref = child.href ?? item.href;
+                    const childIsActive = isRouteActive(pathname, childHref);
+
+                    return (
+                      <Link
+                        key={childHref}
+                        href={childHref}
+                        role="menuitem"
+                        className={cn(baseChildClass, childIsActive && "bg-white font-semibold !text-ds-primary")}
+                      >
+                        {child.label}
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
 

@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
+import {
+  buildTimeSeriesChartModel,
+  CHART_VB_H,
+  CHART_VB_W,
+} from "@/lib/dashboard-chart-model";
 import { cn } from "@/lib/utils";
-
-type RangePreset = "7d" | "30d" | "90d" | "365d" | "custom";
 
 type DashboardPayload = {
   range_from: string;
@@ -26,13 +30,6 @@ type DashboardPayload = {
   }[];
   training_topics: { slug: string; label: string; count: number }[];
 };
-
-const PRESETS: { key: RangePreset; label: string }[] = [
-  { key: "7d", label: "Last 7 days" },
-  { key: "30d", label: "30 days" },
-  { key: "90d", label: "3 months" },
-  { key: "365d", label: "1 year" },
-];
 
 function formatRelative(iso: string): string {
   const then = new Date(iso).getTime();
@@ -57,50 +54,6 @@ function statusPresentation(status: string): { label: string; tone: "ok" | "huma
   if (status === "resolved" || status === "idle_closed") return { label: "Resolved", tone: "ok" };
   if (status === "escalated") return { label: "Needs human", tone: "human" };
   return { label: "In progress", tone: "open" };
-}
-
-const CHART_VB_W = 900;
-/** ViewBox height for SVG scaling (plot area uses inner padding). */
-const CHART_VB_H = 340;
-
-function formatBucketDateLabel(bucketDate: string): string {
-  const iso = bucketDate.includes("T") ? bucketDate : `${bucketDate}T12:00:00`;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return bucketDate;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-/** Nice tick marks from 0 up through max count (integers). */
-function computeYTicks(maxCount: number): number[] {
-  const m = Math.max(0, maxCount);
-  if (m === 0) return [0, 1];
-  const raw = m / 4;
-  const exp = Math.floor(Math.log10(raw));
-  const pow10 = 10 ** exp;
-  const f = raw / pow10;
-  const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
-  const step = nf * pow10;
-  const top = Math.ceil(m / step) * step;
-  const ticks: number[] = [];
-  for (let v = 0; v <= top + 1e-9; v += step) {
-    ticks.push(Math.round(v));
-    if (ticks.length > 12) break;
-  }
-  // Fractional `step` (e.g. 0.5) can round to the same integer twice → duplicate keys / grid lines.
-  return [...new Set(ticks)];
-}
-
-function pickXLabelIndices(n: number): number[] {
-  if (n <= 0) return [];
-  if (n <= 12) return Array.from({ length: n }, (_, i) => i);
-  const want = 9;
-  const out = new Set<number>();
-  for (let k = 0; k < want; k++) {
-    out.add(Math.round((k / (want - 1)) * (n - 1)));
-  }
-  out.add(0);
-  out.add(n - 1);
-  return Array.from(out).sort((a, b) => a - b);
 }
 
 export default function DashboardPage() {
@@ -183,69 +136,10 @@ export default function DashboardPage() {
     },
   ];
 
-  const timeSeriesChart = useMemo(() => {
-    const series = data?.series;
-    if (!series?.length) return null;
-    const maxCount = Math.max(...series.map((s) => s.count));
-    const yTicks = computeYTicks(maxCount);
-    const yMax = Math.max(1, yTicks[yTicks.length - 1] ?? 1);
-    const padL = 54;
-    const padR = 16;
-    const padT = 10;
-    const padB = 52;
-    const innerW = CHART_VB_W - padL - padR;
-    const innerH = CHART_VB_H - padT - padB;
-    const n = series.length;
-    const xAt = (i: number) =>
-      n <= 1 ? padL + innerW / 2 : padL + (i / Math.max(1, n - 1)) * innerW;
-    const yAt = (count: number) => padT + innerH - (count / yMax) * innerH;
-    const path = series
-      .map((s, i) => {
-        const x = xAt(i);
-        const y = yAt(s.count);
-        return `${i === 0 ? "M" : "L"} ${x},${y}`;
-      })
-      .join(" ");
-    const xAxisY = padT + innerH;
-    let areaPath = "";
-    if (n === 1) {
-      const x = xAt(0);
-      const y = yAt(series[0].count);
-      const half = Math.min(48, innerW / 8);
-      areaPath = `M ${x - half} ${xAxisY} L ${x - half} ${y} L ${x + half} ${y} L ${x + half} ${xAxisY} Z`;
-    } else {
-      const seg: string[] = [`M ${xAt(0)} ${xAxisY} L ${xAt(0)} ${yAt(series[0].count)}`];
-      for (let i = 1; i < n; i++) {
-        seg.push(`L ${xAt(i)} ${yAt(series[i].count)}`);
-      }
-      seg.push(`L ${xAt(n - 1)} ${xAxisY} Z`);
-      areaPath = seg.join(" ");
-    }
-    const xIdx = pickXLabelIndices(n);
-    const xLabels = xIdx.map((i) => ({
-      x: xAt(i),
-      label: formatBucketDateLabel(series[i].bucket_date),
-    }));
-    const yAtTick = (tick: number) => padT + innerH - (tick / yMax) * innerH;
-    const midY = padT + innerH / 2;
-    const xTickY = xAxisY + 22;
-    return {
-      path,
-      areaPath,
-      yTicks,
-      xLabels,
-      padL,
-      padR,
-      padT,
-      padB,
-      innerW,
-      innerH,
-      yAtTick,
-      xAxisY,
-      xTickY,
-      midY,
-    };
-  }, [data?.series]);
+  const timeSeriesChart = useMemo(
+    () => buildTimeSeriesChartModel(data?.series),
+    [data?.series]
+  );
 
   const conversationsHref =
     selectedAgentId != null
@@ -262,59 +156,14 @@ export default function DashboardPage() {
               A quick pulse on agent activity and support outcomes.
             </p>
           </div>
-          <div className="flex flex-col gap-2">
-            <div className="border-ds-outline bg-ds-surface inline-flex w-fit flex-wrap items-center gap-1 rounded-ds-lg border p-1 shadow-sm">
-              {PRESETS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setPreset(key)}
-                  className={cn(
-                    "rounded-ds-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    preset === key
-                      ? "bg-ds-primary text-ds-on-primary shadow-sm"
-                      : "text-ds-on-surface-variant hover:text-ds-on-surface"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setPreset("custom")}
-                className={cn(
-                  "rounded-ds-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  preset === "custom"
-                    ? "bg-ds-primary text-ds-on-primary shadow-sm"
-                    : "text-ds-on-surface-variant hover:text-ds-on-surface"
-                )}
-              >
-                Custom
-              </button>
-            </div>
-            {preset === "custom" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-ds-on-surface-variant text-xs font-medium">
-                  From{" "}
-                  <input
-                    type="date"
-                    value={customFrom}
-                    onChange={(e) => setCustomFrom(e.target.value)}
-                    className="border-ds-outline ml-1 rounded-ds-md border px-2 py-1 text-sm"
-                  />
-                </label>
-                <label className="text-ds-on-surface-variant text-xs font-medium">
-                  To{" "}
-                  <input
-                    type="date"
-                    value={customTo}
-                    onChange={(e) => setCustomTo(e.target.value)}
-                    className="border-ds-outline ml-1 rounded-ds-md border px-2 py-1 text-sm"
-                  />
-                </label>
-              </div>
-            ) : null}
-          </div>
+          <DashboardRangePicker
+            preset={preset}
+            onPresetChange={setPreset}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomFromChange={setCustomFrom}
+            onCustomToChange={setCustomTo}
+          />
         </div>
 
         {agentsLoading ? (

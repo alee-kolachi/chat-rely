@@ -7,6 +7,7 @@ for agentic actions (Shopify, policies) per `supabase/RULES.md`.
 
 import json
 import re
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -31,6 +32,7 @@ from app.domains.conversations.service import (
     append_message,
     get_conversation,
     list_messages,
+    merge_client_context_metadata,
 )
 from app.domains.integrations.shopify.service import load_shopify_connection_for_agent
 from app.domains.knowledge.service import _embed_texts
@@ -797,6 +799,14 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             db, user_id=user_id, conversation_id=conversation_id, visitor_email=ve
         )
 
+    await merge_client_context_metadata(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        locale=payload.locale,
+        country_code=payload.country_code,
+    )
+
     conv_check = await get_conversation(db, user_id, conversation_id)
     operator_engaged = bool((conv_check.metadata or {}).get(OPERATOR_ENGAGED_META_KEY))
     escalated_thread = conv_check.status == "escalated"
@@ -837,6 +847,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             turn_signals=None,
         )
 
+    turn_latency_start = time.perf_counter()
     human_on, esc_cfg = await get_human_escalation_for_runtime(
         db, user_id=user_id, agent_id=payload.agent_id
     )
@@ -984,6 +995,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         assistant_meta["turn_signals"] = ts_raw.model_dump()
         turn_signals_model = TurnSignalsDTO.model_validate(ts_raw.model_dump())
 
+    assistant_latency_ms = int((time.perf_counter() - turn_latency_start) * 1000)
     assistant_message = await append_message(
         db,
         user_id=user_id,
@@ -993,6 +1005,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             content=answer,
             model=model,
             metadata=assistant_meta,
+            latency_ms=assistant_latency_ms,
         ),
     )
 
@@ -1106,6 +1119,14 @@ async def run_chat_stream(
             db, user_id=user_id, conversation_id=conversation_id, visitor_email=ve
         )
 
+    await merge_client_context_metadata(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        locale=payload.locale,
+        country_code=payload.country_code,
+    )
+
     conv_check = await get_conversation(db, user_id, conversation_id)
     operator_engaged = bool((conv_check.metadata or {}).get(OPERATOR_ENGAGED_META_KEY))
     escalated_thread = conv_check.status == "escalated"
@@ -1146,6 +1167,7 @@ async def run_chat_stream(
         yield {"type": "done", **early.model_dump(mode="json")}
         return
 
+    turn_latency_start = time.perf_counter()
     human_on, esc_cfg = await get_human_escalation_for_runtime(
         db, user_id=user_id, agent_id=payload.agent_id
     )
@@ -1301,6 +1323,7 @@ async def run_chat_stream(
         assistant_meta["turn_signals"] = ts_raw.model_dump()
         turn_signals_model = TurnSignalsDTO.model_validate(ts_raw.model_dump())
 
+    assistant_latency_ms = int((time.perf_counter() - turn_latency_start) * 1000)
     assistant_message = await append_message(
         db,
         user_id=user_id,
@@ -1310,6 +1333,7 @@ async def run_chat_stream(
             content=answer,
             model=model,
             metadata=assistant_meta,
+            latency_ms=assistant_latency_ms,
         ),
     )
 

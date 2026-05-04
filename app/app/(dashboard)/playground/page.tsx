@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
+import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
 import { useActionCatalog } from "@/components/actions/use-action-catalog";
@@ -402,7 +403,7 @@ function PlaygroundPreviewConversation({
   );
 
   return (
-    <div className="border-ds-outline flex h-[min(68dvh,100%)] min-h-[min(420px,100%)] w-full max-w-[30rem] flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
+    <div className="border-ds-outline flex h-full max-h-full min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
       <div
         className={cn(
           "flex items-center justify-between border-b px-5 py-3.5 sm:px-6",
@@ -553,41 +554,58 @@ function PlaygroundPreviewConversation({
             <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>Send a message to test this agent.</p>
           </div>
         ) : null}
-        {previewMessages.map((msg, index) => (
-          <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
-            {msg.from === "assistant" ? (
-              <div className="flex max-w-[90%] gap-3">
-                <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm">
-                  {websiteLogoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- remote store logo / favicon
-                    <img
-                      src={websiteLogoUrl}
-                      alt=""
-                      className="size-full object-contain p-0.5"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <IconBot className="text-ds-on-surface-variant size-3.5" />
+        {previewMessages.map((msg, index) => {
+          const isStreamingAssistant =
+            msg.from === "assistant" &&
+            isSending &&
+            index === previewMessages.length - 1 &&
+            !msg.text.trim();
+          return (
+            <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
+              {msg.from === "assistant" ? (
+                <div className="flex max-w-[90%] gap-3">
+                  <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm">
+                    {websiteLogoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- remote store logo / favicon
+                      <img
+                        src={websiteLogoUrl}
+                        alt=""
+                        className="size-full object-contain p-0.5"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <IconBot className="text-ds-on-surface-variant size-3.5" />
+                    )}
+                  </div>
+                  <div
+                    className={cn(
+                      "border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white text-sm shadow-sm",
+                      isStreamingAssistant
+                        ? "flex items-center leading-none px-3 py-2 sm:px-3.5 sm:py-2"
+                        : "leading-relaxed px-4 py-3 sm:px-5"
+                    )}
+                  >
+                    {isStreamingAssistant ? (
+                      <AssistantThinkingDots brandColorHex={brandColorHex} />
+                    ) : (
+                      <AssistantMarkdown>{msg.text}</AssistantMarkdown>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    "max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5",
+                    hasBrand && chrome ? chrome.titleClass : "bg-ds-primary text-ds-on-primary"
                   )}
+                  style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+                >
+                  {msg.text}
                 </div>
-                <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5">
-                  <AssistantMarkdown>{msg.text}</AssistantMarkdown>
-                </div>
-              </div>
-            ) : (
-              <div
-                className={cn(
-                  "max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5",
-                  hasBrand && chrome ? chrome.titleClass : "bg-ds-primary text-ds-on-primary"
-                )}
-                style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
-              >
-                {msg.text}
-              </div>
-            )}
-          </div>
-        ))}
-        {isSending ? <p className={cn(onboardingType.hint, "italic")}>Thinking…</p> : null}
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="border-ds-outline border-t bg-ds-surface p-4 sm:p-5">
@@ -996,11 +1014,11 @@ export default function PlaygroundPage() {
         </button>
       </div>
 
-      <div className="dot-grid flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row xl:items-stretch">
+      <div className="dot-grid flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row xl:items-start">
         <section
           className={cn(
             "border-ds-outline flex w-full min-h-0 flex-col overflow-hidden border-b bg-white",
-            "xl:h-full xl:max-h-full xl:w-[420px] xl:shrink-0 xl:border-r xl:border-b-0",
+            "xl:w-[420px] xl:shrink-0 xl:self-start xl:border-r xl:border-b-0",
             mobileTab === "settings" ? "flex-1 xl:flex-none" : "hidden xl:flex"
           )}
           onWheel={routeWheelToSettingsOnDesktop}
@@ -1014,7 +1032,7 @@ export default function PlaygroundPage() {
 
           <div
             ref={settingsScrollRef}
-            className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8"
+            className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8 xl:flex-none"
           >
             <div className="space-y-2">
               <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
@@ -1224,12 +1242,12 @@ export default function PlaygroundPage() {
         <section
           className={cn(
             "min-w-0 flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
-            "xl:items-center xl:justify-center xl:p-12 xl:pt-10 xl:pb-12",
+            "xl:items-center xl:justify-center xl:self-stretch xl:min-h-0 xl:p-12 xl:pt-10 xl:pb-12",
             mobileTab === "preview" ? "" : "hidden xl:flex"
           )}
           onWheel={routeWheelToSettingsOnDesktop}
         >
-          <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden xl:justify-start">
+          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center overflow-hidden xl:h-full xl:justify-start">
             <PlaygroundPreviewConversation
               key={selectedAgentId ?? "__no_agent__"}
               agentId={selectedAgentId}
