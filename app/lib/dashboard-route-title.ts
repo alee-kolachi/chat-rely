@@ -1,5 +1,11 @@
 /** Longest-prefix wins; list must be sorted by descending `prefix` length. */
 const ROUTE_TITLES: Array<{ prefix: string; title: string }> = [
+  { prefix: "/account/billing", title: "Billing" },
+  { prefix: "/account/plan", title: "Plan" },
+  { prefix: "/account/profile", title: "Account" },
+  { prefix: "/account", title: "Account" },
+  { prefix: "/agent-settings/general", title: "Agent settings" },
+  { prefix: "/agent-settings", title: "Agent settings" },
   { prefix: "/settings/billing", title: "Billing" },
   { prefix: "/settings/plan", title: "Plan" },
   { prefix: "/settings/general", title: "General" },
@@ -8,7 +14,7 @@ const ROUTE_TITLES: Array<{ prefix: string; title: string }> = [
   { prefix: "/knowledge/text-snippet", title: "Text snippet" },
   { prefix: "/knowledge/q-and-a", title: "Q&A" },
   { prefix: "/knowledge", title: "Knowledge base" },
-  { prefix: "/actions", title: "Actions" },
+  { prefix: "/actions", title: "Actions & integrations" },
   { prefix: "/settings", title: "Settings" },
   { prefix: "/dashboard", title: "Dashboard" },
   { prefix: "/analytics", title: "Analytics" },

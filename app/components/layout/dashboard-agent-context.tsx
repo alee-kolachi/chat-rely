@@ -22,6 +22,7 @@ type DashboardAgentContextValue = {
   selectedAgent: DashboardAgentRecord | null;
   agentsLoading: boolean;
   agentsError: string | null;
+  refreshAgents: () => Promise<void>;
 };
 
 const DashboardAgentContext = createContext<DashboardAgentContextValue | null>(null);
@@ -32,36 +33,33 @@ export function DashboardAgentProvider({ children }: { children: ReactNode }) {
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      setAgentsLoading(true);
-      setAgentsError(null);
-      try {
-        const data = await backendFetch<{ agents: DashboardAgentRecord[] }>("/api/v1/agents");
-        if (cancelled) return;
-        const list = data.agents;
-        setAgents(list);
-        setSelectedAgentIdState((prev) => {
-          if (prev && list.some((a) => a.id === prev)) return prev;
-          const saved = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
-          const fromSaved = saved ? list.find((a) => a.id === saved) : undefined;
-          const nextId = fromSaved?.id ?? list[0]?.id ?? "";
-          if (nextId && typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, nextId);
-          return nextId;
-        });
-      } catch (e) {
-        if (!cancelled) {
-          setAgentsError(e instanceof Error ? e.message : "Failed to load agents");
-        }
-      } finally {
-        if (!cancelled) setAgentsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const refreshAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    setAgentsError(null);
+    try {
+      const data = await backendFetch<{ agents: DashboardAgentRecord[] }>("/api/v1/agents");
+      const list = data.agents;
+      setAgents(list);
+      setSelectedAgentIdState((prev) => {
+        if (prev && list.some((a) => a.id === prev)) return prev;
+        const saved = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+        const fromSaved = saved ? list.find((a) => a.id === saved) : undefined;
+        const nextId = fromSaved?.id ?? list[0]?.id ?? "";
+        if (nextId && typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, nextId);
+        return nextId;
+      });
+    } catch (e) {
+      setAgentsError(e instanceof Error ? e.message : "Failed to load agents");
+    } finally {
+      setAgentsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void refreshAgents();
+    });
+  }, [refreshAgents]);
 
   const setSelectedAgentId = useCallback((id: string) => {
     setSelectedAgentIdState(id);
@@ -81,8 +79,9 @@ export function DashboardAgentProvider({ children }: { children: ReactNode }) {
       selectedAgent,
       agentsLoading,
       agentsError,
+      refreshAgents,
     }),
-    [agents, selectedAgentId, setSelectedAgentId, selectedAgent, agentsLoading, agentsError]
+    [agents, selectedAgentId, setSelectedAgentId, selectedAgent, agentsLoading, agentsError, refreshAgents]
   );
 
   return <DashboardAgentContext.Provider value={value}>{children}</DashboardAgentContext.Provider>;

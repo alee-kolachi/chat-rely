@@ -1,29 +1,256 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
+type RangePreset = "7d" | "30d" | "90d" | "365d" | "custom";
+
+type DashboardPayload = {
+  range_from: string;
+  range_to: string;
+  conversations_started: number;
+  resolved_by_agent_pct: number | null;
+  needs_human_pct: number | null;
+  open_escalations: number;
+  awaiting_customer_reply: number;
+  series: { bucket_date: string; count: number }[];
+  recent: {
+    conversation_id: string;
+    visitor_id: string;
+    topic_preview: string | null;
+    status: string;
+    last_activity_at: string;
+  }[];
+  training_topics: { slug: string; label: string; count: number }[];
+};
+
+const PRESETS: { key: RangePreset; label: string }[] = [
+  { key: "7d", label: "Last 7 days" },
+  { key: "30d", label: "30 days" },
+  { key: "90d", label: "3 months" },
+  { key: "365d", label: "1 year" },
+];
+
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  const diff = Math.max(0, Date.now() - then);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function visitorLabel(visitorId: string): string {
+  const v = visitorId.trim();
+  if (!v || v === "preview-user") return "Visitor";
+  if (v.length <= 12) return v;
+  return `${v.slice(0, 8)}…`;
+}
+
+function statusPresentation(status: string): { label: string; tone: "ok" | "human" | "open" } {
+  if (status === "resolved" || status === "idle_closed") return { label: "Resolved", tone: "ok" };
+  if (status === "escalated") return { label: "Needs human", tone: "human" };
+  return { label: "In progress", tone: "open" };
+}
+
+const CHART_VB_W = 900;
+/** ViewBox height for SVG scaling (plot area uses inner padding). */
+const CHART_VB_H = 340;
+
+function formatBucketDateLabel(bucketDate: string): string {
+  const iso = bucketDate.includes("T") ? bucketDate : `${bucketDate}T12:00:00`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return bucketDate;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Nice tick marks from 0 up through max count (integers). */
+function computeYTicks(maxCount: number): number[] {
+  const m = Math.max(0, maxCount);
+  if (m === 0) return [0, 1];
+  const raw = m / 4;
+  const exp = Math.floor(Math.log10(raw));
+  const pow10 = 10 ** exp;
+  const f = raw / pow10;
+  const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+  const step = nf * pow10;
+  const top = Math.ceil(m / step) * step;
+  const ticks: number[] = [];
+  for (let v = 0; v <= top + 1e-9; v += step) {
+    ticks.push(Math.round(v));
+    if (ticks.length > 12) break;
+  }
+  // Fractional `step` (e.g. 0.5) can round to the same integer twice → duplicate keys / grid lines.
+  return [...new Set(ticks)];
+}
+
+function pickXLabelIndices(n: number): number[] {
+  if (n <= 0) return [];
+  if (n <= 12) return Array.from({ length: n }, (_, i) => i);
+  const want = 9;
+  const out = new Set<number>();
+  for (let k = 0; k < want; k++) {
+    out.add(Math.round((k / (want - 1)) * (n - 1)));
+  }
+  out.add(0);
+  out.add(n - 1);
+  return Array.from(out).sort((a, b) => a - b);
+}
+
 export default function DashboardPage() {
-  const [previewMode, setPreviewMode] = useState<"empty" | "data">("empty");
-  const totalConversations = previewMode === "data" ? 42892 : 0;
-  const hasConversationData = totalConversations > 0;
-  const recentConversations = [
-    { customer: "Ava Johnson", topic: "Order #8842 tracking", status: "Resolved by AI", time: "2m ago" },
-    { customer: "Mason Cole", topic: "Discount code not applying", status: "Needs human", time: "8m ago" },
-    { customer: "Sofia Davis", topic: "Return label request", status: "Resolved by AI", time: "14m ago" },
-    { customer: "Liam Brown", topic: "Update shipping address", status: "In progress", time: "22m ago" },
-  ];
-  const unresolvedTopics = [
-    { name: "Exchange after 30 days", count: 12 },
-    { name: "Missing order confirmation email", count: 8 },
-    { name: "Partial shipment ETA clarification", count: 5 },
-  ];
+  const { selectedAgentId, agentsLoading } = useDashboardAgent();
+  const [preset, setPreset] = useState<RangePreset>("30d");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [data, setData] = useState<DashboardPayload | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dashboardUrl = useMemo(() => {
+    if (!selectedAgentId) return null;
+    const base = `/api/v1/agents/${selectedAgentId}/dashboard`;
+    if (preset === "custom") {
+      if (!customFrom || !customTo) return null;
+      const fromIso = new Date(`${customFrom}T00:00:00.000Z`).toISOString();
+      const toIso = new Date(`${customTo}T23:59:59.999Z`).toISOString();
+      const q = new URLSearchParams({ from: fromIso, to: toIso });
+      return `${base}?${q.toString()}`;
+    }
+    const q = new URLSearchParams({ range_key: preset });
+    return `${base}?${q.toString()}`;
+  }, [selectedAgentId, preset, customFrom, customTo]);
+
+  const load = useCallback(async () => {
+    if (!dashboardUrl) {
+      setData(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await backendFetch<DashboardPayload>(dashboardUrl);
+      setData(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load dashboard");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [dashboardUrl]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void load();
+    });
+  }, [load]);
+
+  const started = data?.conversations_started ?? 0;
+  const hasConversationData = Boolean(data && data.conversations_started > 0);
 
   const primaryMetrics = [
-    { label: "Conversations started", value: hasConversationData ? "42,892" : "0", hint: "Did anyone chat?" },
-    { label: "Resolved by agent", value: hasConversationData ? "89.4%" : "0%", hint: "Did it solve issues?" },
-    { label: "Needs human help", value: hasConversationData ? "4.2%" : "0%", hint: "Anything escalated?" },
+    {
+      label: "Conversations started",
+      value: loading ? "…" : data ? String(started) : "—",
+      hint: "Chats that began in this period.",
+    },
+    {
+      label: "Resolved by agent",
+      value: loading
+        ? "…"
+        : data?.resolved_by_agent_pct != null
+          ? `${data.resolved_by_agent_pct}%`
+          : data
+            ? "—"
+            : "—",
+      hint: "From AI-analyzed closed chats (see outcomes pipeline).",
+    },
+    {
+      label: "Needs human help",
+      value: loading
+        ? "…"
+        : data?.needs_human_pct != null
+          ? `${data.needs_human_pct}%`
+          : data
+            ? "—"
+            : "—",
+      hint: "Share of chats escalated to your team.",
+    },
   ];
+
+  const timeSeriesChart = useMemo(() => {
+    const series = data?.series;
+    if (!series?.length) return null;
+    const maxCount = Math.max(...series.map((s) => s.count));
+    const yTicks = computeYTicks(maxCount);
+    const yMax = Math.max(1, yTicks[yTicks.length - 1] ?? 1);
+    const padL = 54;
+    const padR = 16;
+    const padT = 10;
+    const padB = 52;
+    const innerW = CHART_VB_W - padL - padR;
+    const innerH = CHART_VB_H - padT - padB;
+    const n = series.length;
+    const xAt = (i: number) =>
+      n <= 1 ? padL + innerW / 2 : padL + (i / Math.max(1, n - 1)) * innerW;
+    const yAt = (count: number) => padT + innerH - (count / yMax) * innerH;
+    const path = series
+      .map((s, i) => {
+        const x = xAt(i);
+        const y = yAt(s.count);
+        return `${i === 0 ? "M" : "L"} ${x},${y}`;
+      })
+      .join(" ");
+    const xAxisY = padT + innerH;
+    let areaPath = "";
+    if (n === 1) {
+      const x = xAt(0);
+      const y = yAt(series[0].count);
+      const half = Math.min(48, innerW / 8);
+      areaPath = `M ${x - half} ${xAxisY} L ${x - half} ${y} L ${x + half} ${y} L ${x + half} ${xAxisY} Z`;
+    } else {
+      const seg: string[] = [`M ${xAt(0)} ${xAxisY} L ${xAt(0)} ${yAt(series[0].count)}`];
+      for (let i = 1; i < n; i++) {
+        seg.push(`L ${xAt(i)} ${yAt(series[i].count)}`);
+      }
+      seg.push(`L ${xAt(n - 1)} ${xAxisY} Z`);
+      areaPath = seg.join(" ");
+    }
+    const xIdx = pickXLabelIndices(n);
+    const xLabels = xIdx.map((i) => ({
+      x: xAt(i),
+      label: formatBucketDateLabel(series[i].bucket_date),
+    }));
+    const yAtTick = (tick: number) => padT + innerH - (tick / yMax) * innerH;
+    const midY = padT + innerH / 2;
+    const xTickY = xAxisY + 22;
+    return {
+      path,
+      areaPath,
+      yTicks,
+      xLabels,
+      padL,
+      padR,
+      padT,
+      padB,
+      innerW,
+      innerH,
+      yAtTick,
+      xAxisY,
+      xTickY,
+      midY,
+    };
+  }, [data?.series]);
+
+  const conversationsHref =
+    selectedAgentId != null
+      ? `/conversations?agent=${encodeURIComponent(selectedAgentId)}`
+      : "/conversations";
 
   return (
     <div className="ds-app-shell p-6 md:p-8">
@@ -35,33 +262,68 @@ export default function DashboardPage() {
               A quick pulse on agent activity and support outcomes.
             </p>
           </div>
-          <div className="border-ds-outline bg-ds-surface inline-flex w-fit flex-wrap items-center gap-1 rounded-ds-lg border p-1 shadow-sm">
-            {(["Last 7 days", "30 days", "3 months", "1 year"] as const).map((label, i) => (
+          <div className="flex flex-col gap-2">
+            <div className="border-ds-outline bg-ds-surface inline-flex w-fit flex-wrap items-center gap-1 rounded-ds-lg border p-1 shadow-sm">
+              {PRESETS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setPreset(key)}
+                  className={cn(
+                    "rounded-ds-md px-3 py-1.5 text-sm font-medium transition-colors",
+                    preset === key
+                      ? "bg-ds-primary text-ds-on-primary shadow-sm"
+                      : "text-ds-on-surface-variant hover:text-ds-on-surface"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
               <button
-                key={label}
                 type="button"
+                onClick={() => setPreset("custom")}
                 className={cn(
                   "rounded-ds-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  i === 1
+                  preset === "custom"
                     ? "bg-ds-primary text-ds-on-primary shadow-sm"
                     : "text-ds-on-surface-variant hover:text-ds-on-surface"
                 )}
               >
-                {label}
+                Custom
               </button>
-            ))}
+            </div>
+            {preset === "custom" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-ds-on-surface-variant text-xs font-medium">
+                  From{" "}
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="border-ds-outline ml-1 rounded-ds-md border px-2 py-1 text-sm"
+                  />
+                </label>
+                <label className="text-ds-on-surface-variant text-xs font-medium">
+                  To{" "}
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="border-ds-outline ml-1 rounded-ds-md border px-2 py-1 text-sm"
+                  />
+                </label>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => setPreviewMode((prev) => (prev === "empty" ? "data" : "empty"))}
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar touch-manipulation min-h-11 rounded-ds-md border bg-white px-4 py-2 text-xs font-semibold transition-colors [-webkit-tap-highlight-color:transparent]"
-          >
-            {previewMode === "empty" ? "Preview with sample data" : "Preview empty state"}
-          </button>
-        </div>
+        {agentsLoading ? (
+          <p className="text-ds-on-surface-variant text-sm">Loading workspace…</p>
+        ) : null}
+        {!agentsLoading && !selectedAgentId ? (
+          <p className="text-ds-on-surface-variant text-sm">Select an agent from the header to view metrics.</p>
+        ) : null}
+        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {primaryMetrics.map((metric) => (
@@ -70,134 +332,13 @@ export default function DashboardPage() {
               className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm"
             >
               <h2 className="text-ds-on-surface-variant text-sm font-semibold">{metric.label}</h2>
-              <p className="ds-app-metric-value mt-2">{metric.value}</p>
+              <p className="ds-app-metric-value mt-2">{loading ? "…" : metric.value}</p>
               <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">{metric.hint}</p>
             </article>
           ))}
         </section>
 
-        {hasConversationData ? (
-          <>
-            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
-              <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm md:p-8">
-                <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <h3 className="ds-app-section-title">Conversations over time</h3>
-                    <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                      Daily volume of user interactions across all channels
-                    </p>
-                  </div>
-                  <p className="text-ds-on-surface-variant text-xs">More detail in Analytics</p>
-                </div>
-                <div className="h-64 text-[var(--ds-chart-grid)]">
-                  <svg className="h-full w-full" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden>
-                    <line x1="0" y1="20" x2="900" y2="20" stroke="currentColor" strokeWidth="1" />
-                    <line x1="0" y1="80" x2="900" y2="80" stroke="currentColor" strokeWidth="1" />
-                    <line x1="0" y1="140" x2="900" y2="140" stroke="currentColor" strokeWidth="1" />
-                    <line x1="0" y1="200" x2="900" y2="200" stroke="currentColor" strokeWidth="1" />
-                    <line x1="0" y1="250" x2="900" y2="250" stroke="currentColor" strokeWidth="1" />
-                    <path
-                      d="M0,210 C70,195 130,205 190,180 C250,155 320,170 380,130 C440,90 510,120 570,95 C630,70 700,85 760,60 C820,45 860,55 900,40"
-                      fill="none"
-                      stroke="var(--ds-chart-line)"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </div>
-              </article>
-
-              <aside className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
-                <h3 className="ds-app-section-title">Team queue snapshot</h3>
-                <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                  Items that may need manual intervention.
-                </p>
-                <div className="mt-5 space-y-3">
-                  <QueueItem label="Open human escalations" value="18" tone="warning" />
-                  <QueueItem label="Awaiting customer reply" value="42" tone="neutral" />
-                  <QueueItem label="Overdue SLA risk" value="3" tone="danger" />
-                </div>
-                <a
-                  href="/conversations"
-                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar mt-5 block rounded-ds-md border bg-white px-4 py-2.5 text-center text-sm font-semibold transition-colors"
-                >
-                  Open conversations
-                </a>
-              </aside>
-            </section>
-
-            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
-              <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <h3 className="ds-app-section-title">Recent conversations</h3>
-                  <a
-                    href="/conversations"
-                    className="text-ds-primary shrink-0 text-xs font-semibold hover:underline"
-                  >
-                    View all
-                  </a>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="ds-app-kicker">
-                        <th className="py-2 pr-2 font-semibold">Customer</th>
-                        <th className="py-2 pr-2 font-semibold">Topic</th>
-                        <th className="py-2 pr-2 font-semibold">Status</th>
-                        <th className="py-2 text-right font-semibold">Time</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-ds-outline divide-y">
-                      {recentConversations.map((item) => (
-                        <tr key={`${item.customer}-${item.time}`}>
-                          <td className="text-ds-on-surface py-3 text-sm font-semibold">{item.customer}</td>
-                          <td className="text-ds-on-surface-variant py-3 text-sm">{item.topic}</td>
-                          <td className="py-3">
-                            <span
-                              className={cn(
-                                "rounded-ds-md px-2 py-1 text-[11px] font-semibold tracking-wide uppercase",
-                                item.status === "Resolved by AI" && "bg-emerald-100 text-emerald-800",
-                                item.status === "Needs human" && "bg-rose-100 text-rose-800",
-                                item.status === "In progress" && "bg-ds-sidebar text-ds-on-surface-variant ring-1 ring-ds-outline"
-                              )}
-                            >
-                              {item.status}
-                            </span>
-                          </td>
-                          <td className="text-ds-on-surface-variant py-3 text-right text-xs">{item.time}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-
-              <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
-                <h3 className="ds-app-section-title">Unresolved topics to train</h3>
-                <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                  Add these to Knowledge to improve resolution.
-                </p>
-                <div className="mt-4 space-y-3">
-                  {unresolvedTopics.map((topic) => (
-                    <div
-                      key={topic.name}
-                      className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/80 p-3 shadow-sm"
-                    >
-                      <p className="text-ds-on-surface text-sm font-semibold">{topic.name}</p>
-                      <p className="text-ds-on-surface-variant mt-0.5 text-xs">{topic.count} misses this week</p>
-                    </div>
-                  ))}
-                </div>
-                <a
-                  href="/knowledge/text-snippet"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary mt-5 inline-flex rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
-                >
-                  Improve knowledge base
-                </a>
-              </article>
-            </section>
-          </>
-        ) : (
+        {!agentsLoading && selectedAgentId && !hasConversationData && !loading ? (
           <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm md:p-10">
             <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
               <div className="mb-5 flex size-16 items-center justify-center rounded-full bg-ds-sidebar ring-1 ring-ds-outline">
@@ -205,19 +346,13 @@ export default function DashboardPage() {
               </div>
               <h3 className="ds-app-section-title text-xl md:text-2xl">Your agent is live</h3>
               <p className="text-ds-on-surface-variant mt-2 max-w-2xl text-sm leading-relaxed md:text-base">
-                Share it with customers to start seeing data here. Once people chat with your agent, this dashboard
-                will populate with conversations, resolution rate, and escalations.
+                Share it with customers to start seeing data here. Once people chat with your agent, this dashboard will
+                populate with conversations, resolution rate, and escalations.
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors active:scale-[0.98]"
-                >
-                  Copy widget link
-                </button>
                 <a
                   href="/deploy"
-                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-5 py-2.5 text-sm font-semibold transition-colors"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
                   Open deploy settings
                 </a>
@@ -244,7 +379,296 @@ export default function DashboardPage() {
               />
             </div>
           </section>
-        )}
+        ) : null}
+
+        {hasConversationData || loading ? (
+          <>
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+              <article className="border-ds-outline bg-ds-surface flex min-h-0 flex-col overflow-hidden rounded-ds-xl border shadow-sm">
+                <div className="border-ds-outline flex flex-col gap-1 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="ds-app-section-title">Conversations over time</h3>
+                    <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
+                      Daily volume for the selected period
+                    </p>
+                  </div>
+                  <Link
+                    href="/analytics"
+                    className="text-ds-primary hover:text-ds-secondary shrink-0 text-sm font-semibold"
+                  >
+                    Analytics →
+                  </Link>
+                </div>
+
+                <div className="from-ds-sidebar/20 relative min-h-0 flex-1 bg-gradient-to-b to-transparent px-3 pb-3 pt-2 sm:px-4">
+                  {/* Height tracks column width (aspect) so the plot is not stuffed into a fixed slot */}
+                  <div className="text-ds-on-surface-variant relative mx-auto aspect-[5/2] w-full min-h-[200px] max-h-[320px] text-[var(--ds-chart-grid)]">
+                    {loading ? (
+                      <div className="flex h-full min-h-[200px] w-full items-center justify-center text-sm">Loading chart…</div>
+                    ) : timeSeriesChart ? (
+                      <svg
+                        className="block h-full w-full font-sans"
+                        viewBox={`0 0 ${CHART_VB_W} ${CHART_VB_H}`}
+                        preserveAspectRatio="xMidYMid meet"
+                        role="img"
+                        aria-label="Conversations over time: daily count by day"
+                      >
+                        <defs>
+                          <linearGradient id="dashChartAreaFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="var(--ds-chart-line)" stopOpacity={0.22} />
+                            <stop offset="100%" stopColor="var(--ds-chart-line)" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <path
+                          d={timeSeriesChart.areaPath}
+                          fill="url(#dashChartAreaFill)"
+                          stroke="none"
+                        />
+                        <g opacity={0.9}>
+                        {timeSeriesChart.yTicks.map((tick) => {
+                          const gy = timeSeriesChart.yAtTick(tick);
+                          return (
+                            <line
+                              key={`gy-${tick}`}
+                              x1={timeSeriesChart.padL}
+                              y1={gy}
+                              x2={timeSeriesChart.padL + timeSeriesChart.innerW}
+                              y2={gy}
+                              stroke="currentColor"
+                              strokeWidth={1}
+                              opacity={0.22}
+                            />
+                          );
+                        })}
+                        <line
+                          x1={timeSeriesChart.padL}
+                          y1={timeSeriesChart.padT}
+                          x2={timeSeriesChart.padL}
+                          y2={timeSeriesChart.xAxisY}
+                          stroke="currentColor"
+                          strokeWidth={1}
+                          opacity={0.35}
+                        />
+                        <line
+                          x1={timeSeriesChart.padL}
+                          y1={timeSeriesChart.xAxisY}
+                          x2={timeSeriesChart.padL + timeSeriesChart.innerW}
+                          y2={timeSeriesChart.xAxisY}
+                          stroke="currentColor"
+                          strokeWidth={1}
+                          opacity={0.4}
+                        />
+                      </g>
+                      {timeSeriesChart.yTicks.map((tick) => {
+                        const gy = timeSeriesChart.yAtTick(tick);
+                        return (
+                          <text
+                            key={`yl-${tick}`}
+                            x={timeSeriesChart.padL - 12}
+                            y={gy}
+                            textAnchor="end"
+                            dominantBaseline="middle"
+                            fill="currentColor"
+                            fontSize={12}
+                            opacity={0.88}
+                            style={{ fontVariantNumeric: "tabular-nums" }}
+                          >
+                            {tick}
+                          </text>
+                        );
+                      })}
+                      {timeSeriesChart.xLabels.map((item, j) => (
+                        <text
+                          key={`xl-${item.label}-${j}`}
+                          x={item.x}
+                          y={timeSeriesChart.xTickY}
+                          textAnchor="middle"
+                          dominantBaseline="hanging"
+                          fill="currentColor"
+                          fontSize={12}
+                          opacity={0.88}
+                        >
+                          {item.label}
+                        </text>
+                      ))}
+                      <text
+                        x={28}
+                        y={timeSeriesChart.midY}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill="currentColor"
+                        fontSize={13}
+                        fontWeight={600}
+                        opacity={0.58}
+                        letterSpacing="0.02em"
+                        transform={`rotate(-90 28 ${timeSeriesChart.midY})`}
+                      >
+                        Conversations
+                      </text>
+                      <text
+                        x={timeSeriesChart.padL + timeSeriesChart.innerW / 2}
+                        y={CHART_VB_H - 10}
+                        textAnchor="middle"
+                        dominantBaseline="auto"
+                        fill="currentColor"
+                        fontSize={13}
+                        fontWeight={600}
+                        opacity={0.58}
+                        letterSpacing="0.05em"
+                      >
+                        Day
+                      </text>
+                      <path
+                        d={timeSeriesChart.path}
+                        fill="none"
+                        stroke="var(--ds-chart-line)"
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm">
+                      No data for this range.
+                    </div>
+                  )}
+                  </div>
+                </div>
+              </article>
+              <aside className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+                <h3 className="ds-app-section-title">Team queue snapshot</h3>
+                <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
+                  Escalations and threads waiting on the customer.
+                </p>
+                <div className="mt-5 space-y-3">
+                  <QueueItem
+                    label="Open human escalations"
+                    value={loading ? "…" : String(data?.open_escalations ?? 0)}
+                    tone="warning"
+                  />
+                  <QueueItem
+                    label="Awaiting customer reply"
+                    value={loading ? "…" : String(data?.awaiting_customer_reply ?? 0)}
+                    tone="neutral"
+                  />
+                </div>
+                <Link
+                  href={conversationsHref}
+                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar mt-5 block rounded-ds-md border bg-white px-4 py-2.5 text-center text-sm font-semibold transition-colors"
+                >
+                  Open conversations
+                </Link>
+              </aside>
+            </section>
+
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+              <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h3 className="ds-app-section-title">Recent conversations</h3>
+                  <Link href={conversationsHref} className="text-ds-primary shrink-0 text-xs font-semibold hover:underline">
+                    View all
+                  </Link>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="ds-app-kicker">
+                        <th className="py-2 pr-2 font-semibold">Customer</th>
+                        <th className="py-2 pr-2 font-semibold">Topic</th>
+                        <th className="py-2 pr-2 font-semibold">Status</th>
+                        <th className="py-2 text-right font-semibold">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-ds-outline divide-y">
+                      {loading ? (
+                        <tr>
+                          <td colSpan={4} className="text-ds-on-surface-variant py-4 text-sm">
+                            Loading…
+                          </td>
+                        </tr>
+                      ) : null}
+                      {!loading &&
+                        (data?.recent ?? []).map((item) => {
+                          const sp = statusPresentation(item.status);
+                          return (
+                            <tr key={item.conversation_id}>
+                              <td className="text-ds-on-surface py-3 text-sm font-semibold">
+                                <Link
+                                  href={`/conversations?conversation=${encodeURIComponent(item.conversation_id)}&agent=${encodeURIComponent(selectedAgentId ?? "")}`}
+                                  className="hover:text-ds-primary hover:underline"
+                                >
+                                  {visitorLabel(item.visitor_id)}
+                                </Link>
+                              </td>
+                              <td className="text-ds-on-surface-variant max-w-[200px] truncate py-3 text-sm">
+                                {item.topic_preview ?? "—"}
+                              </td>
+                              <td className="py-3">
+                                <span
+                                  className={cn(
+                                    "rounded-ds-md px-2 py-1 text-[11px] font-semibold tracking-wide uppercase",
+                                    sp.tone === "ok" && "bg-emerald-100 text-emerald-800",
+                                    sp.tone === "human" && "bg-rose-100 text-rose-800",
+                                    sp.tone === "open" && "bg-ds-sidebar text-ds-on-surface-variant ring-1 ring-ds-outline"
+                                  )}
+                                >
+                                  {sp.label}
+                                </span>
+                              </td>
+                              <td className="text-ds-on-surface-variant py-3 text-right text-xs">
+                                {formatRelative(item.last_activity_at)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      {!loading && !data?.recent?.length ? (
+                        <tr>
+                          <td colSpan={4} className="text-ds-on-surface-variant py-4 text-sm">
+                            No conversations yet.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article className="border-ds-outline bg-ds-surface flex flex-col rounded-ds-xl border p-6 shadow-sm">
+                <h3 className="ds-app-section-title">Unresolved topics to train</h3>
+                <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
+                  From AI-analyzed closures—add coverage in Knowledge.
+                </p>
+                <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
+                  {loading ? (
+                    <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+                  ) : null}
+                  {!loading &&
+                    (data?.training_topics ?? []).map((topic) => (
+                      <Link
+                        key={topic.slug}
+                        href={`/conversations?agent=${encodeURIComponent(selectedAgentId ?? "")}&training_topic=${encodeURIComponent(topic.slug)}`}
+                        className="border-ds-outline block rounded-ds-lg border bg-ds-sidebar/80 p-3 shadow-sm transition-colors hover:bg-ds-sidebar"
+                      >
+                        <p className="text-ds-on-surface text-sm font-semibold">{topic.label}</p>
+                        <p className="text-ds-on-surface-variant mt-0.5 text-xs">
+                          {topic.count} in this period
+                        </p>
+                      </Link>
+                    ))}
+                  {!loading && !(data?.training_topics ?? []).length ? (
+                    <p className="text-ds-on-surface-variant text-sm">No training gaps detected for this range.</p>
+                  ) : null}
+                </div>
+                <Link
+                  href="/knowledge/text-snippet"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary mt-5 inline-flex w-fit rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+                >
+                  Improve knowledge base
+                </Link>
+              </article>
+            </section>
+          </>
+        ) : null}
       </div>
     </div>
   );

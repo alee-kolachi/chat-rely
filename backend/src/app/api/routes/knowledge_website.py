@@ -10,10 +10,12 @@ from app.domains.knowledge.schemas import (
     WebsiteIndividualRequest,
     WebsiteIngestResponse,
     WebsitePageUpdateRequest,
+    WebsiteSitemapRequest,
     WebsiteSourcePageItemDTO,
     WebsiteSourcePagesResponse,
-    WebsiteSitemapRequest,
     WebsiteSourcesListResponse,
+    WebsiteUrlPreviewRequest,
+    WebsiteUrlPreviewResponse,
     WebsiteUsageResponse,
 )
 from app.domains.knowledge.service import (
@@ -25,10 +27,20 @@ from app.domains.knowledge.service import (
     get_jobs,
     list_website_source_pages,
     list_website_sources_for_agent,
+    preview_dashboard_website_filtered_urls,
     update_website_source_page,
 )
 
 router = APIRouter(prefix="/knowledge/website", tags=["knowledge-website"])
+
+
+@router.post("/preview-urls", response_model=WebsiteUrlPreviewResponse)
+async def website_preview_urls_route(
+    payload: WebsiteUrlPreviewRequest,
+    user: AuthContext = Depends(get_current_user),
+) -> WebsiteUrlPreviewResponse:
+    """Estimate how many URLs match filters via sitemap (no DB writes)."""
+    return await preview_dashboard_website_filtered_urls(payload)
 
 
 @router.post("/crawl", response_model=WebsiteIngestResponse)

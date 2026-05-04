@@ -45,6 +45,18 @@ async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
         return UUID(str(row["id"])), UUID(str(row["user_id"]))
 
 
+async def _persist_surrogate_safe(job_id: UUID, user_id: UUID, exc: BaseException) -> None:
+    try:
+        async with get_session_factory()() as db:
+            await record_worker_indexing_surrogate_failure(db, job_id, user_id, exc)
+    except Exception:
+        log.exception(
+            "indexing_job_surrogate_persist_failed",
+            job_id=str(job_id),
+            user_id=str(user_id),
+        )
+
+
 async def run_worker_loop(poll_interval_seconds: float = 2.0) -> None:
     # Worker only needs DB/OpenAI config; provide dev-safe auth defaults
     # so missing auth env vars do not block local worker startup.
@@ -62,6 +74,20 @@ async def run_worker_loop(poll_interval_seconds: float = 2.0) -> None:
         try:
             async with get_session_factory()() as db:
                 await process_indexing_job(db, job_id=job_id, user_id=user_id)
+        except asyncio.CancelledError:
+            # Ctrl+C / task cancellation during httpx or awaits — not a subclass of Exception,
+            # so mark the job failed or it stays `running` forever.
+            log.warning(
+                "indexing_job_cancelled",
+                job_id=str(job_id),
+                user_id=str(user_id),
+            )
+            await _persist_surrogate_safe(
+                job_id,
+                user_id,
+                RuntimeError("Indexing interrupted (worker cancelled during I/O)"),
+            )
+            raise
         except Exception as exc:
             log.exception(
                 "indexing_job_failed",
@@ -69,19 +95,14 @@ async def run_worker_loop(poll_interval_seconds: float = 2.0) -> None:
                 user_id=str(user_id),
                 error=str(exc),
             )
-            try:
-                async with get_session_factory()() as db:
-                    await record_worker_indexing_surrogate_failure(db, job_id, user_id, exc)
-            except Exception:
-                log.exception(
-                    "indexing_job_surrogate_persist_failed",
-                    job_id=str(job_id),
-                    user_id=str(user_id),
-                )
+            await _persist_surrogate_safe(job_id, user_id, exc)
 
 
 def main() -> None:
-    asyncio.run(run_worker_loop())
+    try:
+        asyncio.run(run_worker_loop())
+    except KeyboardInterrupt:
+        log.info("indexing_worker_stopped_by_user")
 
 
 if __name__ == "__main__":

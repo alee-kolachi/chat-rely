@@ -459,7 +459,7 @@ export default function KnowledgeQAndAPage() {
                           <div className="relative inline-flex shrink-0">
                             <button
                               type="button"
-                              className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-1"
+                              className="text-ds-on-surface-variant hover:text-ds-on-surface cursor-pointer rounded-ds-md p-1"
                               aria-label="More"
                               onClick={() => setMenuOpenId((prev) => (prev === item.id ? null : item.id))}
                             >

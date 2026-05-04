@@ -11,6 +11,7 @@ LangGraph runtime for chat: one graph invocation per user message.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -23,6 +24,7 @@ from app.core.settings import get_settings
 from app.domains.conversations.schemas import MessageDTO
 
 MAX_HISTORY_DB_MESSAGES = 48
+MAX_TOOL_ROUNDS = 5
 
 
 class RuntimeChatState(TypedDict, total=False):
@@ -30,11 +32,12 @@ class RuntimeChatState(TypedDict, total=False):
 
     messages: Annotated[list[BaseMessage], add_messages]
     model: str
+    temperature: float
     fallback_message: str
     fallback_used: bool
 
 
-def _make_chat_model(model: str) -> ChatOpenAI:
+def make_chat_model(model: str, *, temperature: float = 0.0) -> ChatOpenAI:
     settings = get_settings()
     if not settings.openai_api_key:
         raise AppError(
@@ -42,16 +45,33 @@ def _make_chat_model(model: str) -> ChatOpenAI:
             message="OPENAI_API_KEY is required for runtime chat",
             status_code=500,
         )
+    t = max(0.0, min(1.0, float(temperature)))
     return ChatOpenAI(
         model=model,
-        temperature=0,
+        temperature=t,
         api_key=settings.openai_api_key,
         timeout=60,
         max_retries=2,
     )
 
 
-def _text_from_model_message(msg: BaseMessage) -> str:
+def text_delta_from_stream_chunk(chunk: Any) -> str:
+    """Incremental assistant text from one ChatOpenAI / LangChain stream chunk."""
+    raw = getattr(chunk, "content", None)
+    if isinstance(raw, str) and raw:
+        return raw
+    if isinstance(raw, list):
+        parts: list[str] = []
+        for block in raw:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return ""
+
+
+def text_from_model_message(msg: BaseMessage) -> str:
     raw = getattr(msg, "content", None)
     if isinstance(raw, str):
         return raw.strip()
@@ -73,7 +93,12 @@ def db_messages_to_chat_messages(messages: list[MessageDTO]) -> list[BaseMessage
         if m.role == "user":
             out.append(HumanMessage(content=m.content))
         elif m.role == "assistant":
-            out.append(AIMessage(content=m.content))
+            tcp = m.tool_call_payload or {}
+            tcalls = tcp.get("tool_calls")
+            if tcalls and isinstance(tcalls, list):
+                out.append(AIMessage(content=m.content or "", tool_calls=tcalls))
+            else:
+                out.append(AIMessage(content=m.content))
         elif m.role == "system":
             continue
         elif m.role == "tool":
@@ -100,7 +125,7 @@ def build_turn_messages(
 
 
 async def _respond_node(state: RuntimeChatState) -> dict[str, Any]:
-    llm = _make_chat_model(state["model"])
+    llm = make_chat_model(state["model"], temperature=float(state.get("temperature") or 0.0))
     try:
         response = await llm.ainvoke(state["messages"])
     except Exception as exc:
@@ -112,9 +137,9 @@ async def _respond_node(state: RuntimeChatState) -> dict[str, Any]:
         ) from exc
 
     if not isinstance(response, AIMessage):
-        response = AIMessage(content=_text_from_model_message(response))
+        response = AIMessage(content=text_from_model_message(response))
 
-    text = _text_from_model_message(response)
+    text = text_from_model_message(response)
     fallback_message = state.get("fallback_message") or ""
     if not text:
         return {
@@ -142,11 +167,44 @@ def _get_compiled_graph() -> Any:
     return _compiled_graph
 
 
+async def stream_runtime_chat_graph(
+    *,
+    messages: list[BaseMessage],
+    model: str,
+    fallback_message: str,
+    temperature: float = 0.0,
+) -> AsyncIterator[str]:
+    """
+    Stream assistant tokens for one graph-equivalent turn (single LLM call, no tools).
+    On empty model output, yields the fallback message once.
+    """
+    llm = make_chat_model(model, temperature=temperature)
+    collected: list[str] = []
+    try:
+        async for chunk in llm.astream(messages):
+            piece = text_delta_from_stream_chunk(chunk)
+            if piece:
+                collected.append(piece)
+                yield piece
+    except Exception as exc:
+        raise AppError(
+            code="runtime.llm_failed",
+            message="LLM request failed",
+            status_code=502,
+            details={"error": str(exc)[:500]},
+        ) from exc
+
+    text = "".join(collected).strip()
+    if not text:
+        yield fallback_message if fallback_message else ""
+
+
 async def invoke_runtime_chat_graph(
     *,
     messages: list[BaseMessage],
     model: str,
     fallback_message: str,
+    temperature: float = 0.0,
     thread_id: str | None = None,
 ) -> tuple[str, bool]:
     """
@@ -161,6 +219,7 @@ async def invoke_runtime_chat_graph(
     initial: RuntimeChatState = {
         "messages": messages,
         "model": model,
+        "temperature": temperature,
         "fallback_message": fallback_message,
         "fallback_used": False,
     }
@@ -169,7 +228,7 @@ async def invoke_runtime_chat_graph(
     if not final_messages:
         return fallback_message, True
     last = final_messages[-1]
-    text = _text_from_model_message(last)
+    text = text_from_model_message(last)
     fallback_used = bool(out.get("fallback_used"))
     if not text:
         return fallback_message, True

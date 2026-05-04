@@ -2,7 +2,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ConversationDTO(BaseModel):
@@ -24,6 +26,7 @@ class ConversationDTO(BaseModel):
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    latest_message_preview: str | None = None
 
 
 class MessageDTO(BaseModel):
@@ -58,7 +61,7 @@ class ConversationMessageCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: str = Field(pattern="^(user|assistant|system|tool)$")
-    content: str = Field(min_length=1)
+    content: str = ""
     tool_name: str | None = None
     tool_call_id: str | None = None
     tool_call_payload: dict[str, Any] | None = None
@@ -68,6 +71,19 @@ class ConversationMessageCreateRequest(BaseModel):
     output_tokens: int = 0
     latency_ms: int | None = None
     metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_role_content(self) -> Self:
+        text = (self.content or "").strip()
+        tcp = self.tool_call_payload or {}
+        has_tool_calls = bool(tcp.get("tool_calls"))
+        if self.role == "user" and len(text) < 1:
+            raise ValueError("User messages require non-empty content")
+        if self.role == "assistant" and len(text) < 1 and not has_tool_calls:
+            raise ValueError("Assistant messages require content or tool_calls")
+        if self.role == "tool" and len(text) < 1:
+            raise ValueError("Tool messages require non-empty content")
+        return self
 
 
 class ConversationUpdateRequest(BaseModel):

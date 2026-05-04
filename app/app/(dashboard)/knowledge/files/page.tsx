@@ -289,7 +289,7 @@ export default function KnowledgeFilesPage() {
                 type="file"
                 multiple
                 className="hidden"
-                accept=".txt,.md,.csv,.json,.xml,.html,.pdf,.docx"
+                accept=".pdf,.txt,.doc,.docx"
                 onChange={(e) => {
                   void uploadFiles(e.target.files);
                 }}
@@ -302,7 +302,7 @@ export default function KnowledgeFilesPage() {
                   {uploading ? "Uploading and indexing files..." : "Drag and drop documents here or click to browse."}
                 </p>
                 <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
-                  Max 50MB per file. Supports TXT, MD, CSV, JSON, XML, HTML, PDF, DOCX. Indexing can take up to a minute
+                Max 50MB per file. Supports PDF, TXT, DOC, DOCX. Indexing can take up to a minute
                   while embeddings are generated.
                 </p>
               </div>
@@ -415,7 +415,7 @@ export default function KnowledgeFilesPage() {
                           <div className="relative inline-flex">
                             <button
                               type="button"
-                              className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-1"
+                              className="text-ds-on-surface-variant hover:text-ds-on-surface cursor-pointer rounded-ds-md p-1"
                               aria-label="More"
                               onClick={() => setMenuOpenId((prev) => (prev === row.id ? null : row.id))}
                             >

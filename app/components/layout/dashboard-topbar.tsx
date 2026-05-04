@@ -21,20 +21,17 @@ const mobileNavItems = [
       { href: "/knowledge/q-and-a", label: "Q&A" },
     ],
   },
-  { href: "/actions", label: "Actions" },
+  { href: "/actions", label: "Actions & integrations" },
   { href: "/conversations", label: "Conversations" },
   { href: "/tickets", label: "Tickets" },
   { href: "/deploy", label: "Deploy" },
   { href: "/usage", label: "Usage" },
   {
-    href: "/settings",
-    label: "Settings",
-    children: [
-      { href: "/settings/general", label: "General" },
-      { href: "/settings/plan", label: "Plan" },
-      { href: "/settings/billing", label: "Billing" },
-    ],
+    href: "/agent-settings",
+    label: "Agent settings",
+    children: [{ href: "/agent-settings/general", label: "General" }],
   },
+  { href: "/account/profile", label: "Account" },
 ];
 
 function isRouteActive(pathname: string, href: string) {

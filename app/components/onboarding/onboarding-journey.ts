@@ -55,6 +55,3 @@ export const trainingRoute = "/onboarding/knowledge-base/training";
 
 /** After preview — plan selection before install. */
 export const pricingRoute = "/onboarding/pricing";
-
-/** Post-install success checkpoint (optional screen). */
-export const completeRoute = "/onboarding/complete";

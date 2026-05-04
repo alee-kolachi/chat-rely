@@ -4,7 +4,9 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 type ActionToggleProps = {
-  defaultChecked: boolean;
+  /** Controlled value when set. */
+  checked?: boolean;
+  defaultChecked?: boolean;
   disabled?: boolean;
   label?: string;
   size?: "sm" | "md";
@@ -12,13 +14,16 @@ type ActionToggleProps = {
 };
 
 export function ActionToggle({
-  defaultChecked,
+  checked: checkedProp,
+  defaultChecked = false,
   disabled,
   label,
   size = "sm",
   onChange,
 }: ActionToggleProps) {
-  const [checked, setChecked] = useState(defaultChecked);
+  const [internal, setInternal] = useState(defaultChecked);
+  const isControlled = checkedProp !== undefined;
+  const checked = isControlled ? Boolean(checkedProp) : internal;
   const isDisabled = Boolean(disabled);
 
   const dims =
@@ -36,7 +41,7 @@ export function ActionToggle({
       onClick={() => {
         if (isDisabled) return;
         const next = !checked;
-        setChecked(next);
+        if (!isControlled) setInternal(next);
         onChange?.(next);
       }}
       className={cn(

@@ -77,7 +77,9 @@ async def test_invoke_runtime_chat_graph_empty_model_uses_fallback(monkeypatch: 
         async def ainvoke(self, _messages: object) -> AIMessage:
             return AIMessage(content="")
 
-    monkeypatch.setattr(chat_graph, "_make_chat_model", lambda _model: _FakeLLM())
+    monkeypatch.setattr(
+        chat_graph, "make_chat_model", lambda _model, *, temperature=0.0: _FakeLLM()
+    )
     chat_graph._compiled_graph = None
 
     text, fb = await chat_graph.invoke_runtime_chat_graph(
@@ -96,7 +98,9 @@ async def test_invoke_runtime_chat_graph_returns_model_text(monkeypatch: pytest.
         async def ainvoke(self, _messages: object) -> AIMessage:
             return AIMessage(content="  Grounded reply  ")
 
-    monkeypatch.setattr(chat_graph, "_make_chat_model", lambda _model: _FakeLLM())
+    monkeypatch.setattr(
+        chat_graph, "make_chat_model", lambda _model, *, temperature=0.0: _FakeLLM()
+    )
     chat_graph._compiled_graph = None
 
     text, fb = await chat_graph.invoke_runtime_chat_graph(

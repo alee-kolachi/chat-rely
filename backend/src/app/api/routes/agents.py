@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -11,6 +12,8 @@ from app.domains.agents.schemas import (
     AgentUpdateRequest,
 )
 from app.domains.agents.service import create_agent, list_agents, update_agent
+from app.domains.dashboard.schemas import AgentDashboardResponse
+from app.domains.dashboard.service import build_agent_dashboard
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -42,4 +45,27 @@ async def update_agent_route(
     db: AsyncSession = Depends(get_db),
 ) -> AgentDTO:
     return await update_agent(db, user.user_id, agent_id, payload)
+
+
+@router.get("/{agent_id}/dashboard", response_model=AgentDashboardResponse)
+async def get_agent_dashboard_route(
+    agent_id: UUID,
+    range_key: str | None = Query(
+        default=None,
+        description="7d, 30d, 90d, 365d (ignored if from/to set)",
+    ),
+    range_from: datetime | None = Query(default=None, alias="from"),
+    range_to: datetime | None = Query(default=None, alias="to"),
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AgentDashboardResponse:
+    return await build_agent_dashboard(
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        range_key=range_key,
+        range_from=range_from,
+        range_to=range_to,
+        tick_lifecycle=True,
+    )
 

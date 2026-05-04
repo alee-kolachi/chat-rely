@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
+import { AccountMenu } from "@/components/layout/account-menu";
 import { getDashboardScreenTitle } from "@/lib/dashboard-route-title";
 import { cn } from "@/lib/utils";
 import { useDashboardAgent } from "./dashboard-agent-context";
@@ -47,7 +48,10 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
           )}
         </div>
       </div>
-      {rightExtras ? <div className="flex shrink-0 items-center gap-2 md:gap-3">{rightExtras}</div> : null}
+      <div className="flex shrink-0 items-center gap-2 md:gap-3">
+        {rightExtras}
+        <AccountMenu />
+      </div>
     </header>
   );
 }

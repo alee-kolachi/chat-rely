@@ -3,14 +3,18 @@ import { cn } from "@/lib/utils";
 import { ActionToggle } from "./action-toggle";
 import { IconAction, IconChevronRight } from "./action-icons";
 import { StatusBadge } from "./status-badge";
-import type { ShopifyAction } from "./shopify-actions-data";
+import type { ShopifyAction, ShopifyActionStatus } from "./shopify-actions-data";
 
 type ActionCardProps = {
   action: ShopifyAction;
+  badgeStatus: ShopifyActionStatus;
+  enabled: boolean;
+  toggleDisabled: boolean;
+  onToggle?: (next: boolean) => void | Promise<void>;
 };
 
-export function ActionCard({ action }: ActionCardProps) {
-  const isComingSoon = action.status === "coming-soon";
+export function ActionCard({ action, badgeStatus, enabled, toggleDisabled, onToggle }: ActionCardProps) {
+  const isComingSoon = badgeStatus === "coming-soon";
 
   return (
     <div
@@ -35,8 +39,9 @@ export function ActionCard({ action }: ActionCardProps) {
           </div>
         </div>
         <ActionToggle
-          defaultChecked={action.enabled}
-          disabled={isComingSoon}
+          checked={enabled}
+          onChange={onToggle}
+          disabled={toggleDisabled}
           label={`Enable ${action.label}`}
         />
       </div>
@@ -49,7 +54,7 @@ export function ActionCard({ action }: ActionCardProps) {
       </div>
 
       <div className="mt-5 flex items-center justify-between">
-        <StatusBadge status={action.status} />
+        <StatusBadge status={badgeStatus} />
         <Link
           href={`/actions/${action.id}`}
           className="text-ds-on-surface hover:text-ds-primary inline-flex items-center gap-1 text-xs font-semibold transition-colors"

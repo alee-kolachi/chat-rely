@@ -24,6 +24,7 @@ export default function OnboardingPricingPage() {
       activeItem="Agent Preview"
       completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone", "Agent Preview"]}
       stepLabel="Plans & billing"
+      linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
           backHref={backHref}
@@ -58,7 +59,7 @@ export default function OnboardingPricingPage() {
             </h1>
             <p className="text-ds-on-surface-variant mx-auto mt-2 max-w-[min(100%,48rem)] text-center text-xs leading-snug sm:mt-3 sm:text-[13px] md:text-sm">
               Paid tier for production—your setup is saved. Billing in{" "}
-              <Link href="/settings" className="text-ds-primary font-medium underline decoration-ds-primary/30 underline-offset-[3px] hover:decoration-ds-primary">
+              <Link href="/account/plan" className="text-ds-primary font-medium underline decoration-ds-primary/30 underline-offset-[3px] hover:decoration-ds-primary">
                 Settings → Plan
               </Link>
               .{" "}

@@ -80,6 +80,7 @@ export default function AppearanceToneOnboardingPage() {
       activeItem="Appearance & Tone"
       completedItems={["Agent Name", "Knowledge Base", "Connection"]}
       stepLabel="Step 4 of 6"
+      linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
           backHref={connectionBackHref}

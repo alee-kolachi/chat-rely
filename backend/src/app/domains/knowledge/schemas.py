@@ -107,6 +107,20 @@ class WebsiteSitemapRequest(WebsiteIngestBase):
     pass
 
 
+class WebsiteUrlPreviewRequest(WebsiteIngestBase):
+    """Same shape as crawl/sitemap ingest; used only to estimate filtered URL counts (no DB writes)."""
+
+    max_sample_urls: int = Field(default=30, ge=1, le=100)
+
+
+class WebsiteUrlPreviewResponse(BaseModel):
+    discovery_mode: str
+    filtered_url_count: int
+    sample_urls: list[str] = Field(default_factory=list)
+    truncated: bool = False
+    message: str | None = None
+
+
 class WebsiteIndividualRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -131,6 +145,7 @@ class WebsiteSourceListItemDTO(BaseModel):
     website_mode: WebsiteMode | None = None
     link_count: int = 0
     last_indexed_at: datetime | None = None
+    error_message: str | None = None
     latest_job_status: str | None = None
     latest_job_phase: str | None = None
     job_pages_total: int | None = None
@@ -138,6 +153,8 @@ class WebsiteSourceListItemDTO(BaseModel):
     job_progress_pct: int | None = None
     job_crawl_limit_exceeded: bool = False
     reindexed_duplicate: bool = False
+    duplicate_reason: str | None = None
+    duplicate_of_source_id: str | None = None
 
 
 class WebsiteSourcesListResponse(BaseModel):

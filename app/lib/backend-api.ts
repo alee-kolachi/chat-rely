@@ -110,3 +110,100 @@ export async function backendFetch<T>(path: string, init: RequestInit = {}): Pro
   return (await response.json()) as T;
 }
 
+/** NDJSON events from `POST /api/v1/runtime/chat/stream`. */
+export type RuntimeChatNdjsonEvent =
+  | { type: "start"; conversation_id: string }
+  | { type: "token"; text: string }
+  | ({
+      type: "done";
+      conversation_id: string;
+      response: string;
+      fallback_used: boolean;
+      retrieval_count: number;
+      tools_invoked?: string[];
+    } & Record<string, unknown>)
+  | { type: "error"; code?: string; message: string; details?: unknown };
+
+/**
+ * Reads newline-delimited JSON from a streaming POST (same auth as `backendFetch`).
+ */
+export async function* backendNdjsonStream(
+  path: string,
+  init: RequestInit = {}
+): AsyncGenerator<RuntimeChatNdjsonEvent> {
+  const token = await getAccessToken();
+  const isFormDataBody = typeof FormData !== "undefined" && init.body instanceof FormData;
+  const base = getBackendBaseUrl();
+  const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        ...(isFormDataBody ? {} : { "Content-Type": "application/json" }),
+        ...(init.headers ?? {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      cache: "no-store",
+    });
+  } catch (err) {
+    const hint =
+      base === ""
+        ? " Could not reach the API via this app (check that the FastAPI server is running and API_PROXY_TARGET in next.config matches its URL)."
+        : " Check NEXT_PUBLIC_BACKEND_URL, CORS on the API, and that the backend is running.";
+    throw new BackendApiError(
+      `Network request failed (${err instanceof Error ? err.message : "unknown"}).${hint}`,
+      0,
+      "network.fetch_failed"
+    );
+  }
+
+  if (!response.ok) {
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    const asRecord = payload as { error?: { code?: string; message?: string; details?: unknown } } | null;
+    throw new BackendApiError(
+      asRecord?.error?.message ?? `Backend request failed (${response.status})`,
+      response.status,
+      asRecord?.error?.code,
+      asRecord?.error?.details
+    );
+  }
+
+  const body = response.body;
+  if (!body) {
+    throw new BackendApiError("Empty response body", response.status, "stream.empty_body");
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (value) {
+        buffer += decoder.decode(value, { stream: true });
+      }
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        yield JSON.parse(trimmed) as RuntimeChatNdjsonEvent;
+      }
+      if (done) break;
+    }
+    const tail = buffer.trim();
+    if (tail) {
+      yield JSON.parse(tail) as RuntimeChatNdjsonEvent;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+

@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -41,6 +42,7 @@ def _conversation(status: str = "open") -> ConversationDTO:
             "metadata": {},
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
+            "latest_message_preview": None,
         }
     )
 
@@ -135,6 +137,55 @@ def test_runtime_chat_fallback_used(client: TestClient, monkeypatch: pytest.Monk
     assert response.json()["retrieval_count"] == 0
 
 
+def test_runtime_chat_stream_ndjson(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_auth(monkeypatch)
+    cid = str(uuid4())
+    aid = str(uuid4())
+
+    async def _stream(*_: Any, **__: Any):
+        yield {"type": "start", "conversation_id": cid}
+        yield {"type": "token", "text": "Hello"}
+        yield {
+            "type": "done",
+            **RuntimeChatResponse.model_validate(
+                {
+                    "conversation_id": cid,
+                    "assistant_message_id": aid,
+                    "response": "Hello",
+                    "model": "gpt-4o-mini",
+                    "fallback_used": False,
+                    "retrieval_count": 2,
+                    "min_similarity": 0.72,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "retrieval_preview": [],
+                }
+            ).model_dump(mode="json"),
+        }
+
+    monkeypatch.setattr("app.api.routes.runtime.run_chat_stream", _stream)
+    response = client.post(
+        "/api/v1/runtime/chat/stream",
+        headers=_auth_header(),
+        json={
+            "agent_id": "00000000-0000-0000-0000-000000000888",
+            "message": "Hi",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("application/x-ndjson")
+    lines = [ln for ln in response.text.strip().split("\n") if ln.strip()]
+    assert len(lines) >= 3
+    ev0 = json.loads(lines[0])
+    ev1 = json.loads(lines[1])
+    ev_last = json.loads(lines[-1])
+    assert ev0["type"] == "start"
+    assert ev0["conversation_id"] == cid
+    assert ev1["type"] == "token"
+    assert ev1["text"] == "Hello"
+    assert ev_last["type"] == "done"
+    assert ev_last["response"] == "Hello"
+
+
 def test_list_conversations(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
 
@@ -165,7 +216,17 @@ def test_append_message(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
     async def _append(*_: Any, **__: Any) -> MessageDTO:
         return _message(role="assistant", content="Agent reply")
 
+    async def _no_email(*_: Any, **__: Any) -> None:
+        return None
+
+    marked: dict[str, bool] = {"ok": False}
+
+    async def _mark_engaged(*_: Any, **__: Any) -> None:
+        marked["ok"] = True
+
     monkeypatch.setattr("app.api.routes.conversations.append_message", _append)
+    monkeypatch.setattr("app.api.routes.conversations.mark_conversation_operator_engaged", _mark_engaged)
+    monkeypatch.setattr("app.api.routes.conversations.maybe_send_ticket_email_reply", _no_email)
     response = client.post(
         f"/api/v1/conversations/{uuid4()}/messages",
         headers=_auth_header(),
@@ -173,6 +234,29 @@ def test_append_message(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert response.status_code == 200
     assert response.json()["content"] == "Agent reply"
+    assert marked["ok"] is True
+
+
+def test_append_user_message_does_not_mark_operator_engaged(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_auth(monkeypatch)
+
+    async def _append(*_: Any, **__: Any) -> MessageDTO:
+        return _message(role="user", content="Hi")
+
+    marked: dict[str, bool] = {"ok": False}
+
+    async def _mark_engaged(*_: Any, **__: Any) -> None:
+        marked["ok"] = True
+
+    monkeypatch.setattr("app.api.routes.conversations.append_message", _append)
+    monkeypatch.setattr("app.api.routes.conversations.mark_conversation_operator_engaged", _mark_engaged)
+    response = client.post(
+        f"/api/v1/conversations/{uuid4()}/messages",
+        headers=_auth_header(),
+        json={"role": "user", "content": "Hi from visitor"},
+    )
+    assert response.status_code == 200
+    assert marked["ok"] is False
 
 
 def test_status_transition_validation(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,8 +268,12 @@ def test_status_transition_validation(client: TestClient, monkeypatch: pytest.Mo
     async def _messages(*_: Any, **__: Any) -> list[MessageDTO]:
         return [_message()]
 
+    async def _noop_outcome(*_: Any, **__: Any) -> None:
+        return None
+
     monkeypatch.setattr("app.api.routes.conversations.update_conversation_status", _update)
     monkeypatch.setattr("app.api.routes.conversations.list_messages", _messages)
+    monkeypatch.setattr("app.api.routes.conversations.analyze_and_persist_outcome", _noop_outcome)
     response = client.patch(
         f"/api/v1/conversations/{uuid4()}",
         headers=_auth_header(),

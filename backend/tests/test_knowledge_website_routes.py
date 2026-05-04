@@ -1,5 +1,5 @@
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -90,6 +90,42 @@ def test_website_crawl_route(client: TestClient, monkeypatch: pytest.MonkeyPatch
     body = res.json()
     assert body["source"]["id"] == str(sid)
     assert body["job"]["status"] == "queued"
+
+
+def test_website_preview_urls_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_auth(monkeypatch)
+    aid = UUID("00000000-0000-0000-0000-000000000888")
+
+    from app.domains.knowledge.schemas import WebsiteUrlPreviewResponse
+
+    async def _pv(_payload: object) -> WebsiteUrlPreviewResponse:
+        return WebsiteUrlPreviewResponse(
+            discovery_mode="sitemap",
+            filtered_url_count=2,
+            sample_urls=["https://ex.com/a", "https://ex.com/b"],
+            truncated=False,
+            message=None,
+        )
+
+    monkeypatch.setattr("app.api.routes.knowledge_website.preview_dashboard_website_filtered_urls", _pv)
+
+    res = client.post(
+        "/api/v1/knowledge/website/preview-urls",
+        headers=_auth_header(),
+        json={
+            "agent_id": str(aid),
+            "protocol": "https://",
+            "url_input": "example.com",
+            "include_rules": [],
+            "exclude_rules": [],
+            "max_sample_urls": 10,
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["discovery_mode"] == "sitemap"
+    assert body["filtered_url_count"] == 2
+    assert len(body["sample_urls"]) == 2
 
 
 def test_website_crawl_route_duplicate_skips_job(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -262,6 +298,62 @@ def test_website_usage_route(client: TestClient, monkeypatch: pytest.MonkeyPatch
     assert data["website_crawl_last_job_bytes"] == 182_000
 
 
+@pytest.mark.asyncio
+async def test_require_knowledge_source_exists_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.errors import AppError
+    from app.domains.knowledge.service import _require_knowledge_source_exists
+
+    class _Sess:
+        async def execute(self, _stmt: object, _params: object | None = None) -> object:
+            class _R:
+                def first(self) -> None:
+                    return None
+
+            return _R()
+
+    with pytest.raises(AppError) as ei:
+        await _require_knowledge_source_exists(_Sess(), uuid4())  # type: ignore[arg-type]
+    assert ei.value.code == "knowledge.source_removed"
+
+
+def test_website_fetch_page_stats() -> None:
+    from app.domains.knowledge.service import _website_fetch_page_stats
+
+    pages: list[dict[str, object]] = [
+        {"text": "ok", "http_status": 200},
+        {"text": "", "http_status": 200},
+        {"text": "", "http_status": None},
+        {"text": "x", "http_status": 404},
+        {"text": "y", "http_status": 500},
+    ]
+    s = _website_fetch_page_stats(pages)
+    assert s["urls_fetched"] == 5
+    assert s["urls_empty_text"] == 2
+    assert s["urls_with_text"] == 3
+    assert s["urls_http_missing"] == 1
+    assert s["urls_http_4xx"] == 1
+    assert s["urls_http_5xx"] == 1
+
+
+def test_website_filter_summary_canonical() -> None:
+    from app.domains.knowledge.service import _website_filter_summary
+
+    inc = [{"operator": "contains", "pattern": "/z/"}, {"operator": "contains", "pattern": "/a/"}]
+    exc = [{"operator": "contains", "pattern": "/admin"}]
+    s = _website_filter_summary(inc, exc)
+    assert s["include_rules"][0]["pattern"] == "/a/"
+    assert s["include_rules"][1]["pattern"] == "/z/"
+    assert s["exclude_rules"] == [{"operator": "contains", "pattern": "/admin"}]
+
+
+def test_url_passes_excludes_only() -> None:
+    from app.domains.knowledge.service import _url_passes_excludes_only
+
+    exc = [{"operator": "contains", "pattern": "/admin"}]
+    assert _url_passes_excludes_only("https://x.com/blog", exc)
+    assert not _url_passes_excludes_only("https://x.com/admin/login", exc)
+
+
 def test_url_filter_helpers() -> None:
     from app.domains.knowledge.service import _url_passes_filters
 
@@ -310,6 +402,34 @@ def test_url_duplicate_key_normalizes() -> None:
     from app.domains.knowledge.service import _url_duplicate_key
 
     assert _url_duplicate_key("HTTPS://Example.COM/Foo/") == "https://example.com/foo"
+
+
+def test_dashboard_path_rules_match() -> None:
+    from app.domains.knowledge.service import _dashboard_path_rules_match
+
+    base_md = {"include_rules": [{"operator": "contains", "pattern": "/tapered/"}], "exclude_rules": []}
+    assert _dashboard_path_rules_match(
+        [{"operator": "contains", "pattern": "/tapered/"}],
+        [],
+        base_md,
+    )
+    assert not _dashboard_path_rules_match(
+        [{"operator": "contains", "pattern": "/other/"}],
+        [],
+        base_md,
+    )
+    assert not _dashboard_path_rules_match([], [], base_md)
+    assert _dashboard_path_rules_match(
+        [{"operator": "contains", "pattern": "/z/"}, {"operator": "contains", "pattern": "/a/"}],
+        [],
+        {
+            "include_rules": [
+                {"operator": "contains", "pattern": "/a/"},
+                {"operator": "contains", "pattern": "/z/"},
+            ],
+            "exclude_rules": [],
+        },
+    )
 
 
 def test_sitemap_seed_urls_site_root_adds_default_sitemap() -> None:

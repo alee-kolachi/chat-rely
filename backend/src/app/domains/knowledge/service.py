@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from docx import Document
 from pypdf import PdfReader
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -31,8 +32,8 @@ def _parse_html(html: str) -> BeautifulSoup:
 from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.domains.knowledge.schemas import (
-    FileUploadResultDTO,
     FileSourceListItemDTO,
+    FileUploadResultDTO,
     IndexJobDTO,
     KnowledgeSourceCreateRequest,
     KnowledgeSourceDTO,
@@ -45,6 +46,8 @@ from app.domains.knowledge.schemas import (
     WebsiteMode,
     WebsitePathRule,
     WebsiteSourceListItemDTO,
+    WebsiteUrlPreviewRequest,
+    WebsiteUrlPreviewResponse,
     WebsiteUsageResponse,
 )
 
@@ -53,6 +56,9 @@ MAX_ONBOARDING_PAGES = 5
 # Hard cap on how many distinct page URLs one crawl job may visit (safety rail; byte budget is primary for dashboard).
 MAX_CRAWL_PAGES_SAFETY_CEILING = 2000
 MAX_DASHBOARD_WEBSITE_PAGES = MAX_CRAWL_PAGES_SAFETY_CEILING
+# With include path rules, follow same-site links that pass excludes only so hub/category pages can lead to matching URLs.
+DASHBOARD_BFS_INCLUDE_RULE_MAX_HOPS = 14
+DASHBOARD_BFS_INCLUDE_RULE_MAX_PAGES_VISITED = 3500
 # Per-crawl HTTP body budget from plan features (`max_website_crawl_kb`); defaults when missing.
 DEFAULT_WEBSITE_CRAWL_KB_FREE = 500
 DEFAULT_WEBSITE_CRAWL_KB_PAID = 10240
@@ -61,8 +67,8 @@ _CRAWL_BODY_CHARGE_CAP_BYTES = 400_000
 DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES = 100 * 1024 * 1024
 STARTER_KNOWLEDGE_STORAGE_CAP_BYTES = 500 * 1024
 STARTER_HIDDEN_STORAGE_GRACE_RATIO = 0.23
-# OpenAI embeddings cap is ~300k tokens per request; batch to stay under with headroom.
-_EMBED_BATCH_MAX_TOKENS_EST = 250_000
+# OpenAI embeddings cap is ~300k tokens per request; batch conservatively (tiktoken can exceed char/4).
+_EMBED_BATCH_MAX_TOKENS_EST = 200_000
 _EMBED_BATCH_MAX_INPUTS = 2048
 _CHUNK_PERSIST_BATCH_SIZE = 32
 
@@ -89,6 +95,9 @@ def _charge_bytes_and_html_from_response(response: httpx.Response, *, remaining_
 # Dashboard crawl: show URL count quickly (sitemap), then fetch HTML in small batches with DB commits.
 DASHBOARD_CRAWL_CONTENT_BATCH = 8
 DASHBOARD_CRAWL_PROGRESS_EVERY = 3
+
+# Large shops can expose thousands of nested sitemap index URLs; cap GETs so discovery finishes.
+SITEMAP_MAX_DOCUMENT_FETCHES = 500
 
 # Many sites return a minimal shell or challenge to non-browser clients; match typical browser fetch.
 _WEBSITE_CRAWL_HEADERS = {
@@ -117,7 +126,7 @@ def _extract_text_from_file_bytes(filename: str, content_type: str | None, paylo
     ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
     ctype = (content_type or "").lower()
 
-    if ext in {"txt", "md", "csv", "json", "xml", "html", "htm"} or ctype.startswith("text/"):
+    if ext == "txt" or ctype.startswith("text/plain"):
         return payload.decode("utf-8", errors="replace")
 
     if ext == "pdf" or ctype == "application/pdf":
@@ -134,9 +143,31 @@ def _extract_text_from_file_bytes(filename: str, content_type: str | None, paylo
         doc = Document(io.BytesIO(payload))
         return "\n".join(p.text for p in doc.paragraphs if p.text)
 
+    if ext == "doc" or ctype == "application/msword":
+        # Legacy .doc is often either RTF content or binary OLE. Use best-effort
+        # text extraction so indexing can proceed for common documents.
+        if payload.lstrip().startswith(b"{\\rtf"):
+            rtf = payload.decode("latin-1", errors="ignore")
+            text = re.sub(r"\\'[0-9a-fA-F]{2}", " ", rtf)
+            text = re.sub(r"\\[a-zA-Z]+-?\d* ?", " ", text)
+            text = text.replace("{", " ").replace("}", " ")
+            return text
+
+        # Binary fallback: decode and keep readable runs.
+        candidates = [
+            payload.decode("utf-16le", errors="ignore"),
+            payload.decode("utf-8", errors="ignore"),
+            payload.decode("latin-1", errors="ignore"),
+        ]
+        for candidate in candidates:
+            parts = re.findall(r"[A-Za-z0-9][A-Za-z0-9\s,.;:!?()/'\"@#%&*\-]{4,}", candidate)
+            merged = "\n".join(p.strip() for p in parts if p.strip())
+            if merged.strip():
+                return merged
+
     raise AppError(
         code="knowledge.file_type_unsupported",
-        message="Unsupported file type. Use .txt, .md, .csv, .json, .xml, .html, .pdf, or .docx",
+        message="Unsupported file type. Use .pdf, .txt, .doc, or .docx",
         status_code=422,
     )
 
@@ -208,8 +239,13 @@ def _token_estimate(chunk: str) -> int:
 
 
 def _approx_embed_request_tokens(chunk: str) -> int:
-    """Rough lower bound for OpenAI token accounting (~4 chars/token for English)."""
-    return max(1, math.ceil(len(chunk) / 3))
+    """Conservative per-input token estimate for OpenAI embedding batch sizing."""
+    if not chunk:
+        return 1
+    # Dense markup, URLs, or non‑Latin text can be far below 4 chars/token; /2 is a safe upper-ish bound.
+    char_est = math.ceil(len(chunk) / 2)
+    word_est = max(1, math.ceil(len(chunk.split()) * 1.35))
+    return max(char_est, word_est)
 
 
 def _normalize_url_string(url: str) -> str:
@@ -229,6 +265,7 @@ def normalize_dashboard_website_url(protocol: str, url_input: str) -> str:
 
 
 def _url_path_for_rules(url: str) -> str:
+    """Path rules use ``urlparse(url).path`` only (leading slash, no query or fragment), casefolded when matching."""
     parsed = urlparse(url)
     return parsed.path or "/"
 
@@ -251,6 +288,10 @@ def _rule_matches(operator: str, pattern: str, path_value: str) -> bool:
 
 
 def _url_passes_filters(url: str, include_rules: list[dict[str, str]], exclude_rules: list[dict[str, str]]) -> bool:
+    """Exclude rules run first (any match drops the URL). With no include rules, URL passes if not excluded.
+
+    Multiple include chips are OR: the path must match **at least one** include rule when includes are set.
+    """
     path_value = _url_path_for_rules(url)
     for ex in exclude_rules:
         op, pat = ex.get("operator", ""), ex.get("pattern", "")
@@ -263,6 +304,32 @@ def _url_passes_filters(url: str, include_rules: list[dict[str, str]], exclude_r
         if pat and _rule_matches(op, pat, path_value):
             return True
     return False
+
+
+def _url_passes_excludes_only(url: str, exclude_rules: list[dict[str, str]]) -> bool:
+    """Used to decide if the crawl seed may be fetched for link discovery (include rules may still omit it)."""
+    path_value = _url_path_for_rules(url)
+    for ex in exclude_rules:
+        op, pat = ex.get("operator", ""), ex.get("pattern", "")
+        if pat and _rule_matches(op, pat, path_value):
+            return False
+    return True
+
+
+async def _require_knowledge_source_exists(db: AsyncSession, source_id: UUID) -> None:
+    """Abort indexing if the source row was removed (e.g. user deleted it mid-crawl)."""
+    row = (
+        await db.execute(
+            text("select 1 from public.knowledge_sources where id = :id limit 1"),
+            {"id": str(source_id)},
+        )
+    ).first()
+    if row is None:
+        raise AppError(
+            code="knowledge.source_removed",
+            message="This website source was deleted while indexing was still running.",
+            status_code=409,
+        )
 
 
 def _canonical_host(host: str) -> str:
@@ -432,6 +499,17 @@ def _extract_social_preview_image(html: str, page_url: str) -> str | None:
     return None
 
 
+def _embedding_api_error_message(status_code: int, body: str) -> str:
+    try:
+        payload = json.loads(body)
+        err = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])[:500]
+    except json.JSONDecodeError:
+        pass
+    return f"HTTP {status_code}"
+
+
 async def _embed_texts(chunks: list[str]) -> list[list[float]]:
     settings = get_settings()
     if not settings.openai_api_key:
@@ -443,6 +521,51 @@ async def _embed_texts(chunks: list[str]) -> list[list[float]]:
 
     if not chunks:
         return []
+
+    async def _post_one_batch(
+        client: httpx.AsyncClient, batch: list[str], *, allow_split: bool
+    ) -> list[list[float]]:
+        response = await client.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            json={"model": settings.openai_embedding_model, "input": batch},
+        )
+        if response.status_code >= 400:
+            body = response.text or ""
+            lower = body.lower()
+            oversize = (
+                response.status_code == 400
+                and allow_split
+                and len(batch) > 1
+                and (
+                    "maximum request size" in lower
+                    or "too many tokens" in lower
+                    or "context length" in lower
+                )
+            )
+            if oversize:
+                mid = len(batch) // 2
+                left = await _post_one_batch(client, batch[:mid], allow_split=True)
+                right = await _post_one_batch(client, batch[mid:], allow_split=True)
+                return left + right
+            log.warning(
+                "embedding_batch_failed",
+                status_code=response.status_code,
+                body_preview=body[:500],
+                batch_inputs=len(batch),
+            )
+            detail_msg = _embedding_api_error_message(response.status_code, body)
+            raise AppError(
+                code="knowledge.embedding_failed",
+                message=f"Embedding API error: {detail_msg}",
+                status_code=502,
+                details={"status_code": response.status_code, "body": body[:800]},
+            )
+        payload = response.json()
+        vectors = [item["embedding"] for item in payload.get("data", [])]
+        if len(vectors) != len(batch):
+            raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
+        return vectors
 
     all_vectors: list[list[float]] = []
     idx = 0
@@ -461,29 +584,7 @@ async def _embed_texts(chunks: list[str]) -> list[list[float]]:
                 batch = [chunks[idx]]
                 idx += 1
 
-            response = await client.post(
-                "https://api.openai.com/v1/embeddings",
-                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-                json={"model": settings.openai_embedding_model, "input": batch},
-            )
-            if response.status_code >= 400:
-                log.warning(
-                    "embedding_batch_failed",
-                    status_code=response.status_code,
-                    body_preview=response.text[:500],
-                    batch_inputs=len(batch),
-                )
-                raise AppError(
-                    code="knowledge.embedding_failed",
-                    message="Embedding API request failed",
-                    status_code=502,
-                    details={"status_code": response.status_code, "body": response.text[:800]},
-                )
-            payload = response.json()
-            vectors = [item["embedding"] for item in payload.get("data", [])]
-            if len(vectors) != len(batch):
-                raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
-            all_vectors.extend(vectors)
+            all_vectors.extend(await _post_one_batch(client, batch, allow_split=True))
 
     if len(all_vectors) != len(chunks):
         raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
@@ -651,7 +752,14 @@ async def enqueue_index_website_source_queued(
 
 
 def _rules_from_payload(rules: list[WebsitePathRule]) -> list[dict[str, str]]:
-    return [{"operator": r.operator, "pattern": r.pattern} for r in rules]
+    """Persist only rules with a non-empty pattern; blank chips would otherwise break includes entirely."""
+    out: list[dict[str, str]] = []
+    for r in rules:
+        pat = (r.pattern or "").strip()
+        if not pat:
+            continue
+        out.append({"operator": r.operator, "pattern": pat})
+    return out
 
 
 async def create_and_enqueue_dashboard_website(
@@ -679,7 +787,14 @@ async def create_and_enqueue_dashboard_website(
         "max_pages": MAX_DASHBOARD_WEBSITE_PAGES,
     }
 
-    dup = await _find_dashboard_website_duplicate(db, user_id, payload.agent_id, source_url)
+    dup = await _find_dashboard_website_duplicate(
+        db,
+        user_id,
+        payload.agent_id,
+        source_url,
+        include_rules=_rules_from_payload(include_rules),
+        exclude_rules=_rules_from_payload(exclude_rules),
+    )
     if dup is not None and mode != "individual":
         existing_id, dup_reason = dup
         metadata = {
@@ -727,6 +842,35 @@ async def create_and_enqueue_dashboard_website(
     return refreshed_source, refreshed_job or job
 
 
+async def preview_dashboard_website_filtered_urls(
+    payload: WebsiteUrlPreviewRequest,
+) -> WebsiteUrlPreviewResponse:
+    """Return filtered sitemap URL count and a sample (no source row, no indexing)."""
+    source_url = normalize_dashboard_website_url(payload.protocol, payload.url_input)
+    inc = _rules_from_payload(payload.include_rules)
+    exc = _rules_from_payload(payload.exclude_rules)
+    urls = await _collect_sitemap_urls(source_url, MAX_DASHBOARD_WEBSITE_PAGES, inc, exc)
+    cap = min(int(payload.max_sample_urls), 100)
+    if urls:
+        return WebsiteUrlPreviewResponse(
+            discovery_mode="sitemap",
+            filtered_url_count=len(urls),
+            sample_urls=urls[:cap],
+            truncated=len(urls) > cap,
+            message=None,
+        )
+    return WebsiteUrlPreviewResponse(
+        discovery_mode="bfs_fallback",
+        filtered_url_count=0,
+        sample_urls=[],
+        truncated=False,
+        message=(
+            "No matching URLs found in sitemap XML for this site and filters. "
+            "A full crawl would use link following (BFS); URL count is not known until the crawl runs."
+        ),
+    )
+
+
 async def _create_crawl_run(db: AsyncSession, source: KnowledgeSourceDTO, user_id: UUID, settings: dict[str, object]) -> UUID:
     result = await db.execute(
         text(
@@ -770,14 +914,24 @@ async def _crawl_pages(
     exclude_rules: list[dict[str, str]],
     *,
     crawl_budget_bytes: int,
-    progress_hook: Callable[[list[dict[str, object]], int], Awaitable[None]] | None = None,
+    progress_hook: Callable[..., Awaitable[None]] | None = None,
     progress_every: int = DASHBOARD_CRAWL_PROGRESS_EVERY,
-) -> tuple[list[dict[str, object]], int, str | None, int, str]:
-    """Crawl HTML pages; stop when cumulative extracted text bytes exceed ``crawl_budget_bytes``."""
+) -> tuple[list[dict[str, object]], int, str | None, int, str, int]:
+    """Crawl HTML pages; stop when cumulative extracted text bytes exceed ``crawl_budget_bytes``.
+
+    The seed URL is always fetched if it passes **exclude** rules, even when **include** rules
+    omit it (e.g. homepage ``/`` while include only paths matching ``/tapered/``). Those visits
+    are used for link discovery; only URLs that pass the full include/exclude filters are indexed.
+
+    When includes are non-empty, outbound links are queued using **exclude** rules only (plus hop /
+    visit caps) so category/hub pages can sit on paths that do not yet match the include pattern.
+    """
     parsed_seed = urlparse(seed_url)
     seed_normalized = f"{parsed_seed.scheme}://{parsed_seed.netloc}{parsed_seed.path or '/'}"
-    if not _url_passes_filters(seed_normalized, include_rules, exclude_rules):
-        return [], 0, None, 0, "complete"
+    if not _url_passes_excludes_only(seed_normalized, exclude_rules):
+        return [], 0, None, 0, "complete", 0
+    if not include_rules and not _url_passes_filters(seed_normalized, include_rules, exclude_rules):
+        return [], 0, None, 0, "complete", 0
 
     queue: deque[tuple[str, int]] = deque([(seed_normalized, 0)])
     seen: set[str] = set()
@@ -786,6 +940,7 @@ async def _crawl_pages(
     preview_image_url: str | None = None
     stored_text_bytes = 0
     stopped_reason = "complete"
+    http_visits = 0
 
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=_WEBSITE_CRAWL_HEADERS) as client:
         while queue and len(pages) < max_pages:
@@ -796,7 +951,11 @@ async def _crawl_pages(
             if url in seen:
                 continue
             seen.add(url)
+            if include_rules and len(seen) > DASHBOARD_BFS_INCLUDE_RULE_MAX_PAGES_VISITED:
+                stopped_reason = "discovery_cap"
+                break
             try:
+                http_visits += 1
                 response = await client.get(url)
                 status_code = int(response.status_code)
                 response.raise_for_status()
@@ -807,49 +966,59 @@ async def _crawl_pages(
                     preview_image_url = _extract_social_preview_image(html, url)
                 page_text = _extract_page_text(html)
                 page_title = _extract_page_title(html)
-                remaining_storage = max(0, crawl_budget_bytes - stored_text_bytes)
-                if remaining_storage <= 0 and len(pages) > 0:
-                    stopped_reason = "budget"
-                    break
-                page_text = _truncate_utf8_to_bytes(page_text, remaining_storage)
-                text_bytes = len(page_text.encode("utf-8")) if page_text else 0
-                stored_text_bytes += text_bytes
                 links = _extract_links(url, html)
                 links_discovered += len(links)
                 allow_more_links = stored_text_bytes < crawl_budget_bytes
                 for link in links:
                     if link in seen:
                         continue
-                    if not _url_passes_filters(link, include_rules, exclude_rules):
+                    if include_rules:
+                        if depth + 1 > DASHBOARD_BFS_INCLUDE_RULE_MAX_HOPS:
+                            continue
+                        passes_next_hop = _url_passes_excludes_only(link, exclude_rules)
+                    else:
+                        passes_next_hop = _url_passes_filters(link, include_rules, exclude_rules)
+                    if not passes_next_hop:
                         continue
                     if allow_more_links and len(pages) + len(queue) < max_pages * 4:
                         queue.append((link, depth + 1))
-                pages.append(
-                    {
-                        "url": url,
-                        "depth": depth,
-                        "http_status": status_code,
-                        "text": page_text,
-                        "title": page_title,
-                    }
-                )
-                if progress_hook and (
-                    len(pages) % max(1, progress_every) == 0 or len(pages) >= max_pages
-                ):
-                    await progress_hook(list(pages), stored_text_bytes)
-                if stored_text_bytes >= crawl_budget_bytes:
-                    stopped_reason = "budget"
-                    break
-                if len(pages) >= max_pages:
-                    stopped_reason = "max_pages_safety"
-                    break
+                if _url_passes_filters(url, include_rules, exclude_rules):
+                    remaining_storage = max(0, crawl_budget_bytes - stored_text_bytes)
+                    if remaining_storage <= 0 and len(pages) > 0:
+                        stopped_reason = "budget"
+                        break
+                    page_text = _truncate_utf8_to_bytes(page_text, remaining_storage)
+                    text_bytes = len(page_text.encode("utf-8")) if page_text else 0
+                    stored_text_bytes += text_bytes
+                    pages.append(
+                        {
+                            "url": url,
+                            "depth": depth,
+                            "http_status": status_code,
+                            "text": page_text,
+                            "title": page_title,
+                        }
+                    )
+                    if progress_hook and (
+                        len(pages) % max(1, progress_every) == 0
+                        or len(pages) >= max_pages
+                        or http_visits % 8 == 0
+                    ):
+                        await progress_hook(list(pages), stored_text_bytes, http_visits)
+                    if stored_text_bytes >= crawl_budget_bytes:
+                        stopped_reason = "budget"
+                        break
+                    if len(pages) >= max_pages:
+                        stopped_reason = "max_pages_safety"
+                        break
             except Exception:
-                pages.append({"url": url, "depth": depth, "http_status": None, "text": "", "title": None})
-                if progress_hook and len(pages) % max(1, progress_every) == 0:
-                    await progress_hook(list(pages), stored_text_bytes)
+                if _url_passes_filters(url, include_rules, exclude_rules):
+                    pages.append({"url": url, "depth": depth, "http_status": None, "text": "", "title": None})
+                    if progress_hook and len(pages) % max(1, progress_every) == 0:
+                        await progress_hook(list(pages), stored_text_bytes, http_visits)
     if stopped_reason == "complete" and len(pages) < max_pages:
         stopped_reason = "no_more_links"
-    return pages[:max_pages], links_discovered, preview_image_url, stored_text_bytes, stopped_reason
+    return pages[:max_pages], links_discovered, preview_image_url, stored_text_bytes, stopped_reason, http_visits
 
 
 def _sitemap_seed_urls(start_url: str) -> list[str]:
@@ -872,47 +1041,78 @@ async def _collect_sitemap_urls(
     max_urls: int,
     include_rules: list[dict[str, str]],
     exclude_rules: list[dict[str, str]],
+    *,
+    progress: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> list[str]:
+    """Discover page URLs from sitemap XML (supports nested index files).
+
+    Uses streaming ``iterparse`` so multi-megabyte catalog sitemaps (common on large shops)
+    do not block for minutes with no progress. Optional ``progress`` reports after each
+    sitemap document finishes parsing (docs scanned, URLs matched so far).
+    """
     results: list[str] = []
     seen_sitemaps: set[str] = set()
     sitemap_queue: deque[tuple[str, int]] = deque((u, 0) for u in _sitemap_seed_urls(start_url))
+    documents_fetched = 0
 
-    async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers=_WEBSITE_CRAWL_HEADERS) as client:
+    # Large regional catalog XML can exceed default read timeouts; discovery only uses this client.
+    sitemap_timeout = httpx.Timeout(180.0, connect=20.0)
+    async with httpx.AsyncClient(timeout=sitemap_timeout, follow_redirects=True, headers=_WEBSITE_CRAWL_HEADERS) as client:
         while sitemap_queue and len(results) < max_urls:
+            if documents_fetched >= SITEMAP_MAX_DOCUMENT_FETCHES:
+                break
             sm_url, depth = sitemap_queue.popleft()
             if sm_url in seen_sitemaps or depth > 8:
                 continue
             seen_sitemaps.add(sm_url)
+            documents_fetched += 1
             try:
                 response = await client.get(sm_url)
                 response.raise_for_status()
             except Exception:
+                if progress:
+                    await progress(documents_fetched, len(results))
                 continue
+            content = response.content
+            hit_cap = False
             try:
-                root = ET.fromstring(response.content)
+                for _event, elem in ET.iterparse(io.BytesIO(content), events=("end",)):
+                    if len(results) >= max_urls:
+                        hit_cap = True
+                        break
+                    local = _local_xml_tag(elem.tag)
+                    if local == "url":
+                        loc_text: str | None = None
+                        for el in elem:
+                            if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
+                                loc_text = el.text.strip()
+                                break
+                        elem.clear()
+                        if not loc_text:
+                            continue
+                        try:
+                            norm = _normalize_url_string(loc_text)
+                        except AppError:
+                            continue
+                        if _url_passes_filters(norm, include_rules, exclude_rules) and norm not in results:
+                            results.append(norm)
+                    elif local == "sitemap":
+                        for el in elem:
+                            if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
+                                raw_loc = el.text.strip()
+                                try:
+                                    norm_loc = _normalize_url_string(raw_loc)
+                                except AppError:
+                                    norm_loc = raw_loc
+                                sitemap_queue.append((norm_loc, depth + 1))
+                        elem.clear()
             except ET.ParseError:
-                continue
+                pass
 
-            for child in root:
-                local = _local_xml_tag(child.tag)
-                if local == "url":
-                    loc_text: str | None = None
-                    for el in child:
-                        if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
-                            loc_text = el.text.strip()
-                            break
-                    if not loc_text:
-                        continue
-                    try:
-                        norm = _normalize_url_string(loc_text)
-                    except AppError:
-                        continue
-                    if _url_passes_filters(norm, include_rules, exclude_rules) and norm not in results:
-                        results.append(norm)
-                elif local == "sitemap":
-                    for el in child:
-                        if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
-                            sitemap_queue.append((el.text.strip(), depth + 1))
+            if progress:
+                await progress(documents_fetched, len(results))
+            if hit_cap:
+                break
 
     return results[:max_urls]
 
@@ -1019,13 +1219,21 @@ async def _dashboard_flush_crawl_pages(
     pages_snapshot: list[dict[str, object]],
     pages_total_cap: int,
     crawl_http_bytes_so_far: int | None = None,
+    cumulative_pages_processed: int | None = None,
 ) -> None:
-    """Upsert page rows and bump job progress for UI polling."""
+    """Upsert page rows and bump job progress for UI polling.
+
+    ``pages_snapshot`` may be a **delta** (only new pages since last flush); pass
+    ``cumulative_pages_processed`` as total URLs processed so far for accurate progress.
+    """
+    await _require_knowledge_source_exists(db, source_id)
     for page in pages_snapshot:
         await _upsert_knowledge_source_page(
             db, source_id=source_id, crawl_run_id=crawl_run_id, user_id=user_id, page=page
         )
-    attempted = len(pages_snapshot)
+    attempted = (
+        cumulative_pages_processed if cumulative_pages_processed is not None else len(pages_snapshot)
+    )
     pct = 5 + int(min(19, 19 * attempted / max(pages_total_cap, 1)))
     mextra: dict[str, object] = {"crawl_phase": "fetching_html"}
     if crawl_http_bytes_so_far is not None:
@@ -1158,9 +1366,10 @@ async def _dashboard_fetch_planned_urls_in_batches(
             crawl_run_id=crawl_run_id,
             user_id=user_id,
             job_id=job_id,
-            pages_snapshot=all_pages,
+            pages_snapshot=batch_pages,
             pages_total_cap=n,
             crawl_http_bytes_so_far=total_saved,
+            cumulative_pages_processed=len(all_pages),
         )
         await db.commit()
         if stopped == "budget":
@@ -1346,13 +1555,55 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
         crawl_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
         pages_persisted_incrementally = False
         dashboard_planned_url_count: int | None = None
+        website_discovery_mode = "unknown"
+
+        async def _indexing_sitemap_progress(docs_scanned: int, urls_matched: int) -> None:
+            pct = min(
+                23,
+                5
+                + int(
+                    18
+                    * min(docs_scanned, SITEMAP_MAX_DOCUMENT_FETCHES)
+                    / max(SITEMAP_MAX_DOCUMENT_FETCHES, 1)
+                ),
+            )
+            await db.execute(
+                text(
+                    """
+                    update public.indexing_jobs
+                    set progress_pct = greatest(progress_pct, :pct),
+                        metrics = coalesce(metrics, '{}'::jsonb) || cast(:extra as jsonb)
+                    where id = :job_id
+                    """
+                ),
+                {
+                    "job_id": str(job_id),
+                    "pct": pct,
+                    "extra": json.dumps(
+                        {
+                            "crawl_phase": "sitemap_discovery",
+                            "sitemap_docs_fetched": docs_scanned,
+                            "sitemap_urls_matched": urls_matched,
+                        }
+                    ),
+                },
+            )
+            await db.commit()
 
         if mode == "individual":
+            website_discovery_mode = "individual"
             pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = await _fetch_pages_for_urls(
                 [source.source_url], crawl_budget_bytes=crawl_budget_bytes
             )
         elif mode == "sitemap":
-            sitemap_urls = await _collect_sitemap_urls(source.source_url, max_pages, include_rules, exclude_rules)
+            website_discovery_mode = "sitemap"
+            sitemap_urls = await _collect_sitemap_urls(
+                source.source_url,
+                max_pages,
+                include_rules,
+                exclude_rules,
+                progress=_indexing_sitemap_progress,
+            )
             if not sitemap_urls:
                 raise AppError(
                     code="knowledge.sitemap_empty",
@@ -1362,15 +1613,44 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                     ),
                     status_code=422,
                 )
-            pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = await _fetch_pages_for_urls(
-                sitemap_urls, crawl_budget_bytes=crawl_budget_bytes
-            )
+            dashboard_planned_url_count = len(sitemap_urls)
+            if md.get("origin") == "dashboard_website":
+                await _dashboard_seed_queued_urls(
+                    db,
+                    source_id=source.id,
+                    crawl_run_id=crawl_run_id,
+                    user_id=user_id,
+                    job_id=job_id,
+                    urls=sitemap_urls,
+                )
+                await db.commit()
+                pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = (
+                    await _dashboard_fetch_planned_urls_in_batches(
+                        db,
+                        job_id=job_id,
+                        source=source,
+                        user_id=user_id,
+                        crawl_run_id=crawl_run_id,
+                        urls=sitemap_urls,
+                        crawl_budget_bytes=crawl_budget_bytes,
+                    )
+                )
+                pages_persisted_incrementally = True
+            else:
+                pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = await _fetch_pages_for_urls(
+                    sitemap_urls, crawl_budget_bytes=crawl_budget_bytes
+                )
         else:
             if md.get("origin") == "dashboard_website":
                 sitemap_plan = await _collect_sitemap_urls(
-                    source.source_url, max_pages, include_rules, exclude_rules
+                    source.source_url,
+                    max_pages,
+                    include_rules,
+                    exclude_rules,
+                    progress=_indexing_sitemap_progress,
                 )
                 if len(sitemap_plan) > 0:
+                    website_discovery_mode = "sitemap"
                     dashboard_planned_url_count = len(sitemap_plan)
                     await _dashboard_seed_queued_urls(
                         db,
@@ -1394,6 +1674,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                     )
                     pages_persisted_incrementally = True
                 else:
+                    website_discovery_mode = "bfs"
                     await db.execute(
                         text(
                             """
@@ -1410,36 +1691,80 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                     )
                     await db.commit()
 
-                    async def _bfs_progress(snapshot: list[dict[str, object]], _bytes_so_far: int) -> None:
+                    _bfs_flush_cursor = [0]
+
+                    async def _bfs_progress(
+                        snapshot: list[dict[str, object]],
+                        _bytes_so_far: int,
+                        crawl_visits: int = 0,
+                    ) -> None:
+                        start = _bfs_flush_cursor[0]
+                        has_new_pages = start < len(snapshot)
+                        if not has_new_pages and crawl_visits == 0:
+                            return
+                        delta = snapshot[start:] if has_new_pages else []
+                        if has_new_pages:
+                            _bfs_flush_cursor[0] = len(snapshot)
+                        cumulative = max(len(snapshot), crawl_visits)
                         await _dashboard_flush_crawl_pages(
                             db,
                             source_id=source.id,
                             crawl_run_id=crawl_run_id,
                             user_id=user_id,
                             job_id=job_id,
-                            pages_snapshot=snapshot,
-                            pages_total_cap=max(1, len(snapshot)),
+                            pages_snapshot=delta,
+                            pages_total_cap=max_pages,
+                            crawl_http_bytes_so_far=_bytes_so_far,
+                            cumulative_pages_processed=cumulative,
                         )
                         await db.commit()
 
-                    pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = await _crawl_pages(
-                        source.source_url,
-                        max_pages,
-                        include_rules,
-                        exclude_rules,
-                        crawl_budget_bytes=crawl_budget_bytes,
-                        progress_hook=_bfs_progress,
+                    pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason, bfs_visits = (
+                        await _crawl_pages(
+                            source.source_url,
+                            max_pages,
+                            include_rules,
+                            exclude_rules,
+                            crawl_budget_bytes=crawl_budget_bytes,
+                            progress_hook=_bfs_progress,
+                        )
                     )
-                    await _bfs_progress(pages, crawl_http_bytes)
+                    await _bfs_progress(pages, crawl_http_bytes, bfs_visits)
                     pages_persisted_incrementally = True
             else:
-                pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = await _crawl_pages(
+                website_discovery_mode = "bfs"
+                pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason, _ = await _crawl_pages(
                     source.source_url, max_pages, include_rules, exclude_rules, crawl_budget_bytes=crawl_budget_bytes
                 )
 
         usable_pages = [p for p in pages if str(p["text"]).strip()]
+        fetch_stats = _website_fetch_page_stats(pages)
+        planned_urls_metrics = (
+            dashboard_planned_url_count if dashboard_planned_url_count is not None else len(pages)
+        )
         if not usable_pages:
-            raise AppError(code="knowledge.scrape_empty", message="Website returned no readable text", status_code=422)
+            raise AppError(
+                code="knowledge.scrape_empty",
+                message="No usable text from fetched pages (all empty, failed HTTP, or blocked by crawl budget).",
+                status_code=422,
+                details={
+                    "discovery_mode": website_discovery_mode,
+                    "urls_planned": planned_urls_metrics,
+                    **fetch_stats,
+                    "crawl_stopped_reason": crawl_stopped_reason,
+                    "filter_summary": _website_filter_summary(include_rules, exclude_rules),
+                },
+            )
+
+        partial_warnings: list[dict[str, object]] = []
+        if len(usable_pages) < len(pages):
+            partial_warnings.append(
+                {
+                    "code": "partial_empty_text",
+                    "indexed_urls": len(usable_pages),
+                    "skipped_empty_urls": len(pages) - len(usable_pages),
+                }
+            )
 
         if pages_persisted_incrementally:
             await db.execute(
@@ -1458,6 +1783,8 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                             "crawl_http_bytes": crawl_http_bytes,
                             "crawl_stopped_reason": crawl_stopped_reason,
                             "urls_fetched": len(pages),
+                            "discovery_mode": website_discovery_mode,
+                            **fetch_stats,
                         }
                     ),
                 },
@@ -1475,6 +1802,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             )
 
         if not pages_persisted_incrementally:
+            await _require_knowledge_source_exists(db, source.id)
             for page in pages:
                 await _upsert_knowledge_source_page(
                     db,
@@ -1613,18 +1941,24 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             {"source_id": str(source.id)},
         )
         planned_urls = dashboard_planned_url_count if dashboard_planned_url_count is not None else len(pages)
-        success_metrics = json.dumps(
-            {
-                "chunk_count": chunks_persisted,
-                "indexed_source_bytes": indexed_source_bytes,
-                "crawl_http_bytes": crawl_http_bytes,
-                "crawl_budget_bytes": crawl_budget_bytes,
-                "crawl_stopped_reason": crawl_stopped_reason,
-                "storage_stopped_reason": storage_stopped_reason,
-                "urls_planned": planned_urls,
-                "urls_fetched": len(pages),
-            }
-        )
+        success_metrics_obj: dict[str, object] = {
+            "chunk_count": chunks_persisted,
+            "indexed_source_bytes": indexed_source_bytes,
+            "crawl_http_bytes": crawl_http_bytes,
+            "crawl_budget_bytes": crawl_budget_bytes,
+            "crawl_stopped_reason": crawl_stopped_reason,
+            "storage_stopped_reason": storage_stopped_reason,
+            "urls_planned": planned_urls,
+            "urls_fetched": len(pages),
+            "urls_indexed": len(usable_pages),
+            "discovery_mode": website_discovery_mode,
+            "filter_summary": _website_filter_summary(include_rules, exclude_rules),
+            "links_discovered_raw_anchors": links_discovered,
+            "fetch_stats": fetch_stats,
+        }
+        if partial_warnings:
+            success_metrics_obj["warnings"] = partial_warnings
+        success_metrics = json.dumps(success_metrics_obj, default=str)
         await db.execute(
             text(
                 """
@@ -1669,6 +2003,14 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
         await db.commit()
         return preview_image_url
     except Exception as exc:
+        if isinstance(exc, IntegrityError):
+            detail = str(getattr(exc, "orig", None) or exc)
+            if "knowledge_source_pages_knowledge_source_id_fkey" in detail:
+                exc = AppError(
+                    code="knowledge.source_removed",
+                    message="This website source was deleted while indexing was still running.",
+                    status_code=409,
+                )
         await _finalize_indexing_failure(
             db,
             job_id=job_id,
@@ -2476,6 +2818,7 @@ async def list_website_sources_for_agent(
               s.metadata,
               s.status::text as status,
               s.last_indexed_at,
+              s.error_message as error_message,
               coalesce(cnt.c, 0) as link_count,
               j.status::text as latest_job_status,
               j.phase::text as latest_job_phase,
@@ -2516,6 +2859,10 @@ async def list_website_sources_for_agent(
             row.get("job_pages_processed"),
             storage_cap_bytes=storage_cap_bytes,
         )
+        meta_raw = row.get("metadata")
+        meta = dict(meta_raw) if isinstance(meta_raw, dict) else {}
+        dup_r = meta.get("duplicate_reason")
+        dup_sid = meta.get("duplicate_of_source_id")
         out.append(
             WebsiteSourceListItemDTO(
                 id=row["id"],
@@ -2526,13 +2873,16 @@ async def list_website_sources_for_agent(
                 website_mode=mode,  # type: ignore[arg-type]
                 link_count=int(row["link_count"] or 0),
                 last_indexed_at=row["last_indexed_at"],
+                error_message=str(row["error_message"]).strip() if row.get("error_message") else None,
                 latest_job_status=str(row["latest_job_status"]) if row["latest_job_status"] else None,
                 latest_job_phase=str(row["latest_job_phase"]) if row["latest_job_phase"] else None,
                 job_pages_total=int(row["job_pages_total"]) if row.get("job_pages_total") is not None else None,
                 job_pages_processed=int(row["job_pages_processed"]) if row.get("job_pages_processed") is not None else None,
                 job_progress_pct=int(row["job_progress_pct"]) if row.get("job_progress_pct") is not None else None,
                 job_crawl_limit_exceeded=lim,
-                reindexed_duplicate=bool((row.get("metadata") or {}).get("reindexed_duplicate", False)),
+                reindexed_duplicate=bool(meta.get("reindexed_duplicate", False)),
+                duplicate_reason=str(dup_r) if dup_r else None,
+                duplicate_of_source_id=str(dup_sid) if dup_sid else None,
             )
         )
     return out
@@ -3304,6 +3654,68 @@ def _url_duplicate_key(url: str) -> str:
     return re.sub(r"/+$", "", url.strip().lower())
 
 
+def _canonical_path_rule_pairs(rules: list[dict[str, str]]) -> list[tuple[str, str]]:
+    pairs = sorted(
+        ((str(r.get("operator", "")), str(r.get("pattern", ""))) for r in rules),
+        key=lambda t: (t[0], t[1]),
+    )
+    return pairs
+
+
+def _dashboard_path_rules_match(
+    incoming_include: list[dict[str, str]],
+    incoming_exclude: list[dict[str, str]],
+    stored_metadata: dict[str, Any] | None,
+) -> bool:
+    """True when stored source metadata has the same include/exclude path rules (order-independent)."""
+    md = stored_metadata if isinstance(stored_metadata, dict) else {}
+    raw_inc = md.get("include_rules") or []
+    raw_exc = md.get("exclude_rules") or []
+    if not isinstance(raw_inc, list):
+        raw_inc = []
+    if not isinstance(raw_exc, list):
+        raw_exc = []
+    st_inc = [dict(x) for x in raw_inc if isinstance(x, dict)]
+    st_exc = [dict(x) for x in raw_exc if isinstance(x, dict)]
+    return _canonical_path_rule_pairs(incoming_include) == _canonical_path_rule_pairs(
+        st_inc
+    ) and _canonical_path_rule_pairs(incoming_exclude) == _canonical_path_rule_pairs(st_exc)
+
+
+def _website_filter_summary(
+    include_rules: list[dict[str, str]], exclude_rules: list[dict[str, str]]
+) -> dict[str, list[dict[str, str]]]:
+    """Canonical filter lists for job metrics (order-independent)."""
+    inc = [{"operator": o, "pattern": p} for o, p in _canonical_path_rule_pairs(include_rules)]
+    exc = [{"operator": o, "pattern": p} for o, p in _canonical_path_rule_pairs(exclude_rules)]
+    return {"include_rules": inc, "exclude_rules": exc}
+
+
+def _website_fetch_page_stats(pages: list[dict[str, object]]) -> dict[str, int]:
+    """Counts from in-memory page dicts after HTTP fetch (before embedding)."""
+    total = len(pages)
+    empty_text = sum(1 for p in pages if not str(p.get("text") or "").strip())
+    http_missing = sum(1 for p in pages if p.get("http_status") is None)
+    http_4xx = sum(
+        1
+        for p in pages
+        if isinstance(p.get("http_status"), int) and 400 <= int(p["http_status"]) < 500
+    )
+    http_5xx = sum(
+        1
+        for p in pages
+        if isinstance(p.get("http_status"), int) and int(p["http_status"]) >= 500
+    )
+    return {
+        "urls_fetched": total,
+        "urls_empty_text": empty_text,
+        "urls_with_text": total - empty_text,
+        "urls_http_missing": http_missing,
+        "urls_http_4xx": http_4xx,
+        "urls_http_5xx": http_5xx,
+    }
+
+
 async def _fetch_active_subscription_plan(
     db: AsyncSession, user_id: UUID
 ) -> tuple[str, str, dict[str, Any]]:
@@ -3331,15 +3743,25 @@ async def _fetch_active_subscription_plan(
 
 
 async def _find_dashboard_website_duplicate(
-    db: AsyncSession, user_id: UUID, agent_id: UUID, normalized_url: str
+    db: AsyncSession,
+    user_id: UUID,
+    agent_id: UUID,
+    normalized_url: str,
+    *,
+    include_rules: list[dict[str, str]],
+    exclude_rules: list[dict[str, str]],
 ) -> tuple[UUID, str] | None:
-    """If this URL is already covered by another website source or indexed page, return (source_id, reason)."""
+    """If the same seed URL + path rules already exist, return (source_id, reason).
+
+    Path include/exclude lists are part of identity: a filtered crawl (e.g. ``contains /foo/``)
+    is not a duplicate of an unfiltered crawl that indexed the same homepage URL.
+    """
     key = _url_duplicate_key(normalized_url)
-    r_page = (
+    r_pages = (
         await db.execute(
             text(
                 """
-                select s.id::text as sid
+                select s.id::text as sid, s.metadata
                 from public.knowledge_source_pages p
                 join public.knowledge_sources s on s.id = p.knowledge_source_id
                 where s.user_id = cast(:user_id as uuid)
@@ -3347,20 +3769,22 @@ async def _find_dashboard_website_duplicate(
                   and s.type = 'website'
                   and s.status::text <> 'skipped_duplicate'
                   and regexp_replace(lower(btrim(p.url)), '/+$', '') = :url_key
-                limit 1
                 """
             ),
             {"user_id": str(user_id), "agent_id": str(agent_id), "url_key": key},
         )
-    ).mappings().first()
-    if r_page is not None:
-        return UUID(str(r_page["sid"])), "page_already_indexed"
+    ).mappings().all()
+    for row in r_pages:
+        md = row.get("metadata")
+        meta_dict = dict(md) if isinstance(md, dict) else {}
+        if _dashboard_path_rules_match(include_rules, exclude_rules, meta_dict):
+            return UUID(str(row["sid"])), "page_already_indexed"
 
-    r_root = (
+    r_roots = (
         await db.execute(
             text(
                 """
-                select id::text as sid
+                select id::text as sid, metadata
                 from public.knowledge_sources
                 where user_id = cast(:user_id as uuid)
                   and agent_id = cast(:agent_id as uuid)
@@ -3368,14 +3792,16 @@ async def _find_dashboard_website_duplicate(
                   and status::text not in ('skipped_duplicate', 'failed')
                   and source_url is not null
                   and regexp_replace(lower(btrim(source_url)), '/+$', '') = :url_key
-                limit 1
                 """
             ),
             {"user_id": str(user_id), "agent_id": str(agent_id), "url_key": key},
         )
-    ).mappings().first()
-    if r_root is not None:
-        return UUID(str(r_root["sid"])), "same_root_url"
+    ).mappings().all()
+    for row in r_roots:
+        md = row.get("metadata")
+        meta_dict = dict(md) if isinstance(md, dict) else {}
+        if _dashboard_path_rules_match(include_rules, exclude_rules, meta_dict):
+            return UUID(str(row["sid"])), "same_root_url"
     return None
 
 

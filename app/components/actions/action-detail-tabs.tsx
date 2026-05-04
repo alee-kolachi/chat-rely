@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { BackendApiError, backendFetch, backendNdjsonStream } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 import { IconCheck, IconWarning, IconPlay, IconClock, IconShield } from "./action-icons";
+import type { ApiActionCatalogEntry } from "./action-catalog-types";
 import type {
   ShopifyAction,
   ShopifyActionConfigField,
@@ -20,9 +22,12 @@ const ALL_TABS: { id: TabId; label: string }[] = [
 
 type ActionDetailTabsProps = {
   action: ShopifyAction;
+  /** Live catalog row — drives Permissions tab (OAuth scopes), not static demo flags. */
+  catalogEntry?: ApiActionCatalogEntry | null;
+  selectedAgentId?: string | null;
 };
 
-export function ActionDetailTabs({ action }: ActionDetailTabsProps) {
+export function ActionDetailTabs({ action, catalogEntry, selectedAgentId }: ActionDetailTabsProps) {
   const isComingSoon = action.status === "coming-soon";
   const tabs = useMemo(
     () => (isComingSoon ? ALL_TABS.filter((tab) => tab.id !== "test") : ALL_TABS),
@@ -63,8 +68,12 @@ export function ActionDetailTabs({ action }: ActionDetailTabsProps) {
         {activeTab === "overview" && <OverviewPanel action={action} />}
         {activeTab === "configuration" && <ConfigurationPanel action={action} />}
         {activeTab === "triggering" && <TriggeringPanel action={action} />}
-        {activeTab === "permissions" && <PermissionsPanel action={action} />}
-        {activeTab === "test" && !isComingSoon && <TestRunPanel action={action} />}
+        {activeTab === "permissions" && (
+          <PermissionsPanel action={action} catalogEntry={catalogEntry} />
+        )}
+        {activeTab === "test" && !isComingSoon && (
+          <TestRunPanel action={action} selectedAgentId={selectedAgentId} />
+        )}
       </div>
     </div>
   );
@@ -116,7 +125,7 @@ function ConfigurationPanel({ action }: { action: ShopifyAction }) {
     <div className="space-y-6">
       <SectionHeading
         title="Configuration"
-        hint="Tune how this action behaves. Changes apply on save."
+        hint="Optional defaults only—turning the action on is enough for chat. Tune these when you want stricter limits or field preferences."
       />
       <div className="grid grid-cols-1 gap-5">
         {action.configFields.map((field) => (
@@ -281,17 +290,32 @@ function TriggeringPanel({ action }: { action: ShopifyAction }) {
   );
 }
 
-function PermissionsPanel({ action }: { action: ShopifyAction }) {
-  const allGranted = action.scopes.every((s) => s.granted);
+function PermissionsPanel({
+  action,
+  catalogEntry,
+}: {
+  action: ShopifyAction;
+  catalogEntry?: ApiActionCatalogEntry | null;
+}) {
+  const grantedSet = new Set((catalogEntry?.connection_scopes ?? []).map((s) => s.toLowerCase()))
+  const requiredFromApi = catalogEntry?.required_scopes?.length
+    ? catalogEntry.required_scopes
+    : action.scopes.map((s) => s.name)
+  const rows = requiredFromApi.map((name) => ({
+    name,
+    granted: grantedSet.has(name.toLowerCase()),
+  }))
+  const allGranted = rows.length > 0 && rows.every((r) => r.granted)
+
   return (
     <div className="space-y-6">
       <section>
         <SectionHeading
           title="Required Shopify scopes"
-          hint="The agent uses these OAuth scopes when calling this action."
+          hint="Compared against scopes granted by your Shopify connection (live data)."
         />
         <div className="border-ds-outline rounded-ds-md divide-ds-outline divide-y border bg-white">
-          {action.scopes.map((scope) => (
+          {rows.map((scope) => (
             <div key={scope.name} className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3">
                 <IconShield className="text-ds-on-surface-variant size-4" />
@@ -328,20 +352,104 @@ function PermissionsPanel({ action }: { action: ShopifyAction }) {
   );
 }
 
-function TestRunPanel({ action }: { action: ShopifyAction }) {
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ latencyMs: number; output: Record<string, unknown> } | null>(
-    null
-  );
+type ConversationApiMessage = {
+  role: string;
+  tool_name?: string | null;
+  created_at?: string;
+  content?: string;
+};
 
-  function runTest() {
+function expectedToolNameForAction(actionId: string): string | null {
+  if (actionId === "product-search") return "shopify_product_search";
+  if (actionId === "order-lookup") return "shopify_order_lookup";
+  if (actionId === "inventory-check") return "shopify_inventory_check";
+  if (actionId === "customer-profile") return "shopify_customer_context";
+  return null;
+}
+
+function buildTestMessage(action: ShopifyAction, values: Record<string, string>): string {
+  const lines = action.testFields
+    .map((f) => values[f.key]?.trim())
+    .filter((v): v is string => Boolean(v && v.length > 0));
+  if (lines.length > 0) return lines.join("\n");
+  return action.triggerExamples[0] ?? `Please test ${action.label.toLowerCase()}.`;
+}
+
+function parseMaybeJson(raw: string | undefined): unknown {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { raw };
+  }
+}
+
+function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; selectedAgentId?: string | null }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(action.testFields.map((f) => [f.key, f.defaultValue ?? ""]))
+  );
+  const [result, setResult] = useState<{
+    latencyMs: number;
+    output: unknown;
+    assistantResponse: string;
+    toolsInvoked: string[];
+  } | null>(null);
+
+  async function runTest() {
+    if (!selectedAgentId) return;
     setRunning(true);
+    setError(null);
     setResult(null);
-    const fakeLatency = 350 + Math.floor(Math.random() * 400);
-    window.setTimeout(() => {
-      setResult({ latencyMs: fakeLatency, output: action.exampleOutput });
+    const started = performance.now();
+    try {
+      const data = {
+        conversation_id: "",
+        response: "",
+        tools_invoked: [] as string[],
+      };
+      for await (const ev of backendNdjsonStream("/api/v1/runtime/chat/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: selectedAgentId,
+          message: buildTestMessage(action, fieldValues),
+          visitor_id: `action-test-${action.id}`,
+        }),
+      })) {
+        if (ev.type === "start") {
+          data.conversation_id = ev.conversation_id;
+        } else if (ev.type === "done") {
+          data.conversation_id = ev.conversation_id;
+          data.response = typeof ev.response === "string" ? ev.response : "";
+          data.tools_invoked = Array.isArray(ev.tools_invoked) ? ev.tools_invoked : [];
+        } else if (ev.type === "error") {
+          throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
+        }
+      }
+      if (!data.conversation_id) {
+        throw new Error("Stream completed without a conversation id");
+      }
+      const conv = await backendFetch<{ messages: ConversationApiMessage[] }>(
+        `/api/v1/conversations/${data.conversation_id}`
+      );
+      const expectedTool = expectedToolNameForAction(action.id);
+      const latestTool = [...conv.messages]
+        .reverse()
+        .find((m) => m.role === "tool" && (!expectedTool || m.tool_name === expectedTool));
+      setResult({
+        latencyMs: Math.round(performance.now() - started),
+        output: parseMaybeJson(latestTool?.content),
+        assistantResponse: data.response,
+        toolsInvoked: data.tools_invoked ?? [],
+      });
+    } catch (e) {
+      const msg =
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Failed to run live test";
+      setError(msg);
+    } finally {
       setRunning(false);
-    }, fakeLatency);
+    }
   }
 
   return (
@@ -358,8 +466,14 @@ function TestRunPanel({ action }: { action: ShopifyAction }) {
             </label>
             <input
               type="text"
-              defaultValue={field.defaultValue}
+              value={fieldValues[field.key] ?? ""}
               placeholder={field.placeholder}
+              onChange={(e) =>
+                setFieldValues((prev) => ({
+                  ...prev,
+                  [field.key]: e.target.value,
+                }))
+              }
               className="ds-app-field rounded-ds-md"
             />
           </div>
@@ -370,13 +484,18 @@ function TestRunPanel({ action }: { action: ShopifyAction }) {
         <button
           type="button"
           onClick={runTest}
-          disabled={running}
+          disabled={running || !selectedAgentId}
           className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center gap-2 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
         >
           <IconPlay className="size-4" />
           {running ? "Running..." : "Run test"}
         </button>
       </div>
+      {error ? (
+        <div className="border-ds-outline rounded-ds-md border bg-rose-50 px-3 py-2 text-sm text-rose-900">
+          {error}
+        </div>
+      ) : null}
 
       {result && (
         <div className="border-ds-outline rounded-ds-md overflow-hidden border">
@@ -392,6 +511,10 @@ function TestRunPanel({ action }: { action: ShopifyAction }) {
           <pre className="bg-white p-4 text-[12px] leading-relaxed text-ds-on-surface overflow-x-auto">
             <code>{JSON.stringify(result.output, null, 2)}</code>
           </pre>
+          <div className="border-ds-outline border-t bg-ds-sidebar/30 p-3 text-xs text-ds-on-surface-variant">
+            <p>Tools invoked: {result.toolsInvoked.length ? result.toolsInvoked.join(", ") : "none"}</p>
+            <p className="mt-1">Assistant: {result.assistantResponse}</p>
+          </div>
         </div>
       )}
     </div>

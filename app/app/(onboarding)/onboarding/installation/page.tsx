@@ -37,16 +37,22 @@ export default function InstallationOnboardingPage() {
     return `${path}?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
 
+  const playgroundHref = useMemo(() => {
+    if (!agentId) return "/playground";
+    return `/playground?agentId=${encodeURIComponent(agentId)}`;
+  }, [agentId]);
+
   return (
     <OnboardingFrame
       activeItem="Installation"
       completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone", "Agent Preview"]}
       stepLabel="Step 6 of 6"
+      linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
           backHref={pricingBackHref}
           backLabel="Back"
-          primaryHref="/onboarding/complete"
+          primaryHref={playgroundHref}
           primaryLabel="Finish"
         />
       }
@@ -193,7 +199,7 @@ export default function InstallationOnboardingPage() {
 
                     <p className="text-ds-on-surface-variant shrink-0 text-[11px] leading-snug sm:text-xs">
                       Need a different surface?{" "}
-                      <Link href="/settings" className="text-ds-primary font-semibold underline underline-offset-2">
+                      <Link href="/agent-settings/general" className="text-ds-primary font-semibold underline underline-offset-2">
                         Settings
                       </Link>{" "}
                       lists every install path.

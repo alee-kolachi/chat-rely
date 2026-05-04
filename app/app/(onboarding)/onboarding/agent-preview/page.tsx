@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
-import { backendFetch } from "@/lib/backend-api";
+import { BackendApiError, backendNdjsonStream } from "@/lib/backend-api";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
@@ -50,14 +50,10 @@ export default function AgentPreviewOnboardingPage() {
     setInput("");
     setError(null);
     setMessages((prev) => [...prev, { from: "user", text: message }]);
+    setMessages((prev) => [...prev, { from: "assistant", text: "" }]);
     setIsSending(true);
     try {
-      const data = await backendFetch<{
-        conversation_id: string;
-        response: string;
-        fallback_used: boolean;
-        retrieval_count: number;
-      }>("/api/v1/runtime/chat", {
+      for await (const ev of backendNdjsonStream("/api/v1/runtime/chat/stream", {
         method: "POST",
         body: JSON.stringify({
           agent_id: agentId,
@@ -65,16 +61,50 @@ export default function AgentPreviewOnboardingPage() {
           conversation_id: conversationId,
           visitor_id: "onboarding-preview",
         }),
-      });
-      setConversationId(data.conversation_id);
-      setMessages((prev) => [...prev, { from: "assistant", text: data.response }]);
-      setRetrievalSummary(
-        data.fallback_used
-          ? "Fallback answer used (low confidence retrieval)."
-          : `Retrieved ${data.retrieval_count} chunk(s).`
-      );
+      })) {
+        if (ev.type === "start") {
+          setConversationId(ev.conversation_id);
+        } else if (ev.type === "token") {
+          setMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            if (last.from !== "assistant") return prev;
+            const next = [...prev];
+            next[next.length - 1] = { from: "assistant", text: last.text + ev.text };
+            return next;
+          });
+        } else if (ev.type === "done") {
+          setConversationId(ev.conversation_id);
+          const reply = typeof ev.response === "string" ? ev.response : "";
+          setMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            if (last.from !== "assistant") return prev;
+            const next = [...prev];
+            next[next.length - 1] = { from: "assistant", text: reply };
+            return next;
+          });
+          const fb = Boolean(ev.fallback_used);
+          const rc =
+            typeof ev.retrieval_count === "number" && Number.isFinite(ev.retrieval_count)
+              ? ev.retrieval_count
+              : 0;
+          setRetrievalSummary(
+            fb ? "Fallback answer used (low confidence retrieval)." : `Retrieved ${rc} chunk(s).`
+          );
+        } else if (ev.type === "error") {
+          throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send preview message");
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.from === "assistant" && !(last.text ?? "").trim()) {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
     } finally {
       setIsSending(false);
     }
@@ -85,6 +115,7 @@ export default function AgentPreviewOnboardingPage() {
       activeItem="Agent Preview"
       completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone"]}
       stepLabel="Step 5 of 6"
+      linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
           backHref={appearanceBackHref}

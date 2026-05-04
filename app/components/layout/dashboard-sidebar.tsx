@@ -30,21 +30,16 @@ const navItems: NavItem[] = [
       { href: "/knowledge/q-and-a", label: "Q&A" },
     ],
   },
-  { href: "/actions", label: "Actions", icon: IconActions },
+  { href: "/actions", label: "Actions & integrations", icon: IconActions },
   { href: "/conversations", label: "Conversations", icon: IconConversations },
   { href: "/tickets", label: "Tickets", icon: IconTickets },
   { href: "/deploy", label: "Deploy", icon: IconDeploy },
   { href: "/usage", label: "Usage", icon: IconUsage },
   {
-    href: "/settings",
-    label: "Settings",
+    href: "/agent-settings",
+    label: "Agent settings",
     icon: IconSettings,
-    children: [
-      { href: "/settings/general", label: "General" },
-      { href: "/settings/plan", label: "Plan" },
-      { href: "/settings/billing", label: "Billing" },
-      { label: "Log out", action: "logout" },
-    ],
+    children: [{ href: "/agent-settings/general", label: "General" }],
   },
 ];
 

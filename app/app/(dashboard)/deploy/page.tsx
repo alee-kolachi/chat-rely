@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { DeployShopifyStatus } from "@/components/deploy/deploy-shopify-status";
 import { cn } from "@/lib/utils";
 
 const setupSteps = [
@@ -33,37 +35,24 @@ export default function DeployPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors"
+            <a
+              href="https://www.shopify.com"
+              target="_blank"
+              rel="noreferrer"
+              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors"
             >
               Open Shopify
-            </button>
-            <button
-              type="button"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+            </a>
+            <Link
+              href="/actions#shopify-integration"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex cursor-pointer rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
             >
               Connect store
-            </button>
+            </Link>
           </div>
         </header>
 
-        <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="ds-app-section-title text-base">Shopify integration</p>
-              <p className="text-ds-on-surface-variant mt-1 text-sm">
-                Store: <span className="text-ds-on-surface font-semibold">mystore.myshopify.com</span>
-              </p>
-            </div>
-            <span className="ds-app-kicker rounded-ds-md bg-emerald-100 px-2 py-1 font-semibold text-emerald-800">
-              Connected
-            </span>
-          </div>
-          <div className="mt-4 rounded-ds-md border border-emerald-200 bg-emerald-50/90 p-3 text-sm leading-relaxed text-emerald-950">
-            No manual embed code needed. The widget is added once the Shopify app is installed and authorized.
-          </div>
-        </section>
+        <DeployShopifyStatus />
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_1fr]">
           <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
@@ -153,12 +142,12 @@ export default function DeployPage() {
               <ChecklistItem text="Escalate to Human fallback enabled" checked />
             </div>
             <div className="mt-5">
-              <button
-                type="button"
-                className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar w-full rounded-ds-md border bg-white px-3 py-2.5 text-sm font-semibold transition-colors"
+              <Link
+                href="/actions#shopify-integration"
+                className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex w-full cursor-pointer justify-center rounded-ds-md border bg-white px-3 py-2.5 text-center text-sm font-semibold transition-colors"
               >
-                Open Actions setup
-              </button>
+                Open Actions & integrations
+              </Link>
             </div>
           </article>
         </section>

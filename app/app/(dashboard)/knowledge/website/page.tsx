@@ -49,6 +49,7 @@ type WebsiteSourceListRow = {
   website_mode: string | null;
   link_count: number;
   last_indexed_at: string | null;
+  error_message?: string | null;
   latest_job_status: string | null;
   latest_job_phase: string | null;
   job_pages_total?: number | null;
@@ -56,6 +57,8 @@ type WebsiteSourceListRow = {
   job_progress_pct?: number | null;
   job_crawl_limit_exceeded?: boolean;
   reindexed_duplicate?: boolean;
+  duplicate_reason?: string | null;
+  duplicate_of_source_id?: string | null;
 };
 
 type WebsitePageItem = {
@@ -99,6 +102,19 @@ function newChipId(): string {
   return String(Date.now()) + Math.random().toString(16).slice(2);
 }
 
+function duplicateSourceSummary(source: WebsiteSourceListRow): string {
+  const r = source.duplicate_reason;
+  if (r === "same_root_url") {
+    return `No crawl ran: the same website URL and path rules are already configured on another source for this agent${
+      source.duplicate_of_source_id ? ` (existing source ${source.duplicate_of_source_id.slice(0, 8)}…).` : "."
+    }`;
+  }
+  if (r === "page_already_indexed") {
+    return "No crawl ran: this exact seed URL is already stored as an indexed page under another website source for this agent.";
+  }
+  return "No crawl ran: skipped as a duplicate of existing website coverage for this agent.";
+}
+
 async function fetchWebsiteSources(agentId: string): Promise<WebsiteSourceListRow[]> {
   const data = await backendFetch<{ sources: WebsiteSourceListRow[] }>(
     `/api/v1/knowledge/website/sources?agent_id=${encodeURIComponent(agentId)}`
@@ -136,6 +152,8 @@ export default function KnowledgeWebsitePage() {
   const [sortKey, setSortKey] = useSortPreference("website");
   const [pageCache, setPageCache] = useState<Record<string, WebsitePageItem[]>>({});
   const [searchPagesLoading, setSearchPagesLoading] = useState(false);
+  const [urlPreviewLine, setUrlPreviewLine] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const supportsAdvancedOptions = sourceType !== "individual";
   const submitLabel =
@@ -144,7 +162,49 @@ export default function KnowledgeWebsitePage() {
   const handleSourceTypeChange = (next: SourceType) => {
     setSourceType(next);
     setShowAdvancedOptions(false);
+    setUrlPreviewLine(null);
   };
+
+  async function handlePreviewFilteredUrls() {
+    if (!selectedAgentId || !urlInput.trim()) {
+      setError("Select an agent and enter a URL.");
+      return;
+    }
+    setPreviewLoading(true);
+    setUrlPreviewLine(null);
+    setError(null);
+    try {
+      const data = await backendFetch<{
+        discovery_mode: string;
+        filtered_url_count: number;
+        sample_urls: string[];
+        truncated: boolean;
+        message: string | null;
+      }>("/api/v1/knowledge/website/preview-urls", {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: selectedAgentId,
+          protocol,
+          url_input: urlInput.trim(),
+          title: null,
+          include_rules: includeChips.map((c) => ({ operator: c.operator, pattern: c.pattern })),
+          exclude_rules: excludeChips.map((c) => ({ operator: c.operator, pattern: c.pattern })),
+          max_sample_urls: 25,
+        }),
+      });
+      if (data.discovery_mode === "sitemap") {
+        setUrlPreviewLine(
+          `From sitemap: about ${data.filtered_url_count} URL(s) match your filters${data.truncated ? " (preview capped)" : ""}.`,
+        );
+      } else {
+        setUrlPreviewLine(data.message ?? "Sitemap returned no matching URLs; a crawl would use link following.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Preview failed");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedAgentId) return;
@@ -360,6 +420,7 @@ export default function KnowledgeWebsitePage() {
       setIncludeChips([]);
       setExcludeChips([]);
       setShowAdvancedOptions(false);
+      setUrlPreviewLine(null);
       await silentRefreshSources();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request failed");
@@ -506,6 +567,21 @@ export default function KnowledgeWebsitePage() {
                           }
                           onRemove={(id) => setExcludeChips((prev) => prev.filter((c) => c.id !== id))}
                         />
+                        {(sourceType === "crawl" || sourceType === "sitemap") && (
+                          <div className="border-ds-outline space-y-2 rounded-ds-lg border border-dashed p-3">
+                            <button
+                              type="button"
+                              disabled={previewLoading || !selectedAgentId || !urlInput.trim()}
+                              className="text-ds-primary hover:text-ds-secondary cursor-pointer text-sm font-semibold underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => void handlePreviewFilteredUrls()}
+                            >
+                              {previewLoading ? "Checking sitemap…" : "Estimate filtered URLs (sitemap only)"}
+                            </button>
+                            {urlPreviewLine ? (
+                              <p className="text-ds-on-surface-variant text-xs leading-relaxed">{urlPreviewLine}</p>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -766,10 +842,12 @@ function WebsiteSourceRow({
       }>(
         `/api/v1/knowledge/website/sources/${encodeURIComponent(source.id)}/pages?offset=${nextOffset}&limit=${nextLimit}`
       );
-      const merged = append ? [...pageItems, ...data.pages] : data.pages;
-      setPageItems(merged);
+      setPageItems((prev) => {
+        const merged = append ? [...prev, ...data.pages] : data.pages;
+        if (merged.length >= data.total) onPagesCached(merged);
+        return merged;
+      });
       setPageTotal(data.total);
-      if (merged.length >= data.total) onPagesCached(merged);
     } catch (e) {
       onError(e instanceof Error ? e.message : "Failed to load URLs");
     }
@@ -845,36 +923,33 @@ function WebsiteSourceRow({
       ((source.job_pages_processed ?? 0) < source.job_pages_total &&
         (source.latest_job_status === "succeeded" || source.status === "ready")));
 
+  const jobFailed =
+    source.status === "failed" ||
+    source.latest_job_status === "failed" ||
+    source.latest_job_phase === "failed";
+  const showFailedCrawlRatio =
+    jobFailed &&
+    source.job_pages_total != null &&
+    source.job_pages_total > 0 &&
+    !source.job_crawl_limit_exceeded;
+
   const reindexedDuplicate = Boolean(source.reindexed_duplicate);
   const statusSummary = reindexedDuplicate
     ? "reindexed"
-    : source.latest_job_phase
-      ? source.latest_job_phase
-      : source.status === "indexing"
-        ? "indexing"
-        : source.status;
+    : source.status === "skipped_duplicate"
+      ? "not indexed (duplicate)"
+      : source.latest_job_phase
+        ? source.latest_job_phase
+        : source.status === "indexing"
+          ? "indexing"
+          : source.status;
 
   const visiblePages = useMemo(() => {
     const filtered = searchQuery
-      ? displayedPageItems.filter((p) => p.url.toLowerCase().includes(searchQuery))
+      ? displayedPageItems.filter((p) => p.url.toLowerCase().includes(searchQuery.trim().toLowerCase()))
       : displayedPageItems;
-    const statusRank = (status: string): number => {
-      switch ((status || "").toLowerCase()) {
-        case "parsed":
-          return 0;
-        case "excluded":
-          return 1;
-        case "failed":
-          return 2;
-        default:
-          return 3;
-      }
-    };
-    return [...filtered].sort((a, b) => {
-      const rankDelta = statusRank(a.status) - statusRank(b.status);
-      if (rankDelta !== 0) return rankDelta;
-      return a.url.localeCompare(b.url);
-    });
+    // Match API order (`order by url asc`); avoid status-first sort so "Load more" does not reshuffle rows.
+    return [...filtered].sort((a, b) => a.url.localeCompare(b.url));
   }, [displayedPageItems, searchQuery]);
 
   return (
@@ -900,8 +975,21 @@ function WebsiteSourceRow({
               {showIndexedRatio && source.job_pages_total
                 ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} indexed`
                 : ""}
+              {showFailedCrawlRatio && source.job_pages_total
+                ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} crawled (indexing did not finish)`
+                : ""}
               {statusSummary ? ` · ${statusSummary}` : ""}
             </p>
+            {source.status === "skipped_duplicate" ? (
+              <p className="mt-0.5 text-[11px] leading-snug text-amber-900 dark:text-amber-200/95">
+                {duplicateSourceSummary(source)}
+              </p>
+            ) : null}
+            {jobFailed && source.error_message ? (
+              <p className="text-rose-700 dark:text-rose-300 mt-0.5 line-clamp-2 text-[11px] leading-snug" title={source.error_message}>
+                {source.error_message}
+              </p>
+            ) : null}
           </div>
         </div>
         {!showIndexedRatio && source.job_crawl_limit_exceeded ? (

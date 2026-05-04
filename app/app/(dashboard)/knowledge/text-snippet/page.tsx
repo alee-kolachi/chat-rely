@@ -455,7 +455,7 @@ export default function KnowledgeTextSnippetPage() {
                           <div className="relative inline-flex">
                             <button
                               type="button"
-                              className="text-ds-on-surface-variant hover:text-ds-on-surface rounded-ds-md p-1"
+                              className="text-ds-on-surface-variant hover:text-ds-on-surface cursor-pointer rounded-ds-md p-1"
                               aria-label="More"
                               onClick={() => setMenuOpenId((prev) => (prev === snippet.id ? null : snippet.id))}
                             >

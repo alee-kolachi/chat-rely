@@ -1,28 +1,79 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
+import { useActionCatalog } from "@/components/actions/use-action-catalog";
+import { useShopifyConnection } from "@/components/integrations/use-shopify-connection";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
-import { backendFetch } from "@/lib/backend-api";
+import { BackendApiError, backendFetch, backendNdjsonStream } from "@/lib/backend-api";
 import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
 
 /** Uses global `.ds-app-field` (design-system tokens + focus ring). */
 const fieldControlClass = cn("ds-app-field");
+const fieldControlPointerClass = cn(fieldControlClass, "cursor-pointer");
 
-type ActionItem = {
-  label: string;
-  description: string;
-  enabled: boolean;
-  disabled?: boolean;
+function actionsConfigDirty(
+  draft: Record<string, boolean>,
+  base: Record<string, boolean> | null
+): boolean {
+  if (!base) return false;
+  const keys = new Set([...Object.keys(draft), ...Object.keys(base)]);
+  for (const k of keys) {
+    if (Boolean(draft[k]) !== Boolean(base[k])) return true;
+  }
+  return false;
+}
+
+type PlaygroundPreviewMessage = {
+  from: "user" | "assistant";
+  text: string;
 };
 
-type PlaygroundPreviewMessage = { from: "user" | "assistant"; text: string };
+type PlaygroundConversationRow = {
+  id: string;
+  latest_message_preview: string | null;
+  last_activity_at: string;
+  updated_at: string;
+  status: string;
+};
 
 const playgroundChatStorageKey = (agentId: string) => `chatrely.playground-chat.v1:${agentId}`;
+
+const PLAYGROUND_AGENT_TYPES = [
+  { value: "brand_support", label: "Brand Support Agent" },
+  { value: "general", label: "General AI Agent" },
+  { value: "customer_support", label: "Customer Support Agent" },
+  { value: "custom", label: "Custom Prompt" },
+] as const;
+
+function normalizeCreativity(raw: unknown): 0 | 0.5 | 1 {
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number.parseFloat(raw)
+        : Number.NaN;
+  if (n === 0 || n === 0.5 || n === 1) return n;
+  if (!Number.isFinite(n)) return 0.5;
+  const snapped = Math.round(n * 2) / 2;
+  if (snapped <= 0) return 0;
+  if (snapped >= 1) return 1;
+  return 0.5;
+}
+
+function creativityBandLabel(value: number): string {
+  if (value <= 0) return "Conservative";
+  if (value >= 1) return "Creative";
+  return "Balanced";
+}
+
+/** Keep playground transcript in sync with Conversations (operator replies, same thread). */
+const PLAYGROUND_THREAD_POLL_MS = 4000;
 
 function newPlaygroundVisitorId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -85,12 +136,6 @@ function writePlaygroundChatToStorage(
   }
 }
 
-function formatToneLabel(tone: string | null | undefined): string | null {
-  if (!tone?.trim()) return null;
-  const s = tone.trim();
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-}
-
 function faviconServiceUrl(siteUrl: string): string {
   try {
     const host = new URL(siteUrl).hostname;
@@ -107,6 +152,7 @@ function PlaygroundPreviewConversation({
   toneRaw,
   model,
   systemPrompt,
+  creativity,
   saveError,
   websiteLogoUrl,
 }: {
@@ -116,6 +162,7 @@ function PlaygroundPreviewConversation({
   toneRaw: string | null;
   model: string;
   systemPrompt: string;
+  creativity: number;
   saveError: string | null;
   websiteLogoUrl: string | null;
 }) {
@@ -135,27 +182,107 @@ function PlaygroundPreviewConversation({
   });
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRows, setHistoryRows] = useState<PlaygroundConversationRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyThreadLoading, setHistoryThreadLoading] = useState(false);
+  const blockThreadSyncRef = useRef(false);
+  /** When false, transcript updates (polling) must not yank scroll position. */
+  const stickToBottomRef = useRef(true);
+  useLayoutEffect(() => {
+    blockThreadSyncRef.current = isSending || historyThreadLoading;
+  }, [isSending, historyThreadLoading]);
 
   useEffect(() => {
     if (!agentId) return;
     writePlaygroundChatToStorage(agentId, previewMessages, conversationId, visitorId);
   }, [agentId, previewMessages, conversationId, visitorId]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
+    if (!agentId || !conversationId) return;
+    const cid = conversationId;
+    let cancelled = false;
+    async function syncFromServer() {
+      if (blockThreadSyncRef.current) return;
+      try {
+        const data = await backendFetch<{
+          messages: Array<{ role: string; content: string }>;
+        }>(`/api/v1/conversations/${encodeURIComponent(cid)}`);
+        if (cancelled) return;
+        const mapped: PlaygroundPreviewMessage[] = [];
+        for (const m of data.messages) {
+          if (m.role !== "user" && m.role !== "assistant") continue;
+          mapped.push({
+            from: m.role as "user" | "assistant",
+            text: m.content,
+          });
+        }
+        setPreviewMessages(mapped);
+      } catch {
+        /* ignore — offline or transient */
+      }
+    }
+    void syncFromServer();
+    const interval = window.setInterval(() => {
+      void syncFromServer();
+    }, PLAYGROUND_THREAD_POLL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void syncFromServer();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [agentId, conversationId]);
+
+  useEffect(() => {
+    if (!historyOpen || !agentId) return;
+    let cancelled = false;
+    void (async () => {
+      setHistoryLoading(true);
+      try {
+        const data = await backendFetch<{ conversations: PlaygroundConversationRow[] }>(
+          `/api/v1/conversations?agent_id=${encodeURIComponent(agentId)}&limit=40`
+        );
+        if (!cancelled) setHistoryRows(data.conversations);
+      } catch {
+        if (!cancelled) setHistoryRows([]);
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [historyOpen, agentId]);
+
+  const onMessagesScroll = useCallback(() => {
     const el = messagesScrollRef.current;
     if (!el) return;
+    const threshold = 80;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+    stickToBottomRef.current = nearBottom;
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el || !stickToBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [previewMessages, isSending]);
 
   async function handleSendMessage() {
-    if (!agentId || !messageInput.trim() || isSending) return;
+    if (!agentId || !messageInput.trim() || isSending || historyThreadLoading) return;
+    stickToBottomRef.current = true;
     const userMessage = messageInput.trim();
     setMessageInput("");
     setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
     setIsSending(true);
     setChatError(null);
+    setPreviewMessages((prev) => [...prev, { from: "assistant", text: "" }]);
     try {
-      const data = await backendFetch<{ conversation_id: string; response: string }>("/api/v1/runtime/chat", {
+      for await (const ev of backendNdjsonStream("/api/v1/runtime/chat/stream", {
         method: "POST",
         body: JSON.stringify({
           agent_id: agentId,
@@ -163,13 +290,45 @@ function PlaygroundPreviewConversation({
           conversation_id: conversationId,
           model_override: model,
           system_prompt_override: systemPrompt,
+          creativity_override: creativity,
           visitor_id: visitorId,
         }),
-      });
-      setConversationId(data.conversation_id);
-      setPreviewMessages((prev) => [...prev, { from: "assistant", text: data.response }]);
+      })) {
+        if (ev.type === "start") {
+          setConversationId(ev.conversation_id);
+        } else if (ev.type === "token") {
+          setPreviewMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            if (last.from !== "assistant") return prev;
+            const next = [...prev];
+            next[next.length - 1] = { from: "assistant", text: last.text + ev.text };
+            return next;
+          });
+        } else if (ev.type === "done") {
+          setConversationId(ev.conversation_id);
+          const reply = typeof ev.response === "string" ? ev.response : "";
+          setPreviewMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            if (last.from !== "assistant") return prev;
+            const next = [...prev];
+            next[next.length - 1] = { from: "assistant", text: reply };
+            return next;
+          });
+        } else if (ev.type === "error") {
+          throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
+        }
+      }
     } catch (e) {
       setChatError(e instanceof Error ? e.message : "Failed to send message");
+      setPreviewMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.from === "assistant" && !(last.text ?? "").trim()) {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
     } finally {
       setIsSending(false);
     }
@@ -177,12 +336,45 @@ function PlaygroundPreviewConversation({
 
   function handleResetPreviewChat() {
     if (!agentId) return;
+    stickToBottomRef.current = true;
     const nextVisitorId = newPlaygroundVisitorId();
     setVisitorId(nextVisitorId);
     setConversationId(null);
     setPreviewMessages([]);
     setChatError(null);
+    setHistoryOpen(false);
     writePlaygroundChatToStorage(agentId, [], null, nextVisitorId);
+  }
+
+  async function handlePickHistoryConversation(threadId: string) {
+    if (!agentId) return;
+    setHistoryThreadLoading(true);
+    setChatError(null);
+    try {
+      const data = await backendFetch<{
+        conversation: { visitor_id: string };
+        messages: Array<{ role: string; content: string }>;
+      }>(`/api/v1/conversations/${encodeURIComponent(threadId)}`);
+      const mapped: PlaygroundPreviewMessage[] = [];
+      for (const m of data.messages) {
+        if (m.role !== "user" && m.role !== "assistant") continue;
+        mapped.push({
+          from: m.role,
+          text: m.content,
+        });
+      }
+      const nextVisitorId = data.conversation.visitor_id.trim() || newPlaygroundVisitorId();
+      stickToBottomRef.current = true;
+      setConversationId(threadId);
+      setVisitorId(nextVisitorId);
+      setPreviewMessages(mapped);
+      setHistoryOpen(false);
+      writePlaygroundChatToStorage(agentId, mapped, threadId, nextVisitorId);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : "Could not load chat");
+    } finally {
+      setHistoryThreadLoading(false);
+    }
   }
 
   const footerError = saveError ?? chatError;
@@ -194,6 +386,20 @@ function PlaygroundPreviewConversation({
   );
   const displayName = (agentName?.trim() || "Assistant preview").trim();
   const emptyToneLine = previewAssistantLineForTone(toneRaw);
+
+  const headerToolbarIconBtnClass = useMemo(
+    () =>
+      cn(
+        "cursor-pointer rounded-ds-md p-2.5 transition-colors disabled:pointer-events-none disabled:opacity-40",
+        !hasBrand && "text-ds-on-surface-variant hover:bg-ds-outline/50 hover:text-ds-on-surface",
+        hasBrand &&
+          chrome &&
+          (chrome.lightBg
+            ? "text-ds-on-surface-variant hover:bg-black/[0.06] hover:text-ds-on-surface"
+            : "text-white/90 hover:bg-white/15 hover:text-white")
+      ),
+    [hasBrand, chrome]
+  );
 
   return (
     <div className="border-ds-outline flex h-[min(68dvh,100%)] min-h-[min(420px,100%)] w-full max-w-[30rem] flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
@@ -250,13 +456,10 @@ function PlaygroundPreviewConversation({
             </h3>
           </div>
         </div>
-        <div className={cn("flex shrink-0 items-center", hasBrand && chrome ? chrome.headerIconButtonClass : "text-ds-on-surface-variant")}>
+        <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
-            className={cn(
-              "rounded-ds-md p-2.5 transition-colors disabled:pointer-events-none disabled:opacity-40",
-              !hasBrand && "hover:bg-ds-outline/50 hover:text-ds-on-surface"
-            )}
+            className={headerToolbarIconBtnClass}
             aria-label="Reset conversation and start a new chat thread"
             title="Reset — clears preview and starts a new server thread (old messages no longer influence replies)"
             onClick={handleResetPreviewChat}
@@ -264,10 +467,84 @@ function PlaygroundPreviewConversation({
           >
             <IconRefresh className="size-5" />
           </button>
+          <button
+            type="button"
+            className={cn(
+              headerToolbarIconBtnClass,
+              !hasBrand && historyOpen && "bg-ds-outline/50 text-ds-on-surface",
+              hasBrand && chrome && historyOpen && (chrome.lightBg ? "bg-black/[0.08]" : "bg-white/20")
+            )}
+            aria-expanded={historyOpen}
+            aria-label="Open recent chats for this agent"
+            title="Recent chats — load a past thread into the preview"
+            onClick={() => setHistoryOpen((o) => !o)}
+            disabled={!agentId || historyThreadLoading}
+          >
+            <IconListChats className="size-5" />
+          </button>
         </div>
       </div>
 
-      <div ref={messagesScrollRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8">
+      {historyOpen ? (
+        <div
+          className="border-ds-outline bg-ds-surface border-b"
+          role="region"
+          aria-label="Recent chats"
+        >
+          <div className="border-ds-outline bg-ds-sidebar/60 px-4 py-2">
+            <p className="text-ds-on-surface text-[11px] font-semibold tracking-tight">Recent chats</p>
+            <p className="text-ds-on-surface-variant text-[10px] leading-snug">
+              Threads for this agent (same as Conversations).
+            </p>
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {historyLoading ? (
+              <p className="text-ds-on-surface-variant p-3 text-sm">Loading…</p>
+            ) : historyRows.length === 0 ? (
+              <p className="text-ds-on-surface-variant p-3 text-sm">No conversations yet.</p>
+            ) : (
+              <ul className="divide-ds-outline divide-y">
+                {historyRows.map((row) => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      className="hover:bg-ds-sidebar/70 cursor-pointer w-full px-4 py-2.5 text-left transition-colors disabled:opacity-50"
+                      onClick={() => void handlePickHistoryConversation(row.id)}
+                      disabled={historyThreadLoading}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-ds-on-surface truncate text-xs font-semibold">
+                          {row.id.slice(0, 8)}…
+                        </span>
+                        <span className="text-ds-on-surface-variant shrink-0 text-[10px]">
+                          {new Date(row.last_activity_at || row.updated_at).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-ds-on-surface-variant line-clamp-2 text-[11px] leading-snug">
+                        {row.latest_message_preview ?? "No messages"}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        ref={messagesScrollRef}
+        onScroll={onMessagesScroll}
+        className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8"
+      >
+        {historyThreadLoading ? (
+          <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
+        ) : null}
         {previewMessages.length === 0 ? (
           <div className={cn(onboardingType.body, "space-y-3 text-center")}>
             <p className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-sm border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
@@ -280,8 +557,18 @@ function PlaygroundPreviewConversation({
           <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
             {msg.from === "assistant" ? (
               <div className="flex max-w-[90%] gap-3">
-                <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white shadow-sm">
-                  <IconBot className="text-ds-on-surface-variant size-3.5" />
+                <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm">
+                  {websiteLogoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- remote store logo / favicon
+                    <img
+                      src={websiteLogoUrl}
+                      alt=""
+                      className="size-full object-contain p-0.5"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <IconBot className="text-ds-on-surface-variant size-3.5" />
+                  )}
                 </div>
                 <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5">
                   <AssistantMarkdown>{msg.text}</AssistantMarkdown>
@@ -305,9 +592,6 @@ function PlaygroundPreviewConversation({
 
       <div className="border-ds-outline border-t bg-ds-surface p-4 sm:p-5">
         <div className="flex items-center gap-2 sm:gap-3">
-          <button type="button" className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 shrink-0 rounded-ds-md p-2 transition-colors" aria-label="Attach">
-            <IconAttach className="size-5" />
-          </button>
           <input
             className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
             placeholder="Test your agent…"
@@ -322,14 +606,14 @@ function PlaygroundPreviewConversation({
           <button
             type="button"
             className={cn(
-              "shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
+              "cursor-pointer shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
               hasBrand && chrome
                 ? cn(chrome.fabIconClass, "hover:opacity-90")
                 : "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
             )}
             style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
             onClick={() => void handleSendMessage()}
-            disabled={!agentId || isSending || !messageInput.trim()}
+            disabled={!agentId || isSending || historyThreadLoading || !messageInput.trim()}
             aria-label="Send"
           >
             <IconSend className="size-4.5" />
@@ -341,57 +625,238 @@ function PlaygroundPreviewConversation({
   );
 }
 
-const shopifyActions: ActionItem[] = [
-  {
-    label: "Product Search",
-    description: "Search store catalog",
-    enabled: true,
-  },
-  {
-    label: "Order Lookup",
-    description: "Track and view shipments",
-    enabled: true,
-  },
-  {
-    label: "Inventory Check",
-    description: "Real-time stock levels",
-    enabled: false,
-    disabled: true,
-  },
-];
+type PlaygroundFormBaseline = {
+  model: string;
+  systemPrompt: string;
+  creativity: number;
+  agentType: string;
+};
 
 export default function PlaygroundPage() {
   const [mobileTab, setMobileTab] = useState<"settings" | "preview">("settings");
-  const { agents, selectedAgentId, selectedAgent } = useDashboardAgent();
+  const { agents, selectedAgentId, selectedAgent, refreshAgents, setSelectedAgentId, agentsLoading } =
+    useDashboardAgent();
+  const appliedUrlAgentRef = useRef(false);
+
+  /** One-time: Installation "Finish" links with ?agentId= so the right agent is selected. */
+  useEffect(() => {
+    if (appliedUrlAgentRef.current || typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("agentId");
+    if (!id || agentsLoading) return;
+    if (!agents.some((a) => a.id === id)) return;
+    setSelectedAgentId(id);
+    appliedUrlAgentRef.current = true;
+  }, [agents, agentsLoading, setSelectedAgentId]);
+  const { data: actionsCatalog, refresh: refreshActionCatalog } = useActionCatalog(
+    selectedAgentId || undefined
+  );
+  const { data: shopifyConnection, loading: shopifyConnectionLoading } = useShopifyConnection(
+    selectedAgentId || undefined
+  );
+  const shopifyConnected = Boolean(shopifyConnection?.connected);
   const setTopbarExtras = useSetDashboardTopbarExtras();
   const [model, setModel] = useState("gpt-4o-mini");
   const [systemPrompt, setSystemPrompt] = useState("");
+  const [creativity, setCreativity] = useState<number>(0.5);
+  const [agentType, setAgentType] = useState<string>("brand_support");
+  const [baseline, setBaseline] = useState<PlaygroundFormBaseline | null>(null);
+  const [actionDraft, setActionDraft] = useState<Record<string, boolean>>({});
+  const [actionBaseline, setActionBaseline] = useState<Record<string, boolean> | null>(null);
+  const [shopifyActionsOpen, setShopifyActionsOpen] = useState(true);
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
   const settingsScrollRef = useRef<HTMLDivElement>(null);
+  const hydratedAgentIdRef = useRef<string | null>(null);
+  const actionsHydratedForAgentIdRef = useRef<string | null>(null);
+  const shopifyConnPrevRef = useRef<boolean | undefined>(undefined);
 
-  const [syncedAgentId, setSyncedAgentId] = useState<string | null>(null);
-
-  if (selectedAgentId && selectedAgentId !== syncedAgentId) {
-    const match = agents.find((a) => a.id === selectedAgentId);
-    if (match) {
-      setSyncedAgentId(selectedAgentId);
-      setModel(match.model || "gpt-4o-mini");
-      setSystemPrompt(match.system_prompt || "");
-    } else if (agents.length > 0) {
-      setSyncedAgentId(selectedAgentId);
+  /* Hydrate playground form when the selected agent changes (not when the agent list reference refreshes). */
+  useEffect(() => {
+    if (!selectedAgentId) {
+      hydratedAgentIdRef.current = null;
+      queueMicrotask(() => {
+        setBaseline(null);
+        setModel("gpt-4o-mini");
+        setSystemPrompt("");
+        setCreativity(0.5);
+        setAgentType("brand_support");
+        setActionDraft({});
+        setActionBaseline(null);
+        actionsHydratedForAgentIdRef.current = null;
+      });
+      return;
     }
-  }
+    const match = agents.find((a) => a.id === selectedAgentId);
+    if (!match) return;
+
+    /** Same agent row — skip re-loading form when only `agents` reference changed (e.g. refresh). */
+    if (hydratedAgentIdRef.current === selectedAgentId) return;
+
+    hydratedAgentIdRef.current = selectedAgentId;
+    const behavior = (match.behavior_settings ?? {}) as Record<string, unknown>;
+    const cr = normalizeCreativity(behavior.creativity);
+    const atRaw = behavior.agent_type;
+    const at =
+      typeof atRaw === "string" &&
+      PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
+        ? atRaw
+        : "brand_support";
+    const m = match.model || "gpt-4o-mini";
+    const sp = match.system_prompt || "";
+    queueMicrotask(() => {
+      setModel(m);
+      setSystemPrompt(sp);
+      setCreativity(cr);
+      setAgentType(at);
+      setBaseline({ model: m, systemPrompt: sp, creativity: cr, agentType: at });
+      setSaveError(null);
+      setActionDraft({});
+      setActionBaseline(null);
+      actionsHydratedForAgentIdRef.current = null;
+    });
+  }, [selectedAgentId, agents]);
+
+  /* Load action toggles from catalog; deferred until Save. Re-sync when agent or Shopify connection changes. */
+  useEffect(() => {
+    if (!selectedAgentId || !actionsCatalog) return;
+
+    const buildDraft = (includeShopify: boolean) => {
+      const d: Record<string, boolean> = {};
+      const human = actionsCatalog.entries.find((e) => e.action_key === "human.escalate");
+      if (human) {
+        d["human.escalate"] = Boolean(human.enabled && human.status === "live");
+      }
+      if (includeShopify) {
+        for (const e of actionsCatalog.entries) {
+          if (e.provider === "shopify") {
+            d[e.action_key] = Boolean(e.enabled && e.status === "live");
+          }
+        }
+      }
+      return d;
+    };
+
+    if (actionsHydratedForAgentIdRef.current !== selectedAgentId) {
+      const draft = buildDraft(shopifyConnected);
+      queueMicrotask(() => {
+        setActionDraft(draft);
+        setActionBaseline(draft);
+      });
+      actionsHydratedForAgentIdRef.current = selectedAgentId;
+      shopifyConnPrevRef.current = shopifyConnected;
+      return;
+    }
+
+    const prevConn = shopifyConnPrevRef.current;
+    shopifyConnPrevRef.current = shopifyConnected;
+    if (prevConn === false && shopifyConnected) {
+      queueMicrotask(() => {
+        setActionDraft((prev) => {
+          const next = { ...prev };
+          for (const e of actionsCatalog.entries) {
+            if (e.provider === "shopify") {
+              next[e.action_key] = Boolean(e.enabled && e.status === "live");
+            }
+          }
+          return next;
+        });
+        setActionBaseline((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev };
+          for (const e of actionsCatalog.entries) {
+            if (e.provider === "shopify") {
+              next[e.action_key] = Boolean(e.enabled && e.status === "live");
+            }
+          }
+          return next;
+        });
+      });
+    }
+  }, [selectedAgentId, actionsCatalog, shopifyConnected]);
+
+  const humanEscalationEntry = useMemo(
+    () => actionsCatalog?.entries.find((e) => e.action_key === "human.escalate"),
+    [actionsCatalog]
+  );
+
+  const shopifyCatalogEntries = useMemo(
+    () => actionsCatalog?.entries.filter((e) => e.provider === "shopify") ?? [],
+    [actionsCatalog]
+  );
+
+  const formFieldsDirty = Boolean(
+    baseline &&
+      selectedAgentId &&
+      (model !== baseline.model ||
+        systemPrompt !== baseline.systemPrompt ||
+        creativity !== baseline.creativity ||
+        agentType !== baseline.agentType)
+  );
+  const actionsDirty = actionsConfigDirty(actionDraft, actionBaseline);
+  const isDirty = Boolean(
+    selectedAgentId && baseline && (formFieldsDirty || actionsDirty)
+  );
 
   const handleSave = useCallback(async () => {
-    if (!selectedAgentId || isSaving) return;
+    if (!selectedAgentId || isSaving || !baseline) return;
     setIsSaving(true);
     setSaveError(null);
     try {
-      await backendFetch(`/api/v1/agents/${selectedAgentId}`, {
+      const prevBehavior = (selectedAgent?.behavior_settings ?? {}) as Record<string, unknown>;
+      const behavior_settings = {
+        ...prevBehavior,
+        creativity,
+        agent_type: agentType,
+      };
+      const updated = await backendFetch<{
+        model: string;
+        system_prompt: string;
+        behavior_settings: Record<string, unknown>;
+      }>(`/api/v1/agents/${selectedAgentId}`, {
         method: "PATCH",
-        body: JSON.stringify({ model, system_prompt: systemPrompt }),
+        body: JSON.stringify({ model, system_prompt: systemPrompt, behavior_settings }),
+      });
+      await refreshAgents();
+
+      if (actionBaseline) {
+        const keys = new Set([
+          ...Object.keys(actionDraft),
+          ...Object.keys(actionBaseline),
+        ]);
+        for (const actionKey of keys) {
+          const next = Boolean(actionDraft[actionKey]);
+          const prev = Boolean(actionBaseline[actionKey]);
+          if (next !== prev) {
+            await backendFetch(
+              `/api/v1/agents/${selectedAgentId}/actions/${encodeURIComponent(actionKey)}`,
+              {
+                method: "PATCH",
+                body: JSON.stringify({ enabled: next }),
+              }
+            );
+          }
+        }
+        await refreshActionCatalog();
+        setActionBaseline({ ...actionDraft });
+      }
+
+      const cr = normalizeCreativity(updated.behavior_settings?.creativity);
+      const atRaw = updated.behavior_settings?.agent_type;
+      const at =
+        typeof atRaw === "string" &&
+        PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
+          ? atRaw
+          : agentType;
+      setModel(updated.model);
+      setSystemPrompt(updated.system_prompt);
+      setCreativity(cr);
+      setAgentType(at);
+      setBaseline({
+        model: updated.model,
+        systemPrompt: updated.system_prompt,
+        creativity: cr,
+        agentType: at,
       });
     } catch (e) {
       setSaveError({
@@ -401,7 +866,20 @@ export default function PlaygroundPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [selectedAgentId, isSaving, model, systemPrompt]);
+  }, [
+    selectedAgentId,
+    isSaving,
+    baseline,
+    model,
+    systemPrompt,
+    creativity,
+    agentType,
+    selectedAgent,
+    refreshAgents,
+    actionBaseline,
+    actionDraft,
+    refreshActionCatalog,
+  ]);
 
   const handleSaveRef = useRef(handleSave);
 
@@ -414,45 +892,48 @@ export default function PlaygroundPage() {
       <>
         <button
           type="button"
-          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 rounded-ds-md p-2 transition-colors"
+          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 cursor-pointer rounded-ds-md p-2 transition-colors"
           aria-label="Help"
         >
           <IconQuestion className="size-5" />
         </button>
         <button
           type="button"
-          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 relative rounded-ds-md p-2 transition-colors"
+          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 cursor-pointer rounded-ds-md p-2 transition-colors"
           aria-label="Notifications"
         >
           <IconBell className="size-5" />
-          <span className="bg-ds-primary border-ds-surface absolute top-1.5 right-1.5 size-2 rounded-full border-2" />
         </button>
-        <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
-          <div className="flex items-center gap-2">
-            <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-            <span className="text-ds-on-surface-variant text-[11px] font-semibold tracking-wide uppercase">Unsaved</span>
+        {isDirty ? (
+          <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
+            <div className="flex items-center gap-2">
+              <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+              <span className="text-ds-on-surface-variant text-[11px] font-semibold tracking-wide uppercase">
+                Unsaved
+              </span>
+            </div>
+            <button
+              type="button"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary cursor-pointer inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+              onClick={() => void handleSaveRef.current()}
+              disabled={!selectedAgentId || isSaving}
+            >
+              {isSaving ? "Saving…" : "Save changes"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
-            onClick={() => void handleSaveRef.current()}
-            disabled={!selectedAgentId || isSaving}
-          >
-            {isSaving ? "Saving…" : "Save changes"}
-          </button>
-        </div>
+        ) : null}
       </>
     );
     return () => setTopbarExtras(null);
-  }, [setTopbarExtras, isSaving, selectedAgentId]);
+  }, [setTopbarExtras, isSaving, selectedAgentId, isDirty]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!selectedAgentId) {
-      setWebsiteLogoUrl(null);
-      return;
-    }
     void (async () => {
+      if (!selectedAgentId) {
+        setWebsiteLogoUrl(null);
+        return;
+      }
       try {
         const data = await backendFetch<{
           sources: Array<{ source_url: string | null; website_mode: string | null; title: string | null }>;
@@ -493,7 +974,7 @@ export default function PlaygroundPage() {
           type="button"
           onClick={() => setMobileTab("settings")}
           className={cn(
-            "rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
+            "cursor-pointer rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
             mobileTab === "settings"
               ? "border-ds-primary/40 text-ds-primary border bg-white shadow-sm"
               : "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-white/70"
@@ -505,7 +986,7 @@ export default function PlaygroundPage() {
           type="button"
           onClick={() => setMobileTab("preview")}
           className={cn(
-            "rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
+            "cursor-pointer rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
             mobileTab === "preview"
               ? "border-ds-primary/40 text-ds-primary border bg-white shadow-sm"
               : "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-white/70"
@@ -540,7 +1021,7 @@ export default function PlaygroundPage() {
                 AI model
               </label>
               <select
-                className={fieldControlClass}
+                className={fieldControlPointerClass}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               >
@@ -554,21 +1035,26 @@ export default function PlaygroundPage() {
                 <label className={cn(onboardingType.label, "text-ds-on-surface-variant mb-0 text-[11px] uppercase tracking-[0.14em]")}>
                   Creativity
                 </label>
-                <button type="button" className="text-ds-on-surface-variant hover:text-ds-primary rounded-ds-md p-1 transition-colors" aria-label="About creativity">
+                <button
+                  type="button"
+                  className="text-ds-on-surface-variant hover:text-ds-primary cursor-pointer rounded-ds-md p-1 transition-colors"
+                  aria-label="About creativity"
+                >
                   <IconInfo className="size-4" />
                 </button>
               </div>
               <input
-                className="accent-ds-primary w-full"
+                className="accent-ds-primary w-full cursor-pointer"
                 type="range"
                 min="0"
                 max="1"
                 step="0.5"
-                defaultValue="0.5"
+                value={creativity}
+                onChange={(e) => setCreativity(Number.parseFloat(e.target.value))}
               />
               <div className="text-ds-on-surface-variant flex justify-between text-[11px] font-medium tracking-wide">
                 <span>Conservative</span>
-                <span className="text-ds-on-surface font-semibold">Balanced</span>
+                <span className="text-ds-on-surface font-semibold">{creativityBandLabel(creativity)}</span>
                 <span>Creative</span>
               </div>
             </div>
@@ -578,27 +1064,78 @@ export default function PlaygroundPage() {
                 Enabled actions
               </label>
               <div className="border-ds-outline overflow-hidden rounded-ds-lg border bg-ds-surface shadow-sm">
-                <div className="bg-ds-sidebar flex items-center justify-between px-4 py-3">
+                <button
+                  type="button"
+                  className="bg-ds-sidebar flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left transition-colors hover:bg-ds-sidebar/80"
+                  onClick={() => setShopifyActionsOpen((o) => !o)}
+                  aria-expanded={shopifyActionsOpen}
+                >
                   <div className="flex items-center gap-3">
                     <IconBag className="text-ds-primary size-4 shrink-0" aria-hidden />
                     <span className="text-ds-on-surface text-sm font-semibold">Shopify actions</span>
                   </div>
-                  <IconChevron className="text-ds-on-surface-variant size-4 rotate-90" aria-hidden />
-                </div>
-                <div className="border-ds-outline space-y-4 border-t p-4">
-                  {shopifyActions.map((action) => (
-                    <div
-                      key={action.label}
-                      className={`flex items-center justify-between ${action.disabled ? "opacity-50" : ""}`}
-                    >
-                      <div>
-                        <p className="text-ds-on-surface text-sm font-medium">{action.label}</p>
-                        <p className={cn(onboardingType.hint, "mt-0.5 text-[13px]")}>{action.description}</p>
+                  <IconChevron
+                    className={cn(
+                      "text-ds-on-surface-variant size-4 transition-transform",
+                      shopifyActionsOpen ? "rotate-90" : "-rotate-90"
+                    )}
+                    aria-hidden
+                  />
+                </button>
+                {shopifyActionsOpen ? (
+                  <div className="border-ds-outline border-t p-4">
+                    {shopifyConnectionLoading ? (
+                      <p className="text-ds-on-surface-variant text-sm">Loading connection…</p>
+                    ) : !shopifyConnected ? (
+                      <div className="space-y-3">
+                        <p className={cn(onboardingType.hint, "text-[13px]")}>
+                          Connect your Shopify store under Actions &amp; integrations to enable product, order, and
+                          customer tools for this agent.
+                        </p>
+                        <Link
+                          href="/actions#shopify-integration"
+                          className="text-ds-primary hover:text-ds-secondary inline-flex cursor-pointer font-semibold underline-offset-2 transition-colors hover:underline"
+                        >
+                          Connect Shopify
+                        </Link>
                       </div>
-                      <ToggleSwitch checked={action.enabled} />
-                    </div>
-                  ))}
-                </div>
+                    ) : shopifyCatalogEntries.length === 0 ? (
+                      <p className="text-ds-on-surface-variant text-sm">
+                        No Shopify actions are available yet. Open Actions &amp; integrations to connect your store and
+                        enable tools.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        {shopifyCatalogEntries.map((e) => {
+                          const off = e.status !== "live";
+                          return (
+                            <div
+                              key={e.action_key}
+                              className={cn("flex items-center justify-between", off && "opacity-50")}
+                            >
+                              <div>
+                                <p className="text-ds-on-surface text-sm font-medium">{e.label}</p>
+                                <p className={cn(onboardingType.hint, "mt-0.5 text-[13px]")}>
+                                  {e.description}
+                                </p>
+                              </div>
+                              <ToggleSwitch
+                                checked={Boolean(actionDraft[e.action_key])}
+                                disabled={off}
+                                onCheckedChange={
+                                  off
+                                    ? undefined
+                                    : (next) =>
+                                        setActionDraft((prev) => ({ ...prev, [e.action_key]: next }))
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-surface p-4 shadow-sm">
@@ -606,7 +1143,16 @@ export default function PlaygroundPage() {
                   <IconPersonPin className="text-ds-primary size-4 shrink-0" aria-hidden />
                   <span className="text-ds-on-surface text-sm font-semibold">Escalate to human</span>
                 </div>
-                <ToggleSwitch checked={false} />
+                <ToggleSwitch
+                  checked={Boolean(actionDraft["human.escalate"])}
+                  disabled={humanEscalationEntry?.status !== "live"}
+                  onCheckedChange={
+                    humanEscalationEntry?.status !== "live"
+                      ? undefined
+                      : (next) =>
+                          setActionDraft((prev) => ({ ...prev, "human.escalate": next }))
+                  }
+                />
               </div>
             </div>
 
@@ -614,11 +1160,16 @@ export default function PlaygroundPage() {
               <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
                 Agent type
               </label>
-              <select className={fieldControlClass}>
-                <option>Brand Support Agent</option>
-                <option>General AI Agent</option>
-                <option>Customer Support Agent</option>
-                <option>Custom Prompt</option>
+              <select
+                className={fieldControlPointerClass}
+                value={agentType}
+                onChange={(e) => setAgentType(e.target.value)}
+              >
+                {PLAYGROUND_AGENT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
               <p className={onboardingType.hint}>Advanced mode: manual prompt editing enabled.</p>
             </div>
@@ -630,7 +1181,9 @@ export default function PlaygroundPage() {
                 </label>
                 <button
                   type="button"
-                  className="text-ds-on-surface-variant hover:text-ds-primary inline-flex shrink-0 items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors"
+                  className="text-ds-on-surface-variant hover:text-ds-primary inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors disabled:pointer-events-none disabled:opacity-40"
+                  disabled={!baseline || systemPrompt === baseline.systemPrompt}
+                  onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
                 >
                   <IconHistory className="size-3.5" aria-hidden />
                   Reset
@@ -647,22 +1200,24 @@ export default function PlaygroundPage() {
               Save your changes for them to take effect in the live agent.
             </p>
 
-            <div className="border-ds-outline bg-ds-surface/95 sticky bottom-0 -mx-5 flex shrink-0 items-center justify-between gap-3 border-t p-4 backdrop-blur-sm sm:-mx-8 lg:hidden">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-                <span className="text-ds-on-surface-variant truncate text-[11px] font-semibold uppercase tracking-wide">
-                  Unsaved
-                </span>
+            {isDirty ? (
+              <div className="border-ds-outline bg-ds-surface/95 sticky bottom-0 -mx-5 flex shrink-0 items-center justify-between gap-3 border-t p-4 backdrop-blur-sm sm:-mx-8 lg:hidden">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+                  <span className="text-ds-on-surface-variant truncate text-[11px] font-semibold uppercase tracking-wide">
+                    Unsaved
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex shrink-0 cursor-pointer items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+                  onClick={() => void handleSave()}
+                  disabled={!selectedAgentId || isSaving}
+                >
+                  {isSaving ? "Saving…" : "Save"}
+                </button>
               </div>
-              <button
-                type="button"
-                className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex shrink-0 items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
-                onClick={handleSave}
-                disabled={!selectedAgentId || isSaving}
-              >
-                {isSaving ? "Saving…" : "Save"}
-              </button>
-            </div>
+            ) : null}
           </div>
         </section>
 
@@ -687,6 +1242,7 @@ export default function PlaygroundPage() {
               }
               model={model}
               systemPrompt={systemPrompt}
+              creativity={creativity}
               saveError={saveError?.agentId === selectedAgentId ? saveError.message : null}
               websiteLogoUrl={websiteLogoUrl}
             />
@@ -697,14 +1253,28 @@ export default function PlaygroundPage() {
   );
 }
 
-function ToggleSwitch({ checked }: { checked: boolean }) {
+function ToggleSwitch({
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange?: (next: boolean) => void;
+}) {
   return (
     <button
       type="button"
       aria-pressed={checked}
+      disabled={disabled}
+      onClick={() => {
+        if (disabled || !onCheckedChange) return;
+        onCheckedChange(!checked);
+      }}
       className={cn(
         "flex h-5 w-9 items-center rounded-full p-0.5 transition-colors",
-        checked ? "bg-ds-primary" : "bg-ds-outline"
+        checked ? "bg-ds-primary" : "bg-ds-outline",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
       )}
     >
       <span
@@ -826,19 +1396,20 @@ function IconBot({ className }: { className?: string }) {
   );
 }
 
+function IconListChats({ className }: { className?: string }) {
+  return (
+    <IconBase className={className}>
+      <path d="M8 6h13M8 12h13M8 18h13" />
+      <path d="M3 6h.01M3 12h.01M3 18h.01" />
+    </IconBase>
+  );
+}
+
 function IconRefresh({ className }: { className?: string }) {
   return (
     <IconBase className={className}>
       <path d="M20 12a8 8 0 1 1-2.3-5.6" />
       <path d="M20 4v5h-5" />
-    </IconBase>
-  );
-}
-
-function IconAttach({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M16 7.5v8a4 4 0 1 1-8 0V7a3 3 0 1 1 6 0v8.5a2 2 0 1 1-4 0V9" />
     </IconBase>
   );
 }

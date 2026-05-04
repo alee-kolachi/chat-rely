@@ -91,6 +91,7 @@ function KnowledgeBaseTrainingPageInner() {
       activeItem="Knowledge Base"
       completedItems={["Agent Name"]}
       stepLabel="Step 2 of 6"
+      linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
           backHref="/onboarding/knowledge-base"

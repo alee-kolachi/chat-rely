@@ -22,16 +22,24 @@ const onboardingItemRoutes: Record<OnboardingMenuItem, string> = {
   Installation: "/onboarding/installation",
 };
 
+function onboardingNavHref(route: string, linkAgentId: string | null | undefined) {
+  if (!linkAgentId) return route;
+  return `${route}?agentId=${encodeURIComponent(linkAgentId)}`;
+}
+
 export function OnboardingFrame({
   activeItem,
   stepLabel,
   completedItems = [],
+  linkAgentId,
   children,
   footer,
 }: {
   activeItem: OnboardingMenuItem;
   stepLabel: string;
   completedItems?: OnboardingMenuItem[];
+  /** Preserves `?agentId=` on sidebar navigation between steps. */
+  linkAgentId?: string | null;
   children: ReactNode;
   /** Docked at the bottom of the main column (inside scrolling layout) so the bar stays tappable on mobile. */
   footer?: ReactNode;
@@ -58,7 +66,7 @@ export function OnboardingFrame({
             return (
               <Link
                 key={item}
-                href={onboardingItemRoutes[item]}
+                href={onboardingNavHref(onboardingItemRoutes[item], linkAgentId)}
                 className={cn(
                   "mb-1 flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
                   "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type KnowledgeSortKey = "default" | "status" | "newest" | "oldest";
 
@@ -32,7 +32,11 @@ function readInitial(screen: KnowledgeScreen): KnowledgeSortKey {
 export function useSortPreference(
   screen: KnowledgeScreen
 ): [KnowledgeSortKey, (next: KnowledgeSortKey) => void] {
-  const [value, setValue] = useState<KnowledgeSortKey>(() => readInitial(screen));
+  const [value, setValue] = useState<KnowledgeSortKey>("default");
+
+  useEffect(() => {
+    setValue(readInitial(screen));
+  }, [screen]);
 
   const update = useCallback(
     (next: KnowledgeSortKey) => {
