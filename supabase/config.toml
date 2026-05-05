@@ -334,6 +334,19 @@ skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
 
+# Local GoTrue reads this file — enabling Google only in Supabase Studio does not turn the provider on.
+# Use names that do NOT start with SUPABASE_; the CLI skips those and you get Google 401 invalid_client.
+# Add GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET to the repository root `.env`, then `supabase stop && supabase start`.
+# Google Cloud "Authorized redirect URI": http://127.0.0.1:54321/auth/v1/callback
+[auth.external.google]
+enabled = true
+client_id = "env(GOOGLE_CLIENT_ID)"
+secret = "env(GOOGLE_CLIENT_SECRET)"
+redirect_uri = ""
+url = ""
+skip_nonce_check = false
+email_optional = false
+
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.
 [auth.web3.solana]
