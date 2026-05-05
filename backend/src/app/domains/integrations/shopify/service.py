@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 import httpx
+import structlog
 from sqlalchemy import String, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,12 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import AppError
 from app.core.settings import Settings, get_settings
+from app.domains.billing.customers import ensure_stripe_customer_for_user
 from app.domains.integrations.shopify.oauth_state import (
     sign_oauth_state,
     validate_return_to,
     verify_oauth_state,
 )
 from app.domains.integrations.shopify.schemas import ShopifyConnectionStatus
+
+log = structlog.get_logger(__name__)
 
 # Refresh access token this many seconds before Shopify expires it.
 _ACCESS_TOKEN_REFRESH_BUFFER = timedelta(seconds=120)
@@ -326,6 +330,10 @@ async def handle_oauth_callback(
         scope_str=scope_str,
         token_response=data,
     )
+    try:
+        await ensure_stripe_customer_for_user(db, user_id=user_id, shop_domain=shop_domain)
+    except Exception:
+        log.warning("shopify.stripe_customer_failed", user_id=str(user_id), exc_info=True)
     await db.commit()
     return user_id, agent_id
 

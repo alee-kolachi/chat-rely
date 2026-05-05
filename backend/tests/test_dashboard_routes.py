@@ -20,19 +20,13 @@ def _auth_header() -> dict[str, str]:
     return {"Authorization": "Bearer test"}
 
 
+class _DummyVerifier:
+    def verify_token(self, token: str) -> dict[str, str]:
+        return {"sub": "00000000-0000-4000-8000-000000000001"}
+
+
 def _patch_auth(monkeypatch: pytest.MonkeyPatch) -> None:
-    from uuid import UUID
-
-    from app.api import deps
-
-    async def _user() -> Any:
-        class C:
-            user_id = UUID("00000000-0000-4000-8000-000000000001")
-            claims: dict[str, str] = {}
-
-        return C()
-
-    monkeypatch.setattr(deps, "get_current_user", _user)
+    monkeypatch.setattr("app.api.deps.get_token_verifier", lambda: _DummyVerifier())
 
 
 def test_get_agent_dashboard(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,6 +39,7 @@ def test_get_agent_dashboard(client: TestClient, monkeypatch: pytest.MonkeyPatch
             range_from=now,
             range_to=now,
             conversations_started=3,
+            billable_conversations=2,
             resolved_by_agent_pct=50.0,
             needs_human_pct=10.0,
             open_escalations=1,

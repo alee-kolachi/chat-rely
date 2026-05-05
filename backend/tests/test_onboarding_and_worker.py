@@ -1,5 +1,5 @@
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -205,6 +205,10 @@ def test_knowledge_index_route_returns_queued_status(client: TestClient, monkeyp
     async def _index(*_: Any, **__: Any) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
         return source, job
 
+    async def _load(_db: Any, source_id: UUID, _user_id: UUID) -> KnowledgeSourceDTO:
+        return source.model_copy(update={"id": source_id})
+
+    monkeypatch.setattr("app.api.routes.knowledge._load_source", _load)
     monkeypatch.setattr("app.api.routes.knowledge.index_website_source", _index)
     response = client.post(f"/api/v1/knowledge/sources/{source.id}/index", headers=_auth_header())
     assert response.status_code == 200

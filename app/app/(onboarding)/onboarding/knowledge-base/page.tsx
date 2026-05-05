@@ -115,7 +115,7 @@ function KnowledgeBaseOnboardingPageInner() {
     }
     if (!isValidUuid(id)) {
       setError(
-        "This session is using a demo agent id. Sign in and complete step 1 with a real agent to crawl and index your site."
+        "We do not have a valid agent id yet—step 1 must create your agent successfully. Go back, sign in if you are not logged in, then click Continue on step 1 again before starting the crawl."
       );
       return;
     }

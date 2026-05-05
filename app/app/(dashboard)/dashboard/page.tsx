@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { UsagePlanBanner } from "@/components/dashboard/usage-plan-banner";
 import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
@@ -16,6 +17,7 @@ type DashboardPayload = {
   range_from: string;
   range_to: string;
   conversations_started: number;
+  billable_conversations: number;
   resolved_by_agent_pct: number | null;
   needs_human_pct: number | null;
   open_escalations: number;
@@ -106,11 +108,18 @@ export default function DashboardPage() {
   const started = data?.conversations_started ?? 0;
   const hasConversationData = Boolean(data && data.conversations_started > 0);
 
+  const billable = data?.billable_conversations ?? 0;
+
   const primaryMetrics = [
     {
       label: "Conversations started",
       value: loading ? "…" : data ? String(started) : "—",
-      hint: "Chats that began in this period.",
+      hint: "All visitor sessions that began in this date range (includes short or abandoned chats).",
+    },
+    {
+      label: "Billable conversations",
+      value: loading ? "…" : data ? String(billable) : "—",
+      hint: "Sessions that count toward your plan after idle-close and quality thresholds (closer to invoice usage).",
     },
     {
       label: "Resolved by agent",
@@ -174,7 +183,9 @@ export default function DashboardPage() {
         ) : null}
         {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <UsagePlanBanner />
+
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {primaryMetrics.map((metric) => (
             <article
               key={metric.label}

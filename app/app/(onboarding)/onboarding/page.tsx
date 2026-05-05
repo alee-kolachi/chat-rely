@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { backendFetch, BackendApiError } from "@/lib/backend-api";
@@ -18,21 +19,6 @@ import {
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 
-/** `crypto.randomUUID()` throws outside a secure context (e.g. http://LAN-IP on a phone). */
-function createDemoAgentSuffix(): string {
-  try {
-    if (globalThis.isSecureContext && typeof globalThis.crypto?.randomUUID === "function") {
-      return globalThis.crypto.randomUUID();
-    }
-  } catch {
-    /* fall through */
-  }
-  if (process.env.NODE_ENV === "development") {
-    console.warn("[onboarding] demo agent id: non-secure context or randomUUID unavailable; using fallback");
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 12)}`;
-}
-
 function deferAfterGesture(cb: () => void) {
   // Older iOS Safari versions may not expose queueMicrotask.
   if (typeof queueMicrotask === "function") {
@@ -42,10 +28,13 @@ function deferAfterGesture(cb: () => void) {
   Promise.resolve().then(cb);
 }
 
+type Step1Issue = { kind: "auth" } | { kind: "message"; text: string };
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [agentName, setAgentName] = useState("Aria");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [step1Issue, setStep1Issue] = useState<Step1Issue | null>(null);
   const handleAgentNameInput = (value: string) => {
     setAgentName(value);
   };
@@ -76,6 +65,7 @@ export default function OnboardingPage() {
   async function bestEffortCreateAgent() {
     if (!canContinue || isSubmitting) return;
     setIsSubmitting(true);
+    setStep1Issue(null);
     const slug =
       agentName
         .toLowerCase()
@@ -122,17 +112,25 @@ export default function OnboardingPage() {
       const timedOut = err instanceof PromiseTimeoutError;
       const recoverable = isRecoverableOnboardingNetworkError(err);
 
-      // Step 1 should never block onboarding progression on client/backend variance.
-      // Use a demo id for any failure path so mobile behavior matches later steps.
-      if (process.env.NODE_ENV === "development") {
-        console.warn("[onboarding] create agent failed; continuing with demo agent", {
-          reason: message,
-          unauthenticated,
-          timedOut,
-          recoverable,
-        });
+      if (unauthenticated) {
+        setStep1Issue({ kind: "auth" });
+        return;
       }
-      goToStep2(`demo-${createDemoAgentSuffix()}`);
+      if (timedOut) {
+        setStep1Issue({
+          kind: "message",
+          text: "That took too long. Check your connection and try again.",
+        });
+        return;
+      }
+      if (recoverable) {
+        setStep1Issue({
+          kind: "message",
+          text: `Could not reach the server (${message}). Check your connection and that the API is running, then try again.`,
+        });
+        return;
+      }
+      setStep1Issue({ kind: "message", text: message });
       return;
     } finally {
       setIsSubmitting(false);
@@ -202,6 +200,21 @@ export default function OnboardingPage() {
                       className="py-3.5 font-normal"
                     />
                   </OnboardingFieldRow>
+                  {step1Issue ? (
+                    <div className="border-ds-outline rounded-ds-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                      {step1Issue.kind === "auth" ? (
+                        <p>
+                          You need to be signed in to create an agent.{" "}
+                          <Link href="/login" className="font-semibold text-rose-950 underline underline-offset-2">
+                            Sign in
+                          </Link>{" "}
+                          and try Continue again.
+                        </p>
+                      ) : (
+                        <p>{step1Issue.text}</p>
+                      )}
+                    </div>
+                  ) : null}
                 </form>
               </div>
             </section>

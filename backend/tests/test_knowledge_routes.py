@@ -1,5 +1,5 @@
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -67,6 +67,15 @@ def _patch_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.api.deps.get_token_verifier", lambda: _DummyVerifier())
 
 
+def _patch_load_website_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Index routes call _load_source before the per-type indexer; avoid needing a real DB row."""
+
+    async def _load(_db: Any, source_id: UUID, _user_id: UUID) -> KnowledgeSourceDTO:
+        return _source("website").model_copy(update={"id": source_id})
+
+    monkeypatch.setattr("app.api.routes.knowledge._load_source", _load)
+
+
 def test_create_website_source(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
 
@@ -124,6 +133,7 @@ def test_list_sources(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_index_website_source_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
+    _patch_load_website_source(monkeypatch)
 
     async def _index(*_: Any, **__: Any) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
         return _source("website"), _job("succeeded")
@@ -136,6 +146,7 @@ def test_index_website_source_success(client: TestClient, monkeypatch: pytest.Mo
 
 def test_indexing_failure_surfaces_standard_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
+    _patch_load_website_source(monkeypatch)
 
     async def _index(*_: Any, **__: Any) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
         raise AppError("knowledge.indexing_failed", "Indexing job failed", status_code=500)
@@ -160,6 +171,7 @@ def test_list_indexing_jobs(client: TestClient, monkeypatch: pytest.MonkeyPatch)
 
 def test_reindex_replaces_chunks_semantic(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
+    _patch_load_website_source(monkeypatch)
     calls: dict[str, int] = {"index": 0}
 
     async def _index(*_: Any, **__: Any) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:

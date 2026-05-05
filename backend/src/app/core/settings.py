@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
-    dev_auth_bypass_enabled: bool = True
+    dev_auth_bypass_enabled: bool = False
     dev_auth_bypass_user_id: str = "00000000-0000-0000-0000-000000000001"
 
     # Shopify Partner app + OAuth (https://shopify.dev/docs/apps/auth/oauth)
@@ -50,6 +50,21 @@ class Settings(BaseSettings):
     mailjet_reply_hmac_secret: str | None = None
     """Shared secret on inbound webhook URL (?verify=) to reject stray traffic."""
     mailjet_inbound_webhook_secret: str | None = None
+
+    # Stripe (https://stripe.com/docs). Keys optional until billing is used.
+    stripe_secret_key: str | None = None
+    stripe_publishable_key: str | None = None
+    """Signing secret from Dashboard webhook endpoint or `stripe listen` (whsec_...)."""
+    stripe_webhook_secret: str | None = None
+    """Recurring Price IDs (price_...) from Stripe Dashboard, not Product IDs (prod_...)."""
+    stripe_price_starter_monthly: str | None = None
+    stripe_price_growth_monthly: str | None = None
+    stripe_price_pro_monthly: str | None = None
+    stripe_price_scale_monthly: str | None = None
+    """Origin for Checkout return URLs, e.g. http://localhost:3000"""
+    billing_app_base_url: str = "http://localhost:3000"
+    """Optional shared secret for POST /api/v1/billing/internal/charge-overage (cron)."""
+    billing_internal_secret: str | None = None
 
     @model_validator(mode="before")
     @classmethod

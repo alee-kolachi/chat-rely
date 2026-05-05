@@ -373,12 +373,11 @@ def test_url_filter_helpers() -> None:
     assert _url_passes_filters("https://x.com/barfoo/baz", [], exc3) is False
 
 
-def test_website_crawl_budget_bytes_from_plan_features() -> None:
-    from app.domains.knowledge.service import _website_crawl_budget_bytes
+def test_included_storage_from_max_total_knowledge_mb() -> None:
+    from app.domains.knowledge.service import _included_storage_bytes_from_plan_features
 
-    assert _website_crawl_budget_bytes("free", {}) == 500 * 1024
-    assert _website_crawl_budget_bytes("pro", {}) == 10240 * 1024
-    assert _website_crawl_budget_bytes("free", {"max_website_crawl_kb": 100}) == 100 * 1024
+    assert _included_storage_bytes_from_plan_features({"max_total_knowledge_mb": 10}) == 10 * 1024 * 1024
+    assert _included_storage_bytes_from_plan_features({"max_total_knowledge_mb": 5}) == 5 * 1024 * 1024
 
 
 def test_job_crawl_limit_exceeded_flag() -> None:

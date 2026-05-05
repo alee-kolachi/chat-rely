@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,9 @@ from app.domains.bootstrap.schemas import (
     SubscriptionDTO,
     UsageSnapshotDTO,
 )
+from app.domains.usage_cushion import cushion_conversation_limit
+
+log = structlog.get_logger(__name__)
 
 
 def _month_period(now: datetime) -> tuple[datetime, datetime]:
@@ -96,9 +100,12 @@ async def _fetch_active_subscription_and_plan(
               s.current_period_start,
               s.current_period_end,
               s.cancel_at_period_end,
+              s.provider_customer_id,
+              s.provider_subscription_id,
               p.id as plan_id_ref,
               p.slug,
               p.name,
+              p.monthly_price_cents,
               p.included_conversations,
               p.max_agents,
               p.overage_conversation_cents,
@@ -126,6 +133,8 @@ async def _fetch_active_subscription_and_plan(
             "current_period_start": row["current_period_start"],
             "current_period_end": row["current_period_end"],
             "cancel_at_period_end": row["cancel_at_period_end"],
+            "provider_customer_id": row.get("provider_customer_id"),
+            "provider_subscription_id": row.get("provider_subscription_id"),
         }
     )
     plan = PlanDTO.model_validate(
@@ -133,6 +142,7 @@ async def _fetch_active_subscription_and_plan(
             "id": row["plan_id_ref"],
             "slug": row["slug"],
             "name": row["name"],
+            "monthly_price_cents": int(row.get("monthly_price_cents") or 0),
             "included_conversations": row["included_conversations"],
             "max_agents": row["max_agents"],
             "overage_conversation_cents": row["overage_conversation_cents"],
@@ -142,90 +152,29 @@ async def _fetch_active_subscription_and_plan(
     return subscription, plan
 
 
+async def _default_plan_id_for_new_subscription(db: AsyncSession) -> UUID:
+    """Prefer free tier for new workspaces; fall back to starter if migrations are partial."""
+    for slug in ("free", "starter"):
+        res = await db.execute(
+            text("select id from public.plans where slug = :slug and is_active = true limit 1"),
+            {"slug": slug},
+        )
+        row = res.mappings().first()
+        if row:
+            return UUID(str(row["id"]))
+    raise AppError(
+        code="plan.not_found",
+        message="No active free or starter plan in database. Apply Supabase migrations / seed.",
+        status_code=500,
+    )
+
+
 async def _ensure_default_subscription(db: AsyncSession, user_id: UUID) -> tuple[SubscriptionDTO, PlanDTO]:
     existing = await _fetch_active_subscription_and_plan(db, user_id)
     if existing:
-        subscription, plan = existing
-        if plan.slug != "free":
-            return subscription, plan
-        await db.execute(
-            text(
-                """
-                update public.subscriptions
-                set plan_id = (
-                  select id from public.plans where slug = 'starter' and is_active = true limit 1
-                ),
-                updated_at = now()
-                where id = :subscription_id
-                """
-            ),
-            {"subscription_id": str(subscription.id)},
-        )
-        refreshed = await _fetch_active_subscription_and_plan(db, user_id)
-        if refreshed is None:
-            raise AppError(
-                code="subscription.bootstrap_failed",
-                message="Failed to upgrade default subscription",
-                status_code=500,
-            )
-        return refreshed
+        return existing
 
-    starter_result = await db.execute(
-        text(
-            """
-            select id
-            from public.plans
-            where slug = 'starter' and is_active = true
-            limit 1
-            """
-        )
-    )
-    starter_row = starter_result.mappings().first()
-    if starter_row is None:
-        created_starter = await db.execute(
-            text(
-                """
-                insert into public.plans (
-                  slug,
-                  name,
-                  monthly_price_cents,
-                  included_conversations,
-                  overage_conversation_cents,
-                  max_agents,
-                  features,
-                  throttle_policy,
-                  is_active
-                ) values (
-                  'starter',
-                  'Starter',
-                  3900,
-                  500,
-                  8,
-                  1,
-                  '{"shopify_enabled": true, "max_enabled_actions_per_agent": 5, "max_file_storage_mb": 100, "max_knowledge_storage_kb": 500, "max_website_crawl_kb": 500, "auto_retrain": false}'::jsonb,
-                  '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 2500, "strong_delay_ms": 8000}'::jsonb,
-                  true
-                )
-                on conflict (slug)
-                do update set
-                  name = excluded.name,
-                  monthly_price_cents = excluded.monthly_price_cents,
-                  included_conversations = excluded.included_conversations,
-                  overage_conversation_cents = excluded.overage_conversation_cents,
-                  max_agents = excluded.max_agents,
-                  features = excluded.features,
-                  throttle_policy = excluded.throttle_policy,
-                  is_active = true,
-                  updated_at = now()
-                returning id
-                """
-            )
-        )
-        created_row = created_starter.mappings().first()
-        if created_row is None:
-            raise AppError(code="plan.not_found", message="Default starter plan is missing", status_code=500)
-        starter_row = created_row
-
+    plan_id = await _default_plan_id_for_new_subscription(db)
     period_start, period_end = _month_period(datetime.now(tz=UTC))
     await db.execute(
         text(
@@ -239,7 +188,7 @@ async def _ensure_default_subscription(db: AsyncSession, user_id: UUID) -> tuple
         ),
         {
             "user_id": str(user_id),
-            "plan_id": str(starter_row["id"]),
+            "plan_id": str(plan_id),
             "period_start": period_start,
             "period_end": period_end,
         },
@@ -248,6 +197,19 @@ async def _ensure_default_subscription(db: AsyncSession, user_id: UUID) -> tuple
     if refreshed is None:
         raise AppError(code="subscription.bootstrap_failed", message="Failed to create default subscription", status_code=500)
     return refreshed
+
+
+async def _refresh_usage_snapshot_for_subscription(
+    db: AsyncSession, user_id: UUID, subscription: SubscriptionDTO
+) -> None:
+    ps = subscription.current_period_start.astimezone(UTC).date()
+    pe = subscription.current_period_end.astimezone(UTC).date()
+    await db.execute(
+        text(
+            "select public.refresh_usage_period_snapshot(cast(:uid as uuid), cast(:ps as date), cast(:pe as date))"
+        ),
+        {"uid": str(user_id), "ps": ps, "pe": pe},
+    )
 
 
 async def bootstrap_me(db: AsyncSession, user_id: UUID) -> BootstrapResponse:
@@ -261,6 +223,12 @@ async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse
     profile = await _ensure_profile(db, user_id)
     subscription, plan = await _ensure_default_subscription(db, user_id)
 
+    try:
+        await _refresh_usage_snapshot_for_subscription(db, user_id, subscription)
+    except Exception:
+        log.warning("usage.snapshot_refresh_failed", user_id=str(user_id), exc_info=True)
+    ps = subscription.current_period_start.astimezone(UTC).date()
+    pe = subscription.current_period_end.astimezone(UTC).date()
     usage_result = await db.execute(
         text(
             """
@@ -274,15 +242,27 @@ async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse
               throttle_tier
             from public.usage_period_snapshots
             where user_id = :user_id
-            order by period_end desc
-            limit 1
+              and period_start = :ps
+              and period_end = :pe
             """
         ),
-        {"user_id": str(user_id)},
+        {"user_id": str(user_id), "ps": ps, "pe": pe},
     )
     usage_row = usage_result.mappings().first()
     await db.commit()
 
-    usage_snapshot = UsageSnapshotDTO.model_validate(usage_row) if usage_row else None
+    usage_snapshot: UsageSnapshotDTO | None = None
+    if usage_row:
+        inc = int(usage_row["included_conversations"])
+        bill = int(usage_row["billable_conversations"])
+        cushion = cushion_conversation_limit(inc)
+        in_free = min(max(0, bill - inc), max(0, cushion - inc))
+        usage_snapshot = UsageSnapshotDTO.model_validate(
+            {
+                **dict(usage_row),
+                "cushion_limit_conversations": cushion,
+                "conversations_in_free_cushion": in_free,
+            }
+        )
     return MeContextResponse(profile=profile, subscription=subscription, plan=plan, usage_snapshot=usage_snapshot)
 

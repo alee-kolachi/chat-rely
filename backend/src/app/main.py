@@ -34,12 +34,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setup_logging(settings.log_level)
     init_engine(settings)
     init_session_factory()
-    if settings.is_development and settings.dev_auth_bypass_enabled:
-        set_token_verifier(None)
-    else:
-        verifier = TokenVerifier(settings)
-        await verifier.warmup()
-        set_token_verifier(verifier)
+    # Always install a real verifier when a Bearer token is present. Dev bypass (see deps.py) only
+    # applies to requests *without* Authorization — otherwise every logged-in user would share
+    # DEV_AUTH_BYPASS_USER_ID because verify_token was never run.
+    verifier = TokenVerifier(settings)
+    await verifier.warmup()
+    set_token_verifier(verifier)
     yield
     await get_engine().dispose()
 

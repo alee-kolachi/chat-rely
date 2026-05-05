@@ -59,10 +59,7 @@ MAX_DASHBOARD_WEBSITE_PAGES = MAX_CRAWL_PAGES_SAFETY_CEILING
 # With include path rules, follow same-site links that pass excludes only so hub/category pages can lead to matching URLs.
 DASHBOARD_BFS_INCLUDE_RULE_MAX_HOPS = 14
 DASHBOARD_BFS_INCLUDE_RULE_MAX_PAGES_VISITED = 3500
-# Per-crawl HTTP body budget from plan features (`max_website_crawl_kb`); defaults when missing.
-DEFAULT_WEBSITE_CRAWL_KB_FREE = 500
-DEFAULT_WEBSITE_CRAWL_KB_PAID = 10240
-# Only this many bytes of each response count toward the crawl budget (and are parsed for text/links).
+# Per-response byte charge cap for crawl HTTP bodies (in addition to total indexed storage cap).
 _CRAWL_BODY_CHARGE_CAP_BYTES = 400_000
 DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES = 100 * 1024 * 1024
 STARTER_KNOWLEDGE_STORAGE_CAP_BYTES = 500 * 1024
@@ -3559,8 +3556,12 @@ async def delete_qa_source(db: AsyncSession, user_id: UUID, source_id: UUID) -> 
 
 
 def _included_storage_bytes_from_plan_features(features: dict[str, object]) -> int:
+    """Total indexed knowledge cap (website + files + snippets + Q&A share one pool)."""
     if not isinstance(features, dict):
         return DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES
+    total_mb = features.get("max_total_knowledge_mb")
+    if isinstance(total_mb, (int, float)) and total_mb > 0:
+        return int(total_mb * 1024 * 1024)
     kb = features.get("max_knowledge_storage_kb")
     if isinstance(kb, (int, float)) and kb > 0:
         return int(kb * 1024)
@@ -3596,17 +3597,6 @@ async def _agent_used_storage_bytes(db: AsyncSession, *, user_id: UUID, agent_id
         )
     ).mappings().one()
     return int(usage_row["used_bytes"] or 0)
-
-
-def _website_crawl_budget_bytes(plan_slug: str, features: dict[str, Any]) -> int:
-    raw = features.get("max_website_crawl_kb")
-    try:
-        kb = int(raw) if raw is not None else 0
-    except (TypeError, ValueError):
-        kb = 0
-    if kb <= 0:
-        kb = DEFAULT_WEBSITE_CRAWL_KB_FREE if plan_slug == "free" else DEFAULT_WEBSITE_CRAWL_KB_PAID
-    return kb * 1024
 
 
 def _coerce_job_metrics(metrics: object) -> dict[str, Any]:
@@ -3869,6 +3859,7 @@ async def get_agent_website_usage(db: AsyncSession, user_id: UUID, agent_id: UUI
     plan_slug, plan_name, features = await _fetch_active_subscription_plan(db, user_id)
 
     included = _included_storage_bytes_from_plan_features(features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included)
     used = int(usage_row["used_bytes"] or 0)
     total_links = int(usage_row["total_links"] or 0)
     total_files = int(usage_row["total_files"] or 0)
@@ -3879,7 +3870,7 @@ async def get_agent_website_usage(db: AsyncSession, user_id: UUID, agent_id: UUI
     snippets_used = int(usage_row.get("snippets_used_bytes") or 0)
     qa_used = int(usage_row.get("qa_used_bytes") or 0)
     show_upgrade = plan_slug == "free" or used > included
-    crawl_budget = _website_crawl_budget_bytes(plan_slug, features)
+    remaining_total = max(0, int(effective_storage_cap_bytes) - used)
 
     running_crawl_row = (
         await db.execute(
@@ -3944,6 +3935,6 @@ async def get_agent_website_usage(db: AsyncSession, user_id: UUID, agent_id: UUI
         snippets_used_bytes=snippets_used,
         qa_used_bytes=qa_used,
         show_upgrade=show_upgrade,
-        website_crawl_budget_bytes=crawl_budget,
+        website_crawl_budget_bytes=remaining_total,
         website_crawl_last_job_bytes=crawl_bytes_for_ui,
     )

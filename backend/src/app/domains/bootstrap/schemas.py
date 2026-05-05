@@ -19,6 +19,7 @@ class PlanDTO(BaseModel):
     id: UUID
     slug: str
     name: str
+    monthly_price_cents: int = 0
     included_conversations: int
     max_agents: int
     overage_conversation_cents: int
@@ -33,6 +34,8 @@ class SubscriptionDTO(BaseModel):
     current_period_start: datetime
     current_period_end: datetime
     cancel_at_period_end: bool
+    provider_customer_id: str | None = None
+    provider_subscription_id: str | None = None
 
 
 class UsageSnapshotDTO(BaseModel):
@@ -43,6 +46,8 @@ class UsageSnapshotDTO(BaseModel):
     overage_conversations: int
     estimated_overage_cents: int
     throttle_tier: str
+    cushion_limit_conversations: int = 0
+    conversations_in_free_cushion: int = 0
 
 
 class BootstrapResponse(BaseModel):

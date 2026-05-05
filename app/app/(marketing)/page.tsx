@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ConversationalWorkflowSection } from "@/components/marketing/conversational-workflow-section";
 import { PlatformDiscoverySection } from "@/components/marketing/platform-discovery-section";
-import { PricingCards, PricingComparison } from "@/components/marketing/pricing-sections";
+import { LandingPricingTeaser } from "@/components/marketing/landing-pricing-teaser";
 
 const brands = ["Make", "Shopify", "Zendesk", "Notion", "Slack", "Stripe", "Salesforce", "WhatsApp", "Zapier"];
 
@@ -161,15 +161,7 @@ export default function LandingPage() {
               Designed for every stage of your journey.
             </p>
           </div>
-          <PricingCards />
-          <div className="mt-12">
-            <PricingComparison />
-          </div>
-          <div className="mt-8 text-center">
-            <Link href="/pricing" className="text-sm font-semibold text-ds-tertiary underline underline-offset-4">
-              View full pricing details
-            </Link>
-          </div>
+          <LandingPricingTeaser />
         </div>
       </section>
 

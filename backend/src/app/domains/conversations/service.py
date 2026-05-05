@@ -271,6 +271,14 @@ async def mark_conversation_operator_engaged(
     await db.commit()
 
 
+async def try_mark_conversation_billable(db: AsyncSession, conversation_id: UUID) -> None:
+    """Runs DB guardrail: sets counts_toward_plan when thresholds are met (terminal conversations only)."""
+    await db.execute(
+        text("select public.mark_conversation_billable(cast(:conversation_id as uuid))"),
+        {"conversation_id": str(conversation_id)},
+    )
+
+
 async def update_conversation_status(
     db: AsyncSession,
     user_id: UUID,
@@ -303,6 +311,8 @@ async def update_conversation_status(
     row = result.mappings().first()
     if row is None:
         raise AppError(code="conversation.not_found", message="Conversation not found", status_code=404)
+    if payload.status in ("idle_closed", "resolved", "escalated"):
+        await try_mark_conversation_billable(db, conversation_id)
     await db.commit()
     return ConversationDTO.model_validate(row)
 

@@ -84,6 +84,22 @@ async def build_agent_dashboard(
     )
     conversations_started = int(started.mappings().one()["n"])
 
+    billable = await db.execute(
+        text(
+            """
+            select count(*)::int as n
+            from public.conversations c
+            where c.user_id = cast(:user_id as uuid)
+              and c.agent_id = cast(:agent_id as uuid)
+              and c.started_at >= :rf
+              and c.started_at < :rt
+              and c.counts_toward_plan = true
+            """
+        ),
+        params,
+    )
+    billable_conversations = int(billable.mappings().one()["n"])
+
     escalated = await db.execute(
         text(
             """
@@ -284,6 +300,7 @@ async def build_agent_dashboard(
         range_from=rf,
         range_to=rt,
         conversations_started=conversations_started,
+        billable_conversations=billable_conversations,
         resolved_by_agent_pct=resolved_by_agent_pct,
         needs_human_pct=needs_human_pct,
         open_escalations=open_escalations,

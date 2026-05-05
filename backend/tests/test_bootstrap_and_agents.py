@@ -45,6 +45,7 @@ def _make_plan(max_agents: int = 3) -> PlanDTO:
             "id": "00000000-0000-0000-0000-000000000777",
             "slug": "starter",
             "name": "Starter",
+            "monthly_price_cents": 5900,
             "included_conversations": 500,
             "max_agents": max_agents,
             "overage_conversation_cents": 8,
@@ -63,6 +64,8 @@ def _make_subscription() -> SubscriptionDTO:
             "current_period_start": "2026-01-01T00:00:00Z",
             "current_period_end": "2026-01-31T23:59:59Z",
             "cancel_at_period_end": False,
+            "provider_customer_id": None,
+            "provider_subscription_id": None,
         }
     )
 

@@ -24,6 +24,7 @@ from app.domains.actions.service import (
     get_human_escalation_for_runtime,
     list_enabled_shopify_actions_for_runtime,
 )
+from app.domains.billing.usage_gate import assert_plan_usage_allows_assistant_reply
 from app.domains.conversation_outcomes.schemas import TurnSignalsDTO
 from app.domains.conversation_outcomes.service import compute_turn_signals
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
@@ -786,6 +787,8 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         conversation_id=payload.conversation_id,
     )
 
+    await assert_plan_usage_allows_assistant_reply(db, user_id)
+
     await append_message(
         db,
         user_id=user_id,
@@ -1103,6 +1106,17 @@ async def run_chat_stream(
         visitor_id=payload.visitor_id,
         conversation_id=payload.conversation_id,
     )
+
+    try:
+        await assert_plan_usage_allows_assistant_reply(db, user_id)
+    except AppError as exc:
+        yield {
+            "type": "error",
+            "code": exc.code,
+            "message": exc.message,
+            "details": exc.details,
+        }
+        return
 
     yield {"type": "start", "conversation_id": str(conversation_id)}
 

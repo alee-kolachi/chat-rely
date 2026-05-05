@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { clearChatrelyClientAccountCaches } from "@/lib/clear-client-account-caches";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +18,7 @@ export function LogoutButton({ className }: LogoutButtonProps) {
     setIsLoading(true);
     const supabase = createBrowserSupabaseClient();
     await supabase.auth.signOut();
+    clearChatrelyClientAccountCaches();
     router.push("/login");
     router.refresh();
   }
