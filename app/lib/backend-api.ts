@@ -4,6 +4,9 @@ import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { rewriteLoopbackServiceUrlForPageHost } from "@/lib/resolve-loopback-service-url-for-lan";
 
 const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000";
+let cachedAccessToken: string | null = null;
+let tokenCacheInitialized = false;
+let tokenCacheInitPromise: Promise<void> | null = null;
 
 export class BackendApiError extends Error {
   status: number;
@@ -43,18 +46,40 @@ export function getBackendBaseUrl(): string {
   return "";
 }
 
+async function initTokenCache(): Promise<void> {
+  if (typeof window === "undefined" || tokenCacheInitialized) {
+    return;
+  }
+  if (tokenCacheInitPromise) {
+    await tokenCacheInitPromise;
+    return;
+  }
+  tokenCacheInitPromise = (async () => {
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+      cachedAccessToken = error ? null : session?.access_token ?? null;
+      supabase.auth.onAuthStateChange((_event, nextSession) => {
+        cachedAccessToken = nextSession?.access_token ?? null;
+      });
+    } catch {
+      cachedAccessToken = null;
+    } finally {
+      tokenCacheInitialized = true;
+    }
+  })();
+  await tokenCacheInitPromise;
+}
+
 async function getAccessToken() {
-  try {
-    const supabase = createBrowserSupabaseClient();
-    const {
-      data: { session },
-      error,
-    } = await supabase.auth.getSession();
-    if (error) return null;
-    return session?.access_token ?? null;
-  } catch {
+  if (typeof window === "undefined") {
     return null;
   }
+  await initTokenCache();
+  return cachedAccessToken;
 }
 
 export async function backendFetch<T>(path: string, init: RequestInit = {}): Promise<T> {

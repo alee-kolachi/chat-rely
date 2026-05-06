@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { BackendBootstrap } from "@/components/layout/backend-bootstrap";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { MeContextProvider } from "@/components/layout/me-context-provider";
 
 export default function DashboardLayout({
   children,
@@ -8,9 +8,8 @@ export default function DashboardLayout({
   children: ReactNode;
 }) {
   return (
-    <>
-      <BackendBootstrap />
+    <MeContextProvider>
       <DashboardShell>{children}</DashboardShell>
-    </>
+    </MeContextProvider>
   );
 }

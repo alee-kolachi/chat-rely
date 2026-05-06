@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { backendFetch } from "@/lib/backend-api";
+import { useMeContext } from "@/components/layout/me-context-provider";
 
 type UsageSnapshot = {
   included_conversations: number;
@@ -20,26 +19,8 @@ type MeContextPayload = {
 };
 
 export function UsagePlanBanner() {
-  const [ctx, setCtx] = useState<MeContextPayload | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const data = await backendFetch<MeContextPayload>("/api/v1/me/context");
-        if (!cancelled) {
-          setCtx(data);
-        }
-      } catch {
-        if (!cancelled) {
-          setCtx(null);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data } = useMeContext();
+  const ctx = data as MeContextPayload | null;
 
   const snap = ctx?.usage_snapshot;
   if (!snap) {

@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
+import { useMeContext } from "@/components/layout/me-context-provider";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 
 type UsageSnapshot = {
@@ -16,28 +17,6 @@ type UsageSnapshot = {
   throttle_tier: string;
   cushion_limit_conversations: number;
   conversations_in_free_cushion: number;
-};
-
-type MeContext = {
-  profile: { id: string; full_name: string | null };
-  subscription: {
-    id: string;
-    status: string;
-    current_period_start: string;
-    current_period_end: string;
-    cancel_at_period_end: boolean;
-    provider_customer_id: string | null;
-    provider_subscription_id: string | null;
-  };
-  plan: {
-    slug: string;
-    name: string;
-    monthly_price_cents: number;
-    included_conversations: number;
-    max_agents: number;
-    overage_conversation_cents: number;
-  };
-  usage_snapshot: UsageSnapshot | null;
 };
 
 const PAID_SLUGS = ["starter", "growth", "pro", "scale"] as const;
@@ -56,7 +35,7 @@ function formatDate(iso: string): string {
 
 export function AccountPlanContent() {
   const searchParams = useSearchParams();
-  const [ctx, setCtx] = useState<MeContext | null>(null);
+  const { data: ctx, error, refresh } = useMeContext();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [changeBusy, setChangeBusy] = useState(false);
@@ -75,21 +54,6 @@ export function AccountPlanContent() {
       };
     return null;
   }, [searchParams]);
-
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const data = await backendFetch<MeContext>("/api/v1/me/context");
-      setCtx(data);
-    } catch (e) {
-      const msg = e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not load plan";
-      setLoadError(msg);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const startCheckout = async (planSlug: string) => {
     setBusySlug(planSlug);
@@ -114,7 +78,7 @@ export function AccountPlanContent() {
         method: "POST",
         body: JSON.stringify({ plan_slug: planSlug, proration_behavior: "create_prorations" }),
       });
-      await load();
+      await refresh();
     } catch (e) {
       const msg = e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Plan change failed";
       setLoadError(msg);
@@ -157,13 +121,13 @@ export function AccountPlanContent() {
           </div>
         ) : null}
 
-        {loadError ? (
+        {(loadError || error) ? (
           <div className="border-ds-outline mt-4 rounded-ds-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-            {loadError}
+            {loadError || error}
           </div>
         ) : null}
 
-        {!ctx && !loadError ? (
+        {!ctx && !(loadError || error) ? (
           <p className="text-ds-on-surface-variant mt-6 text-sm">Loading…</p>
         ) : null}
 

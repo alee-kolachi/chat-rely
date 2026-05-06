@@ -17,6 +17,15 @@ from app.domains.billing.price_map import slug_for_price_id
 from app.domains.billing.stripe_client import configure_stripe
 
 
+def _stripe_obj_to_dict(obj: Any) -> dict[str, Any]:
+    if isinstance(obj, dict):
+        return obj
+    fn = getattr(obj, "to_dict", None)
+    if callable(fn):
+        return fn()
+    return {}
+
+
 def _month_period(now: datetime) -> tuple[datetime, datetime]:
     start = now.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     next_month_seed = start.replace(day=28) + timedelta(days=4)
@@ -55,12 +64,9 @@ def _price_id_from_subscription_item(item: dict[str, Any] | Any) -> str | None:
 
 async def resolve_plan_id_for_stripe_subscription(db: AsyncSession, stripe_sub: Any) -> UUID | None:
     """Map first subscription item price to local plan id."""
-    items_obj = getattr(stripe_sub, "items", None)
-    if items_obj is None and isinstance(stripe_sub, dict):
-        items_obj = stripe_sub.get("items")
-    data = getattr(items_obj, "data", None) if items_obj is not None else None
-    if data is None and isinstance(items_obj, dict):
-        data = items_obj.get("data") or []
+    stripe_sub_dict = _stripe_obj_to_dict(stripe_sub)
+    items_obj = stripe_sub_dict.get("items") or {}
+    data = items_obj.get("data") if isinstance(items_obj, dict) else []
     if not data:
         return None
     first = data[0]
@@ -101,7 +107,7 @@ async def upsert_user_subscription_from_stripe(
     cancel_at_period_end: bool,
 ) -> None:
     db_status = stripe_subscription_status_to_db(status)
-    await db.execute(
+    result = await db.execute(
         text(
             """
             update public.subscriptions s
@@ -132,6 +138,44 @@ async def upsert_user_subscription_from_stripe(
             "cpe": current_period_end,
             "cape": cancel_at_period_end,
             "uid": str(user_id),
+        },
+    )
+    if (result.rowcount or 0) > 0:
+        return
+
+    await db.execute(
+        text(
+            """
+            insert into public.subscriptions (
+              user_id,
+              plan_id,
+              status,
+              current_period_start,
+              current_period_end,
+              cancel_at_period_end,
+              provider_customer_id,
+              provider_subscription_id
+            ) values (
+              cast(:uid as uuid),
+              cast(:plan as uuid),
+              cast(:st as subscription_status),
+              :cps,
+              :cpe,
+              :cape,
+              :cust,
+              :sub
+            )
+            """
+        ),
+        {
+            "uid": str(user_id),
+            "plan": str(plan_id),
+            "st": db_status,
+            "cps": current_period_start,
+            "cpe": current_period_end,
+            "cape": cancel_at_period_end,
+            "cust": stripe_customer_id,
+            "sub": stripe_subscription_id,
         },
     )
 

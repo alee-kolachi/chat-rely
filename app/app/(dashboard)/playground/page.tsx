@@ -225,6 +225,7 @@ function PlaygroundPreviewConversation({
     }
     void syncFromServer();
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void syncFromServer();
     }, PLAYGROUND_THREAD_POLL_MS);
     const onVisibility = () => {

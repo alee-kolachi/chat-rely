@@ -4,7 +4,7 @@ This repository uses a split-service monorepo layout:
 
 - `app/`: Next.js frontend
 - `backend/`: FastAPI backend
-- `supabase/`: local Supabase config, migrations, and seed data
+- `supabase/`: migrations + seed + optional **local** Supabase (`supabase start`)
 
 ## Canonical entrypoints
 
@@ -31,11 +31,17 @@ uv run uvicorn app.main:create_app --factory --reload
 - Copy `app/.env.example` to `app/.env.local` and fill values.
 - Copy `backend/.env.example` to `backend/.env` and fill values.
 
-### Local Supabase (recommended for this repo)
+### Hosted Supabase (default)
 
-1. From the repo root: `supabase start` (Docker required).
-2. **Frontend** (`app/.env.local`): set `NEXT_PUBLIC_SUPABASE_URL` to `http://127.0.0.1:54321` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to the **anon key** from `supabase status` (defaults in `.env.example` match the usual local demo key).
-3. **Backend** (`backend/.env`): keep `SUPABASE_JWKS_URL` / `SUPABASE_ISSUER` on `http://127.0.0.1:54321/auth/v1` as in `.env.example`, and `DATABASE_URL` on port **54322** (local Postgres).
-4. In the browser, **sign out** or clear site data for `localhost` if you previously used hosted Supabase—otherwise cookies still send **cloud** JWTs and the API will reject them (JWKS `kid` mismatch).
+Use this when you want **Google / email providers** configured in the cloud dashboard (local Studio does not mirror that UI).
 
-If signup returns **“Database error finding user”**, restart the stack after config changes (`supabase stop && supabase start`), use the same host for the app as in `supabase/config.toml` `site_url` (defaults to `http://localhost:3000`), and check `supabase logs auth --local` for the underlying Postgres error. A stale or broken local DB is often fixed with `supabase db reset` (wipes local data).
+1. **Frontend** (`app/.env.local`): `NEXT_PUBLIC_SUPABASE_URL` = Project URL; `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` from **Dashboard → Project Settings → API**.
+2. **Backend** (`backend/.env`): `SUPABASE_JWKS_URL` / `SUPABASE_ISSUER` = `https://<project-ref>.supabase.co/auth/v1/...` (same project as the app). `DATABASE_URL` = pooled or direct Postgres URI from **Dashboard → Settings → Database** (use `postgresql+asyncpg://…`).
+3. **`DEV_AUTH_BYPASS_ENABLED=false`** in `backend/.env` when testing real logins (see `.env.example`).
+4. Align **Site URL** and **Redirect URLs** under **Authentication → URL Configuration** with where you run Next (e.g. `http://localhost:3000`).
+
+### Optional: local Supabase
+
+For Docker-only DB/auth experiments: `supabase start`, then use the local URLs in the commented block at the bottom of each `.env.example`. OAuth providers there are configured in `supabase/config.toml`, not the hosted dashboard.
+
+If signup/auth behaves oddly locally, check **`supabase logs auth --local`** or reset with **`supabase db reset`** (wipes local data).

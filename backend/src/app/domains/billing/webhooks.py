@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -71,6 +71,38 @@ def _uuid_from_meta(meta: dict[str, Any] | None, key: str) -> UUID | None:
         return None
 
 
+def _coerce_unix_ts(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_subscription_period_bounds(stripe_sub: dict[str, Any]) -> tuple[datetime, datetime]:
+    """Return billing period bounds from either subscription or subscription item payload."""
+    start = _coerce_unix_ts(stripe_sub.get("current_period_start"))
+    end = _coerce_unix_ts(stripe_sub.get("current_period_end"))
+
+    if start is None or end is None:
+        items = stripe_sub.get("items") or {}
+        data = items.get("data") if isinstance(items, dict) else None
+        first = data[0] if isinstance(data, list) and data else {}
+        if isinstance(first, dict):
+            start = start or _coerce_unix_ts(first.get("current_period_start"))
+            end = end or _coerce_unix_ts(first.get("current_period_end"))
+
+    if start is None:
+        start = int(datetime.now(tz=UTC).timestamp())
+    if end is None:
+        end = int((datetime.fromtimestamp(start, tz=UTC) + timedelta(days=31)).timestamp())
+    if end <= start:
+        end = int((datetime.fromtimestamp(start, tz=UTC) + timedelta(days=1)).timestamp())
+
+    return datetime.fromtimestamp(start, tz=UTC), datetime.fromtimestamp(end, tz=UTC)
+
+
 async def _handle_checkout_session_completed(db: AsyncSession, data: dict[str, Any]) -> None:
     mode = data.get("mode")
     if mode != "subscription":
@@ -108,10 +140,10 @@ async def _handle_checkout_session_completed(db: AsyncSession, data: dict[str, A
         log.error("stripe.checkout.plan_unresolved", user_id=str(user_id), subscription_id=sub_id)
         return
 
-    cps = datetime.fromtimestamp(int(stripe_sub["current_period_start"]), tz=UTC)
-    cpe = datetime.fromtimestamp(int(stripe_sub["current_period_end"]), tz=UTC)
-    status = str(stripe_sub.get("status") or "active")
-    cape = bool(stripe_sub.get("cancel_at_period_end"))
+    stripe_sub_dict = _stripe_obj_to_dict(stripe_sub)
+    cps, cpe = _extract_subscription_period_bounds(stripe_sub_dict)
+    status = str(stripe_sub_dict.get("status") or "active")
+    cape = bool(stripe_sub_dict.get("cancel_at_period_end"))
 
     await upsert_user_subscription_from_stripe(
         db,
@@ -165,10 +197,10 @@ async def _handle_subscription_updated(db: AsyncSession, obj: dict[str, Any]) ->
         log.warning("stripe.subscription.updated_plan_unresolved", subscription_id=sub_id)
         return
 
-    cps = datetime.fromtimestamp(int(stripe_sub["current_period_start"]), tz=UTC)
-    cpe = datetime.fromtimestamp(int(stripe_sub["current_period_end"]), tz=UTC)
-    status = str(stripe_sub.get("status") or "active")
-    cape = bool(stripe_sub.get("cancel_at_period_end"))
+    stripe_sub_dict = _stripe_obj_to_dict(stripe_sub)
+    cps, cpe = _extract_subscription_period_bounds(stripe_sub_dict)
+    status = str(stripe_sub_dict.get("status") or "active")
+    cape = bool(stripe_sub_dict.get("cancel_at_period_end"))
 
     await upsert_user_subscription_from_stripe(
         db,

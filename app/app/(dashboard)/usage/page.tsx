@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { backendFetch } from "@/lib/backend-api";
+import { useMemo } from "react";
+import { useMeContext } from "@/components/layout/me-context-provider";
 
 type UsageSnapshot = {
   period_start: string;
@@ -16,12 +16,6 @@ type UsageSnapshot = {
   conversations_in_free_cushion: number;
 };
 
-type MeContextPayload = {
-  plan: { name: string; slug: string; included_conversations: number; overage_conversation_cents: number };
-  subscription: { current_period_start: string; current_period_end: string };
-  usage_snapshot: UsageSnapshot | null;
-};
-
 function formatPeriod(s: string, e: string): string {
   try {
     const a = new Date(s);
@@ -33,27 +27,7 @@ function formatPeriod(s: string, e: string): string {
 }
 
 export default function UsagePage() {
-  const [ctx, setCtx] = useState<MeContextPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await backendFetch<MeContextPayload>("/api/v1/me/context");
-      setCtx(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load usage");
-      setCtx(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const { data: ctx, error, loading } = useMeContext();
 
   const snap = ctx?.usage_snapshot;
   const included = snap?.included_conversations ?? ctx?.plan.included_conversations ?? 0;

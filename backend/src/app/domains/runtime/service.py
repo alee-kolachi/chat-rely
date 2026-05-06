@@ -473,12 +473,20 @@ async def _resolve_or_create_conversation(
             """
             select id
             from public.conversations
-            where user_id = :user_id and agent_id = :agent_id and visitor_id = :visitor_id and status = 'open'
+            where user_id = :user_id
+              and agent_id = :agent_id
+              and visitor_id = :visitor_id
+              and status = any(:reusable_statuses)
             order by created_at desc
             limit 1
             """
         ),
-        {"user_id": str(user_id), "agent_id": str(agent_id), "visitor_id": visitor_id},
+        {
+            "user_id": str(user_id),
+            "agent_id": str(agent_id),
+            "visitor_id": visitor_id,
+            "reusable_statuses": ["open", "escalated"],
+        },
     )
     existing = result.mappings().first()
     if existing:

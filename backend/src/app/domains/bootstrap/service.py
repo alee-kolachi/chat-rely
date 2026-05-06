@@ -212,6 +212,107 @@ async def _refresh_usage_snapshot_for_subscription(
     )
 
 
+async def _fetch_context_profile_subscription_plan(
+    db: AsyncSession, user_id: UUID
+) -> tuple[ProfileDTO, SubscriptionDTO, PlanDTO] | None:
+    result = await db.execute(
+        text(
+            """
+            with active_subscription as (
+              select
+                s.id as subscription_id,
+                s.user_id,
+                s.plan_id,
+                s.status,
+                s.current_period_start,
+                s.current_period_end,
+                s.cancel_at_period_end,
+                s.provider_customer_id,
+                s.provider_subscription_id
+              from public.subscriptions s
+              where s.user_id = :user_id
+                and s.status in ('trialing', 'active', 'past_due')
+              order by s.current_period_end desc
+              limit 1
+            )
+            select
+              p.id as profile_id,
+              p.full_name,
+              p.avatar_url,
+              p.timezone,
+              p.email_notifications_enabled,
+              p.created_at as profile_created_at,
+              p.updated_at as profile_updated_at,
+              s.subscription_id,
+              s.user_id as subscription_user_id,
+              s.plan_id as subscription_plan_id,
+              s.status as subscription_status,
+              s.current_period_start,
+              s.current_period_end,
+              s.cancel_at_period_end,
+              s.provider_customer_id,
+              s.provider_subscription_id,
+              pl.id as plan_id_ref,
+              pl.slug as plan_slug,
+              pl.name as plan_name,
+              pl.monthly_price_cents as plan_monthly_price_cents,
+              pl.included_conversations as plan_included_conversations,
+              pl.max_agents as plan_max_agents,
+              pl.overage_conversation_cents as plan_overage_conversation_cents,
+              pl.features as plan_features
+            from public.profiles p
+            left join active_subscription s on true
+            left join public.plans pl on pl.id = s.plan_id
+            where p.id = :user_id
+            """
+        ),
+        {"user_id": str(user_id)},
+    )
+    row = result.mappings().first()
+    if not row:
+        return None
+    if not row["subscription_id"] or not row["plan_id_ref"]:
+        return None
+
+    profile = ProfileDTO.model_validate(
+        {
+            "id": row["profile_id"],
+            "full_name": row["full_name"],
+            "avatar_url": row["avatar_url"],
+            "timezone": row["timezone"],
+            "email_notifications_enabled": row["email_notifications_enabled"],
+            "created_at": row["profile_created_at"],
+            "updated_at": row["profile_updated_at"],
+        }
+    )
+    subscription = SubscriptionDTO.model_validate(
+        {
+            "id": row["subscription_id"],
+            "user_id": row["subscription_user_id"],
+            "plan_id": row["subscription_plan_id"],
+            "status": row["subscription_status"],
+            "current_period_start": row["current_period_start"],
+            "current_period_end": row["current_period_end"],
+            "cancel_at_period_end": row["cancel_at_period_end"],
+            "provider_customer_id": row["provider_customer_id"],
+            "provider_subscription_id": row["provider_subscription_id"],
+        }
+    )
+    plan = PlanDTO.model_validate(
+        {
+            "id": row["plan_id_ref"],
+            "slug": row["plan_slug"],
+            "name": row["plan_name"],
+            "monthly_price_cents": int(row.get("plan_monthly_price_cents") or 0),
+            "included_conversations": row["plan_included_conversations"],
+            "max_agents": row["plan_max_agents"],
+            "overage_conversation_cents": row["plan_overage_conversation_cents"],
+            "features": row["plan_features"] or {},
+        }
+    )
+    return profile, subscription, plan
+
+
 async def bootstrap_me(db: AsyncSession, user_id: UUID) -> BootstrapResponse:
     profile = await _ensure_profile(db, user_id)
     subscription, plan = await _ensure_default_subscription(db, user_id)
@@ -220,13 +321,13 @@ async def bootstrap_me(db: AsyncSession, user_id: UUID) -> BootstrapResponse:
 
 
 async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse:
-    profile = await _ensure_profile(db, user_id)
-    subscription, plan = await _ensure_default_subscription(db, user_id)
-
-    try:
-        await _refresh_usage_snapshot_for_subscription(db, user_id, subscription)
-    except Exception:
-        log.warning("usage.snapshot_refresh_failed", user_id=str(user_id), exc_info=True)
+    context = await _fetch_context_profile_subscription_plan(db, user_id)
+    if context is None:
+        profile = await _ensure_profile(db, user_id)
+        subscription, plan = await _ensure_default_subscription(db, user_id)
+        await db.commit()
+    else:
+        profile, subscription, plan = context
     ps = subscription.current_period_start.astimezone(UTC).date()
     pe = subscription.current_period_end.astimezone(UTC).date()
     usage_result = await db.execute(
@@ -265,4 +366,19 @@ async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse
             }
         )
     return MeContextResponse(profile=profile, subscription=subscription, plan=plan, usage_snapshot=usage_snapshot)
+
+
+async def refresh_usage_snapshot_for_user(user_id: UUID) -> None:
+    from app.db.session import get_session_factory
+
+    async with get_session_factory()() as db:
+        try:
+            context = await _fetch_context_profile_subscription_plan(db, user_id)
+            if context is None:
+                return
+            _, subscription, _ = context
+            await _refresh_usage_snapshot_for_subscription(db, user_id, subscription)
+            await db.commit()
+        except Exception:
+            log.warning("usage.snapshot_refresh_failed", user_id=str(user_id), exc_info=True)
 

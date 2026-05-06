@@ -7,12 +7,18 @@ engine: AsyncEngine | None = None
 
 def init_engine(settings: Settings) -> AsyncEngine:
     global engine
+    # Supabase Supavisor (transaction pool / PgBouncer) does not support server-side prepared
+    # statement caching — disable asyncpg statement cache to avoid intermittent failures.
     engine = create_async_engine(
         str(settings.database_url),
         echo=False,
-        pool_pre_ping=True,
+        pool_pre_ping=False,
         pool_size=5,
         max_overflow=10,
+        connect_args={
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+        },
     )
     return engine
 

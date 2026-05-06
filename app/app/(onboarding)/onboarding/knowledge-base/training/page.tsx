@@ -74,7 +74,10 @@ function KnowledgeBaseTrainingPageInner() {
       }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 4000);
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void poll();
+    }, 4000);
     return () => {
       cancelled = true;
       clearInterval(timer);
