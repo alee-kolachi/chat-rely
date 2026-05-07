@@ -50,6 +50,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const newestIdOnLastFetchRef = useRef<string | null>(null);
   const initialPollDoneRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
   const dismissToast = useCallback(() => {
     if (toastTimerRef.current) {
@@ -91,9 +92,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    queueMicrotask(() => {
+    if (hasLoadedOnceRef.current) return;
+    hasLoadedOnceRef.current = true;
+    const timeoutId = window.setTimeout(() => {
       void refresh();
-    });
+    }, 1200);
+    return () => window.clearTimeout(timeoutId);
   }, [refresh]);
 
   useEffect(() => {

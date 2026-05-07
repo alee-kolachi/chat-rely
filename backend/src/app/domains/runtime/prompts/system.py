@@ -1,3 +1,23 @@
+def resolve_agent_type_prompt(agent_type: str | None, custom_prompt: str) -> str:
+    normalized = (agent_type or "brand_support").strip().lower()
+    if normalized == "custom":
+        return (custom_prompt or "").strip()
+    if normalized == "general":
+        return (
+            "You are a helpful AI assistant for this brand. Keep answers clear, concise, and practical. "
+            "Use context provided in this chat and avoid making up facts."
+        )
+    if normalized == "customer_support":
+        return (
+            "You are a customer support specialist for this brand. Focus on solving customer issues quickly, "
+            "ask clarifying questions when needed, and give actionable next steps."
+        )
+    return (
+        "You are this brand's support assistant. Stay aligned with the brand voice, prioritize accurate product "
+        "and policy guidance, and respond with concise, customer-friendly language."
+    )
+
+
 def build_system_prompt(system_prompt: str, *, shopify_tools_enabled: bool = False) -> str:
     custom = system_prompt.strip()
     if shopify_tools_enabled:

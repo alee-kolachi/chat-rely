@@ -24,6 +24,10 @@ import {
 } from "@/components/knowledge/use-sort-preference";
 import { KnowledgeWebsiteSourceListSkeleton } from "@/components/knowledge/knowledge-list-skeleton";
 import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
+import {
+  type KnowledgeWebsiteSourceRow,
+  useKnowledgeDataSources,
+} from "@/components/knowledge/knowledge-data-sources-context";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
@@ -43,26 +47,7 @@ type PathChip = {
   pattern: string;
 };
 
-type WebsiteSourceListRow = {
-  id: string;
-  title: string;
-  source_url: string | null;
-  status: string;
-  website_mode: string | null;
-  link_count: number;
-  last_indexed_at: string | null;
-  error_message?: string | null;
-  latest_job_status: string | null;
-  latest_job_phase: string | null;
-  job_metrics?: Record<string, unknown> | null;
-  job_pages_total?: number | null;
-  job_pages_processed?: number | null;
-  job_progress_pct?: number | null;
-  job_crawl_limit_exceeded?: boolean;
-  reindexed_duplicate?: boolean;
-  duplicate_reason?: string | null;
-  duplicate_of_source_id?: string | null;
-};
+type WebsiteSourceListRow = KnowledgeWebsiteSourceRow;
 
 type WebsitePageItem = {
   id: string;
@@ -222,13 +207,6 @@ function duplicateSourceSummary(source: WebsiteSourceListRow): string {
   return "No crawl ran: skipped as a duplicate of existing website coverage for this agent.";
 }
 
-async function fetchWebsiteSources(agentId: string): Promise<WebsiteSourceListRow[]> {
-  const data = await backendFetch<{ sources: WebsiteSourceListRow[] }>(
-    `/api/v1/knowledge/website/sources?agent_id=${encodeURIComponent(agentId)}`
-  );
-  return data.sources;
-}
-
 async function fetchAllPages(sourceId: string): Promise<WebsitePageItem[]> {
   const data = await backendFetch<{
     pages: WebsitePageItem[];
@@ -243,6 +221,7 @@ export default function KnowledgeWebsitePage() {
   const searchParams = useSearchParams();
   const highlightSourceId = searchParams.get("source")?.trim() ?? null;
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
+  const knowledgeDs = useKnowledgeDataSources();
   const [sourceType, setSourceType] = useState<SourceType>("crawl");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [addLinksExpanded, setAddLinksExpanded] = useState(true);
@@ -250,8 +229,6 @@ export default function KnowledgeWebsitePage() {
   const [urlInput, setUrlInput] = useState("");
   const [includeChips, setIncludeChips] = useState<PathChip[]>([]);
   const [excludeChips, setExcludeChips] = useState<PathChip[]>([]);
-  const [sources, setSources] = useState<WebsiteSourceListRow[]>([]);
-  const [sourcesLoading, setSourcesLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -322,38 +299,29 @@ export default function KnowledgeWebsitePage() {
     }
   }
 
-  useEffect(() => {
-    if (!selectedAgentId) return;
-    let cancelled = false;
-    void (async () => {
-      await Promise.resolve();
-      if (cancelled) return;
-      setSourcesLoading(true);
-      setError(null);
-      try {
-        const nextSources = await fetchWebsiteSources(selectedAgentId);
-        if (cancelled) return;
-        setSources(nextSources);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load sources");
-      } finally {
-        if (!cancelled) setSourcesLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgentId]);
+  const sources = useMemo<WebsiteSourceListRow[]>(() => {
+    if (
+      !selectedAgentId ||
+      knowledgeDs?.agentId !== selectedAgentId ||
+      knowledgeDs.websiteSources === null
+    ) {
+      return [];
+    }
+    return knowledgeDs.websiteSources;
+  }, [selectedAgentId, knowledgeDs?.agentId, knowledgeDs?.websiteSources]);
+
+  const sourcesLoading =
+    Boolean(selectedAgentId) &&
+    Boolean(
+      !knowledgeDs ||
+        knowledgeDs.agentId !== selectedAgentId ||
+        knowledgeDs.websiteSources === null ||
+        knowledgeDs.usageLoading
+    );
 
   const silentRefreshSources = useCallback(async () => {
-    if (!selectedAgentId) return;
-    try {
-      const s = await fetchWebsiteSources(selectedAgentId);
-      setSources(s);
-    } catch {
-      /* ignore */
-    }
-  }, [selectedAgentId]);
+    await knowledgeDs?.refreshUsage({ silent: true });
+  }, [knowledgeDs]);
 
   const indexingActive = useMemo(
     () =>
@@ -942,7 +910,7 @@ function WebsiteSourceRow({
 
   useEffect(() => {
     if (highlightSourceId && highlightSourceId === source.id) {
-      setUserExpanded(true);
+      queueMicrotask(() => setUserExpanded(true));
     }
   }, [highlightSourceId, source.id]);
 

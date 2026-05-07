@@ -197,7 +197,7 @@ export default function InstallationOnboardingPage() {
 
                     <p className="text-ds-on-surface-variant shrink-0 text-[11px] leading-snug sm:text-xs">
                       Need a different surface?{" "}
-                      <Link href="/agent-settings/general" className="text-ds-primary font-semibold underline underline-offset-2">
+                      <Link href="/actions#shopify-integration" className="text-ds-primary font-semibold underline underline-offset-2">
                         Settings
                       </Link>{" "}
                       lists every install path.

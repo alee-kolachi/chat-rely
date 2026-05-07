@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, get_current_user, get_db
 from app.domains.knowledge.schemas import (
     IndexJobListResponse,
+    KnowledgeWebsiteWorkspaceResponse,
     WebsiteCrawlRequest,
     WebsiteIndividualRequest,
     WebsiteIngestResponse,
@@ -86,6 +87,17 @@ async def website_individual_route(
         mode="individual",
     )
     return WebsiteIngestResponse(source=source, job=job)
+
+
+@router.get("/workspace", response_model=KnowledgeWebsiteWorkspaceResponse)
+async def website_workspace_route(
+    agent_id: UUID = Query(...),
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> KnowledgeWebsiteWorkspaceResponse:
+    usage = await get_agent_website_usage(db, user.user_id, agent_id)
+    sources = await list_website_sources_for_agent(db, user.user_id, agent_id)
+    return KnowledgeWebsiteWorkspaceResponse(usage=usage, sources=sources)
 
 
 @router.get("/sources", response_model=WebsiteSourcesListResponse)

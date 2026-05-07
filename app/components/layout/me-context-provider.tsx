@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { backendFetch } from "@/lib/backend-api";
 
 type UsageSnapshot = {
@@ -49,6 +49,7 @@ export function MeContextProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<MeContextPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -68,7 +69,25 @@ export function MeContextProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    if (hasLoadedOnceRef.current) return;
+    hasLoadedOnceRef.current = true;
+
+    const maybeRequestIdleCallback =
+      typeof window !== "undefined" ? window.requestIdleCallback : undefined;
+    if (maybeRequestIdleCallback) {
+      const callbackId = maybeRequestIdleCallback(
+        () => {
+          void refresh();
+        },
+        { timeout: 1200 }
+      );
+      return () => window.cancelIdleCallback(callbackId);
+    }
+
+    const fallbackId = window.setTimeout(() => {
+      void refresh();
+    }, 400);
+    return () => window.clearTimeout(fallbackId);
   }, [refresh]);
 
   const value = useMemo(

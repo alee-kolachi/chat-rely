@@ -53,7 +53,9 @@ async def _fetch_profile(db: AsyncSession, user_id: UUID) -> ProfileDTO | None:
     result = await db.execute(
         text(
             """
-            select id, full_name, avatar_url, timezone, email_notifications_enabled, created_at, updated_at
+            select id, full_name, avatar_url, timezone, email_notifications_enabled,
+                   coalesce(notification_preferences, '{}'::jsonb) as notification_preferences,
+                   created_at, updated_at
             from public.profiles
             where id = :user_id
             """
@@ -76,7 +78,9 @@ async def _ensure_profile(db: AsyncSession, user_id: UUID) -> ProfileDTO:
             """
             insert into public.profiles (id)
             values (:user_id)
-            returning id, full_name, avatar_url, timezone, email_notifications_enabled, created_at, updated_at
+            returning id, full_name, avatar_url, timezone, email_notifications_enabled,
+              coalesce(notification_preferences, '{}'::jsonb) as notification_preferences,
+              created_at, updated_at
             """
         ),
         {"user_id": str(user_id)},
@@ -239,6 +243,7 @@ async def _fetch_context_profile_subscription_plan(
               p.avatar_url,
               p.timezone,
               p.email_notifications_enabled,
+              coalesce(p.notification_preferences, '{}'::jsonb) as notification_preferences,
               p.created_at as profile_created_at,
               p.updated_at as profile_updated_at,
               s.subscription_id,
@@ -272,6 +277,9 @@ async def _fetch_context_profile_subscription_plan(
     if not row["subscription_id"] or not row["plan_id_ref"]:
         return None
 
+    np = row.get("notification_preferences")
+    if not isinstance(np, dict):
+        np = {}
     profile = ProfileDTO.model_validate(
         {
             "id": row["profile_id"],
@@ -279,6 +287,7 @@ async def _fetch_context_profile_subscription_plan(
             "avatar_url": row["avatar_url"],
             "timezone": row["timezone"],
             "email_notifications_enabled": row["email_notifications_enabled"],
+            "notification_preferences": np,
             "created_at": row["profile_created_at"],
             "updated_at": row["profile_updated_at"],
         }

@@ -57,6 +57,11 @@ class ConversationDetailResponse(BaseModel):
     messages: list[MessageDTO]
 
 
+class ConversationWorkspaceResponse(BaseModel):
+    conversations: list[ConversationDTO]
+    detail: ConversationDetailResponse | None = None
+
+
 class ConversationMessageCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

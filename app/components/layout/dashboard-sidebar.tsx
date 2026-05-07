@@ -35,12 +35,6 @@ const navItems: NavItem[] = [
   { href: "/tickets", label: "Tickets", icon: IconTickets },
   { href: "/deploy", label: "Deploy", icon: IconDeploy },
   { href: "/usage", label: "Usage", icon: IconUsage },
-  {
-    href: "/agent-settings",
-    label: "Agent settings",
-    icon: IconSettings,
-    children: [{ href: "/agent-settings/general", label: "General" }],
-  },
 ];
 
 function isRouteActive(pathname: string, href: string) {

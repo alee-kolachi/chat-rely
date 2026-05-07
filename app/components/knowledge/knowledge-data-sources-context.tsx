@@ -19,17 +19,47 @@ export type RefreshUsageOptions = {
   silent?: boolean;
 };
 
+/** Row shape from `GET /api/v1/knowledge/website/workspace` sources list (same as `/sources`). */
+export type KnowledgeWebsiteSourceRow = {
+  id: string;
+  title: string;
+  source_url: string | null;
+  status: string;
+  website_mode: string | null;
+  link_count: number;
+  last_indexed_at: string | null;
+  error_message?: string | null;
+  latest_job_status: string | null;
+  latest_job_phase: string | null;
+  job_metrics?: Record<string, unknown> | null;
+  job_pages_total?: number | null;
+  job_pages_processed?: number | null;
+  job_progress_pct?: number | null;
+  job_crawl_limit_exceeded?: boolean;
+  reindexed_duplicate?: boolean;
+  duplicate_reason?: string | null;
+  duplicate_of_source_id?: string | null;
+};
+
+type KnowledgeWebsiteWorkspacePayload = {
+  usage: KnowledgeWebsiteUsage;
+  sources: KnowledgeWebsiteSourceRow[];
+};
+
 type KnowledgeDataSourcesContextValue = {
   agentId?: string;
   usage: KnowledgeWebsiteUsage | null;
+  websiteSources: KnowledgeWebsiteSourceRow[] | null;
   usageLoading: boolean;
   refreshUsage: (opts?: RefreshUsageOptions) => Promise<void>;
 };
 
 const KnowledgeDataSourcesContext = createContext<KnowledgeDataSourcesContextValue | null>(null);
 
-async function fetchUsage(agentId: string): Promise<KnowledgeWebsiteUsage> {
-  return backendFetch<KnowledgeWebsiteUsage>(`/api/v1/knowledge/website/usage?agent_id=${encodeURIComponent(agentId)}`);
+async function fetchWorkspace(agentId: string): Promise<KnowledgeWebsiteWorkspacePayload> {
+  return backendFetch<KnowledgeWebsiteWorkspacePayload>(
+    `/api/v1/knowledge/website/workspace?agent_id=${encodeURIComponent(agentId)}`
+  );
 }
 
 /** Sidebar appears only under `/knowledge/<area>`; skip polling on the hub `/knowledge`. */
@@ -39,20 +69,24 @@ export function KnowledgeDataSourcesProvider({ children }: { children: ReactNode
   const pathname = usePathname();
   const { selectedAgentId } = useDashboardAgent();
   const [usage, setUsage] = useState<KnowledgeWebsiteUsage | null>(null);
+  const [websiteSources, setWebsiteSources] = useState<KnowledgeWebsiteSourceRow[] | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
 
   const refreshUsage = useCallback(async (opts?: RefreshUsageOptions) => {
     if (!selectedAgentId) {
       setUsage(null);
+      setWebsiteSources(null);
       return;
     }
     const silent = opts?.silent === true;
     if (!silent) {
       setUsageLoading(true);
+      setWebsiteSources(null);
     }
     try {
-      const next = await fetchUsage(selectedAgentId);
-      setUsage(next);
+      const next = await fetchWorkspace(selectedAgentId);
+      setUsage(next.usage);
+      setWebsiteSources(next.sources);
     } finally {
       if (!silent) {
         setUsageLoading(false);
@@ -87,10 +121,11 @@ export function KnowledgeDataSourcesProvider({ children }: { children: ReactNode
     () => ({
       agentId: selectedAgentId,
       usage,
+      websiteSources,
       usageLoading,
       refreshUsage,
     }),
-    [selectedAgentId, usage, usageLoading, refreshUsage]
+    [selectedAgentId, usage, websiteSources, usageLoading, refreshUsage]
   );
 
   return <KnowledgeDataSourcesContext.Provider value={value}>{children}</KnowledgeDataSourcesContext.Provider>;

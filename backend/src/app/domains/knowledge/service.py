@@ -2065,6 +2065,8 @@ async def _process_website_embedding_only(
             message="No usable text from fetched pages (all empty, failed HTTP, or blocked by crawl budget).",
             status_code=422,
             details={
+                "seed_url": source.source_url,
+                "knowledge_source_id": str(source.id),
                 "discovery_mode": str(job_metrics.get("website_discovery_mode") or "unknown"),
                 "urls_planned": planned_urls_metrics,
                 **fetch_stats,
@@ -2391,6 +2393,8 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 message="No usable text from fetched pages (all empty, failed HTTP, or blocked by crawl budget).",
                 status_code=422,
                 details={
+                    "seed_url": source.source_url,
+                    "knowledge_source_id": str(source.id),
                     "discovery_mode": website_discovery_mode,
                     "urls_planned": planned_urls_metrics,
                     **fetch_stats,

@@ -14,6 +14,7 @@ from app.api.deps import AuthContext, get_current_user, get_db
 from app.core.settings import get_settings
 from app.domains.billing.checkout_service import (
     change_subscription_plan,
+    create_billing_portal_session,
     create_subscription_checkout_session,
 )
 from app.domains.billing.overage import charge_conversation_overage_for_user_period
@@ -61,6 +62,17 @@ async def billing_subscription_change(
     )
     await db.commit()
     return {"status": "ok"}
+
+
+@router.post("/portal")
+async def billing_customer_portal(
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Redirect URL for Stripe Customer Portal (invoices, payment methods, cancel subscription)."""
+    url = await create_billing_portal_session(db, user_id=user.user_id)
+    await db.commit()
+    return {"url": url}
 
 
 class InternalOverageRequest(BaseModel):

@@ -269,7 +269,11 @@ export function ConfirmDialog({
   if (!open) return null;
   const content = (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={busy ? undefined : onCancel} aria-hidden />
+      <div
+        className={cn("absolute inset-0 bg-black/40", !busy && "cursor-pointer")}
+        onClick={busy ? undefined : onCancel}
+        aria-hidden
+      />
       <div
         role="dialog"
         aria-modal="true"

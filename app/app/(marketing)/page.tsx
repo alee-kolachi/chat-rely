@@ -41,7 +41,7 @@ export default function LandingPage() {
               AI agents for magical customer experiences
             </h1>
             <p className="mt-5 text-lg leading-8 text-ds-on-surface-variant">
-              Chatbase is the complete platform for building and deploying AI support agents. Train on your data,
+              ChatRely is the complete platform for building and deploying AI support agents. Train on your data,
               integrate with your tools, and start in minutes.
             </p>
             <div className="mt-5 flex flex-wrap justify-center gap-3 sm:justify-start sm:gap-4">
@@ -117,7 +117,7 @@ export default function LandingPage() {
           <div className="mb-16 grid gap-10 lg:grid-cols-2">
             <h2 className="text-4xl font-semibold tracking-tight">The complete platform for AI support agents</h2>
             <p className="text-base leading-7 text-ds-on-surface-variant lg:max-w-md lg:justify-self-end">
-              Chatbase is designed for building AI customer support agents that solve customer issues while improving
+              ChatRely is designed for building AI customer support agents that solve customer issues while improving
               business outcomes.
             </p>
           </div>
@@ -139,7 +139,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-[1200px]">
           <h2 className="max-w-2xl text-4xl font-semibold tracking-tight">Build the perfect customer-facing AI agent</h2>
           <p className="mt-5 max-w-2xl text-lg text-ds-on-surface-variant">
-            Chatbase gives you the tools to train your ideal support agent and connect it to your systems.
+            ChatRely gives you the tools to train your ideal support agent and connect it to your systems.
           </p>
           <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {featureCards.map(([title, text]) => (
@@ -201,7 +201,7 @@ export default function LandingPage() {
             Make customer service your competitive edge
           </h2>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-ds-on-surface-variant">
-            Use Chatbase to deliver exceptional AI customer support experiences that set you apart.
+            Use ChatRely to deliver exceptional AI customer support experiences that set you apart.
           </p>
           <Link
             href="/signup"
@@ -216,15 +216,21 @@ export default function LandingPage() {
       <footer className="bg-black px-6 py-20 text-white">
         <div className="mx-auto grid max-w-[1200px] gap-12 lg:grid-cols-2">
           <div className="space-y-6">
-            <p className="text-2xl font-black tracking-tight">Chatbase</p>
-            <p className="text-sm text-zinc-500">© 2026 Chatbase, Inc.</p>
+            <p className="text-2xl font-black tracking-tight">ChatRely</p>
+            <p className="text-sm text-zinc-500">© 2026 ChatRely</p>
             <div className="flex flex-wrap gap-3">
-              <button type="button" className="rounded-ds-md bg-white px-5 py-2 text-sm font-semibold text-black">
+              <a
+                href="mailto:support@chatrely.com"
+                className="rounded-ds-md bg-white px-5 py-2 text-sm font-semibold text-black no-underline"
+              >
                 Contact
-              </button>
-              <span className="rounded-ds-md border border-zinc-800 px-4 py-2 text-sm text-zinc-400">LinkedIn</span>
-              <span className="rounded-ds-md border border-zinc-800 px-4 py-2 text-sm text-zinc-400">X</span>
-              <span className="rounded-ds-md border border-zinc-800 px-4 py-2 text-sm text-zinc-400">YouTube</span>
+              </a>
+              <Link href="/privacy" className="rounded-ds-md border border-zinc-800 px-4 py-2 text-sm text-zinc-300 no-underline">
+                Privacy
+              </Link>
+              <Link href="/terms" className="rounded-ds-md border border-zinc-800 px-4 py-2 text-sm text-zinc-300 no-underline">
+                Terms
+              </Link>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-10 md:grid-cols-3">

@@ -6,8 +6,9 @@ import { getBackendBaseUrl } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
 /**
- * Build the install snippet. Script URL is a placeholder until you host `widget/dist/widget.js`
- * (CDN, your app, or Shopify Assets).
+ * Build the install snippet.
+ * Set NEXT_PUBLIC_WIDGET_SCRIPT_URL to your hosted widget.js (CDN or absolute URL).
+ * Defaults to same-origin `/widget.js` (copy `widget/dist/widget.js` to `app/public/widget.js` after build).
  */
 function buildSnippet(agentKey: string, apiBase: string, scriptSrc: string): string {
   const base = apiBase.replace(/\/$/, "");
@@ -32,10 +33,12 @@ export function DeployWidgetEmbedSnippet() {
   }, []);
 
   const scriptSrc = useMemo(() => {
+    const env = process.env.NEXT_PUBLIC_WIDGET_SCRIPT_URL?.trim();
+    if (env) return env.replace(/\/$/, "");
     if (typeof window !== "undefined") {
       return `${window.location.origin.replace(/\/$/, "")}/widget.js`;
     }
-    return "https://YOUR-HOST/widget.js";
+    return "/widget.js";
   }, []);
 
   const snippet = useMemo(() => {

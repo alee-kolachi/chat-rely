@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { backendFetch } from "@/lib/backend-api";
 
 const STORAGE_KEY = "chatrely:dashboard:selected-agent-id";
@@ -31,9 +31,13 @@ const DashboardAgentContext = createContext<DashboardAgentContextValue | null>(n
 
 export function DashboardAgentProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<DashboardAgentRecord[]>([]);
-  const [selectedAgentId, setSelectedAgentIdState] = useState("");
+  const [selectedAgentId, setSelectedAgentIdState] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(STORAGE_KEY) ?? "";
+  });
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
   const refreshAgents = useCallback(async () => {
     setAgentsLoading(true);
@@ -58,6 +62,8 @@ export function DashboardAgentProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (hasLoadedOnceRef.current) return;
+    hasLoadedOnceRef.current = true;
     void refreshAgents();
   }, [refreshAgents]);
 

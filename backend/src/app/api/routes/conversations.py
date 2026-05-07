@@ -5,12 +5,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_user, get_db
+from app.core.errors import AppError
 from app.domains.conversation_outcomes.service import analyze_and_persist_outcome
 from app.domains.conversations.schemas import (
     ConversationDetailResponse,
     ConversationListResponse,
     ConversationMessageCreateRequest,
     ConversationUpdateRequest,
+    ConversationWorkspaceResponse,
     MessageDTO,
 )
 from app.domains.conversations.service import (
@@ -52,6 +54,45 @@ async def list_conversations_route(
         offset=offset,
     )
     return ConversationListResponse(conversations=conversations)
+
+
+@router.get("/workspace", response_model=ConversationWorkspaceResponse)
+async def conversations_workspace_route(
+    agent_id: UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    started_after: datetime | None = Query(default=None),
+    started_before: datetime | None = Query(default=None),
+    training_topic: str | None = Query(
+        default=None, description="Filter by training topic slug from conversation outcomes"
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    detail_conversation_id: UUID | None = Query(default=None),
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationWorkspaceResponse:
+    """List conversations and optionally hydrate one thread in a single round-trip."""
+    conversations = await list_conversations(
+        db,
+        user.user_id,
+        agent_id=agent_id,
+        status=status,
+        started_after=started_after,
+        started_before=started_before,
+        training_topic_slug=training_topic,
+        limit=limit,
+        offset=offset,
+    )
+    detail: ConversationDetailResponse | None = None
+    if detail_conversation_id is not None:
+        try:
+            conversation = await get_conversation(db, user.user_id, detail_conversation_id)
+            messages = await list_messages(db, user.user_id, detail_conversation_id)
+            detail = ConversationDetailResponse(conversation=conversation, messages=messages)
+        except AppError as exc:
+            if exc.status_code != 404:
+                raise
+    return ConversationWorkspaceResponse(conversations=conversations, detail=detail)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)

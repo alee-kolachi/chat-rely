@@ -123,8 +123,9 @@ export default function DashboardPage() {
   const dashboardPayloadBusy = Boolean(
     selectedAgentId && dashboardUrl && error === null && (loading || data === null)
   );
+  const awaitingInitialAgentSelection = agentsLoading && !selectedAgentId;
   /** Agents list loading OR dashboard metrics fetching — panels stay mounted so layout doesn’t collapse to blank. */
-  const showPanelSkeleton = agentsLoading || dashboardPayloadBusy;
+  const showPanelSkeleton = awaitingInitialAgentSelection || dashboardPayloadBusy;
   /** Panels visible whenever there’s real analytics data or we’re still loading either workspace or dashboard JSON. */
   const showAnalyticsPanels = hasConversationData || showPanelSkeleton;
 

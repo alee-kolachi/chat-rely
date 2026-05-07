@@ -198,6 +198,61 @@ def test_list_conversations(client: TestClient, monkeypatch: pytest.MonkeyPatch)
     assert len(response.json()["conversations"]) == 2
 
 
+def test_conversations_workspace_includes_detail_when_requested(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_auth(monkeypatch)
+    cid = uuid4()
+
+    async def _list(*_: Any, **__: Any) -> list[ConversationDTO]:
+        return [_conversation("open")]
+
+    async def _get(*_: Any, **__: Any) -> ConversationDTO:
+        return _conversation("open")
+
+    async def _msgs(*_: Any, **__: Any) -> list[MessageDTO]:
+        return [_message("user", "Hi")]
+
+    monkeypatch.setattr("app.api.routes.conversations.list_conversations", _list)
+    monkeypatch.setattr("app.api.routes.conversations.get_conversation", _get)
+    monkeypatch.setattr("app.api.routes.conversations.list_messages", _msgs)
+
+    response = client.get(
+        f"/api/v1/conversations/workspace?detail_conversation_id={cid}",
+        headers=_auth_header(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["conversations"]) == 1
+    assert body["detail"] is not None
+    assert body["detail"]["conversation"]["status"] == "open"
+    assert len(body["detail"]["messages"]) == 1
+
+
+def test_conversations_workspace_omits_detail_when_not_found(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_auth(monkeypatch)
+
+    async def _list(*_: Any, **__: Any) -> list[ConversationDTO]:
+        return []
+
+    async def _get(*_: Any, **__: Any) -> ConversationDTO:
+        raise AppError(code="conversation.not_found", message="Conversation not found", status_code=404)
+
+    monkeypatch.setattr("app.api.routes.conversations.list_conversations", _list)
+    monkeypatch.setattr("app.api.routes.conversations.get_conversation", _get)
+
+    response = client.get(
+        f"/api/v1/conversations/workspace?detail_conversation_id={uuid4()}",
+        headers=_auth_header(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["conversations"] == []
+    assert body["detail"] is None
+
+
 def test_conversation_not_found_ownership_guard(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
 

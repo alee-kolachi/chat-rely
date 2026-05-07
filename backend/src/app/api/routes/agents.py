@@ -68,7 +68,7 @@ async def get_agent_dashboard_route(
         range_key=range_key,
         range_from=range_from,
         range_to=range_to,
-        tick_lifecycle=True,
+        tick_lifecycle=False,
     )
 
 
@@ -91,6 +91,6 @@ async def get_agent_analytics_route(
         range_key=range_key,
         range_from=range_from,
         range_to=range_to,
-        tick_lifecycle=True,
+        tick_lifecycle=False,
     )
 

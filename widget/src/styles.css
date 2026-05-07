@@ -13,6 +13,26 @@
   box-sizing: border-box;
 }
 
+a[href],
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="link"],
+input[type="button"]:not(:disabled),
+input[type="submit"]:not(:disabled),
+input[type="reset"]:not(:disabled),
+label[for],
+summary {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input[type="button"]:disabled,
+input[type="submit"]:disabled,
+input[type="reset"]:disabled {
+  cursor: not-allowed;
+}
+
 .cr-root {
   position: fixed;
   z-index: 2147483000;
@@ -83,10 +103,83 @@
 }
 
 .cr-panel-header {
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--cr-border);
   font-weight: 600;
   font-size: 15px;
+}
+
+.cr-panel-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cr-avatar-wrap {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cr-border);
+}
+
+.cr-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.cr-avatar-fallback {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cr-accent);
+}
+
+.cr-panel-title {
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cr-escalate-row {
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--cr-border);
+  background: #fafafa;
+}
+
+.cr-escalate {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--cr-border);
+  background: #fff;
+  font: inherit;
+  font-weight: 600;
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.cr-escalate:hover {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+}
+
+.cr-powered {
+  padding: 6px 12px 8px;
+  font-size: 10px;
+  color: #64748b;
+  text-align: center;
+  border-top: 1px solid var(--cr-border);
+  background: #fafafa;
 }
 
 .cr-messages {
@@ -118,6 +211,10 @@
   align-self: flex-start;
   background: #f8fafc;
   border: 1px solid var(--cr-border);
+}
+
+.cr-msg--assistant strong {
+  font-weight: 700;
 }
 
 .cr-msg--err {

@@ -50,7 +50,7 @@ export function PlatformDiscoverySection() {
     <section className="bg-[#0a0a0a] px-6 py-20 text-white sm:py-24 lg:py-28">
       <div className="mx-auto max-w-[1200px] text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Explore</p>
-        <h2 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">Discover the Chatbase platform</h2>
+        <h2 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">Discover the ChatRely platform</h2>
 
         <div className="mx-auto mt-10 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-3 border-b border-white/15 pb-6 text-sm">
           {tabs.map((tab) => (

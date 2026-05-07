@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from uuid import UUID
 
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.agents.service import _fetch_agent_by_id
+from app.core.errors import AppError
 from app.domains.conversation_outcomes.service import tick_idle_and_outcomes
 from app.domains.dashboard.schemas import (
     AgentDashboardResponse,
@@ -14,6 +16,8 @@ from app.domains.dashboard.schemas import (
     DashboardSeriesPoint,
     TrainingTopicSummary,
 )
+
+log = structlog.get_logger("dashboard")
 
 
 def _utc_now() -> datetime:
@@ -52,13 +56,19 @@ async def build_agent_dashboard(
     range_to: datetime | None,
     tick_lifecycle: bool = True,
 ) -> AgentDashboardResponse:
-    await _fetch_agent_by_id(db, user_id, agent_id)
+    request_start = perf_counter()
+    agent_lookup_ms = 0.0
     rf, rt = resolve_dashboard_range(
         range_key=range_key, range_from=range_from, range_to=range_to
     )
 
+    lifecycle_ms = 0.0
+    lifecycle_idle_n = 0
+    lifecycle_outcome_n = 0
     if tick_lifecycle:
-        await tick_idle_and_outcomes(db)
+        step_start = perf_counter()
+        lifecycle_idle_n, lifecycle_outcome_n = await tick_idle_and_outcomes(db)
+        lifecycle_ms = round((perf_counter() - step_start) * 1000, 1)
 
     agent_s = str(agent_id)
     user_s = str(user_id)
@@ -69,232 +79,200 @@ async def build_agent_dashboard(
         "rt": rt,
     }
 
-    started = await db.execute(
+    step_start = perf_counter()
+    summary = await db.execute(
         text(
             """
-            select count(*)::int as n
-            from public.conversations c
-            where c.user_id = cast(:user_id as uuid)
-              and c.agent_id = cast(:agent_id as uuid)
-              and c.started_at >= :rf
-              and c.started_at < :rt
+            with agent_ok as (
+              select exists(
+                select 1
+                from public.agents a
+                where a.id = cast(:agent_id as uuid)
+                  and a.user_id = cast(:user_id as uuid)
+              ) as ok
+            ),
+            convo_all as (
+              select
+                c.id,
+                c.user_id,
+                c.visitor_id,
+                c.status,
+                c.started_at,
+                c.last_activity_at,
+                c.counts_toward_plan
+              from public.conversations c
+              where c.user_id = cast(:user_id as uuid)
+                and c.agent_id = cast(:agent_id as uuid)
+                and (select ok from agent_ok)
+            ),
+            convo_range as (
+              select *
+              from convo_all
+              where started_at >= :rf
+                and started_at < :rt
+            ),
+            outcomes as (
+              select
+                o.payload,
+                cr.id as conversation_id
+              from public.conversation_outcomes o
+              join convo_range cr on cr.id = o.conversation_id
+            ),
+            series_rows as (
+              select
+                (cr.started_at at time zone 'utc')::date as bucket_date,
+                count(*)::int as n
+              from convo_range cr
+              group by 1
+            ),
+            recent_rows as (
+              select
+                ca.id,
+                ca.visitor_id,
+                ca.status,
+                ca.last_activity_at,
+                lm.topic_preview
+              from convo_all ca
+              left join lateral (
+                select left(m.content, 200) as topic_preview
+                from public.messages m
+                where m.conversation_id = ca.id
+                  and m.user_id = ca.user_id
+                order by m.created_at desc
+                limit 1
+              ) lm on true
+              order by ca.last_activity_at desc
+              limit 8
+            ),
+            topic_counts as (
+              select
+                elem->>'slug' as slug,
+                max(elem->>'label') as label,
+                count(*)::int as n,
+                bool_or(coalesce((o.payload->>'needs_follow_up_training')::boolean, false)) as needs_training
+              from outcomes o
+              cross join lateral jsonb_array_elements(coalesce(o.payload->'training_topics', '[]'::jsonb)) elem
+              group by elem->>'slug'
+            ),
+            ticket_counts as (
+              select
+                count(*) filter (where t.status = 'open')::int as open_escalations,
+                count(*) filter (where t.status = 'pending_customer')::int as awaiting_customer_reply
+              from public.tickets t
+              where t.user_id = cast(:user_id as uuid)
+                and t.agent_id = cast(:agent_id as uuid)
+            )
+            select
+              (select ok from agent_ok) as agent_exists,
+              (select count(*)::int from convo_range) as started_n,
+              (select count(*)::int from convo_range where counts_toward_plan = true) as billable_n,
+              (select count(*)::int from convo_range where status = 'escalated') as escalated_n,
+              (select count(*)::int from outcomes) as outcome_total,
+              (
+                select count(*)::int
+                from outcomes o
+                where (o.payload->>'resolved_by_agent')::boolean is true
+              ) as resolved_n,
+              (select open_escalations from ticket_counts) as open_escalations,
+              (select awaiting_customer_reply from ticket_counts) as awaiting_customer_reply,
+              coalesce(
+                (
+                  select jsonb_agg(
+                    jsonb_build_object(
+                      'bucket_date', s.bucket_date,
+                      'count', s.n
+                    )
+                    order by s.bucket_date asc
+                  )
+                  from series_rows s
+                ),
+                '[]'::jsonb
+              ) as series_json,
+              coalesce(
+                (
+                  select jsonb_agg(
+                    jsonb_build_object(
+                      'conversation_id', r.id,
+                      'visitor_id', r.visitor_id,
+                      'topic_preview', r.topic_preview,
+                      'status', r.status,
+                      'last_activity_at', r.last_activity_at
+                    )
+                    order by r.last_activity_at desc
+                  )
+                  from recent_rows r
+                ),
+                '[]'::jsonb
+              ) as recent_json,
+              coalesce(
+                (
+                  select jsonb_agg(
+                    jsonb_build_object(
+                      'slug', tc.slug,
+                      'label', coalesce(tc.label, tc.slug, 'Topic'),
+                      'count', tc.n
+                    )
+                    order by tc.needs_training desc, tc.n desc, tc.slug asc
+                  )
+                  from (
+                    select *
+                    from topic_counts
+                    where coalesce(slug, '') <> ''
+                    order by needs_training desc, n desc, slug asc
+                    limit 10
+                  ) tc
+                ),
+                '[]'::jsonb
+              ) as topics_json
             """
         ),
         params,
     )
-    conversations_started = int(started.mappings().one()["n"])
-
-    billable = await db.execute(
-        text(
-            """
-            select count(*)::int as n
-            from public.conversations c
-            where c.user_id = cast(:user_id as uuid)
-              and c.agent_id = cast(:agent_id as uuid)
-              and c.started_at >= :rf
-              and c.started_at < :rt
-              and c.counts_toward_plan = true
-            """
-        ),
-        params,
-    )
-    billable_conversations = int(billable.mappings().one()["n"])
-
-    escalated = await db.execute(
-        text(
-            """
-            select count(*)::int as n
-            from public.conversations c
-            where c.user_id = cast(:user_id as uuid)
-              and c.agent_id = cast(:agent_id as uuid)
-              and c.started_at >= :rf
-              and c.started_at < :rt
-              and c.status = 'escalated'
-            """
-        ),
-        params,
-    )
-    escalated_n = int(escalated.mappings().one()["n"])
+    crow = summary.mappings().one()
+    if not bool(crow["agent_exists"]):
+        raise AppError(code="agent.not_found", message="Agent not found", status_code=404)
+    conversations_started = int(crow["started_n"] or 0)
+    billable_conversations = int(crow["billable_n"] or 0)
+    escalated_n = int(crow["escalated_n"] or 0)
+    outcome_total = int(crow["outcome_total"] or 0)
+    resolved_n = int(crow["resolved_n"] or 0)
+    resolved_by_agent_pct: float | None = None
+    if outcome_total > 0:
+        resolved_by_agent_pct = round(100.0 * resolved_n / outcome_total, 1)
+    aggregate_ms = round((perf_counter() - step_start) * 1000, 1)
 
     needs_human_pct: float | None = None
     if conversations_started > 0:
         needs_human_pct = round(100.0 * escalated_n / conversations_started, 1)
 
-    outcome_row = await db.execute(
-        text(
-            """
-            select
-              count(*)::int as total,
-              count(*) filter (
-                where (o.payload->>'resolved_by_agent')::boolean is true
-              )::int as resolved_n
-            from public.conversation_outcomes o
-            join public.conversations c on c.id = o.conversation_id
-            where c.user_id = cast(:user_id as uuid)
-              and c.agent_id = cast(:agent_id as uuid)
-              and c.started_at >= :rf
-              and c.started_at < :rt
-            """
-        ),
-        params,
-    )
-    orow = outcome_row.mappings().one()
-    outcome_total = int(orow["total"])
-    resolved_n = int(orow["resolved_n"])
-    resolved_by_agent_pct: float | None = None
-    if outcome_total > 0:
-        resolved_by_agent_pct = round(100.0 * resolved_n / outcome_total, 1)
-
-    series_result = await db.execute(
-        text(
-            """
-            select
-              (c.started_at at time zone 'utc')::date as bucket_date,
-              count(*)::int as n
-            from public.conversations c
-            where c.user_id = cast(:user_id as uuid)
-              and c.agent_id = cast(:agent_id as uuid)
-              and c.started_at >= :rf
-              and c.started_at < :rt
-            group by 1
-            order by 1 asc
-            """
-        ),
-        params,
-    )
     series = [
-        DashboardSeriesPoint(bucket_date=r["bucket_date"], count=int(r["n"]))
-        for r in series_result.mappings().all()
+        DashboardSeriesPoint.model_validate(item)
+        for item in (crow["series_json"] or [])
     ]
-
-    recent_result = await db.execute(
-        text(
-            """
-            select
-              c.id,
-              c.visitor_id,
-              c.status,
-              c.last_activity_at,
-              (
-                select left(m.content, 200)
-                from public.messages m
-                where m.conversation_id = c.id and m.user_id = c.user_id
-                order by m.created_at desc
-                limit 1
-              ) as topic_preview
-            from public.conversations c
-            where c.user_id = cast(:user_id as uuid)
-              and c.agent_id = cast(:agent_id as uuid)
-            order by c.last_activity_at desc
-            limit 8
-            """
-        ),
-        {"user_id": user_s, "agent_id": agent_s},
-    )
     recent = [
-        DashboardRecentRow(
-            conversation_id=r["id"],
-            visitor_id=str(r["visitor_id"]),
-            topic_preview=r["topic_preview"],
-            status=r["status"],
-            last_activity_at=r["last_activity_at"],
-        )
-        for r in recent_result.mappings().all()
+        DashboardRecentRow.model_validate(item)
+        for item in (crow["recent_json"] or [])
     ]
-
-    topics_result = await db.execute(
-        text(
-            """
-            select
-              elem->>'slug' as slug,
-              max(elem->>'label') as label,
-              count(*)::int as n
-            from public.conversation_outcomes o
-            join public.conversations c on c.id = o.conversation_id
-            cross join lateral jsonb_array_elements(coalesce(o.payload->'training_topics', '[]'::jsonb)) elem
-            where c.user_id = cast(:user_id as uuid)
-              and c.agent_id = cast(:agent_id as uuid)
-              and c.started_at >= :rf
-              and c.started_at < :rt
-              and coalesce((o.payload->>'needs_follow_up_training')::boolean, false) is true
-            group by elem->>'slug'
-            having count(*) >= 1
-            order by n desc, slug asc
-            limit 10
-            """
-        ),
-        params,
-    )
     training_topics = [
-        TrainingTopicSummary(
-            slug=str(r["slug"] or ""),
-            label=str(r["label"] or r["slug"] or "Topic"),
-            count=int(r["n"]),
-        )
-        for r in topics_result.mappings().all()
-        if r["slug"]
+        TrainingTopicSummary.model_validate(item)
+        for item in (crow["topics_json"] or [])
     ]
+    open_escalations = int(crow["open_escalations"] or 0)
+    awaiting_customer = int(crow["awaiting_customer_reply"] or 0)
 
-    if not training_topics:
-        topics_fallback = await db.execute(
-            text(
-                """
-                select
-                  elem->>'slug' as slug,
-                  max(elem->>'label') as label,
-                  count(*)::int as n
-                from public.conversation_outcomes o
-                join public.conversations c on c.id = o.conversation_id
-                cross join lateral jsonb_array_elements(coalesce(o.payload->'training_topics', '[]'::jsonb)) elem
-                where c.user_id = cast(:user_id as uuid)
-                  and c.agent_id = cast(:agent_id as uuid)
-                  and c.started_at >= :rf
-                  and c.started_at < :rt
-                group by elem->>'slug'
-                having count(*) >= 1
-                order by n desc, slug asc
-                limit 10
-                """
-            ),
-            params,
-        )
-        training_topics = [
-            TrainingTopicSummary(
-                slug=str(r["slug"] or ""),
-                label=str(r["label"] or r["slug"] or "Topic"),
-                count=int(r["n"]),
-            )
-            for r in topics_fallback.mappings().all()
-            if r["slug"]
-        ]
-
-    tick_open = await db.execute(
-        text(
-            """
-            select count(*)::int as n
-            from public.tickets t
-            where t.user_id = cast(:user_id as uuid)
-              and t.agent_id = cast(:agent_id as uuid)
-              and t.status = 'open'
-            """
-        ),
-        {"user_id": user_s, "agent_id": agent_s},
+    total_ms = round((perf_counter() - request_start) * 1000, 1)
+    log.info(
+        "dashboard.build.completed",
+        user_id=user_s,
+        agent_id=agent_s,
+        tick_lifecycle=tick_lifecycle,
+        agent_lookup_ms=agent_lookup_ms,
+        lifecycle_ms=lifecycle_ms,
+        lifecycle_idle_closed=lifecycle_idle_n,
+        lifecycle_outcomes=lifecycle_outcome_n,
+        aggregate_ms=aggregate_ms,
+        total_ms=total_ms,
     )
-    open_escalations = int(tick_open.mappings().one()["n"])
-
-    pend = await db.execute(
-        text(
-            """
-            select count(*)::int as n
-            from public.tickets t
-            where t.user_id = cast(:user_id as uuid)
-              and t.agent_id = cast(:agent_id as uuid)
-              and t.status = 'pending_customer'
-            """
-        ),
-        {"user_id": user_s, "agent_id": agent_s},
-    )
-    awaiting_customer = int(pend.mappings().one()["n"])
 
     return AgentDashboardResponse(
         range_from=rf,

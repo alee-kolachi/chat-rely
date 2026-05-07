@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AnalyticsChannelSplitSkeleton,
   AnalyticsCountryListSkeleton,
   AnalyticsIntentListSkeleton,
   AnalyticsKpiDeltaSkeleton,
@@ -38,13 +37,6 @@ type AnalyticsPayload = {
   countries: { key: string; label: string; count: number }[];
   quality: { key: string; label: string; value: string; hint: string }[];
 };
-
-const staticChannels = [
-  { label: "Website Widget", value: 58, color: "bg-ds-secondary" },
-  { label: "WhatsApp", value: 21, color: "bg-ds-accent-pink" },
-  { label: "Instagram", value: 13, color: "bg-ds-tertiary" },
-  { label: "Email", value: 8, color: "bg-ds-outline" },
-];
 
 function formatAvgResponse(ms: number | null | undefined): string {
   if (ms == null || Number.isNaN(ms)) return "—";
@@ -108,7 +100,8 @@ export default function AnalyticsPage() {
   const analyticsPayloadBusy = Boolean(
     selectedAgentId && analyticsUrl && error === null && (loading || data === null)
   );
-  const showPanelSkeleton = agentsLoading || analyticsPayloadBusy;
+  const awaitingInitialAgentSelection = agentsLoading && !selectedAgentId;
+  const showPanelSkeleton = awaitingInitialAgentSelection || analyticsPayloadBusy;
 
   const timeSeriesChart = useMemo(
     () => buildTimeSeriesChartModel(data?.series),
@@ -239,8 +232,8 @@ export default function AnalyticsPage() {
           ))}
         </section>
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm xl:col-span-2">
+        <section className="grid grid-cols-1 gap-6">
+          <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
               <h2 className="ds-app-section-title">Conversation trend</h2>
               <span className="text-ds-on-surface-variant text-xs">Daily volume (conversations started)</span>
@@ -343,30 +336,6 @@ export default function AnalyticsPage() {
                 <DashboardChartEmptyState message="No chart data for this range" />
               )}
             </div>
-          </article>
-
-          <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
-            <h2 className="ds-app-section-title mb-2">Channel split</h2>
-            <p className="text-ds-on-surface-variant mb-4 text-xs leading-relaxed">
-              Placeholder until multi-channel traffic is tracked.
-            </p>
-            {showPanelSkeleton ? (
-              <AnalyticsChannelSplitSkeleton />
-            ) : (
-              <div className="space-y-4">
-                {staticChannels.map((channel) => (
-                  <div key={channel.label}>
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-ds-on-surface font-medium">{channel.label}</span>
-                      <span className="text-ds-on-surface font-semibold">{channel.value}%</span>
-                    </div>
-                    <div className="bg-ds-outline/60 h-2 overflow-hidden rounded-full">
-                      <div className={cn("h-full rounded-full", channel.color)} style={{ width: `${channel.value}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </article>
         </section>
 

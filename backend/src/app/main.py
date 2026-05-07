@@ -25,7 +25,7 @@ from app.core.logging import bind_request_context, clear_request_context, setup_
 from app.core.security import TokenVerifier
 from app.core.settings import get_settings, validate_settings
 from app.db.engine import get_engine, init_engine
-from app.db.session import init_session_factory
+from app.db.session import check_db_ready, init_session_factory
 
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setup_logging(settings.log_level)
     init_engine(settings)
     init_session_factory()
+    await check_db_ready()
     # Always install a real verifier when a Bearer token is present. Dev bypass (see deps.py) only
     # applies to requests *without* Authorization — otherwise every logged-in user would share
     # DEV_AUTH_BYPASS_USER_ID because verify_token was never run.

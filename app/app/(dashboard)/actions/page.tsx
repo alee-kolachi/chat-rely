@@ -19,8 +19,7 @@ import {
 } from "@/components/actions/actions-page-skeleton";
 import { ConnectionCard } from "@/components/actions/connection-card";
 import { shopifyActions } from "@/components/actions/shopify-actions-data";
-import { useActionCatalog } from "@/components/actions/use-action-catalog";
-import { useShopifyConnection } from "@/components/integrations/use-shopify-connection";
+import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { shopifyActionSlugToKey } from "@/lib/shopify-action-keys";
@@ -44,15 +43,14 @@ function ActionsPageContent() {
   const pathname = usePathname();
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const searchParams = useSearchParams();
-  const { data: catalog, loading: catalogLoading, error: catalogError, refresh: refreshCatalog } =
-    useActionCatalog(selectedAgentId || undefined);
   const {
-    data: shopify,
-    loading: shopifyLoading,
-    error: shopifyError,
-    refresh: refreshShopify,
+    catalog,
+    shopify,
+    loading: integrationsLoading,
+    error: integrationsError,
+    refresh: refreshIntegrations,
     disconnect,
-  } = useShopifyConnection(selectedAgentId || undefined);
+  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
 
   const [filter, setFilter] = useState<FilterChip>("All");
   const [chipIdx, setChipIdx] = useState(0);
@@ -60,11 +58,11 @@ function ActionsPageContent() {
   const [banner, setBanner] = useState<string | null>(null);
   const [connectBusy, setConnectBusy] = useState(false);
 
-  const catalogBusy = agentsLoading || catalogLoading;
-  const shopifyBusy = agentsLoading || shopifyLoading;
+  const catalogBusy = agentsLoading || integrationsLoading;
+  const shopifyBusy = agentsLoading || integrationsLoading;
   const connectUiReady = Boolean(selectedAgentId) && !agentsLoading;
   const refreshDisabled = agentsLoading || (!selectedAgentId && !agentsLoading);
-  const refreshAriaBusy = Boolean(selectedAgentId && (catalogLoading || shopifyLoading));
+  const refreshAriaBusy = Boolean(selectedAgentId && integrationsLoading);
 
   useLayoutEffect(() => {
     if (pathname !== "/actions") return;
@@ -91,14 +89,13 @@ function ActionsPageContent() {
     const q = searchParams.get("shopify");
     if (q === "connected") {
       queueMicrotask(() => setBanner("Shopify connected successfully."));
-      void refreshShopify();
-      void refreshCatalog();
+      void refreshIntegrations();
     }
     if (q === "error") {
       const msg = searchParams.get("message") ?? "Authorization failed.";
       queueMicrotask(() => setBanner(msg));
     }
-  }, [searchParams, refreshShopify, refreshCatalog]);
+  }, [searchParams, refreshIntegrations]);
 
   const merged = useMemo(() => {
     const entries = catalog?.entries ?? [];
@@ -135,14 +132,14 @@ function ActionsPageContent() {
           method: "PATCH",
           body: JSON.stringify({ enabled: next }),
         });
-        await refreshCatalog();
+        await refreshIntegrations();
       } catch (e) {
         const msg =
           e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not update action";
         setBanner(msg);
       }
     },
-    [selectedAgentId, refreshCatalog]
+    [selectedAgentId, refreshIntegrations]
   );
 
   const startOAuth = useCallback(async () => {
@@ -190,7 +187,6 @@ function ActionsPageContent() {
     setBanner(null);
     try {
       await disconnect();
-      await refreshCatalog();
     } catch (e) {
       const msg =
         e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Disconnect failed";
@@ -198,7 +194,7 @@ function ActionsPageContent() {
     } finally {
       setConnectBusy(false);
     }
-  }, [disconnect, refreshCatalog]);
+  }, [disconnect]);
 
   const totalCount = merged.length;
 
@@ -206,7 +202,7 @@ function ActionsPageContent() {
   const stubs = (catalog?.entries ?? []).filter((e) =>
     ["email.bridge", "zendesk.tickets", "calendly.booking"].includes(e.action_key)
   );
-  const showIntegrationSkeleton = Boolean(selectedAgentId && catalogLoading);
+  const showIntegrationSkeleton = Boolean(selectedAgentId && integrationsLoading);
   const hasIntegrationContent = Boolean(human || stubs.length > 0);
 
   const integrationBlock =
@@ -260,7 +256,7 @@ function ActionsPageContent() {
       </div>
     ) : null;
 
-  const showShopifyGridSkeleton = Boolean(selectedAgentId && catalogLoading);
+  const showShopifyGridSkeleton = Boolean(selectedAgentId && integrationsLoading);
   const showFilteredEmpty = !showShopifyGridSkeleton && filtered.length === 0 && merged.length > 0;
 
   return (
@@ -277,8 +273,7 @@ function ActionsPageContent() {
             type="button"
             className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar self-start rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors md:self-auto disabled:pointer-events-none disabled:opacity-45"
             onClick={() => {
-              void refreshShopify();
-              void refreshCatalog();
+              void refreshIntegrations();
             }}
             disabled={refreshDisabled}
             aria-busy={refreshAriaBusy}
@@ -302,12 +297,11 @@ function ActionsPageContent() {
           </div>
         ) : null}
 
-        {(catalogError || shopifyError) && (
-          <div role="alert" className="mb-4 space-y-1 text-sm text-rose-600">
-            {catalogError ? <p>{catalogError}</p> : null}
-            {shopifyError ? <p>{shopifyError}</p> : null}
+        {integrationsError ? (
+          <div role="alert" className="mb-4 text-sm text-rose-600">
+            <p>{integrationsError}</p>
           </div>
-        )}
+        ) : null}
 
         {!selectedAgentId && !agentsLoading ? (
           <p className="text-ds-on-surface-variant text-sm">Select an agent in the header to manage actions.</p>

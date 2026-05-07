@@ -7,11 +7,6 @@ declare global {
   }
 }
 
-/**
- * `document.currentScript` is only set for **synchronous** classic scripts. For
- * `async` / `defer` external scripts it is `null` when the file runs, so we fall
- * back to the tag that carries our data attributes.
- */
 function getEmbedLoaderScript(): HTMLScriptElement | null {
   const direct = document.currentScript;
   if (direct instanceof HTMLScriptElement) {
@@ -73,10 +68,23 @@ function normalizeHexColor(input: string | null | undefined, fallback: string): 
   return fallback;
 }
 
+/** Minimal safe markdown: escape HTML, then **bold** and newlines. */
+function renderAssistantHtml(raw: string): string {
+  const esc = raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  const withBold = esc.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  return withBold.replace(/\n/g, "<br>");
+}
+
 async function boot(): Promise<void> {
   const script = getEmbedLoaderScript();
   if (!script) {
-    console.warn("[ChatRely] Could not find the loader <script> (try removing async or set data-chatrely-agent-key on the tag).");
+    console.warn(
+      "[ChatRely] Could not find the loader <script> (try removing async or set data-chatrely-agent-key on the tag)."
+    );
     return;
   }
   const agentKey = resolveAgentKey(script);
@@ -111,8 +119,32 @@ async function boot(): Promise<void> {
   const header = document.createElement("div");
   header.className = "cr-panel-header";
 
+  const headerMain = document.createElement("div");
+  headerMain.className = "cr-panel-header-main";
+
+  const avatarWrap = document.createElement("div");
+  avatarWrap.className = "cr-avatar-wrap";
+  const avatarImg = document.createElement("img");
+  avatarImg.className = "cr-avatar-img";
+  avatarImg.alt = "";
+  avatarImg.style.display = "none";
+  const avatarFallback = document.createElement("span");
+  avatarFallback.className = "cr-avatar-fallback";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "cr-panel-title";
+
+  headerMain.append(avatarWrap);
+  avatarWrap.append(avatarImg, avatarFallback);
+  headerMain.append(titleEl);
+  header.append(headerMain);
+
   const messages = document.createElement("div");
   messages.className = "cr-messages";
+
+  const escalateRow = document.createElement("div");
+  escalateRow.className = "cr-escalate-row";
+  escalateRow.style.display = "none";
 
   const composer = document.createElement("div");
   composer.className = "cr-composer";
@@ -126,7 +158,11 @@ async function boot(): Promise<void> {
   send.textContent = "Send";
   composer.append(input, send);
 
-  panel.append(header, messages, composer);
+  const footerNote = document.createElement("div");
+  footerNote.className = "cr-powered";
+  footerNote.textContent = "Powered by ChatRely";
+
+  panel.append(header, escalateRow, messages, composer, footerNote);
   root.append(launcher, panel);
 
   document.body.appendChild(host);
@@ -139,31 +175,109 @@ async function boot(): Promise<void> {
     return;
   }
 
-  header.textContent = cfg.name || "Chat";
+  titleEl.textContent = cfg.name || "Chat";
   const accent = normalizeHexColor(cfg.brand_color, "#111827");
   root.style.setProperty("--cr-accent", accent);
   root.classList.add(cfg.widget_position === "bottom_left" ? "cr-root--bl" : "cr-root--br");
 
+  const initial = (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
+  avatarFallback.textContent = initial;
+
+  if (cfg.avatar_url) {
+    avatarImg.src = cfg.avatar_url;
+    avatarImg.onload = () => {
+      avatarImg.style.display = "block";
+      avatarFallback.style.display = "none";
+    };
+    avatarImg.onerror = () => {
+      avatarImg.style.display = "none";
+      avatarFallback.style.display = "flex";
+    };
+  }
+
+  if (cfg.human_escalation_available) {
+    escalateRow.style.display = "flex";
+    const escBtn = document.createElement("button");
+    escBtn.type = "button";
+    escBtn.className = "cr-escalate";
+    escBtn.textContent = "Talk to a human";
+    escalateRow.appendChild(escBtn);
+
+    escBtn.addEventListener("click", () => {
+      void sendEscalation();
+    });
+  }
+
   const visitorId = getOrCreateVisitorId(agentKey);
   let conversationId: string | null = null;
-  let open = false;
   let sending = false;
 
-  function appendMessage(role: "user" | "assistant" | "err", text: string): void {
+  function appendMessage(role: "user" | "assistant" | "err", text: string, html?: boolean): void {
     const el = document.createElement("div");
     el.className = `cr-msg cr-msg--${role}`;
-    el.textContent = text;
+    if (role === "assistant" && html) {
+      el.innerHTML = text;
+    } else {
+      el.textContent = text;
+    }
     messages.appendChild(el);
     messages.scrollTop = messages.scrollHeight;
   }
 
   function setOpen(next: boolean): void {
-    open = next;
-    panel.hidden = !open;
-    launcher.setAttribute("aria-expanded", open ? "true" : "false");
+    panel.hidden = !next;
+    launcher.setAttribute("aria-expanded", next ? "true" : "false");
   }
 
   launcher.addEventListener("click", () => setOpen(!open));
+
+  async function sendEscalation(): Promise<void> {
+    if (sending) return;
+    input.value = "";
+    sending = true;
+    send.disabled = true;
+    const msg = "I'd like to speak with a human agent.";
+    appendMessage("user", msg);
+    const assistantEl = document.createElement("div");
+    assistantEl.className = "cr-msg cr-msg--assistant";
+    assistantEl.innerHTML = "";
+    messages.appendChild(assistantEl);
+
+    try {
+      for await (const ev of streamChat(apiBase, agentKey, {
+        message: msg,
+        conversation_id: conversationId,
+        visitor_id: visitorId,
+        request_human: true,
+        locale: navigator.language,
+      })) {
+        if (ev.type === "start") {
+          conversationId = ev.conversation_id;
+        } else if (ev.type === "token") {
+          const prev = assistantEl.getAttribute("data-plain") || "";
+          const nextPlain = prev + ev.text;
+          assistantEl.setAttribute("data-plain", nextPlain);
+          assistantEl.innerHTML = renderAssistantHtml(nextPlain);
+          messages.scrollTop = messages.scrollHeight;
+        } else if (ev.type === "done") {
+          conversationId = ev.conversation_id;
+          if (typeof ev.response === "string" && ev.response) {
+            assistantEl.innerHTML = renderAssistantHtml(ev.response);
+            assistantEl.removeAttribute("data-plain");
+          }
+        } else if (ev.type === "error") {
+          assistantEl.remove();
+          appendMessage("err", ev.message || "Something went wrong.");
+        }
+      }
+    } catch (e) {
+      assistantEl.remove();
+      appendMessage("err", e instanceof Error ? e.message : "Network error.");
+    } finally {
+      sending = false;
+      send.disabled = false;
+    }
+  }
 
   async function sendMessage(): Promise<void> {
     const text = input.value.trim();
@@ -174,7 +288,7 @@ async function boot(): Promise<void> {
     appendMessage("user", text);
     const assistantEl = document.createElement("div");
     assistantEl.className = "cr-msg cr-msg--assistant";
-    assistantEl.textContent = "";
+    assistantEl.innerHTML = "";
     messages.appendChild(assistantEl);
 
     try {
@@ -187,12 +301,19 @@ async function boot(): Promise<void> {
         if (ev.type === "start") {
           conversationId = ev.conversation_id;
         } else if (ev.type === "token") {
-          assistantEl.textContent += ev.text;
+          const prev =
+            assistantEl.getAttribute("data-plain") ||
+            assistantEl.textContent ||
+            "";
+          const nextPlain = prev + ev.text;
+          assistantEl.setAttribute("data-plain", nextPlain);
+          assistantEl.innerHTML = renderAssistantHtml(nextPlain);
           messages.scrollTop = messages.scrollHeight;
         } else if (ev.type === "done") {
           conversationId = ev.conversation_id;
           if (typeof ev.response === "string" && ev.response) {
-            assistantEl.textContent = ev.response;
+            assistantEl.innerHTML = renderAssistantHtml(ev.response);
+            assistantEl.removeAttribute("data-plain");
           }
         } else if (ev.type === "error") {
           assistantEl.remove();
@@ -215,7 +336,6 @@ async function boot(): Promise<void> {
       void sendMessage();
     }
   });
-
 }
 
 void boot();

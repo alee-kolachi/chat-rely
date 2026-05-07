@@ -209,6 +209,13 @@ class WebsiteUsageResponse(BaseModel):
     website_crawl_last_job_bytes: int | None = None
 
 
+class KnowledgeWebsiteWorkspaceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    usage: WebsiteUsageResponse
+    sources: list[WebsiteSourceListItemDTO]
+
+
 class FileSourceListItemDTO(BaseModel):
     id: UUID
     agent_id: UUID

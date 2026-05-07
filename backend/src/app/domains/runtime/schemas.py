@@ -26,6 +26,7 @@ class RuntimeChatRequest(BaseModel):
     visitor_id: str = Field(default="preview-user", min_length=1, max_length=255)
     model_override: str | None = None
     system_prompt_override: str | None = None
+    agent_type_override: str | None = None
     #: 0–1 — playground preview; when set, overrides agent `behavior_settings.creativity`.
     creativity_override: float | None = Field(default=None, ge=0.0, le=1.0)
     visitor_email: str | None = None

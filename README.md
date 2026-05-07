@@ -45,3 +45,19 @@ Use this when you want **Google / email providers** configured in the cloud dash
 For Docker-only DB/auth experiments: `supabase start`, then use the local URLs in the commented block at the bottom of each `.env.example`. OAuth providers there are configured in `supabase/config.toml`, not the hosted dashboard.
 
 If signup/auth behaves oddly locally, check **`supabase logs auth --local`** or reset with **`supabase db reset`** (wipes local data).
+
+## Background workers (production)
+
+Run these as separate processes or services alongside the API:
+
+- **Indexing** — `cd backend && uv run python -m app.workers.indexing_worker`  
+  Processes queued knowledge indexing jobs (crawl, chunk, embed).
+
+- **Maintenance** — `cd backend && uv run python -m app.workers.maintenance_worker`  
+  Periodically closes idle conversations, backfills conversation outcomes, and refreshes usage snapshots for all workspaces.
+
+## Embeddable widget script
+
+1. `cd widget && npm install && npm run build`
+2. Deploy `widget/dist/widget.js` to a CDN or copy it to **`app/public/widget.js`** in the Next app so it is served at `/widget.js`.
+3. Optionally set **`NEXT_PUBLIC_WIDGET_SCRIPT_URL`** in `app/.env.local` to an absolute URL if the script is hosted elsewhere (see `app/.env.example`).

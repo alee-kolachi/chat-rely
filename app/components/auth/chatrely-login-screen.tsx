@@ -195,12 +195,12 @@ export function ChatRelyLoginScreen() {
                     <label htmlFor="login-password" className="text-ds-on-surface text-xs font-semibold">
                       Password
                     </label>
-                    <Link
-                      href="#"
+                    <a
+                      href="mailto:support@chatrely.com?subject=Password%20reset"
                       className="text-ds-primary text-xs font-medium hover:underline"
                     >
                       Forgot password?
-                    </Link>
+                    </a>
                   </div>
                   <input
                     id="login-password"
@@ -306,23 +306,23 @@ export function ChatRelyLoginScreen() {
           </div>
           <div className="flex flex-wrap justify-center gap-6 md:gap-8">
             <Link
-              href="#"
+              href="/privacy"
               className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold uppercase tracking-widest transition-colors"
             >
               Privacy Policy
             </Link>
             <Link
-              href="#"
+              href="/terms"
               className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold uppercase tracking-widest transition-colors"
             >
               Terms of Service
             </Link>
-            <Link
-              href="#"
+            <a
+              href="mailto:support@chatrely.com"
               className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold uppercase tracking-widest transition-colors"
             >
               Help Center
-            </Link>
+            </a>
           </div>
         </div>
       </footer>

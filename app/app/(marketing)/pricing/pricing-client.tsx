@@ -18,8 +18,18 @@ const faqs = [
       "Each billable conversation beyond your plan’s included amount for the billing period is counted as paid overage at the rate shown on the pricing page (overage is $0 on the Free plan).",
     open: false,
   },
-  { question: "When does my usage reset?", answer: "", open: false },
-  { question: "Can I cancel my subscription anytime?", answer: "", open: false },
+  {
+    question: "When does my usage reset?",
+    answer:
+      "Included conversation allowances reset at the start of each billing period (shown on your Plan page). Free workspaces follow the same calendar monthly snapshot.",
+    open: false,
+  },
+  {
+    question: "Can I cancel my subscription anytime?",
+    answer:
+      "Yes. You can cancel from the Stripe billing portal (linked from Billing in your account). Access remains through the end of the paid period unless you delete your workspace.",
+    open: false,
+  },
 ] as const;
 
 export function MarketingPricingClient() {
@@ -37,17 +47,6 @@ export function MarketingPricingClient() {
           <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-5 sm:max-w-2xl sm:text-xl">
             Billable conversations—not opaque message credits. Plans load from our catalog (change anytime without app deploys).
           </p>
-        </div>
-
-        <div className="mb-10 flex flex-wrap items-center justify-center gap-3 sm:mb-14 sm:gap-4">
-          <span className="text-sm font-bold text-ds-primary">Monthly</span>
-          <div className="relative h-7 w-14 rounded-full bg-zinc-300 p-1">
-            <div className="absolute right-1 h-5 w-5 rounded-full bg-ds-primary" />
-          </div>
-          <span className="text-sm font-medium text-ds-on-surface-variant">Yearly</span>
-          <span className="rounded-full bg-ds-tertiary px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
-            20% off yearly plans
-          </span>
         </div>
 
         <div className="mb-14 sm:mb-20 lg:mb-24">
@@ -113,13 +112,18 @@ export function MarketingPricingClient() {
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-8 md:flex-row">
           <p className="text-lg font-black text-ds-primary">ChatRely</p>
           <nav className="flex flex-wrap items-center gap-7">
-            {["Privacy", "Terms", "Security", "Status", "Contact"].map((item) => (
+            {[
+              { label: "Privacy", href: "/privacy" },
+              { label: "Terms", href: "/terms" },
+              { label: "Security", href: "/terms#security" },
+              { label: "Contact", href: "mailto:support@chatrely.com" },
+            ].map((item) => (
               <Link
-                key={item}
-                href="/"
+                key={item.label}
+                href={item.href}
                 className="text-xs font-semibold tracking-widest text-zinc-500 uppercase transition hover:text-zinc-900"
               >
-                {item}
+                {item.label}
               </Link>
             ))}
           </nav>

@@ -1,10 +1,12 @@
 import asyncio
 import os
+from typing import Any
 from uuid import UUID
 
 import structlog
 from sqlalchemy import text
 
+from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.db.engine import init_engine
 from app.db.session import get_session_factory, init_session_factory
@@ -98,12 +100,39 @@ async def run_worker_loop(poll_interval_seconds: float = 2.0) -> None:
             )
             raise
         except Exception as exc:
-            log.exception(
-                "indexing_job_failed",
-                job_id=str(job_id),
-                user_id=str(user_id),
-                error=str(exc),
-            )
+            if isinstance(exc, AppError):
+                diag: dict[str, Any] = {
+                    "job_id": str(job_id),
+                    "user_id": str(user_id),
+                    "error_code": exc.code,
+                    "error_message": exc.message,
+                }
+                details = exc.details or {}
+                if details:
+                    diag["details"] = details
+                    for key in (
+                        "seed_url",
+                        "knowledge_source_id",
+                        "discovery_mode",
+                        "urls_planned",
+                        "urls_fetched",
+                        "urls_empty_text",
+                        "urls_with_text",
+                        "urls_http_missing",
+                        "urls_http_4xx",
+                        "urls_http_5xx",
+                        "crawl_stopped_reason",
+                    ):
+                        if key in details:
+                            diag[key] = details[key]
+                log.warning("indexing_job_failed", **diag)
+            else:
+                log.exception(
+                    "indexing_job_failed",
+                    job_id=str(job_id),
+                    user_id=str(user_id),
+                    error=str(exc),
+                )
             await _persist_surrogate_safe(job_id, user_id, exc)
 
 

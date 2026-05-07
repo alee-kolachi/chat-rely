@@ -26,11 +26,6 @@ const mobileNavItems = [
   { href: "/tickets", label: "Tickets" },
   { href: "/deploy", label: "Deploy" },
   { href: "/usage", label: "Usage" },
-  {
-    href: "/agent-settings",
-    label: "Agent settings",
-    children: [{ href: "/agent-settings/general", label: "General" }],
-  },
   { href: "/account/profile", label: "Account" },
 ];
 

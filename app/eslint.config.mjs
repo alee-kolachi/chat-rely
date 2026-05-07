@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vite-built embed bundle (minified; not source)
+    "public/widget.js",
   ]),
 ]);
 

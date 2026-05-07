@@ -22,6 +22,10 @@ class PublicWidgetConfigResponse(BaseModel):
     name: str
     brand_color: str | None = None
     widget_position: Literal["bottom_right", "bottom_left"] = "bottom_right"
+    """True when ``human.escalate`` is enabled for this agent (widget may show Escalate button)."""
+    human_escalation_available: bool = False
+    """Optional logo URL for header (e.g. favicon from primary website knowledge source)."""
+    avatar_url: str | None = None
 
 
 class PublicWidgetChatRequest(BaseModel):

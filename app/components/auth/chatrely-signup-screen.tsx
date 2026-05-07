@@ -135,7 +135,7 @@ export function ChatRelySignupScreen() {
       return;
     }
 
-    router.push("/verify-email");
+    router.push(`/verify-email?email=${encodeURIComponent(email)}`);
   }
 
   return (
@@ -271,11 +271,11 @@ export function ChatRelySignupScreen() {
               </p>
               <p className="text-ds-on-surface-variant mt-8 px-4 text-center text-[10px] leading-relaxed tracking-wider uppercase">
                 By signing up you agree to our{" "}
-                <Link href="#" className="underline">
+                <Link href="/terms" className="underline">
                   Terms
                 </Link>{" "}
                 and{" "}
-                <Link href="#" className="underline">
+                <Link href="/privacy" className="underline">
                   Privacy Policy
                 </Link>
               </p>
@@ -361,23 +361,23 @@ export function ChatRelySignupScreen() {
           </div>
           <div className="flex flex-wrap justify-center gap-6 md:gap-8">
             <Link
-              href="#"
+              href="/privacy"
               className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold tracking-widest transition-colors uppercase"
             >
               Privacy Policy
             </Link>
             <Link
-              href="#"
+              href="/terms"
               className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold tracking-widest transition-colors uppercase"
             >
               Terms of Service
             </Link>
-            <Link
-              href="#"
+            <a
+              href="mailto:support@chatrely.com"
               className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold tracking-widest transition-colors uppercase"
             >
               Help Center
-            </Link>
+            </a>
           </div>
         </div>
       </footer>

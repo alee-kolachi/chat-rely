@@ -47,7 +47,11 @@ from app.domains.runtime.chat_graph import (
     stream_runtime_chat_graph,
     text_from_model_message,
 )
-from app.domains.runtime.prompts import build_grounded_user_prompt, build_system_prompt
+from app.domains.runtime.prompts import (
+    build_grounded_user_prompt,
+    build_system_prompt,
+    resolve_agent_type_prompt,
+)
 from app.domains.runtime.schemas import (
     RuntimeChatRequest,
     RuntimeChatResponse,
@@ -432,8 +436,12 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
     if row is None:
         raise AppError(code="agent.not_found", message="Agent not found", status_code=404)
     behavior = row["behavior_settings"] or {}
+    if not isinstance(behavior, dict):
+        behavior = {}
     tone = behavior.get("tone", "professional")
     creativity = _creativity_from_behavior(behavior if isinstance(behavior, dict) else {})
+    raw_agent_type = behavior.get("agent_type")
+    agent_type = str(raw_agent_type).strip().lower() if isinstance(raw_agent_type, str) else "brand_support"
     fallback = row["fallback_message"] or (
         f"Hello! I'm {row['name']}. I can use your website knowledge, but I am not fully sure yet. "
         "Please clarify your request."
@@ -442,6 +450,7 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
         "agent_name": row["name"],
         "model": row["model"] or "gpt-4o-mini",
         "system_prompt": row["system_prompt"] or "",
+        "agent_type": agent_type,
         "tone": tone,
         "creativity": creativity,
         "min_retrieval_similarity": float(row["min_retrieval_similarity"] or 0.52),
@@ -781,7 +790,13 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         else float(config["creativity"])
     )
     creativity = max(0.0, min(1.0, creativity))
-    system_prompt = payload.system_prompt_override or config["system_prompt"]
+    agent_type = payload.agent_type_override or config["agent_type"]
+    custom_prompt = (
+        payload.system_prompt_override
+        if payload.system_prompt_override is not None
+        else config["system_prompt"]
+    )
+    system_prompt = resolve_agent_type_prompt(agent_type, custom_prompt)
     if config["tone"]:
         system_prompt = f"{system_prompt}\n\nPreferred response tone: {config['tone']}.".strip()
     min_similarity = float(config["min_retrieval_similarity"])
@@ -1101,7 +1116,13 @@ async def run_chat_stream(
         else float(config["creativity"])
     )
     creativity = max(0.0, min(1.0, creativity))
-    system_prompt = payload.system_prompt_override or config["system_prompt"]
+    agent_type = payload.agent_type_override or config["agent_type"]
+    custom_prompt = (
+        payload.system_prompt_override
+        if payload.system_prompt_override is not None
+        else config["system_prompt"]
+    )
+    system_prompt = resolve_agent_type_prompt(agent_type, custom_prompt)
     if config["tone"]:
         system_prompt = f"{system_prompt}\n\nPreferred response tone: {config['tone']}.".strip()
     min_similarity = float(config["min_retrieval_similarity"])

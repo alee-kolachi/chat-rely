@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 
 import { ChartAreaSkeleton, type ChartAreaSkeletonProps } from "@/components/dashboard/chart-area-skeleton";
+import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { cn } from "@/lib/utils";
 
 /** Loading and empty UI for the dashboard metrics screen. */
@@ -68,6 +71,9 @@ export function DashboardTrainingTopicsSkeleton({ blocks = 3 }: { blocks?: numbe
 }
 
 export function DashboardSelectAgentEmptyState() {
+  const { agents } = useDashboardAgent();
+  const noAgents = agents.length === 0;
+
   return (
     <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm md:p-8">
       <div className="mx-auto flex max-w-lg flex-col items-center text-center">
@@ -89,9 +95,13 @@ export function DashboardSelectAgentEmptyState() {
             />
           </svg>
         </div>
-        <h2 className="ds-app-section-title text-lg md:text-xl">Choose an agent</h2>
+        <h2 className="ds-app-section-title text-lg md:text-xl">
+          {noAgents ? "Create your first agent" : "Choose an agent"}
+        </h2>
         <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed md:text-base">
-          Pick an agent from the header menu to load metrics, charts, and recent conversations for that workspace.
+          {noAgents
+            ? "Use New agent in the header to add a workspace. Each agent gets its own embed key and settings."
+            : "Pick an agent from the Agent menu in the header to load metrics, charts, and conversations for that workspace."}
         </p>
       </div>
     </section>

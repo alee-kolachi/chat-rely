@@ -5,7 +5,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.errors import AppError
-from app.domains.knowledge.schemas import IndexJobDTO, KnowledgeSourceDTO, WebsitePathRule, WebsiteUsageResponse
+from app.domains.knowledge.schemas import (
+    IndexJobDTO,
+    KnowledgeSourceDTO,
+    WebsitePathRule,
+    WebsiteSourceListItemDTO,
+    WebsiteUsageResponse,
+)
 
 
 class _DummyVerifier:
@@ -296,6 +302,50 @@ def test_website_usage_route(client: TestClient, monkeypatch: pytest.MonkeyPatch
     assert data["total_links"] == 12
     assert data["website_crawl_budget_bytes"] == 512_000
     assert data["website_crawl_last_job_bytes"] == 182_000
+
+
+def test_website_workspace_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_auth(monkeypatch)
+    aid = UUID("00000000-0000-0000-0000-000000000888")
+    sid = UUID("00000000-0000-0000-0000-000000000099")
+
+    async def _usage(*_a: Any, **_k: Any) -> WebsiteUsageResponse:
+        return WebsiteUsageResponse(
+            plan_slug="free",
+            plan_name="Free",
+            included_storage_bytes=409_600,
+            used_storage_bytes=100_000,
+            total_links=3,
+            show_upgrade=False,
+            website_crawl_budget_bytes=512_000,
+            website_crawl_last_job_bytes=None,
+        )
+
+    async def _sources(*_a: Any, **_k: Any) -> list[WebsiteSourceListItemDTO]:
+        return [
+            WebsiteSourceListItemDTO.model_validate(
+                {
+                    "id": sid,
+                    "agent_id": aid,
+                    "title": "example.com",
+                    "source_url": "https://example.com",
+                    "status": "ready",
+                    "website_mode": "crawl",
+                }
+            )
+        ]
+
+    monkeypatch.setattr("app.api.routes.knowledge_website.get_agent_website_usage", _usage)
+    monkeypatch.setattr("app.api.routes.knowledge_website.list_website_sources_for_agent", _sources)
+
+    res = client.get(f"/api/v1/knowledge/website/workspace?agent_id={aid}", headers=_auth_header())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["usage"]["plan_slug"] == "free"
+    assert body["usage"]["total_links"] == 3
+    assert len(body["sources"]) == 1
+    assert body["sources"][0]["id"] == str(sid)
+    assert body["sources"][0]["source_url"] == "https://example.com"
 
 
 @pytest.mark.asyncio

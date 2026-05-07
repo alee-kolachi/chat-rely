@@ -1,4 +1,5 @@
 from typing import Any, Literal, cast
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 from sqlalchemy import text
@@ -60,3 +61,57 @@ def build_public_widget_config(ctx: PublicWidgetAgentContext) -> PublicWidgetCon
         brand_color=brand_color,
         widget_position=position,
     )
+
+
+def _favicon_from_site_url(site_url: str) -> str | None:
+    try:
+        host = urlparse(site_url.strip()).hostname
+        if not host:
+            return None
+        return f"https://www.google.com/s2/favicons?domain={quote(host, safe='')}&sz=128"
+    except Exception:
+        return None
+
+
+async def build_public_widget_config_response(
+    db: AsyncSession, ctx: PublicWidgetAgentContext
+) -> PublicWidgetConfigResponse:
+    """Public widget GET /config — includes escalation + optional favicon logo."""
+    base = build_public_widget_config(ctx)
+
+    human_row = (
+        await db.execute(
+            text(
+                """
+                select enabled
+                from public.agent_actions
+                where agent_id = cast(:aid as uuid)
+                  and action_key = 'human.escalate'
+                limit 1
+                """
+            ),
+            {"aid": str(ctx.agent_id)},
+        )
+    ).mappings().first()
+    human_ok = bool(human_row and human_row.get("enabled"))
+
+    url_row = (
+        await db.execute(
+            text(
+                """
+                select source_url
+                from public.knowledge_sources
+                where agent_id = cast(:aid as uuid)
+                  and type = 'website'
+                  and coalesce(source_url, '') <> ''
+                order by created_at asc
+                limit 1
+                """
+            ),
+            {"aid": str(ctx.agent_id)},
+        )
+    ).mappings().first()
+    raw_url = str(url_row["source_url"]).strip() if url_row and url_row.get("source_url") else ""
+    avatar_url = _favicon_from_site_url(raw_url) if raw_url else None
+
+    return base.model_copy(update={"human_escalation_available": human_ok, "avatar_url": avatar_url})

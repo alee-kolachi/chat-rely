@@ -12,7 +12,10 @@ from app.domains.public_widget.schemas import (
     PublicWidgetChatRequest,
     PublicWidgetConfigResponse,
 )
-from app.domains.public_widget.service import build_public_widget_config, resolve_agent_for_widget_key
+from app.domains.public_widget.service import (
+    build_public_widget_config_response,
+    resolve_agent_for_widget_key,
+)
 from app.domains.runtime.schemas import RuntimeChatRequest
 from app.domains.runtime.service import run_chat_stream
 
@@ -36,8 +39,11 @@ WidgetAgentDep = Annotated[PublicWidgetAgentContext, Depends(_widget_agent_conte
 
 
 @router.get("/config", response_model=PublicWidgetConfigResponse)
-async def public_widget_config_route(ctx: WidgetAgentDep) -> PublicWidgetConfigResponse:
-    return build_public_widget_config(ctx)
+async def public_widget_config_route(
+    ctx: WidgetAgentDep,
+    db: AsyncSession = Depends(get_db),
+) -> PublicWidgetConfigResponse:
+    return await build_public_widget_config_response(db, ctx)
 
 
 @router.post("/chat/stream")

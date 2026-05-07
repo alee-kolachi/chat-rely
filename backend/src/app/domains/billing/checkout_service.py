@@ -171,3 +171,43 @@ async def change_subscription_plan(
             status_code=502,
             details={"stripe": str(exc)[:400]},
         ) from exc
+
+
+async def create_billing_portal_session(db: AsyncSession, *, user_id: UUID) -> str:
+    """
+    Stripe Customer Portal — payment methods, invoices, cancellation (configurable in Stripe Dashboard).
+    """
+    configure_stripe()
+    settings = get_settings()
+    if not (settings.stripe_secret_key or "").strip():
+        raise AppError(code="stripe.not_configured", message="Stripe is not configured", status_code=503)
+
+    email = await fetch_auth_user_email(db, user_id)
+    customer_id = await ensure_stripe_customer_for_user(db, user_id=user_id, email=email)
+    if not customer_id:
+        raise AppError(
+            code="stripe.customer_missing",
+            message="Could not resolve Stripe customer for this account",
+            status_code=503,
+        )
+
+    base = settings.billing_app_base_url.rstrip("/")
+    return_url = f"{base}/account/billing?portal=return"
+
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url,
+        )
+    except stripe.StripeError as exc:
+        raise AppError(
+            code="stripe.portal_failed",
+            message="Could not open billing portal",
+            status_code=502,
+            details={"stripe": str(exc)[:400]},
+        ) from exc
+
+    url = getattr(session, "url", None)
+    if not url:
+        raise AppError(code="stripe.portal_failed", message="Billing portal session missing URL", status_code=502)
+    return str(url)

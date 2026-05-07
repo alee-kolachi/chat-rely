@@ -1,3 +1,4 @@
+import json
 from uuid import UUID
 
 from sqlalchemy import text
@@ -30,6 +31,7 @@ async def get_me_profile(db: AsyncSession, user_id: UUID) -> MeProfileResponse:
         avatar_url=profile.avatar_url,
         timezone=profile.timezone,
         email_notifications_enabled=profile.email_notifications_enabled,
+        notification_preferences=dict(profile.notification_preferences or {}),
         created_at=profile.created_at,
         updated_at=profile.updated_at,
     )
@@ -94,6 +96,33 @@ async def update_me_profile(
                 message="Could not update email for this account.",
                 status_code=400,
             )
+
+    if "notification_preferences" in data and data["notification_preferences"] is not None:
+        patch = data["notification_preferences"]
+        if not isinstance(patch, dict):
+            await db.rollback()
+            raise AppError(
+                code="profile.invalid_notification_preferences",
+                message="notification_preferences must be an object",
+                status_code=400,
+            )
+        current = await _ensure_profile(db, user_id)
+        merged = dict(current.notification_preferences or {})
+        for k, v in patch.items():
+            if isinstance(v, bool):
+                merged[str(k)[:128]] = v
+
+        await db.execute(
+            text(
+                """
+                update public.profiles
+                set notification_preferences = cast(:prefs as jsonb),
+                    updated_at = now()
+                where id = cast(:user_id as uuid)
+                """
+            ),
+            {"user_id": str(user_id), "prefs": json.dumps(merged)},
+        )
 
     await db.commit()
     return await get_me_profile(db, user_id)

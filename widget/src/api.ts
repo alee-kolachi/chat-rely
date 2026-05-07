@@ -3,6 +3,8 @@ export type WidgetConfig = {
   name: string;
   brand_color: string | null;
   widget_position: "bottom_right" | "bottom_left";
+  human_escalation_available?: boolean;
+  avatar_url?: string | null;
 };
 
 export type NdjsonEvent =

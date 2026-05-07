@@ -60,6 +60,7 @@ function ConversationsPageContent() {
   const [dateTo, setDateTo] = useState("");
   const [trainingTopicFilter, setTrainingTopicFilter] = useState("");
   const selectedConversationIdRef = useRef<string | null>(null);
+  const skipNextMessagesRefreshRef = useRef(false);
   useLayoutEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
@@ -79,7 +80,7 @@ function ConversationsPageContent() {
   }, [statusFilter, dateFrom, dateTo, trainingTopicFilter]);
 
   useEffect(() => {
-    setTrainingTopicFilter((trainingTopicFromUrl ?? "").trim());
+    queueMicrotask(() => setTrainingTopicFilter((trainingTopicFromUrl ?? "").trim()));
   }, [trainingTopicFromUrl]);
 
   const loadConversations = useCallback(async (opts?: { silent?: boolean }) => {
@@ -103,20 +104,38 @@ function ConversationsPageContent() {
       }
       const topic = trainingTopicFilter.trim();
       if (topic) qs.set("training_topic", topic);
-      const path =
-        qs.toString().length > 0 ? `/api/v1/conversations?${qs.toString()}` : "/api/v1/conversations";
-      const data = await backendFetch<{ conversations: Conversation[] }>(path);
-      setConversations(data.conversations);
-      const currentId = selectedConversationIdRef.current;
-      if (!currentId && data.conversations[0]) {
-        setSelectedConversationId(data.conversations[0].id);
+      const detailId = (conversationFromUrl ?? "").trim();
+      if (!silent && detailId) {
+        qs.set("detail_conversation_id", detailId);
       }
-      if (
-        currentId &&
-        data.conversations.length > 0 &&
-        !data.conversations.some((c) => c.id === currentId)
-      ) {
-        setSelectedConversationId(data.conversations[0].id);
+      const path = `/api/v1/conversations/workspace?${qs.toString()}`;
+      const data = await backendFetch<{
+        conversations: Conversation[];
+        detail: {
+          conversation: { id: string };
+          messages: ConversationMessage[];
+        } | null;
+      }>(path);
+      setConversations(data.conversations);
+
+      if (!silent && data.detail) {
+        const visible = data.detail.messages.filter((m) => m.role === "user" || m.role === "assistant");
+        setMessages(visible);
+        setSelectedConversationId(data.detail.conversation.id);
+        skipNextMessagesRefreshRef.current = true;
+      } else {
+        const currentId = selectedConversationIdRef.current;
+        if (!silent && detailId && !data.detail) {
+          setSelectedConversationId(detailId);
+        } else if (!currentId && data.conversations[0]) {
+          setSelectedConversationId(data.conversations[0].id);
+        } else if (
+          currentId &&
+          data.conversations.length > 0 &&
+          !data.conversations.some((c) => c.id === currentId)
+        ) {
+          setSelectedConversationId(data.conversations[0].id);
+        }
       }
     } catch (e) {
       if (!silent) {
@@ -127,7 +146,15 @@ function ConversationsPageContent() {
         setLoading(false);
       }
     }
-  }, [agentFromUrl, selectedAgentId, statusFilter, dateFrom, dateTo, trainingTopicFilter]);
+  }, [
+    agentFromUrl,
+    selectedAgentId,
+    statusFilter,
+    dateFrom,
+    dateTo,
+    trainingTopicFilter,
+    conversationFromUrl,
+  ]);
 
   function clearFilters() {
     setStatusFilter("");
@@ -146,12 +173,6 @@ function ConversationsPageContent() {
     }, 0);
     return () => clearTimeout(timer);
   }, [loadConversations]);
-
-  useEffect(() => {
-    const id = conversationFromUrl?.trim();
-    if (!id) return;
-    queueMicrotask(() => setSelectedConversationId(id));
-  }, [conversationFromUrl]);
 
   const refreshMessages = useCallback(
     async (conversationId: string, opts?: { silent?: boolean }) => {
@@ -178,6 +199,10 @@ function ConversationsPageContent() {
 
   useEffect(() => {
     if (!selectedConversationId) {
+      return;
+    }
+    if (skipNextMessagesRefreshRef.current) {
+      skipNextMessagesRefreshRef.current = false;
       return;
     }
     const id = selectedConversationId;

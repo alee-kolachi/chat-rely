@@ -2,22 +2,22 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 
-type UsageSnapshot = {
-  period_start: string;
-  period_end: string;
-  included_conversations: number;
-  billable_conversations: number;
-  overage_conversations: number;
-  estimated_overage_cents: number;
-  throttle_tier: string;
-};
+/** Tier order used for upgrade vs downgrade (matches billing price map). */
+const PAID_ORDER = ["starter", "growth", "pro", "scale"] as const;
 
-const PAID_SLUGS = ["starter", "growth", "pro", "scale"] as const;
+function paidTierIndex(slug: string): number | null {
+  const i = PAID_ORDER.indexOf(slug as (typeof PAID_ORDER)[number]);
+  return i >= 0 ? i : null;
+}
+
+function formatPlanLabel(slug: string): string {
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
+}
 
 function formatMoney(cents: number): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
@@ -36,7 +36,8 @@ export function AccountPlanContent() {
   const { data: ctx, error, refresh } = useMeContext();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busySlug, setBusySlug] = useState<string | null>(null);
-  const [changeBusy, setChangeBusy] = useState(false);
+  const [planChangeBanner, setPlanChangeBanner] = useState<string | null>(null);
+  const planActionsRef = useRef<HTMLDivElement | null>(null);
 
   const checkoutBanner = useMemo(() => {
     const q = searchParams.get("checkout");
@@ -55,6 +56,7 @@ export function AccountPlanContent() {
 
   const startCheckout = async (planSlug: string) => {
     setBusySlug(planSlug);
+    setPlanChangeBanner(null);
     try {
       const res = await backendFetch<{ url: string }>("/api/v1/billing/checkout", {
         method: "POST",
@@ -68,24 +70,67 @@ export function AccountPlanContent() {
     }
   };
 
-  const changePlan = async (planSlug: string) => {
-    setChangeBusy(true);
+  const changePlan = async (planSlug: string, direction: "upgrade" | "downgrade") => {
+    if (direction === "downgrade") {
+      const ok = window.confirm(
+        `Switch to the ${formatPlanLabel(planSlug)} plan? Stripe applies proration immediately (you may receive a credit on your next invoice).`,
+      );
+      if (!ok) return;
+    }
+    setBusySlug(planSlug);
     setLoadError(null);
+    setPlanChangeBanner(null);
     try {
       await backendFetch("/api/v1/billing/subscription/change", {
         method: "POST",
         body: JSON.stringify({ plan_slug: planSlug, proration_behavior: "create_prorations" }),
       });
       await refresh();
+      setPlanChangeBanner(`Your plan is switching to ${formatPlanLabel(planSlug)}. Stripe usually finishes within a minute.`);
     } catch (e) {
       const msg = e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Plan change failed";
       setLoadError(msg);
     } finally {
-      setChangeBusy(false);
+      setBusySlug(null);
     }
   };
 
-  const upgradeTargets = PAID_SLUGS.filter((s) => s !== ctx?.plan.slug);
+  const openBillingPortal = async () => {
+    setBusySlug("portal");
+    setLoadError(null);
+    try {
+      const res = await backendFetch<{ url: string }>("/api/v1/billing/portal", { method: "POST" });
+      window.location.href = res.url;
+    } catch (e) {
+      const msg =
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not open billing portal";
+      setLoadError(msg);
+      setBusySlug(null);
+    }
+  };
+
+  const currentTier = ctx ? paidTierIndex(ctx.plan.slug) : null;
+  const catalogPaidTier = ctx && ctx.plan.slug !== "free" && currentTier !== null;
+
+  const paidUpgradeSlugs =
+    currentTier !== null ? PAID_ORDER.filter((_, idx) => idx > currentTier) : [];
+  const paidDowngradeSlugs =
+    currentTier !== null ? PAID_ORDER.filter((_, idx) => idx < currentTier) : [];
+
+  const subscribeTargets: readonly (typeof PAID_ORDER)[number][] =
+    ctx?.plan.slug === "free" ? [...PAID_ORDER] : [];
+
+  const hasStripeSubscription = Boolean(ctx?.subscription.provider_subscription_id?.trim());
+  const canChangePaidPlan = Boolean(ctx && catalogPaidTier && hasStripeSubscription);
+
+  useEffect(() => {
+    const raw = searchParams.get("plan");
+    if (!raw || !ctx) return;
+    const slug = raw.trim().toLowerCase();
+    const paidHit = PAID_ORDER.includes(slug as (typeof PAID_ORDER)[number]);
+    if (!paidHit) return;
+    planActionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [searchParams, ctx]);
 
   return (
     <div className="ds-app-shell p-6 pb-16 md:p-8 md:pb-20">
@@ -116,6 +161,12 @@ export function AccountPlanContent() {
             }`}
           >
             {checkoutBanner.text}
+          </div>
+        ) : null}
+
+        {planChangeBanner ? (
+          <div className="mt-4 rounded-ds-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            {planChangeBanner}
           </div>
         ) : null}
 
@@ -169,7 +220,11 @@ export function AccountPlanContent() {
                 </div>
               </section>
 
-              <aside className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+              <aside
+                ref={planActionsRef}
+                id="plan-actions"
+                className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm scroll-mt-24"
+              >
                 <h2 className="ds-app-section-title mb-3 text-base">Current cycle</h2>
                 <p className="text-ds-on-surface-variant text-sm">
                   {formatDate(ctx.subscription.current_period_start)} – {formatDate(ctx.subscription.current_period_end)}
@@ -189,10 +244,12 @@ export function AccountPlanContent() {
                   ) : null}
                 </div>
 
-                {ctx.plan.slug === "free" && upgradeTargets.length > 0 ? (
+                {ctx.plan.slug === "free" && subscribeTargets.length > 0 ? (
                   <div className="mt-5 space-y-2">
-                    <p className="text-ds-on-surface-variant text-xs font-medium uppercase tracking-wide">Upgrade</p>
-                    {upgradeTargets.map((slug) => (
+                    <p className="text-ds-on-surface-variant text-xs font-medium uppercase tracking-wide">
+                      Upgrade (checkout)
+                    </p>
+                    {subscribeTargets.map((slug) => (
                       <button
                         key={slug}
                         type="button"
@@ -200,42 +257,121 @@ export function AccountPlanContent() {
                         onClick={() => void startCheckout(slug)}
                         className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-lg px-4 py-2.5 text-sm font-semibold capitalize transition-colors disabled:opacity-50"
                       >
-                        {busySlug === slug ? "Redirecting…" : `Subscribe to ${slug}`}
+                        {busySlug === slug ? "Redirecting…" : `Subscribe to ${formatPlanLabel(slug)}`}
                       </button>
                     ))}
                   </div>
                 ) : null}
 
-                {ctx.subscription.provider_subscription_id && upgradeTargets.length > 0 ? (
+                {canChangePaidPlan && (paidUpgradeSlugs.length > 0 || paidDowngradeSlugs.length > 0) ? (
+                  <div className="mt-5 border-t border-ds-outline pt-5 space-y-4">
+                    <div>
+                      <p className="text-ds-on-surface-variant mb-2 text-xs font-medium uppercase tracking-wide">
+                        Upgrade plan
+                      </p>
+                      {paidUpgradeSlugs.length === 0 ? (
+                        <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                          You are already on the highest self-serve tier.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {paidUpgradeSlugs.map((slug) => (
+                            <button
+                              key={slug}
+                              type="button"
+                              disabled={busySlug !== null}
+                              onClick={() => void changePlan(slug, "upgrade")}
+                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
+                            >
+                              {busySlug === slug ? "Updating…" : `Upgrade to ${formatPlanLabel(slug)}`}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-ds-on-surface-variant mb-2 text-xs font-medium uppercase tracking-wide">
+                        Downgrade plan
+                      </p>
+                      {paidDowngradeSlugs.length === 0 ? (
+                        <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                          You are already on the lowest paid tier. To move to Free, cancel in billing (below).
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {paidDowngradeSlugs.map((slug) => (
+                            <button
+                              key={slug}
+                              type="button"
+                              disabled={busySlug !== null}
+                              onClick={() => void changePlan(slug, "downgrade")}
+                              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar/80 w-full rounded-ds-lg border bg-white px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
+                            >
+                              {busySlug === slug ? "Updating…" : `Downgrade to ${formatPlanLabel(slug)}`}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-ds-on-surface-variant text-[11px] leading-relaxed">
+                      Plan switches use Stripe proration immediately (charges or credits on your next invoice).
+                    </p>
+                  </div>
+                ) : null}
+
+                {ctx.plan.slug !== "free" && !catalogPaidTier ? (
+                  <div className="mt-5 border-t border-ds-outline pt-5">
+                    <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                      Self-serve upgrades and downgrades apply to Starter–Scale. For custom or legacy plans, use billing
+                      or contact support.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={busySlug !== null}
+                      onClick={() => void openBillingPortal()}
+                      className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar/80 mt-3 w-full rounded-ds-lg border bg-white px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {busySlug === "portal" ? "Opening…" : "Open Stripe billing portal"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {catalogPaidTier && !hasStripeSubscription ? (
+                  <div className="mt-5 border-t border-ds-outline pt-5">
+                    <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                      We couldn&apos;t find an active Stripe subscription for this workspace. Use the portal to resolve
+                      billing or sync your subscription.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={busySlug !== null}
+                      onClick={() => void openBillingPortal()}
+                      className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar/80 mt-3 w-full rounded-ds-lg border bg-white px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {busySlug === "portal" ? "Opening…" : "Open Stripe billing portal"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {canChangePaidPlan ? (
                   <div className="mt-5 border-t border-ds-outline pt-5">
                     <p className="text-ds-on-surface-variant mb-2 text-xs font-medium uppercase tracking-wide">
-                      Change plan (Stripe proration)
+                      Cancel / switch to Free
                     </p>
-                    <select
-                      className="border-ds-outline text-ds-on-surface mb-2 w-full rounded-ds-md border bg-white px-3 py-2 text-sm"
-                      defaultValue=""
-                      disabled={changeBusy}
-                      onChange={(ev) => {
-                        const v = ev.target.value;
-                        ev.target.value = "";
-                        if (v) void changePlan(v);
-                      }}
+                    <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
+                      Cancelling moves you to the Free plan after this billing period ends (manage in Stripe&apos;s
+                      portal).
+                    </p>
+                    <button
+                      type="button"
+                      disabled={busySlug !== null}
+                      onClick={() => void openBillingPortal()}
+                      className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar/80 w-full rounded-ds-lg border bg-white px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
                     >
-                      <option value="" disabled>
-                        Select new plan…
-                      </option>
-                      {upgradeTargets
-                        .filter((s) => s !== ctx.plan.slug)
-                        .map((slug) => (
-                          <option key={slug} value={slug}>
-                            {slug.charAt(0).toUpperCase() + slug.slice(1)}
-                          </option>
-                        ))}
-                    </select>
-                    <p className="text-ds-on-surface-variant text-[11px] leading-relaxed">
-                      Upgrades charge prorated amounts immediately per Stripe. Downgrades can be added later via the
-                      billing portal or scheduled price changes.
-                    </p>
+                      {busySlug === "portal" ? "Opening…" : "Manage cancellation in Stripe"}
+                    </button>
                   </div>
                 ) : null}
               </aside>

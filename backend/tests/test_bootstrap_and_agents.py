@@ -33,6 +33,7 @@ def _make_profile() -> ProfileDTO:
             "avatar_url": None,
             "timezone": "UTC",
             "email_notifications_enabled": True,
+            "notification_preferences": {},
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
         }

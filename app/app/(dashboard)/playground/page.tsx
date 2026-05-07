@@ -7,11 +7,9 @@ import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
-import { useActionCatalog } from "@/components/actions/use-action-catalog";
-import { useShopifyConnection } from "@/components/integrations/use-shopify-connection";
+import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
 import {
-  PlaygroundConnectionCheckSkeleton,
   PlaygroundHistoryListSkeleton,
   PlaygroundSettingsColumnSkeleton,
   PlaygroundShopifyActionsSkeleton,
@@ -159,6 +157,7 @@ function PlaygroundPreviewConversation({
   brandColorHex,
   toneRaw,
   model,
+  agentType,
   systemPrompt,
   creativity,
   saveError,
@@ -169,6 +168,7 @@ function PlaygroundPreviewConversation({
   brandColorHex: string | null;
   toneRaw: string | null;
   model: string;
+  agentType: string;
   systemPrompt: string;
   creativity: number;
   saveError: string | null;
@@ -217,6 +217,9 @@ function PlaygroundPreviewConversation({
           messages: Array<{ role: string; content: string }>;
         }>(`/api/v1/conversations/${encodeURIComponent(cid)}`);
         if (cancelled) return;
+        // A poll that started before this render can resolve after the user sends a message.
+        // Applying it would wipe optimistic rows until the next poll (messages "vanish").
+        if (blockThreadSyncRef.current) return;
         const mapped: PlaygroundPreviewMessage[] = [];
         for (const m of data.messages) {
           if (m.role !== "user" && m.role !== "assistant") continue;
@@ -290,6 +293,9 @@ function PlaygroundPreviewConversation({
   async function handleSendMessage() {
     if (!agentId || !messageInput.trim() || isSending || historyThreadLoading) return;
     stickToBottomRef.current = true;
+    // `blockThreadSyncRef` is otherwise updated in layout after commit; without this, an in-flight
+    // poll can finish between optimistic updates and that effect and overwrite the transcript.
+    blockThreadSyncRef.current = true;
     const userMessage = messageInput.trim();
     setMessageInput("");
     setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
@@ -304,7 +310,8 @@ function PlaygroundPreviewConversation({
           message: userMessage,
           conversation_id: conversationId,
           model_override: model,
-          system_prompt_override: systemPrompt,
+          agent_type_override: agentType,
+          system_prompt_override: agentType === "custom" ? systemPrompt : null,
           creativity_override: creativity,
           visitor_id: visitorId,
         }),
@@ -719,13 +726,12 @@ export default function PlaygroundPage() {
     appliedUrlAgentRef.current = true;
   }, [agents, agentsLoading, setSelectedAgentId]);
   const {
-    data: actionsCatalog,
-    loading: catalogLoading,
-    refresh: refreshActionCatalog,
-  } = useActionCatalog(selectedAgentId || undefined);
-  const { data: shopifyConnection, loading: shopifyConnectionLoading } = useShopifyConnection(
-    selectedAgentId || undefined
-  );
+    catalog: actionsCatalog,
+    shopify: shopifyConnection,
+    websitePreview: integrationsWebsitePreview,
+    loading: integrationsLoading,
+    refresh: refreshIntegrations,
+  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
   const shopifyConnected = Boolean(shopifyConnection?.connected);
   const setTopbarExtras = useSetDashboardTopbarExtras();
   const [model, setModel] = useState("gpt-4o-mini");
@@ -738,7 +744,12 @@ export default function PlaygroundPage() {
   const [shopifyActionsOpen, setShopifyActionsOpen] = useState(true);
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
+  const websiteLogoUrl = useMemo(() => {
+    if (!selectedAgentId || integrationsLoading) return null;
+    const raw = integrationsWebsitePreview?.source_url?.trim();
+    if (!raw) return null;
+    return faviconServiceUrl(raw) || null;
+  }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
   const hydratedAgentIdRef = useRef<string | null>(null);
   const actionsHydratedForAgentIdRef = useRef<string | null>(null);
   const shopifyConnPrevRef = useRef<boolean | undefined>(undefined);
@@ -912,7 +923,7 @@ export default function PlaygroundPage() {
             );
           }
         }
-        await refreshActionCatalog();
+        await refreshIntegrations();
         setActionBaseline({ ...actionDraft });
       }
 
@@ -953,7 +964,7 @@ export default function PlaygroundPage() {
     refreshAgents,
     actionBaseline,
     actionDraft,
-    refreshActionCatalog,
+    refreshIntegrations,
   ]);
 
   const handleSaveRef = useRef(handleSave);
@@ -965,20 +976,6 @@ export default function PlaygroundPage() {
   useLayoutEffect(() => {
     setTopbarExtras(
       <>
-        <button
-          type="button"
-          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 cursor-pointer rounded-ds-md p-2 transition-colors"
-          aria-label="Help"
-        >
-          <IconQuestion className="size-5" />
-        </button>
-        <button
-          type="button"
-          className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 cursor-pointer rounded-ds-md p-2 transition-colors"
-          aria-label="Notifications"
-        >
-          <IconBell className="size-5" />
-        </button>
         {isDirty ? (
           <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
             <div className="flex items-center gap-2">
@@ -1001,36 +998,6 @@ export default function PlaygroundPage() {
     );
     return () => setTopbarExtras(null);
   }, [setTopbarExtras, isSaving, selectedAgentId, isDirty]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (!selectedAgentId) {
-        setWebsiteLogoUrl(null);
-        return;
-      }
-      try {
-        const data = await backendFetch<{
-          sources: Array<{ source_url: string | null; website_mode: string | null; title: string | null }>;
-        }>(
-          `/api/v1/knowledge/website/sources?agent_id=${encodeURIComponent(selectedAgentId)}`
-        );
-        if (cancelled) return;
-        const prioritizedSource =
-          data.sources.find(
-            (source) => typeof source.source_url === "string" && source.source_url && source.website_mode !== "individual"
-          ) ??
-          data.sources.find((source) => typeof source.source_url === "string" && source.source_url);
-        const sourceUrl = prioritizedSource?.source_url ?? null;
-        setWebsiteLogoUrl(sourceUrl ? faviconServiceUrl(sourceUrl) : null);
-      } catch {
-        if (!cancelled) setWebsiteLogoUrl(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgentId]);
 
   return (
     <div className="onboarding-main-surface -mx-6 -mt-6 -mb-6 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1151,8 +1118,8 @@ export default function PlaygroundPage() {
                 </button>
                 {shopifyActionsOpen ? (
                   <div className="border-ds-outline border-t p-4">
-                    {shopifyConnectionLoading ? (
-                      <PlaygroundConnectionCheckSkeleton />
+                    {integrationsLoading ? (
+                      <PlaygroundShopifyActionsSkeleton rows={4} />
                     ) : !shopifyConnected ? (
                       <div className="space-y-3">
                         <p className={cn(onboardingType.hint, "text-[13px]")}>
@@ -1166,8 +1133,6 @@ export default function PlaygroundPage() {
                           Connect Shopify
                         </Link>
                       </div>
-                    ) : catalogLoading ? (
-                      <PlaygroundShopifyActionsSkeleton rows={4} />
                     ) : shopifyCatalogEntries.length === 0 ? (
                       <p className="text-ds-on-surface-variant text-sm">
                         No Shopify actions are available yet. Open Actions &amp; integrations to connect your store and
@@ -1240,30 +1205,34 @@ export default function PlaygroundPage() {
                   </option>
                 ))}
               </select>
-              <p className={onboardingType.hint}>Advanced mode: manual prompt editing enabled.</p>
+              <p className={onboardingType.hint}>
+                Custom Prompt unlocks manual system prompt editing.
+              </p>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <label className={cn(onboardingType.label, "text-ds-on-surface-variant mb-0 text-[11px] uppercase tracking-[0.14em]")}>
-                  System prompt
-                </label>
-                <button
-                  type="button"
-                  className="text-ds-on-surface-variant hover:text-ds-primary inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors disabled:pointer-events-none disabled:opacity-40"
-                  disabled={!baseline || systemPrompt === baseline.systemPrompt}
-                  onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
-                >
-                  <IconHistory className="size-3.5" aria-hidden />
-                  Reset
-                </button>
+            {agentType === "custom" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label className={cn(onboardingType.label, "text-ds-on-surface-variant mb-0 text-[11px] uppercase tracking-[0.14em]")}>
+                    System prompt
+                  </label>
+                  <button
+                    type="button"
+                    className="text-ds-on-surface-variant hover:text-ds-primary inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors disabled:pointer-events-none disabled:opacity-40"
+                    disabled={!baseline || systemPrompt === baseline.systemPrompt}
+                    onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
+                  >
+                    <IconHistory className="size-3.5" aria-hidden />
+                    Reset
+                  </button>
+                </div>
+                <textarea
+                  className={cn(fieldControlClass, "leading-relaxed")}
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                />
               </div>
-              <textarea
-                className={cn(fieldControlClass, "leading-relaxed")}
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-              />
-            </div>
+            ) : null}
 
             <p className={cn(onboardingType.hint, "pb-4 text-center lg:pb-8")}>
               Save your changes for them to take effect in the live agent.
@@ -1311,6 +1280,7 @@ export default function PlaygroundPage() {
                   : null
               }
               model={model}
+              agentType={agentType}
               systemPrompt={systemPrompt}
               creativity={creativity}
               saveError={saveError?.agentId === selectedAgentId ? saveError.message : null}
@@ -1380,25 +1350,6 @@ function IconBase({
     >
       {children}
     </svg>
-  );
-}
-
-function IconQuestion({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.7.6-1.5 1.1-1.5 2" />
-      <circle cx="12" cy="16.5" r="0.6" fill="currentColor" strokeWidth="0" />
-    </IconBase>
-  );
-}
-
-function IconBell({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M6 10a6 6 0 0 1 12 0v5l1.5 2h-15L6 15v-5Z" />
-      <path d="M10 19a2 2 0 0 0 4 0" />
-    </IconBase>
   );
 }
 

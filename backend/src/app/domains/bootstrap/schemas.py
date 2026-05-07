@@ -11,6 +11,7 @@ class ProfileDTO(BaseModel):
     avatar_url: str | None
     timezone: str
     email_notifications_enabled: bool
+    notification_preferences: dict[str, Any] = {}
     created_at: datetime
     updated_at: datetime
 
