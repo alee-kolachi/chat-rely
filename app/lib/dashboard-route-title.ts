@@ -19,6 +19,7 @@ const ROUTE_TITLES: Array<{ prefix: string; title: string }> = [
   { prefix: "/dashboard", title: "Dashboard" },
   { prefix: "/analytics", title: "Analytics" },
   { prefix: "/playground", title: "Playground" },
+  { prefix: "/notifications", title: "Notifications" },
   { prefix: "/conversations", title: "Conversations" },
   { prefix: "/tickets", title: "Tickets" },
   { prefix: "/deploy", title: "Deploy" },

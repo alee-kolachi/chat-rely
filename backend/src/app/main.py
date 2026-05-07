@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import get_api_router
+from app.middleware.public_widget_cors import PublicWidgetCORSMiddleware
 from app.core.auth_state import set_token_verifier
 from app.core.errors import (
     AppError,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(PublicWidgetCORSMiddleware)
 
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next: Any) -> Response:

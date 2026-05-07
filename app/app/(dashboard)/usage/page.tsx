@@ -12,8 +12,6 @@ type UsageSnapshot = {
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
-  cushion_limit_conversations: number;
-  conversations_in_free_cushion: number;
 };
 
 function formatPeriod(s: string, e: string): string {
@@ -32,8 +30,6 @@ export default function UsagePage() {
   const snap = ctx?.usage_snapshot;
   const included = snap?.included_conversations ?? ctx?.plan.included_conversations ?? 0;
   const billable = snap?.billable_conversations ?? 0;
-  const cushionLimit = snap?.cushion_limit_conversations ?? 0;
-  const inCushion = snap?.conversations_in_free_cushion ?? 0;
   const paidOver = snap?.overage_conversations ?? 0;
   const overageUsd = ((snap?.estimated_overage_cents ?? 0) / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -41,22 +37,20 @@ export default function UsagePage() {
   });
 
   const segments = useMemo(() => {
-    if (!included && !cushionLimit) {
-      return { includedPct: 0, cushionPct: 0, overPct: 0 };
+    if (!included && !billable) {
+      return { includedPct: 0, overPct: 0 };
     }
-    const cap = Math.max(cushionLimit + paidOver, included, 1);
+    const denom = Math.max(included, billable, 1);
     const usedIncluded = Math.min(billable, included);
-    const usedCushion = inCushion;
-    const usedOver = paidOver > 0 ? Math.max(0, billable - cushionLimit) : 0;
+    const usedOver = Math.max(0, billable - included);
     return {
-      includedPct: Math.min(100, (usedIncluded / cap) * 100),
-      cushionPct: Math.min(100, (usedCushion / cap) * 100),
-      overPct: Math.min(100, (usedOver / cap) * 100),
+      includedPct: Math.min(100, (usedIncluded / denom) * 100),
+      overPct: Math.min(100, (usedOver / denom) * 100),
     };
-  }, [billable, cushionLimit, included, inCushion, paidOver]);
+  }, [billable, included]);
 
   return (
-    <div className="ds-app-shell p-6 md:p-8">
+    <div className="ds-app-shell px-6 pt-6 pb-16 md:px-8 md:pt-8 md:pb-20">
       <div className="mx-auto w-full max-w-6xl">
         <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -88,9 +82,9 @@ export default function UsagePage() {
             <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
               <h2 className="ds-app-section-title">Conversations</h2>
               <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                Included conversations are covered by your subscription. From 100% to ~120% you are in the{" "}
-                <strong>free cushion</strong> (same bill, we may slow responses).{" "}
-                <strong>Paid overage</strong> applies only above that cushion.
+                Included conversations are covered by your subscription.{" "}
+                <strong>Paid overage</strong> applies to each billable conversation beyond your included amount for
+                this period.
               </p>
 
               <div className="mt-6">
@@ -100,11 +94,6 @@ export default function UsagePage() {
                     / {included.toLocaleString()} included
                   </span>
                 </div>
-                <p className="text-ds-on-surface-variant mt-1 text-xs">
-                  Cushion cap ~{cushionLimit.toLocaleString()} · Free cushion in use:{" "}
-                  {inCushion.toLocaleString()}
-                </p>
-
                 <div className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-ds-sidebar ring-1 ring-ds-outline">
                   <div
                     className="h-full bg-ds-primary transition-[width]"
@@ -112,14 +101,9 @@ export default function UsagePage() {
                     title="Included band usage"
                   />
                   <div
-                    className="h-full bg-amber-400 transition-[width]"
-                    style={{ width: `${segments.cushionPct}%` }}
-                    title="Free cushion"
-                  />
-                  <div
                     className="h-full bg-rose-500 transition-[width]"
                     style={{ width: `${segments.overPct}%` }}
-                    title="Paid overage"
+                    title="Beyond included (paid overage)"
                   />
                 </div>
                 <div className="text-ds-on-surface-variant mt-2 flex flex-wrap gap-4 text-[11px] font-medium">
@@ -128,12 +112,8 @@ export default function UsagePage() {
                     Included
                   </span>
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block size-2.5 rounded-full bg-amber-400" aria-hidden />
-                    Free cushion
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
                     <span className="inline-block size-2.5 rounded-full bg-rose-500" aria-hidden />
-                    Paid overage
+                    Beyond included
                   </span>
                 </div>
               </div>
@@ -169,8 +149,8 @@ export default function UsagePage() {
               </p>
               <div className="border-ds-outline mt-6 rounded-ds-lg border bg-ds-sidebar/50 p-4">
                 <p className="text-ds-on-surface-variant text-xs leading-relaxed">
-                  Usage totals refresh when you open this page. Overage is estimated from billable conversations above
-                  your cushion cap for the current subscription period.
+                  Usage totals refresh when you open this page. Overage is estimated from billable conversations beyond
+                  your included allowance for the current subscription period.
                 </p>
               </div>
             </section>

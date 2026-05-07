@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.errors import AppError
-from app.domains.knowledge.schemas import IndexJobDTO, KnowledgeSourceDTO, WebsiteUsageResponse
+from app.domains.knowledge.schemas import IndexJobDTO, KnowledgeSourceDTO, WebsitePathRule, WebsiteUsageResponse
 
 
 class _DummyVerifier:
@@ -450,6 +450,99 @@ def test_sitemap_seed_urls_non_root_path_no_extra() -> None:
     from app.domains.knowledge.service import _sitemap_seed_urls
 
     assert _sitemap_seed_urls("https://shop.example/blog/") == ["https://shop.example/blog/"]
+
+
+def test_rules_from_payload_prefixes_slash_for_starts_with_exact_match() -> None:
+    from app.domains.knowledge.service import _rules_from_payload
+
+    assert _rules_from_payload([WebsitePathRule(operator="starts_with", pattern="blog")]) == [
+        {"operator": "starts_with", "pattern": "/blog"}
+    ]
+    assert _rules_from_payload([WebsitePathRule(operator="exact_match", pattern="about")]) == [
+        {"operator": "exact_match", "pattern": "/about"}
+    ]
+    assert _rules_from_payload([WebsitePathRule(operator="contains", pattern="sale")]) == [
+        {"operator": "contains", "pattern": "sale"}
+    ]
+
+
+def test_app_error_for_empty_sitemap_discovery() -> None:
+    from app.domains.knowledge.service import SitemapDiscoveryResult, _app_error_for_empty_sitemap_discovery
+
+    unreachable = _app_error_for_empty_sitemap_discovery(
+        SitemapDiscoveryResult(urls=[], http_success_count=0, http_failure_count=2)
+    )
+    assert unreachable.code == "knowledge.sitemap_unreachable"
+
+    invalid = _app_error_for_empty_sitemap_discovery(
+        SitemapDiscoveryResult(urls=[], http_success_count=1, had_successful_xml_document=False)
+    )
+    assert invalid.code == "knowledge.sitemap_invalid"
+
+    empty_filters = _app_error_for_empty_sitemap_discovery(
+        SitemapDiscoveryResult(urls=[], http_success_count=1, had_successful_xml_document=True)
+    )
+    assert empty_filters.code == "knowledge.sitemap_empty"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_fetch_planned_urls_passes_remaining_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+
+    from app.domains.knowledge import service as svc
+    from app.domains.knowledge.schemas import KnowledgeSourceDTO
+
+    budgets_seen: list[int | None] = []
+
+    async def fake_fetch(urls: list[str], *, crawl_budget_bytes: int | None = None) -> tuple[object, ...]:
+        budgets_seen.append(crawl_budget_bytes)
+        pages = [{"url": u, "depth": 0, "http_status": 200, "text": "aa", "title": None} for u in urls]
+        b_used = sum(len(str(p["text"]).encode()) for p in pages)
+        return pages, 0, None, b_used, "no_more_links"
+
+    monkeypatch.setattr(svc, "_fetch_pages_for_urls", fake_fetch)
+    monkeypatch.setattr(svc, "_dashboard_flush_crawl_pages", AsyncMock())
+    monkeypatch.setattr(svc, "_exclude_remaining_queued_pages_for_run", AsyncMock())
+
+    uid = uuid4()
+    sid = uuid4()
+    aid = uuid4()
+    now = datetime.now(timezone.utc)
+    src = KnowledgeSourceDTO(
+        id=sid,
+        agent_id=aid,
+        user_id=uid,
+        type="website",
+        title="t",
+        status="indexing",
+        source_url="https://ex.com",
+        storage_bucket=None,
+        storage_path=None,
+        metadata={},
+        error_message=None,
+        last_indexed_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    urls = [f"https://ex.com/p{i}" for i in range(16)]
+
+    class _Sess:
+        async def commit(self) -> None:
+            return None
+
+    await svc._dashboard_fetch_planned_urls_in_batches(
+        _Sess(),
+        job_id=uuid4(),
+        source=src,
+        user_id=uid,
+        crawl_run_id=uuid4(),
+        urls=urls,
+        crawl_budget_bytes=500,
+    )
+
+    assert budgets_seen == [500, 500 - 16]
 
 
 @pytest.mark.asyncio

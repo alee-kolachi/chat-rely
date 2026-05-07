@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
 import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
 import {
@@ -15,6 +16,11 @@ import {
   makeSortComparator,
   useSortPreference,
 } from "@/components/knowledge/use-sort-preference";
+import {
+  KnowledgeExpandedBodySkeleton,
+  KnowledgeSnippetTableSkeleton,
+} from "@/components/knowledge/knowledge-list-skeleton";
+import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
@@ -50,7 +56,9 @@ function formatUpdatedAt(value: string | null): string {
 }
 
 export default function KnowledgeTextSnippetPage() {
-  const { selectedAgentId } = useDashboardAgent();
+  const searchParams = useSearchParams();
+  const highlightSourceId = searchParams.get("source")?.trim() ?? null;
+  const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
   const [rows, setRows] = useState<SnippetRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -390,6 +398,9 @@ export default function KnowledgeTextSnippetPage() {
                 <KnowledgeSortMenu value={sortKey} onChange={setSortKey} />
               </div>
             </div>
+            {!agentsLoading && !selectedAgentId ? (
+              <DashboardSelectAgentEmptyState />
+            ) : (
             <div className="overflow-visible">
               <table className="w-full text-left">
                 <thead>
@@ -403,15 +414,20 @@ export default function KnowledgeTextSnippetPage() {
                 </thead>
                 <tbody className="divide-ds-outline divide-y">
               {loading ? (
-                <tr>
-                  <td colSpan={5} className="text-ds-on-surface-variant px-4 py-6 text-sm">
-                    Loading snippets…
-                  </td>
-                </tr>
+                <KnowledgeSnippetTableSkeleton rows={5} />
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-ds-on-surface-variant px-4 py-6 text-sm">
-                    {searchQuery.trim() ? "No snippets match your search." : "No snippets yet. Create one above."}
+                  <td colSpan={5} className="px-4 py-6">
+                    <div className="bg-ds-sidebar px-4 py-6 text-center">
+                      <p className="text-ds-on-surface text-sm font-medium">
+                        {searchQuery.trim() ? "No matching snippets" : "No snippets yet"}
+                      </p>
+                      <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                        {searchQuery.trim()
+                          ? "Try another search."
+                          : "Create a snippet above so your agent can retrieve it in chat."}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -419,7 +435,13 @@ export default function KnowledgeTextSnippetPage() {
                   const isExpanded = expandedId === snippet.id;
                   return (
                     <Fragment key={snippet.id}>
-                      <tr className="bg-ds-surface transition-colors hover:bg-ds-sidebar/40">
+                      <tr
+                        id={`knowledge-source-${snippet.id}`}
+                        className={cn(
+                          "bg-ds-surface transition-colors hover:bg-ds-sidebar/40",
+                          highlightSourceId === snippet.id && "ring-2 ring-ds-primary/40 ring-inset"
+                        )}
+                      >
                         <td className="px-5 py-4 sm:px-6">
                           <input
                             type="checkbox"
@@ -488,7 +510,7 @@ export default function KnowledgeTextSnippetPage() {
                           <td />
                           <td colSpan={4} className="bg-ds-sidebar/35 px-6 py-3">
                             {expandedLoading ? (
-                              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+                              <KnowledgeExpandedBodySkeleton />
                             ) : (
                               <div className="space-y-1 pl-4">
                                 <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">Snippet text</p>
@@ -507,6 +529,7 @@ export default function KnowledgeTextSnippetPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </section>
         </div>
 

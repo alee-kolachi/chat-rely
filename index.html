@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ChatRely widget (local test)</title>
+  </head>
+  <body>
+    <h1>Widget test</h1>
+    <p>Serve this folder with <code>python3 -m http.server 3333</code>, then open:</p>
+    <ul>
+      <li><strong>http://127.0.0.1:3333/</strong> (this page)</li>
+      <li>or <strong>http://127.0.0.1:3333/test.html</strong></li>
+    </ul>
+    <p>Next.js must run on <code>:3000</code>; replace <code>data-chatrely-agent-key</code> with a real <code>agents.public_key</code>.</p>
+
+    <script
+      async
+      src="http://127.0.0.1:3000/widget.js"
+      data-chatrely-agent-key="REPLACE_WITH_YOUR_AGENTS_PUBLIC_KEY"
+      data-chatrely-api-base="http://127.0.0.1:3000"
+    ></script>
+  </body>
+</html>

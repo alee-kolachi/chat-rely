@@ -1,4 +1,4 @@
-"""Option A overage: one-off invoice for conversation usage above cushion."""
+"""Option A overage: one-off invoice for conversation usage above the plan included amount."""
 
 from __future__ import annotations
 
@@ -87,9 +87,7 @@ async def charge_conversation_overage_for_user_period(
         return None
 
     configure_stripe()
-    description = (
-        f"Conversation overage (billable above 120% cushion) for cycle ending {period_end.isoformat()}"
-    )
+    description = f"Conversation overage (billable above included allowance) for cycle ending {period_end.isoformat()}"
 
     try:
         inv = stripe.Invoice.create(

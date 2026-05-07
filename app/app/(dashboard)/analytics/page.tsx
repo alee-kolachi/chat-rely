@@ -1,6 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AnalyticsChannelSplitSkeleton,
+  AnalyticsCountryListSkeleton,
+  AnalyticsIntentListSkeleton,
+  AnalyticsKpiDeltaSkeleton,
+  AnalyticsQualityListSkeleton,
+  AnalyticsSentimentSkeleton,
+} from "@/components/analytics/analytics-page-skeleton";
+import {
+  DashboardChartEmptyState,
+  DashboardChartSkeleton,
+  DashboardMetricValueSkeleton,
+  DashboardSelectAgentEmptyState,
+} from "@/components/dashboard/dashboard-page-skeleton";
 import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
@@ -71,6 +85,7 @@ export default function AnalyticsPage() {
   const load = useCallback(async () => {
     if (!analyticsUrl) {
       setData(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -87,10 +102,13 @@ export default function AnalyticsPage() {
   }, [analyticsUrl]);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void load();
-    });
+    void load();
   }, [load]);
+
+  const analyticsPayloadBusy = Boolean(
+    selectedAgentId && analyticsUrl && error === null && (loading || data === null)
+  );
+  const showPanelSkeleton = agentsLoading || analyticsPayloadBusy;
 
   const timeSeriesChart = useMemo(
     () => buildTimeSeriesChartModel(data?.series),
@@ -139,31 +157,30 @@ export default function AnalyticsPage() {
     return [
       {
         label: "Total chats",
-        value: loading ? "…" : data ? formatKpiNumber(started) : "—",
+        value: data ? formatKpiNumber(started) : "—",
         delta: "—",
         positive: true,
       },
       {
         label: "Resolved by AI",
-        value:
-          loading ? "…" : resolved != null ? `${resolved}%` : data ? "—" : "—",
+        value: resolved != null ? `${resolved}%` : data ? "—" : "—",
         delta: "—",
         positive: true,
       },
       {
         label: "Escalations",
-        value: loading ? "…" : esc != null ? `${esc}%` : data ? "—" : "—",
+        value: esc != null ? `${esc}%` : data ? "—" : "—",
         delta: "—",
         positive: true,
       },
       {
         label: "Avg response time",
-        value: loading ? "…" : formatAvgResponse(avgMs ?? null),
+        value: formatAvgResponse(avgMs ?? null),
         delta: "—",
         positive: true,
       },
     ];
-  }, [data, loading]);
+  }, [data]);
 
   return (
     <div className="ds-app-shell p-6 md:p-8">
@@ -185,32 +202,38 @@ export default function AnalyticsPage() {
           />
         </div>
 
-        {agentsLoading ? (
-          <p className="text-ds-on-surface-variant text-sm">Loading workspace…</p>
-        ) : null}
-        {!agentsLoading && !selectedAgentId ? (
-          <p className="text-ds-on-surface-variant text-sm">Select an agent from the header to view analytics.</p>
-        ) : null}
+        {!agentsLoading && !selectedAgentId ? <DashboardSelectAgentEmptyState /> : null}
         {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
+          aria-busy={showPanelSkeleton}
+        >
           {kpis.map((kpi) => (
             <article key={kpi.label} className="border-ds-outline bg-ds-surface rounded-ds-xl border p-5 shadow-sm">
               <p className="text-ds-on-surface-variant text-sm font-medium">{kpi.label}</p>
               <div className="mt-2 flex items-end justify-between gap-2">
-                <p className="ds-app-metric-value">{kpi.value}</p>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-ds-md px-2 py-1 text-xs font-semibold",
-                    kpi.delta === "—"
-                      ? "bg-ds-sidebar text-ds-on-surface-variant"
-                      : kpi.positive
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-rose-100 text-rose-800"
-                  )}
-                >
-                  {kpi.delta}
-                </span>
+                {showPanelSkeleton ? (
+                  <DashboardMetricValueSkeleton className="mt-0" />
+                ) : (
+                  <p className="ds-app-metric-value">{kpi.value}</p>
+                )}
+                {showPanelSkeleton ? (
+                  <AnalyticsKpiDeltaSkeleton />
+                ) : (
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-ds-md px-2 py-1 text-xs font-semibold",
+                      kpi.delta === "—"
+                        ? "bg-ds-sidebar text-ds-on-surface-variant"
+                        : kpi.positive
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-rose-100 text-rose-800"
+                    )}
+                  >
+                    {kpi.delta}
+                  </span>
+                )}
               </div>
             </article>
           ))}
@@ -223,8 +246,8 @@ export default function AnalyticsPage() {
               <span className="text-ds-on-surface-variant text-xs">Daily volume (conversations started)</span>
             </div>
             <div className="text-ds-on-surface-variant relative mx-auto aspect-[5/2] w-full min-h-[200px] max-h-[280px] text-[var(--ds-chart-grid)]">
-              {loading ? (
-                <div className="flex h-full min-h-[200px] w-full items-center justify-center text-sm">Loading chart…</div>
+              {showPanelSkeleton ? (
+                <DashboardChartSkeleton maxPlotHeight={280} minPlotHeight={180} />
               ) : timeSeriesChart ? (
                 <svg
                   className="block h-full w-full font-sans"
@@ -317,7 +340,7 @@ export default function AnalyticsPage() {
                   />
                 </svg>
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-sm">No data for this range.</div>
+                <DashboardChartEmptyState message="No chart data for this range" />
               )}
             </div>
           </article>
@@ -327,31 +350,38 @@ export default function AnalyticsPage() {
             <p className="text-ds-on-surface-variant mb-4 text-xs leading-relaxed">
               Placeholder until multi-channel traffic is tracked.
             </p>
-            <div className="space-y-4">
-              {staticChannels.map((channel) => (
-                <div key={channel.label}>
-                  <div className="mb-2 flex items-center justify-between text-sm">
-                    <span className="text-ds-on-surface font-medium">{channel.label}</span>
-                    <span className="text-ds-on-surface font-semibold">{channel.value}%</span>
+            {showPanelSkeleton ? (
+              <AnalyticsChannelSplitSkeleton />
+            ) : (
+              <div className="space-y-4">
+                {staticChannels.map((channel) => (
+                  <div key={channel.label}>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="text-ds-on-surface font-medium">{channel.label}</span>
+                      <span className="text-ds-on-surface font-semibold">{channel.value}%</span>
+                    </div>
+                    <div className="bg-ds-outline/60 h-2 overflow-hidden rounded-full">
+                      <div className={cn("h-full rounded-full", channel.color)} style={{ width: `${channel.value}%` }} />
+                    </div>
                   </div>
-                  <div className="bg-ds-outline/60 h-2 overflow-hidden rounded-full">
-                    <div className={cn("h-full rounded-full", channel.color)} style={{ width: `${channel.value}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </article>
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Top intents</h2>
-            {loading ? (
-              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            {showPanelSkeleton ? (
+              <AnalyticsIntentListSkeleton />
             ) : (data?.top_intents ?? []).length === 0 ? (
-              <p className="text-ds-on-surface-variant text-sm">
-                No intent labels yet. They appear after conversations close and outcomes are analyzed.
-              </p>
+              <div className="bg-ds-sidebar px-4 py-6 text-center">
+                <p className="text-ds-on-surface text-sm font-medium">No intents for this range</p>
+                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                  Intent labels appear after conversations close and outcomes are analyzed.
+                </p>
+              </div>
             ) : (
               <div className="space-y-3">
                 {(data?.top_intents ?? []).map((intent) => (
@@ -374,10 +404,15 @@ export default function AnalyticsPage() {
 
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Country usage</h2>
-            {loading ? (
-              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            {showPanelSkeleton ? (
+              <AnalyticsCountryListSkeleton />
             ) : (data?.countries ?? []).length === 0 ? (
-              <p className="text-ds-on-surface-variant text-sm">No conversations in this range.</p>
+              <div className="bg-ds-sidebar px-4 py-6 text-center">
+                <p className="text-ds-on-surface text-sm font-medium">No country data for this range</p>
+                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                  Volume by country appears when chats include a reported country code.
+                </p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {(data?.countries ?? []).map((country) => {
@@ -411,12 +446,15 @@ export default function AnalyticsPage() {
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Customer sentiment</h2>
-            {loading ? (
-              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            {showPanelSkeleton ? (
+              <AnalyticsSentimentSkeleton />
             ) : sentimentDonut.total === 0 ? (
-              <p className="text-ds-on-surface-variant text-sm">
-                No per-turn sentiment yet. Sentiment is inferred from assistant replies after each turn.
-              </p>
+              <div className="bg-ds-sidebar px-4 py-6 text-center">
+                <p className="text-ds-on-surface text-sm font-medium">No sentiment data for this range</p>
+                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                  Sentiment is inferred from assistant replies after each turn.
+                </p>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-center xl:justify-start">
                 <div className="relative h-44 w-44 shrink-0">
@@ -471,8 +509,15 @@ export default function AnalyticsPage() {
 
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Conversation quality</h2>
-            {loading ? (
-              <p className="text-ds-on-surface-variant text-sm">Loading…</p>
+            {showPanelSkeleton ? (
+              <AnalyticsQualityListSkeleton />
+            ) : (data?.quality ?? []).length === 0 ? (
+              <div className="bg-ds-sidebar px-4 py-6 text-center">
+                <p className="text-ds-on-surface text-sm font-medium">No quality metrics for this range</p>
+                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                  Quality signals appear when outcomes and per-turn data are available.
+                </p>
+              </div>
             ) : (
               <div className="space-y-3">
                 {(data?.quality ?? []).map((row) => (

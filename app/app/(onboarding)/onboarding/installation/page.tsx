@@ -17,15 +17,13 @@ import { cn } from "@/lib/utils";
 type InstallTab = "custom" | "shopify";
 
 const codeSnippet = `<!-- ChatRely widget -->
-<script>
-  window.chatRelyConfig = {
-    appId: "your-app-id",
-    theme: "light",
-    region: "us-east-1"
-  };
-</script>
-<script src="https://cdn.chatrely.example/widget.js" async></script>
-<!-- end -->`;
+<script
+  async
+  src="https://YOUR-HOST/widget.js"
+  data-chatrely-agent-key="YOUR_AGENT_PUBLIC_KEY"
+  data-chatrely-api-base="https://YOUR-PUBLIC-API"
+></script>
+<!-- Public key: Dashboard → Deploy (Website embed), or GET /api/v1/agents -->`;
 
 export default function InstallationOnboardingPage() {
   const agentId = useResolvedOnboardingAgentId();

@@ -239,9 +239,9 @@ function ConversationsPageContent() {
   }
 
   return (
-    <div className="ds-app-shell flex min-h-0 flex-1 flex-col p-6 md:p-8">
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col">
-        <header className="mb-8 shrink-0">
+    <div className="ds-app-shell flex min-h-0 flex-1 flex-col overflow-hidden p-6 md:p-8">
+      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden">
+        <header className="mb-6 shrink-0 md:mb-8">
           <h1 className="ds-app-page-title">Conversations</h1>
           <p className="ds-app-page-description ds-app-page-description--wide">
             Monitor threads, review context, and jump in when needed.
@@ -249,7 +249,7 @@ function ConversationsPageContent() {
         </header>
         {error ? <p className="mb-3 shrink-0 text-sm text-rose-600">{error}</p> : null}
 
-        <section className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(180px,1fr)_minmax(240px,2fr)] gap-6 overflow-hidden xl:grid-cols-[380px_1fr] xl:grid-rows-1">
+        <section className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,2fr)] gap-6 overflow-hidden xl:grid-cols-[380px_1fr] xl:grid-rows-[minmax(0,1fr)]">
           <div className="border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
             <div className="border-ds-outline bg-ds-sidebar/90 flex shrink-0 items-center justify-between border-b px-4 py-3">
               <h2 className="ds-app-kicker text-ds-on-surface font-semibold">Live queue</h2>

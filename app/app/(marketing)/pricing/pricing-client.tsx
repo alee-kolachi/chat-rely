@@ -13,9 +13,9 @@ const faqs = [
     open: true,
   },
   {
-    question: "What is the free cushion before paid overage?",
+    question: "When does paid conversation overage start?",
     answer:
-      "Usage from 100% up to about 120% of your included billable conversations is included in your subscription at the same tier (we may throttle response speed in that band). Paid overage is calculated only on conversations above that cushion.",
+      "Each billable conversation beyond your plan’s included amount for the billing period is counted as paid overage at the rate shown on the pricing page (overage is $0 on the Free plan).",
     open: false,
   },
   { question: "When does my usage reset?", answer: "", open: false },

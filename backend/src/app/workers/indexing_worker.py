@@ -35,7 +35,16 @@ async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
             text(
                 """
                 update public.indexing_jobs
-                set status = 'running', phase = 'queued'
+                set status = 'running',
+                    phase = case
+                      when phase::text = 'embedding_queued' then 'embedding'::public.indexing_job_phase
+                      else 'crawling'::public.indexing_job_phase
+                    end,
+                    progress_pct = case
+                      when phase::text = 'embedding_queued' then greatest(progress_pct, 26)
+                      else greatest(progress_pct, 5)
+                    end,
+                    started_at = coalesce(started_at, now())
                 where id = :job_id and status = 'queued'
                 """
             ),

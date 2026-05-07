@@ -12,8 +12,6 @@ type UsageSnapshot = {
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
-  cushion_limit_conversations: number;
-  conversations_in_free_cushion: number;
 };
 
 export type MeContextPayload = {

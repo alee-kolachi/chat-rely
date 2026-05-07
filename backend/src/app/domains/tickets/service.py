@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.domains.conversations.service import get_conversation, try_mark_conversation_billable
+from app.domains.notifications.links import href_escalation
+from app.domains.notifications.service import create_notification_best_effort
 from app.domains.tickets.schemas import TicketDTO
 
 
@@ -77,6 +79,19 @@ async def record_escalation(
     await db.commit()
     if row is None:
         raise AppError(code="ticket.persist_failed", message="Could not create ticket", status_code=500)
+    await create_notification_best_effort(
+        db,
+        user_id=user_id,
+        kind="escalation",
+        title="Conversation escalated",
+        body=f"A visitor requested human help: {subject}",
+        href=href_escalation(conversation_id=conversation_id, agent_id=agent_id),
+        metadata={
+            "conversation_id": str(conversation_id),
+            "agent_id": str(agent_id),
+            "ticket_id": str(row["id"]),
+        },
+    )
     return TicketDTO.model_validate(row)
 
 

@@ -23,7 +23,7 @@ values
     0,
     1,
     '{"shopify_enabled": false, "max_enabled_actions_per_agent": 2, "max_total_knowledge_mb": 5, "auto_retrain": false, "human_escalation_enabled": true, "pricing_card_bullets": ["50 billable conversations / month", "1 agent, 2 actions", "5 MB total knowledge storage", "Community support"]}'::jsonb,
-    '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 3000, "strong_delay_ms": 10000}'::jsonb,
+    '{"strong_delay_ms": 10000}'::jsonb,
     true,
     true,
     10
@@ -36,7 +36,7 @@ values
     12,
     1,
     '{"shopify_enabled": true, "max_enabled_actions_per_agent": 5, "max_total_knowledge_mb": 10, "auto_retrain": false, "human_escalation_enabled": true, "pricing_card_bullets": ["500 billable conversations / month", "Shopify actions", "10 MB total knowledge storage", "2 team seats (invite teammates)"]}'::jsonb,
-    '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 2500, "strong_delay_ms": 8000}'::jsonb,
+    '{"strong_delay_ms": 8000}'::jsonb,
     true,
     true,
     20
@@ -49,7 +49,7 @@ values
     9,
     3,
     '{"shopify_enabled": true, "max_enabled_actions_per_agent": 10, "max_total_knowledge_mb": 50, "auto_retrain": true, "human_escalation_enabled": true, "pricing_card_bullets": ["2,000 billable conversations / month", "3 agents, 10 actions each", "50 MB total knowledge storage", "Auto-retrain on knowledge changes"]}'::jsonb,
-    '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 2000, "strong_delay_ms": 6000}'::jsonb,
+    '{"strong_delay_ms": 6000}'::jsonb,
     true,
     true,
     30
@@ -62,7 +62,7 @@ values
     7,
     10,
     '{"shopify_enabled": true, "max_enabled_actions_per_agent": 16, "max_total_knowledge_mb": 150, "auto_retrain": true, "human_escalation_enabled": true, "pricing_card_bullets": ["6,000 billable conversations / month", "10 agents, 16 actions each", "150 MB total knowledge storage", "Priority-friendly throttling policy"]}'::jsonb,
-    '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 1500, "strong_delay_ms": 5000}'::jsonb,
+    '{"strong_delay_ms": 5000}'::jsonb,
     true,
     true,
     40
@@ -75,7 +75,7 @@ values
     6,
     25,
     '{"shopify_enabled": true, "max_enabled_actions_per_agent": 24, "max_total_knowledge_mb": 500, "auto_retrain": true, "human_escalation_enabled": true, "pricing_card_bullets": ["20,000 billable conversations / month", "25 agents, 24 actions each", "500 MB total knowledge storage", "Best overage rate; contact sales for enterprise"]}'::jsonb,
-    '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 1200, "strong_delay_ms": 4000}'::jsonb,
+    '{"strong_delay_ms": 4000}'::jsonb,
     true,
     false,
     50

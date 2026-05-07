@@ -10,6 +10,13 @@ import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topba
 import { useActionCatalog } from "@/components/actions/use-action-catalog";
 import { useShopifyConnection } from "@/components/integrations/use-shopify-connection";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
+import {
+  PlaygroundConnectionCheckSkeleton,
+  PlaygroundHistoryListSkeleton,
+  PlaygroundSettingsColumnSkeleton,
+  PlaygroundShopifyActionsSkeleton,
+} from "@/components/playground/playground-page-skeleton";
+import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { BackendApiError, backendFetch, backendNdjsonStream } from "@/lib/backend-api";
 import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
@@ -274,6 +281,12 @@ function PlaygroundPreviewConversation({
     el.scrollTop = el.scrollHeight;
   }, [previewMessages, isSending]);
 
+  useLayoutEffect(() => {
+    if (!historyOpen) return;
+    const el = messagesScrollRef.current;
+    if (el) el.scrollTop = 0;
+  }, [historyOpen]);
+
   async function handleSendMessage() {
     if (!agentId || !messageInput.trim() || isSending || historyThreadLoading) return;
     stickToBottomRef.current = true;
@@ -404,10 +417,17 @@ function PlaygroundPreviewConversation({
   );
 
   return (
-    <div className="border-ds-outline flex h-full max-h-full min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
+    <div
+      className={cn(
+        "border-ds-outline flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+        /* Mobile preview tab: fill panel; desktop: fixed shell like embeddable chat widgets — transcript scrolls inside */
+        "h-full max-h-full",
+        "xl:h-[min(37.5rem,85vh)]"
+      )}
+    >
       <div
         className={cn(
-          "flex items-center justify-between border-b px-5 py-3.5 sm:px-6",
+          "flex shrink-0 items-center justify-between border-b px-5 py-3.5 sm:px-6",
           hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
         )}
         style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
@@ -477,8 +497,8 @@ function PlaygroundPreviewConversation({
               hasBrand && chrome && historyOpen && (chrome.lightBg ? "bg-black/[0.08]" : "bg-white/20")
             )}
             aria-expanded={historyOpen}
-            aria-label="Open recent chats for this agent"
-            title="Recent chats — load a past thread into the preview"
+            aria-label={historyOpen ? "Close conversations list" : "Browse conversations"}
+            title={historyOpen ? "Back to chat" : "Browse conversations"}
             onClick={() => setHistoryOpen((o) => !o)}
             disabled={!agentId || historyThreadLoading}
           >
@@ -487,158 +507,190 @@ function PlaygroundPreviewConversation({
         </div>
       </div>
 
-      {historyOpen ? (
-        <div
-          className="border-ds-outline bg-ds-surface border-b"
-          role="region"
-          aria-label="Recent chats"
-        >
-          <div className="border-ds-outline bg-ds-sidebar/60 px-4 py-2">
-            <p className="text-ds-on-surface text-[11px] font-semibold tracking-tight">Recent chats</p>
-            <p className="text-ds-on-surface-variant text-[10px] leading-snug">
-              Threads for this agent (same as Conversations).
-            </p>
-          </div>
-          <div className="max-h-52 overflow-y-auto">
+      <div
+        ref={messagesScrollRef}
+        onScroll={historyOpen ? undefined : onMessagesScroll}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+      >
+        {historyOpen ? (
+          <div className="flex flex-col p-4 sm:p-5" role="region" aria-label="Conversations">
+            <button
+              type="button"
+              className={cn(
+                "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 -mx-1 mb-4 flex w-fit cursor-pointer items-center gap-2 rounded-ds-md px-2 py-1.5 text-xs font-semibold tracking-wide uppercase transition-colors",
+                historyThreadLoading && "pointer-events-none opacity-45"
+              )}
+              onClick={() => setHistoryOpen(false)}
+            >
+              <IconChevron className="size-4 rotate-180" aria-hidden />
+              Back to chat
+            </button>
+            <div className="mb-5 border-b border-ds-outline pb-4">
+              <h4 className="text-ds-on-surface text-sm font-semibold tracking-tight">Conversations</h4>
+              <p className="text-ds-on-surface-variant mt-1 text-[11px] leading-relaxed">
+                Same threads as in Conversations. Tap one to load it here.
+              </p>
+            </div>
             {historyLoading ? (
-              <p className="text-ds-on-surface-variant p-3 text-sm">Loading…</p>
+              <PlaygroundHistoryListSkeleton rows={5} />
             ) : historyRows.length === 0 ? (
-              <p className="text-ds-on-surface-variant p-3 text-sm">No conversations yet.</p>
+              <p className={cn(onboardingType.hint, "text-ds-on-surface-variant py-8 text-center")}>No conversations yet.</p>
             ) : (
-              <ul className="divide-ds-outline divide-y">
-                {historyRows.map((row) => (
-                  <li key={row.id}>
-                    <button
-                      type="button"
-                      className="hover:bg-ds-sidebar/70 cursor-pointer w-full px-4 py-2.5 text-left transition-colors disabled:opacity-50"
-                      onClick={() => void handlePickHistoryConversation(row.id)}
-                      disabled={historyThreadLoading}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-ds-on-surface truncate text-xs font-semibold">
-                          {row.id.slice(0, 8)}…
-                        </span>
-                        <span className="text-ds-on-surface-variant shrink-0 text-[10px]">
-                          {new Date(row.last_activity_at || row.updated_at).toLocaleString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                      <p className="text-ds-on-surface-variant line-clamp-2 text-[11px] leading-snug">
-                        {row.latest_message_preview ?? "No messages"}
-                      </p>
-                    </button>
-                  </li>
-                ))}
+              <ul className="flex flex-col gap-2">
+                {historyRows.map((row) => {
+                  const isActive = conversationId === row.id;
+                  const when = new Date(row.last_activity_at || row.updated_at).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                  return (
+                    <li key={row.id}>
+                      <button
+                        type="button"
+                        disabled={historyThreadLoading}
+                        onClick={() => void handlePickHistoryConversation(row.id)}
+                        className={cn(
+                          "border-ds-outline group cursor-pointer rounded-2xl border bg-white p-3.5 text-left shadow-sm transition-all",
+                          "hover:border-ds-primary/35 hover:shadow-md active:scale-[0.99]",
+                          "disabled:pointer-events-none disabled:opacity-45",
+                          isActive && "border-ds-primary/50 ring-ds-primary/25 bg-ds-sidebar/40 ring-2"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-ds-on-surface font-mono text-[11px] font-semibold tracking-tight">
+                            {row.id.slice(0, 8)}…
+                          </span>
+                          <span className="text-ds-on-surface-variant shrink-0 text-[10px] tabular-nums">{when}</span>
+                        </div>
+                        <p className="text-ds-on-surface-variant mt-2 line-clamp-2 text-[13px] leading-snug">
+                          {row.latest_message_preview?.trim() ? row.latest_message_preview : "No messages yet"}
+                        </p>
+                        {isActive ? (
+                          <p className="text-ds-primary mt-2 text-[10px] font-semibold uppercase tracking-wide">
+                            Open in preview
+                          </p>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
-        </div>
-      ) : null}
-
-      <div
-        ref={messagesScrollRef}
-        onScroll={onMessagesScroll}
-        className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 sm:p-8"
-      >
-        {historyThreadLoading ? (
-          <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
-        ) : null}
-        {previewMessages.length === 0 ? (
-          <div className={cn(onboardingType.body, "space-y-3 text-center")}>
-            <p className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-sm border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
-              {emptyToneLine}
-            </p>
-            <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>Send a message to test this agent.</p>
-          </div>
-        ) : null}
-        {previewMessages.map((msg, index) => {
-          const isStreamingAssistant =
-            msg.from === "assistant" &&
-            isSending &&
-            index === previewMessages.length - 1 &&
-            !msg.text.trim();
-          return (
-            <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
-              {msg.from === "assistant" ? (
-                <div className="flex max-w-[90%] gap-3">
-                  <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm">
-                    {websiteLogoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- remote store logo / favicon
-                      <img
-                        src={websiteLogoUrl}
-                        alt=""
-                        className="size-full object-contain p-0.5"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <IconBot className="text-ds-on-surface-variant size-3.5" />
-                    )}
-                  </div>
-                  <div
-                    className={cn(
-                      "border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white text-sm shadow-sm",
-                      isStreamingAssistant
-                        ? "flex items-center leading-none px-3 py-2 sm:px-3.5 sm:py-2"
-                        : "leading-relaxed px-4 py-3 sm:px-5"
-                    )}
-                  >
-                    {isStreamingAssistant ? (
-                      <AssistantThinkingDots brandColorHex={brandColorHex} />
-                    ) : (
-                      <AssistantMarkdown>{msg.text}</AssistantMarkdown>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div
-                  className={cn(
-                    "max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5",
-                    hasBrand && chrome ? chrome.titleClass : "bg-ds-primary text-ds-on-primary"
+        ) : (
+          <div className="space-y-5 p-5 sm:p-8">
+            {historyThreadLoading ? (
+              <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
+            ) : null}
+            {previewMessages.length === 0 ? (
+              <div className={cn(onboardingType.body, "space-y-3 text-center")}>
+                <p className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-sm border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
+                  {emptyToneLine}
+                </p>
+                <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>Send a message to test this agent.</p>
+              </div>
+            ) : null}
+            {previewMessages.map((msg, index) => {
+              const isStreamingAssistant =
+                msg.from === "assistant" &&
+                isSending &&
+                index === previewMessages.length - 1 &&
+                !msg.text.trim();
+              return (
+                <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
+                  {msg.from === "assistant" ? (
+                    <div className="flex max-w-[90%] gap-3">
+                      <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm">
+                        {websiteLogoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- remote store logo / favicon
+                          <img
+                            src={websiteLogoUrl}
+                            alt=""
+                            className="size-full object-contain p-0.5"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <IconBot className="text-ds-on-surface-variant size-3.5" />
+                        )}
+                      </div>
+                      <div
+                        className={cn(
+                          "border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white text-sm shadow-sm",
+                          isStreamingAssistant
+                            ? "flex items-center leading-none px-3 py-2 sm:px-3.5 sm:py-2"
+                            : "leading-relaxed px-4 py-3 sm:px-5"
+                        )}
+                      >
+                        {isStreamingAssistant ? (
+                          <AssistantThinkingDots brandColorHex={brandColorHex} />
+                        ) : (
+                          <AssistantMarkdown>{msg.text}</AssistantMarkdown>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className={cn(
+                        "max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5",
+                        hasBrand && chrome ? chrome.titleClass : "bg-ds-primary text-ds-on-primary"
+                      )}
+                      style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+                    >
+                      {msg.text}
+                    </div>
                   )}
-                  style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
-                >
-                  {msg.text}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <div className="border-ds-outline border-t bg-ds-surface p-4 sm:p-5">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <input
-            className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
-            placeholder="Test your agent…"
-            value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-              e.preventDefault();
-              void handleSendMessage();
-            }}
-          />
-          <button
-            type="button"
-            className={cn(
-              "cursor-pointer shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
-              hasBrand && chrome
-                ? cn(chrome.fabIconClass, "hover:opacity-90")
-                : "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
-            )}
-            style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
-            onClick={() => void handleSendMessage()}
-            disabled={!agentId || isSending || historyThreadLoading || !messageInput.trim()}
-            aria-label="Send"
-          >
-            <IconSend className="size-4.5" />
-          </button>
-        </div>
-        {footerError ? <p className="text-rose-600 mt-2 text-sm">{footerError}</p> : null}
+      <div className="border-ds-outline shrink-0 border-t bg-ds-surface p-4 sm:p-5">
+        {historyOpen ? (
+          <>
+            <p className="text-ds-on-surface-variant text-center text-[11px] leading-relaxed">
+              Choose a conversation above to load it, or use <span className="font-semibold">Back to chat</span>.
+            </p>
+            {footerError ? (
+              <p className="text-rose-600 mt-3 text-center text-sm">{footerError}</p>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <input
+                className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
+                placeholder="Test your agent…"
+                value={messageInput}
+                onChange={(e) => setMessageInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                  e.preventDefault();
+                  void handleSendMessage();
+                }}
+              />
+              <button
+                type="button"
+                className={cn(
+                  "cursor-pointer shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
+                  hasBrand && chrome
+                    ? cn(chrome.fabIconClass, "hover:opacity-90")
+                    : "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+                )}
+                style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+                onClick={() => void handleSendMessage()}
+                disabled={!agentId || isSending || historyThreadLoading || !messageInput.trim()}
+                aria-label="Send"
+              >
+                <IconSend className="size-4.5" />
+              </button>
+            </div>
+            {footerError ? <p className="text-rose-600 mt-2 text-sm">{footerError}</p> : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -666,9 +718,11 @@ export default function PlaygroundPage() {
     setSelectedAgentId(id);
     appliedUrlAgentRef.current = true;
   }, [agents, agentsLoading, setSelectedAgentId]);
-  const { data: actionsCatalog, refresh: refreshActionCatalog } = useActionCatalog(
-    selectedAgentId || undefined
-  );
+  const {
+    data: actionsCatalog,
+    loading: catalogLoading,
+    refresh: refreshActionCatalog,
+  } = useActionCatalog(selectedAgentId || undefined);
   const { data: shopifyConnection, loading: shopifyConnectionLoading } = useShopifyConnection(
     selectedAgentId || undefined
   );
@@ -685,7 +739,6 @@ export default function PlaygroundPage() {
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
-  const settingsScrollRef = useRef<HTMLDivElement>(null);
   const hydratedAgentIdRef = useRef<string | null>(null);
   const actionsHydratedForAgentIdRef = useRef<string | null>(null);
   const shopifyConnPrevRef = useRef<boolean | undefined>(undefined);
@@ -816,6 +869,9 @@ export default function PlaygroundPage() {
   const isDirty = Boolean(
     selectedAgentId && baseline && (formFieldsDirty || actionsDirty)
   );
+
+  const showPlaygroundSettingsSkeleton =
+    agentsLoading || Boolean(selectedAgentId && baseline === null);
 
   const handleSave = useCallback(async () => {
     if (!selectedAgentId || isSaving || !baseline) return;
@@ -976,16 +1032,6 @@ export default function PlaygroundPage() {
     };
   }, [selectedAgentId]);
 
-  const routeWheelToSettingsOnDesktop = useCallback((event: React.WheelEvent<HTMLElement>) => {
-    if (typeof window === "undefined" || window.innerWidth < 1280) return;
-    const el = settingsScrollRef.current;
-    if (!el) return;
-    const next = el.scrollTop + event.deltaY;
-    if (next === el.scrollTop) return;
-    el.scrollTop = next;
-    event.preventDefault();
-  }, []);
-
   return (
     <div className="onboarding-main-surface -mx-6 -mt-6 -mb-6 flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="border-ds-outline bg-ds-sidebar/80 flex shrink-0 items-center gap-2 border-b p-2.5 xl:hidden">
@@ -1015,14 +1061,13 @@ export default function PlaygroundPage() {
         </button>
       </div>
 
-      <div className="dot-grid flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row xl:items-start">
+      <div className="dot-grid flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row xl:items-stretch">
         <section
           className={cn(
             "border-ds-outline flex w-full min-h-0 flex-col overflow-hidden border-b bg-white",
-            "xl:w-[420px] xl:shrink-0 xl:self-start xl:border-r xl:border-b-0",
+            "xl:w-[420px] xl:shrink-0 xl:border-r xl:border-b-0",
             mobileTab === "settings" ? "flex-1 xl:flex-none" : "hidden xl:flex"
           )}
-          onWheel={routeWheelToSettingsOnDesktop}
         >
           <div className="border-ds-outline bg-ds-sidebar/90 shrink-0 border-b px-5 py-4 backdrop-blur-sm sm:px-6">
             <h2 className="text-ds-on-surface flex items-center gap-2 text-sm font-semibold tracking-tight">
@@ -1031,10 +1076,13 @@ export default function PlaygroundPage() {
             </h2>
           </div>
 
-          <div
-            ref={settingsScrollRef}
-            className="min-h-0 flex-1 space-y-10 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8 xl:flex-none"
-          >
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8">
+            {!agentsLoading && !selectedAgentId ? (
+              <DashboardSelectAgentEmptyState />
+            ) : showPlaygroundSettingsSkeleton ? (
+              <PlaygroundSettingsColumnSkeleton />
+            ) : (
+              <div className="space-y-10">
             <div className="space-y-2">
               <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
                 AI model
@@ -1104,7 +1152,7 @@ export default function PlaygroundPage() {
                 {shopifyActionsOpen ? (
                   <div className="border-ds-outline border-t p-4">
                     {shopifyConnectionLoading ? (
-                      <p className="text-ds-on-surface-variant text-sm">Loading connection…</p>
+                      <PlaygroundConnectionCheckSkeleton />
                     ) : !shopifyConnected ? (
                       <div className="space-y-3">
                         <p className={cn(onboardingType.hint, "text-[13px]")}>
@@ -1118,6 +1166,8 @@ export default function PlaygroundPage() {
                           Connect Shopify
                         </Link>
                       </div>
+                    ) : catalogLoading ? (
+                      <PlaygroundShopifyActionsSkeleton rows={4} />
                     ) : shopifyCatalogEntries.length === 0 ? (
                       <p className="text-ds-on-surface-variant text-sm">
                         No Shopify actions are available yet. Open Actions &amp; integrations to connect your store and
@@ -1237,18 +1287,19 @@ export default function PlaygroundPage() {
                 </button>
               </div>
             ) : null}
+              </div>
+            )}
           </div>
         </section>
 
         <section
           className={cn(
             "min-w-0 flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
-            "xl:items-center xl:justify-center xl:self-stretch xl:min-h-0 xl:p-12 xl:pt-10 xl:pb-12",
+            "xl:items-center xl:justify-center xl:self-start xl:min-h-0 xl:p-12 xl:pt-10 xl:pb-12",
             mobileTab === "preview" ? "" : "hidden xl:flex"
           )}
-          onWheel={routeWheelToSettingsOnDesktop}
         >
-          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center overflow-hidden xl:h-full xl:justify-start">
+          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center overflow-hidden xl:flex-none xl:h-auto xl:justify-start">
             <PlaygroundPreviewConversation
               key={selectedAgentId ?? "__no_agent__"}
               agentId={selectedAgentId}

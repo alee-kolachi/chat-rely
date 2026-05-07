@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
 import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
 import {
@@ -20,8 +21,11 @@ import {
   makeSortComparator,
   useSortPreference,
 } from "@/components/knowledge/use-sort-preference";
+import { KnowledgeFilesTableSkeleton } from "@/components/knowledge/knowledge-list-skeleton";
+import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { cn } from "@/lib/utils";
 
 type FileSourceRow = {
   id: string;
@@ -77,7 +81,9 @@ function sourceStatusPill(status: string): { label: string; tone: "success" | "d
 }
 
 export default function KnowledgeFilesPage() {
-  const { selectedAgentId } = useDashboardAgent();
+  const searchParams = useSearchParams();
+  const highlightSourceId = searchParams.get("source")?.trim() ?? null;
+  const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
   const [rows, setRows] = useState<FileSourceRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -127,6 +133,17 @@ export default function KnowledgeFilesPage() {
     if (cmp) result = [...result].sort(cmp);
     return result;
   }, [rows, searchQuery, sortKey]);
+
+  useEffect(() => {
+    if (!highlightSourceId || loading) return;
+    if (!rows.some((r) => r.id === highlightSourceId)) return;
+    queueMicrotask(() => {
+      document.getElementById(`knowledge-source-${highlightSourceId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    });
+  }, [highlightSourceId, rows, loading]);
 
   const allFilteredSelected =
     filteredRows.length > 0 && filteredRows.every((r) => selected.has(r.id));
@@ -350,6 +367,9 @@ export default function KnowledgeFilesPage() {
               </div>
             </div>
 
+            {!agentsLoading && !selectedAgentId ? (
+              <DashboardSelectAgentEmptyState />
+            ) : (
             <div className="overflow-visible">
               <table className="w-full text-left">
                 <thead>
@@ -364,11 +384,7 @@ export default function KnowledgeFilesPage() {
                 </thead>
                 <tbody className="divide-ds-outline divide-y">
                   {loading ? (
-                    <tr>
-                      <td colSpan={6} className="text-ds-on-surface-variant px-4 py-6 text-sm">
-                        Loading file sources...
-                      </td>
-                    </tr>
+                    <KnowledgeFilesTableSkeleton rows={6} />
                   ) : error ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-6 text-sm text-red-700">
@@ -377,13 +393,29 @@ export default function KnowledgeFilesPage() {
                     </tr>
                   ) : filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-ds-on-surface-variant px-4 py-6 text-sm">
-                        {searchQuery.trim() ? "No files match your search." : "No file sources yet."}
+                      <td colSpan={6} className="px-4 py-6">
+                        <div className="bg-ds-sidebar px-4 py-6 text-center">
+                          <p className="text-ds-on-surface text-sm font-medium">
+                            {searchQuery.trim() ? "No matching files" : "No file sources yet"}
+                          </p>
+                          <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                            {searchQuery.trim()
+                              ? "Try another search or clear filters."
+                              : "Upload documents above so your agent can retrieve them in conversations."}
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
                     filteredRows.map((row) => (
-                      <tr key={row.id} className="bg-ds-surface transition-colors hover:bg-ds-sidebar/40">
+                      <tr
+                        key={row.id}
+                        id={`knowledge-source-${row.id}`}
+                        className={cn(
+                          "bg-ds-surface transition-colors hover:bg-ds-sidebar/40",
+                          highlightSourceId === row.id && "ring-2 ring-ds-primary/40 ring-inset"
+                        )}
+                      >
                         <td className="px-5 py-4 sm:px-6">
                           <input
                             type="checkbox"
@@ -441,6 +473,7 @@ export default function KnowledgeFilesPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </section>
         </div>
 

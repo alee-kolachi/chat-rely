@@ -15,8 +15,6 @@ type UsageSnapshot = {
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
-  cushion_limit_conversations: number;
-  conversations_in_free_cushion: number;
 };
 
 const PAID_SLUGS = ["starter", "growth", "pro", "scale"] as const;
@@ -90,7 +88,7 @@ export function AccountPlanContent() {
   const upgradeTargets = PAID_SLUGS.filter((s) => s !== ctx?.plan.slug);
 
   return (
-    <div className="ds-app-shell p-6 md:p-8">
+    <div className="ds-app-shell p-6 pb-16 md:p-8 md:pb-20">
       <div className="mx-auto w-full max-w-5xl">
         <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -147,8 +145,8 @@ export function AccountPlanContent() {
                     <div>
                       <p className="text-ds-on-surface text-sm font-semibold">Billable conversations (this cycle)</p>
                       <p className="text-ds-on-surface-variant text-xs">
-                        Included {ctx.plan.included_conversations.toLocaleString()} / cushion up to{" "}
-                        {(ctx.usage_snapshot?.cushion_limit_conversations ?? ctx.plan.included_conversations).toLocaleString()}
+                        Up to {ctx.plan.included_conversations.toLocaleString()} billable conversations included per
+                        cycle
                       </p>
                     </div>
                     <p className="text-ds-on-surface text-sm font-semibold tabular-nums">
@@ -162,7 +160,8 @@ export function AccountPlanContent() {
                       <span className="font-semibold text-ds-on-surface">{ctx.usage_snapshot.throttle_tier}</span>
                       {ctx.usage_snapshot.throttle_tier === "strong" ? (
                         <span className="block pt-1">
-                          New AI replies are blocked until you upgrade or the cycle resets (120% cushion exceeded).
+                          New AI replies are blocked until you upgrade or the cycle resets (included conversations
+                          exceeded).
                         </span>
                       ) : null}
                     </div>

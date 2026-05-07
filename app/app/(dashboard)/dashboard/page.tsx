@@ -2,6 +2,17 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  DashboardChartEmptyState,
+  DashboardChartSkeleton,
+  DashboardMetricValueSkeleton,
+  DashboardQueueAsideSkeleton,
+  DashboardRecentConversationsEmptyState,
+  DashboardRecentTableSkeleton,
+  DashboardSelectAgentEmptyState,
+  DashboardTrainingTopicsEmptyState,
+  DashboardTrainingTopicsSkeleton,
+} from "@/components/dashboard/dashboard-page-skeleton";
 import { UsagePlanBanner } from "@/components/dashboard/usage-plan-banner";
 import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
@@ -84,6 +95,7 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     if (!dashboardUrl) {
       setData(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -100,47 +112,41 @@ export default function DashboardPage() {
   }, [dashboardUrl]);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void load();
-    });
+    void load();
   }, [load]);
 
   const started = data?.conversations_started ?? 0;
   const hasConversationData = Boolean(data && data.conversations_started > 0);
 
   const billable = data?.billable_conversations ?? 0;
+  /** Dashboard HTTP payload not ready yet (valid agent URL + fetch pending or refetch). */
+  const dashboardPayloadBusy = Boolean(
+    selectedAgentId && dashboardUrl && error === null && (loading || data === null)
+  );
+  /** Agents list loading OR dashboard metrics fetching — panels stay mounted so layout doesn’t collapse to blank. */
+  const showPanelSkeleton = agentsLoading || dashboardPayloadBusy;
+  /** Panels visible whenever there’s real analytics data or we’re still loading either workspace or dashboard JSON. */
+  const showAnalyticsPanels = hasConversationData || showPanelSkeleton;
 
   const primaryMetrics = [
     {
       label: "Conversations started",
-      value: loading ? "…" : data ? String(started) : "—",
+      value: data ? String(started) : "—",
       hint: "All visitor sessions that began in this date range (includes short or abandoned chats).",
     },
     {
       label: "Billable conversations",
-      value: loading ? "…" : data ? String(billable) : "—",
+      value: data ? String(billable) : "—",
       hint: "Sessions that count toward your plan after idle-close and quality thresholds (closer to invoice usage).",
     },
     {
       label: "Resolved by agent",
-      value: loading
-        ? "…"
-        : data?.resolved_by_agent_pct != null
-          ? `${data.resolved_by_agent_pct}%`
-          : data
-            ? "—"
-            : "—",
+      value: data?.resolved_by_agent_pct != null ? `${data.resolved_by_agent_pct}%` : "—",
       hint: "From AI-analyzed closed chats (see outcomes pipeline).",
     },
     {
       label: "Needs human help",
-      value: loading
-        ? "…"
-        : data?.needs_human_pct != null
-          ? `${data.needs_human_pct}%`
-          : data
-            ? "—"
-            : "—",
+      value: data?.needs_human_pct != null ? `${data.needs_human_pct}%` : "—",
       hint: "Share of chats escalated to your team.",
     },
   ];
@@ -156,7 +162,7 @@ export default function DashboardPage() {
       : "/conversations";
 
   return (
-    <div className="ds-app-shell p-6 md:p-8">
+    <div className="ds-app-shell px-6 pt-6 pb-24 md:px-8 md:pt-8 md:pb-28">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -175,30 +181,32 @@ export default function DashboardPage() {
           />
         </div>
 
-        {agentsLoading ? (
-          <p className="text-ds-on-surface-variant text-sm">Loading workspace…</p>
-        ) : null}
-        {!agentsLoading && !selectedAgentId ? (
-          <p className="text-ds-on-surface-variant text-sm">Select an agent from the header to view metrics.</p>
-        ) : null}
+        {!agentsLoading && !selectedAgentId ? <DashboardSelectAgentEmptyState /> : null}
         {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
         <UsagePlanBanner />
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4"
+          aria-busy={showPanelSkeleton}
+        >
           {primaryMetrics.map((metric) => (
             <article
               key={metric.label}
               className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm"
             >
               <h2 className="text-ds-on-surface-variant text-sm font-semibold">{metric.label}</h2>
-              <p className="ds-app-metric-value mt-2">{loading ? "…" : metric.value}</p>
+              {showPanelSkeleton ? (
+                <DashboardMetricValueSkeleton />
+              ) : (
+                <p className="ds-app-metric-value mt-2">{metric.value}</p>
+              )}
               <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">{metric.hint}</p>
             </article>
           ))}
         </section>
 
-        {!agentsLoading && selectedAgentId && !hasConversationData && !loading ? (
+        {!agentsLoading && selectedAgentId && data !== null && !hasConversationData ? (
           <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm md:p-10">
             <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
               <div className="mb-5 flex size-16 items-center justify-center rounded-full bg-ds-sidebar ring-1 ring-ds-outline">
@@ -241,7 +249,7 @@ export default function DashboardPage() {
           </section>
         ) : null}
 
-        {hasConversationData || loading ? (
+        {showAnalyticsPanels ? (
           <>
             <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
               <article className="border-ds-outline bg-ds-surface flex min-h-0 flex-col overflow-hidden rounded-ds-xl border shadow-sm">
@@ -263,8 +271,8 @@ export default function DashboardPage() {
                 <div className="from-ds-sidebar/20 relative min-h-0 flex-1 bg-gradient-to-b to-transparent px-3 pb-3 pt-2 sm:px-4">
                   {/* Height tracks column width (aspect) so the plot is not stuffed into a fixed slot */}
                   <div className="text-ds-on-surface-variant relative mx-auto aspect-[5/2] w-full min-h-[200px] max-h-[320px] text-[var(--ds-chart-grid)]">
-                    {loading ? (
-                      <div className="flex h-full min-h-[200px] w-full items-center justify-center text-sm">Loading chart…</div>
+                    {showPanelSkeleton ? (
+                      <DashboardChartSkeleton />
                     ) : timeSeriesChart ? (
                       <svg
                         className="block h-full w-full font-sans"
@@ -388,9 +396,7 @@ export default function DashboardPage() {
                       />
                     </svg>
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-sm">
-                      No data for this range.
-                    </div>
+                    <DashboardChartEmptyState message="No chart data for this range" />
                   )}
                   </div>
                 </div>
@@ -401,16 +407,22 @@ export default function DashboardPage() {
                   Escalations and threads waiting on the customer.
                 </p>
                 <div className="mt-5 space-y-3">
-                  <QueueItem
-                    label="Open human escalations"
-                    value={loading ? "…" : String(data?.open_escalations ?? 0)}
-                    tone="warning"
-                  />
-                  <QueueItem
-                    label="Awaiting customer reply"
-                    value={loading ? "…" : String(data?.awaiting_customer_reply ?? 0)}
-                    tone="neutral"
-                  />
+                  {showPanelSkeleton ? (
+                    <DashboardQueueAsideSkeleton />
+                  ) : (
+                    <>
+                      <QueueItem
+                        label="Open human escalations"
+                        value={String(data?.open_escalations ?? 0)}
+                        tone="warning"
+                      />
+                      <QueueItem
+                        label="Awaiting customer reply"
+                        value={String(data?.awaiting_customer_reply ?? 0)}
+                        tone="neutral"
+                      />
+                    </>
+                  )}
                 </div>
                 <Link
                   href={conversationsHref}
@@ -440,14 +452,8 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-ds-outline divide-y">
-                      {loading ? (
-                        <tr>
-                          <td colSpan={4} className="text-ds-on-surface-variant py-4 text-sm">
-                            Loading…
-                          </td>
-                        </tr>
-                      ) : null}
-                      {!loading &&
+                      {showPanelSkeleton ? <DashboardRecentTableSkeleton /> : null}
+                      {!showPanelSkeleton &&
                         (data?.recent ?? []).map((item) => {
                           const sp = statusPresentation(item.status);
                           return (
@@ -481,12 +487,8 @@ export default function DashboardPage() {
                             </tr>
                           );
                         })}
-                      {!loading && !data?.recent?.length ? (
-                        <tr>
-                          <td colSpan={4} className="text-ds-on-surface-variant py-4 text-sm">
-                            No conversations yet.
-                          </td>
-                        </tr>
+                      {!showPanelSkeleton && !data?.recent?.length ? (
+                        <DashboardRecentConversationsEmptyState />
                       ) : null}
                     </tbody>
                   </table>
@@ -499,10 +501,8 @@ export default function DashboardPage() {
                   From AI-analyzed closures—add coverage in Knowledge.
                 </p>
                 <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
-                  {loading ? (
-                    <p className="text-ds-on-surface-variant text-sm">Loading…</p>
-                  ) : null}
-                  {!loading &&
+                  {showPanelSkeleton ? <DashboardTrainingTopicsSkeleton /> : null}
+                  {!showPanelSkeleton &&
                     (data?.training_topics ?? []).map((topic) => (
                       <Link
                         key={topic.slug}
@@ -515,8 +515,8 @@ export default function DashboardPage() {
                         </p>
                       </Link>
                     ))}
-                  {!loading && !(data?.training_topics ?? []).length ? (
-                    <p className="text-ds-on-surface-variant text-sm">No training gaps detected for this range.</p>
+                  {!showPanelSkeleton && !(data?.training_topics ?? []).length ? (
+                    <DashboardTrainingTopicsEmptyState />
                   ) : null}
                 </div>
                 <Link

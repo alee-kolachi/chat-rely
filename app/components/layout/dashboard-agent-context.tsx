@@ -11,6 +11,8 @@ export type DashboardAgentRecord = {
   name: string;
   model: string;
   system_prompt: string;
+  /** Public embed key for `X-ChatRely-Agent-Key` / `data-chatrely-agent-key` (safe in storefront HTML). */
+  public_key: string;
   /** JSON from API — e.g. `tone`, `brand_color`, `widget_position` from onboarding. */
   behavior_settings?: Record<string, unknown> | null;
 };
@@ -56,9 +58,7 @@ export function DashboardAgentProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void refreshAgents();
-    });
+    void refreshAgents();
   }, [refreshAgents]);
 
   const setSelectedAgentId = useCallback((id: string) => {

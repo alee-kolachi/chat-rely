@@ -13,8 +13,10 @@ from app.api.routes.knowledge_qa import router as knowledge_qa_router
 from app.api.routes.knowledge_snippets import router as knowledge_snippets_router
 from app.api.routes.knowledge_website import router as knowledge_website_router
 from app.api.routes.mailjet_inbound import router as mailjet_inbound_router
+from app.api.routes.notifications import router as notifications_router
 from app.api.routes.onboarding import router as onboarding_router
 from app.api.routes.plans import router as plans_router
+from app.api.routes.public_widget import router as public_widget_router
 from app.api.routes.profile import router as profile_router
 from app.api.routes.runtime import router as runtime_router
 from app.api.routes.system import router as system_router
@@ -28,7 +30,9 @@ def get_api_router() -> APIRouter:
     router.include_router(system_router)
     router.include_router(bootstrap_router)
     router.include_router(plans_router)
+    router.include_router(public_widget_router)
     router.include_router(profile_router)
+    router.include_router(notifications_router)
     router.include_router(agents_router)
     router.include_router(agent_actions_router)
     # Register website routes before generic `/knowledge/*` so nested paths always resolve.

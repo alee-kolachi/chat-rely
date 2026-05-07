@@ -1,4 +1,4 @@
-"""Runtime enforcement: block assistant replies when usage is above the 120%% cushion (strong tier)."""
+"""Runtime enforcement: block assistant replies when billable usage exceeds the plan included amount."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from app.core.errors import AppError
 
 
 async def assert_plan_usage_allows_assistant_reply(db: AsyncSession, user_id: UUID) -> None:
-    """Raises AppError 429 when throttle_tier is ``strong`` (billable above cushion)."""
+    """Raises AppError 429 when throttle_tier is ``strong`` (billable above included_conversations)."""
     sub = (
         await db.execute(
             text(
@@ -62,7 +62,7 @@ async def assert_plan_usage_allows_assistant_reply(db: AsyncSession, user_id: UU
     if tier == "strong":
         raise AppError(
             code="plan.usage_limit_exceeded",
-            message="This workspace has exceeded its plan allowance (including the 20% buffer). "
+            message="This workspace has exceeded its included billable conversations for this period. "
             "Upgrade your plan or wait for the next billing period.",
             status_code=429,
         )

@@ -9,8 +9,6 @@ type UsageSnapshot = {
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
-  cushion_limit_conversations: number;
-  conversations_in_free_cushion: number;
 };
 
 type MeContextPayload = {
@@ -33,12 +31,6 @@ export function UsagePlanBanner() {
     return null;
   }
 
-  const cushionSlots = Math.max(0, snap.cushion_limit_conversations - snap.included_conversations)
-  const cushionLabel =
-    snap.conversations_in_free_cushion > 0 && cushionSlots > 0
-      ? `Free cushion: ${snap.conversations_in_free_cushion.toLocaleString()} of ${cushionSlots.toLocaleString()} extra conversations (no paid overage in this band).`
-      : null;
-
   const overageMoney = (snap.estimated_overage_cents / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -60,7 +52,6 @@ export function UsagePlanBanner() {
         {snap.overage_conversations > 0
           ? ` · ${snap.overage_conversations.toLocaleString()} paid overage (~$${overageMoney} est.)`
           : ""}
-        {cushionLabel ? ` ${cushionLabel}` : ""}
       </p>
       <Link href="/usage" className="text-ds-primary mt-2 inline-block text-xs font-semibold hover:underline">
         View usage details

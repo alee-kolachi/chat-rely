@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ChatRely widget (local test)</title>
+  </head>
+  <body>
+    <h1>Widget test</h1>
+    <p>Do <strong>not</strong> open this file as <code>file://</code>. Serve the repo root and open over HTTP, e.g.:</p>
+    <pre>python3 -m http.server 3333</pre>
+    <p>Open <code>http://127.0.0.1:3333/</code> (see root <code>index.html</code>) or <code>http://127.0.0.1:3333/test.html</code>.</p>
+    <p>Next.js must be on <code>:3000</code> and you must set <code>data-chatrely-agent-key</code> to a real <code>agents.public_key</code> from your DB (Deploy page copy button).</p>
+
+    <script
+      async
+      src="http://127.0.0.1:3000/widget.js"
+      data-chatrely-agent-key="REPLACE_WITH_YOUR_AGENTS_PUBLIC_KEY"
+      data-chatrely-api-base="http://127.0.0.1:3000"
+    ></script>
+  </body>
+</html>

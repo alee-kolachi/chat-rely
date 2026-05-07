@@ -46,8 +46,6 @@ class UsageSnapshotDTO(BaseModel):
     overage_conversations: int
     estimated_overage_cents: int
     throttle_tier: str
-    cushion_limit_conversations: int = 0
-    conversations_in_free_cushion: int = 0
 
 
 class BootstrapResponse(BaseModel):

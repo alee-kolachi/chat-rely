@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
-import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
 import {
   ConfirmDialog,
   KnowledgeSearchInput,
@@ -22,6 +22,8 @@ import {
   makeSortComparator,
   useSortPreference,
 } from "@/components/knowledge/use-sort-preference";
+import { KnowledgeWebsiteSourceListSkeleton } from "@/components/knowledge/knowledge-list-skeleton";
+import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
@@ -52,6 +54,7 @@ type WebsiteSourceListRow = {
   error_message?: string | null;
   latest_job_status: string | null;
   latest_job_phase: string | null;
+  job_metrics?: Record<string, unknown> | null;
   job_pages_total?: number | null;
   job_pages_processed?: number | null;
   job_progress_pct?: number | null;
@@ -102,6 +105,110 @@ function newChipId(): string {
   return String(Date.now()) + Math.random().toString(16).slice(2);
 }
 
+/** Same cap as backend ``SITEMAP_MAX_DOCUMENT_FETCHES`` (for user-visible hints only). */
+const SITEMAP_XML_DOC_FETCH_CAP = 500;
+
+function urlCountLabel(n: number): string {
+  return `${n} ${n === 1 ? "URL" : "URLs"}`;
+}
+
+/** Primary list summary: DB ``link_count`` stays 0 until rows exist — use job metrics during discovery. */
+function websiteLinksSummary(source: WebsiteSourceListRow): string {
+  const activeJob =
+    source.status === "indexing" ||
+    source.latest_job_status === "queued" ||
+    source.latest_job_status === "running";
+  const jobPhase = (source.latest_job_phase ?? "").toLowerCase();
+  const m = source.job_metrics;
+  if (!activeJob || jobPhase !== "crawling" || !m || typeof m !== "object") {
+    return `${source.link_count} links`;
+  }
+  const crawlPhase = typeof m.crawl_phase === "string" ? m.crawl_phase : null;
+  if (crawlPhase === "sitemap_discovery") {
+    const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
+    const docs = typeof m.sitemap_docs_fetched === "number" ? m.sitemap_docs_fetched : null;
+    if (matched != null && matched > 0) {
+      return `${urlCountLabel(matched)} matched (discovery)`;
+    }
+    if (docs != null && docs > 0) {
+      return `scanning sitemap · ${docs} XML file(s) fetched`;
+    }
+    return "discovering URLs…";
+  }
+  if (crawlPhase === "seeding_urls") {
+    const total = typeof m.seeding_total === "number" ? m.seeding_total : null;
+    if (total != null && total > 0) return `${urlCountLabel(total)} queued for fetch`;
+  }
+  return `${source.link_count} links`;
+}
+
+/** Explains long-running website jobs (sitemap walk happens before DB rows exist). */
+function websiteCrawlDetailLine(source: WebsiteSourceListRow): string | null {
+  const activeJob =
+    source.status === "indexing" ||
+    source.latest_job_status === "queued" ||
+    source.latest_job_status === "running";
+  if (!activeJob) return null;
+  if ((source.latest_job_phase ?? "").toLowerCase() !== "crawling") return null;
+  const m = source.job_metrics;
+  if (!m || typeof m !== "object") return null;
+  const crawlPhase = typeof m.crawl_phase === "string" ? m.crawl_phase : null;
+  if (crawlPhase === "sitemap_discovery") {
+    const docs = typeof m.sitemap_docs_fetched === "number" ? m.sitemap_docs_fetched : null;
+    const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
+    const bits: string[] = [];
+    if (docs != null) bits.push(`${docs} sitemap XML file(s) fetched`);
+    if (matched != null && matched > 0) {
+      bits.push("list saves to the database when this step completes — count above is live from the worker");
+    }
+    if (docs != null && docs >= SITEMAP_XML_DOC_FETCH_CAP) {
+      bits.push(
+        "per-job XML fetch budget reached — still parsing large files or draining the queue; may take several minutes",
+      );
+    }
+    if (bits.length === 0) bits.push("Walking sitemap indexes for your site…");
+    return bits.join(" · ");
+  }
+  if (crawlPhase === "seeding_urls") {
+    const done = typeof m.seeding_done === "number" ? m.seeding_done : null;
+    const total = typeof m.seeding_total === "number" ? m.seeding_total : null;
+    if (done != null && total != null) return `Saving URL list · ${done}/${total}`;
+    return "Saving URL list…";
+  }
+  if (crawlPhase === "urls_discovered") {
+    return "Starting to fetch page HTML…";
+  }
+  if (crawlPhase === "fetching_html") {
+    return null;
+  }
+  return null;
+}
+
+function websiteEmptyUrlsCaption(source: WebsiteSourceListRow, q: string): string {
+  const sq = q.trim();
+  if (sq) return "No indexed URLs match your search.";
+  const activeJob =
+    source.status === "indexing" ||
+    source.latest_job_status === "queued" ||
+    source.latest_job_status === "running";
+  const jobPhase = (source.latest_job_phase ?? "").toLowerCase();
+  const m = source.job_metrics;
+  if (activeJob && jobPhase === "crawling" && m && typeof m === "object") {
+    const cp = typeof m.crawl_phase === "string" ? m.crawl_phase : null;
+    if (cp === "sitemap_discovery") {
+      const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
+      if (matched != null && matched > 0) {
+        return `${urlCountLabel(matched)} already match your filters (shown in the summary row). URL rows load here after discovery finishes and HTML fetch starts.`;
+      }
+      return "Sitemap discovery running — URL rows appear here after matching URLs are saved.";
+    }
+    if (cp === "seeding_urls" || cp === "urls_discovered") {
+      return "Saving the URL list — rows should appear here shortly.";
+    }
+  }
+  return "No indexed URLs yet. Finish indexing to see links here.";
+}
+
 function duplicateSourceSummary(source: WebsiteSourceListRow): string {
   const r = source.duplicate_reason;
   if (r === "same_root_url") {
@@ -133,8 +240,9 @@ async function fetchAllPages(sourceId: string): Promise<WebsitePageItem[]> {
 }
 
 export default function KnowledgeWebsitePage() {
-  const { selectedAgentId } = useDashboardAgent();
-  const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
+  const searchParams = useSearchParams();
+  const highlightSourceId = searchParams.get("source")?.trim() ?? null;
+  const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const [sourceType, setSourceType] = useState<SourceType>("crawl");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [addLinksExpanded, setAddLinksExpanded] = useState(true);
@@ -153,6 +261,7 @@ export default function KnowledgeWebsitePage() {
   const [pageCache, setPageCache] = useState<Record<string, WebsitePageItem[]>>({});
   const [searchPagesLoading, setSearchPagesLoading] = useState(false);
   const [urlPreviewLine, setUrlPreviewLine] = useState<string | null>(null);
+  const [urlPreviewWarning, setUrlPreviewWarning] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const supportsAdvancedOptions = sourceType !== "individual";
@@ -163,6 +272,7 @@ export default function KnowledgeWebsitePage() {
     setSourceType(next);
     setShowAdvancedOptions(false);
     setUrlPreviewLine(null);
+    setUrlPreviewWarning(null);
   };
 
   async function handlePreviewFilteredUrls() {
@@ -172,6 +282,7 @@ export default function KnowledgeWebsitePage() {
     }
     setPreviewLoading(true);
     setUrlPreviewLine(null);
+    setUrlPreviewWarning(null);
     setError(null);
     try {
       const data = await backendFetch<{
@@ -180,6 +291,8 @@ export default function KnowledgeWebsitePage() {
         sample_urls: string[];
         truncated: boolean;
         message: string | null;
+        discovery_warning?: string | null;
+        sitemap_truncated?: boolean;
       }>("/api/v1/knowledge/website/preview-urls", {
         method: "POST",
         body: JSON.stringify({
@@ -192,10 +305,13 @@ export default function KnowledgeWebsitePage() {
           max_sample_urls: 25,
         }),
       });
+      setUrlPreviewWarning(data.discovery_warning ?? null);
       if (data.discovery_mode === "sitemap") {
         setUrlPreviewLine(
           `From sitemap: about ${data.filtered_url_count} URL(s) match your filters${data.truncated ? " (preview capped)" : ""}.`,
         );
+      } else if (data.discovery_mode === "sitemap_unreachable" || data.discovery_mode === "sitemap_invalid") {
+        setUrlPreviewLine(data.message ?? "Could not read sitemap XML for this URL.");
       } else {
         setUrlPreviewLine(data.message ?? "Sitemap returned no matching URLs; a crawl would use link following.");
       }
@@ -232,12 +348,12 @@ export default function KnowledgeWebsitePage() {
   const silentRefreshSources = useCallback(async () => {
     if (!selectedAgentId) return;
     try {
-      const [s] = await Promise.all([fetchWebsiteSources(selectedAgentId), refreshUsage()]);
+      const s = await fetchWebsiteSources(selectedAgentId);
       setSources(s);
     } catch {
       /* ignore */
     }
-  }, [selectedAgentId, refreshUsage]);
+  }, [selectedAgentId]);
 
   const indexingActive = useMemo(
     () =>
@@ -567,6 +683,14 @@ export default function KnowledgeWebsitePage() {
                           }
                           onRemove={(id) => setExcludeChips((prev) => prev.filter((c) => c.id !== id))}
                         />
+                        <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                          Rules match the URL <strong className="text-ds-on-surface">path</strong> only (e.g.{" "}
+                          <code className="text-ds-on-surface bg-ds-sidebar/80 rounded px-1 py-0.5 text-[11px]">
+                            /products/…
+                          </code>
+                          ), not the query string. For &quot;starts with&quot; / &quot;exact&quot;, include a leading{" "}
+                          <code className="text-ds-on-surface bg-ds-sidebar/80 rounded px-1 py-0.5 text-[11px]">/</code>.
+                        </p>
                         {(sourceType === "crawl" || sourceType === "sitemap") && (
                           <div className="border-ds-outline space-y-2 rounded-ds-lg border border-dashed p-3">
                             <button
@@ -579,6 +703,9 @@ export default function KnowledgeWebsitePage() {
                             </button>
                             {urlPreviewLine ? (
                               <p className="text-ds-on-surface-variant text-xs leading-relaxed">{urlPreviewLine}</p>
+                            ) : null}
+                            {urlPreviewWarning ? (
+                              <p className="text-amber-800 dark:text-amber-200/90 text-xs leading-relaxed">{urlPreviewWarning}</p>
                             ) : null}
                           </div>
                         )}
@@ -645,13 +772,23 @@ export default function KnowledgeWebsitePage() {
             </div>
           </div>
 
+          {!agentsLoading && !selectedAgentId ? (
+            <DashboardSelectAgentEmptyState />
+          ) : (
           <div className="space-y-1.5">
             {sourcesLoading ? (
-              <p className="text-ds-on-surface-variant text-sm">Loading sources…</p>
+              <KnowledgeWebsiteSourceListSkeleton rows={4} />
             ) : filteredSources.length === 0 ? (
-              <p className="text-ds-on-surface-variant text-sm">
-                {searchActive ? "No links match your search." : "No website sources yet. Add one above."}
-              </p>
+              <div className="bg-ds-sidebar px-4 py-6 text-center">
+                <p className="text-ds-on-surface text-sm font-medium">
+                  {searchActive ? "No matching links" : "No website sources yet"}
+                </p>
+                <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                  {searchActive
+                    ? "Try another search or clear filters."
+                    : "Add a crawl, sitemap, or single URL above to index content for this agent."}
+                </p>
+              </div>
             ) : (
               filteredSources.map((row) => (
                 <WebsiteSourceRow
@@ -667,10 +804,12 @@ export default function KnowledgeWebsitePage() {
                   onPagesCached={(pages) =>
                     setPageCache((prev) => ({ ...prev, [row.id]: pages }))
                   }
+                  highlightSourceId={highlightSourceId}
                 />
               ))
             )}
           </div>
+          )}
         </section>
 
         <DataSourcesSidebar mobile className="lg:hidden" />
@@ -765,6 +904,7 @@ function WebsiteSourceRow({
   searchQuery,
   cachedPages,
   onPagesCached,
+  highlightSourceId,
 }: {
   source: WebsiteSourceListRow;
   onSourcesRefresh: () => Promise<void>;
@@ -775,9 +915,11 @@ function WebsiteSourceRow({
   searchQuery: string;
   cachedPages: WebsitePageItem[] | undefined;
   onPagesCached: (pages: WebsitePageItem[]) => void;
+  highlightSourceId?: string | null;
 }) {
   const [userExpanded, setUserExpanded] = useState(false);
   const expanded = forceExpanded || userExpanded;
+  const isHighlighted = Boolean(highlightSourceId && highlightSourceId === source.id);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pageItems, setPageItems] = useState<WebsitePageItem[]>([]);
   const [pageTotal, setPageTotal] = useState<number | null>(null);
@@ -797,6 +939,12 @@ function WebsiteSourceRow({
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (highlightSourceId && highlightSourceId === source.id) {
+      setUserExpanded(true);
+    }
+  }, [highlightSourceId, source.id]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -923,6 +1071,11 @@ function WebsiteSourceRow({
       ((source.job_pages_processed ?? 0) < source.job_pages_total &&
         (source.latest_job_status === "succeeded" || source.status === "ready")));
 
+  const crawlRatioVerb =
+    source.latest_job_phase === "complete" && source.latest_job_status === "succeeded"
+      ? "indexed"
+      : "fetched";
+
   const jobFailed =
     source.status === "failed" ||
     source.latest_job_status === "failed" ||
@@ -944,6 +1097,8 @@ function WebsiteSourceRow({
           ? "indexing"
           : source.status;
 
+  const crawlDetailLine = websiteCrawlDetailLine(source);
+
   const visiblePages = useMemo(() => {
     const filtered = searchQuery
       ? displayedPageItems.filter((p) => p.url.toLowerCase().includes(searchQuery.trim().toLowerCase()))
@@ -953,7 +1108,13 @@ function WebsiteSourceRow({
   }, [displayedPageItems, searchQuery]);
 
   return (
-    <div className="border-ds-outline bg-ds-surface border-b/70 transition-colors last:border-0 hover:bg-ds-sidebar/40">
+    <div
+      id={`knowledge-source-${source.id}`}
+      className={cn(
+        "border-ds-outline bg-ds-surface border-b/70 transition-colors last:border-0 hover:bg-ds-sidebar/40",
+        isHighlighted && "ring-2 ring-ds-primary/40 ring-inset"
+      )}
+    >
       <div className="flex items-center py-3">
         <input
           type="checkbox"
@@ -971,15 +1132,18 @@ function WebsiteSourceRow({
               </p>
             </div>
             <p className="text-ds-on-surface-variant text-[11px]">
-              {formatRelativeTime(source.last_indexed_at)} · {source.link_count} links
+              {formatRelativeTime(source.last_indexed_at)} · {websiteLinksSummary(source)}
               {showIndexedRatio && source.job_pages_total
-                ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} indexed`
+                ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} ${crawlRatioVerb}`
                 : ""}
               {showFailedCrawlRatio && source.job_pages_total
                 ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} crawled (indexing did not finish)`
                 : ""}
               {statusSummary ? ` · ${statusSummary}` : ""}
             </p>
+            {crawlDetailLine ? (
+              <p className="text-ds-on-surface-variant mt-0.5 text-[11px] leading-snug">{crawlDetailLine}</p>
+            ) : null}
             {source.status === "skipped_duplicate" ? (
               <p className="mt-0.5 text-[11px] leading-snug text-amber-900 dark:text-amber-200/95">
                 {duplicateSourceSummary(source)}
@@ -1063,7 +1227,7 @@ function WebsiteSourceRow({
             </div>
           ) : visiblePages.length === 0 ? (
             <p className="text-ds-on-surface-variant py-1 text-sm leading-relaxed">
-              {searchQuery ? "No indexed URLs match your search." : "No indexed URLs yet. Finish indexing to see links here."}
+              {websiteEmptyUrlsCaption(source, searchQuery)}
             </p>
           ) : (
             <>

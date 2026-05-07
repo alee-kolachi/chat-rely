@@ -1,3 +1,4 @@
+import asyncio
 import fnmatch
 import io
 import json
@@ -7,6 +8,7 @@ import traceback
 import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlparse
 from uuid import UUID
@@ -50,6 +52,19 @@ from app.domains.knowledge.schemas import (
     WebsiteUrlPreviewResponse,
     WebsiteUsageResponse,
 )
+
+
+@dataclass
+class SitemapDiscoveryResult:
+    """Diagnostics from ``_discover_sitemap_urls`` (empty ``urls`` can mean filters, fetch failure, or bad XML)."""
+
+    urls: list[str]
+    http_success_count: int = 0
+    http_failure_count: int = 0
+    xml_parse_failure_count: int = 0
+    had_successful_xml_document: bool = False
+    truncated_by_doc_cap: bool = False
+
 
 EMBEDDING_DIMENSION = 1536
 MAX_ONBOARDING_PAGES = 5
@@ -95,6 +110,10 @@ DASHBOARD_CRAWL_PROGRESS_EVERY = 3
 
 # Large shops can expose thousands of nested sitemap index URLs; cap GETs so discovery finishes.
 SITEMAP_MAX_DOCUMENT_FETCHES = 500
+# Concurrent GETs when walking nested sitemap indexes (same origin session).
+SITEMAP_PARALLEL_FETCHES = 8
+# Batch multi-row inserts when seeding sitemap URL placeholders for the dashboard.
+DASHBOARD_SEED_URL_INSERT_CHUNK = 250
 
 # Many sites return a minimal shell or challenge to non-browser clients; match typical browser fetch.
 _WEBSITE_CRAWL_HEADERS = {
@@ -749,12 +768,18 @@ async def enqueue_index_website_source_queued(
 
 
 def _rules_from_payload(rules: list[WebsitePathRule]) -> list[dict[str, str]]:
-    """Persist only rules with a non-empty pattern; blank chips would otherwise break includes entirely."""
+    """Persist only rules with a non-empty pattern; blank chips would otherwise break includes entirely.
+
+    For ``starts_with`` and ``exact_match``, path rules match URL path segments (``/products/...``);
+    if the user omits a leading ``/``, add it so ``products`` matches ``/products``.
+    """
     out: list[dict[str, str]] = []
     for r in rules:
         pat = (r.pattern or "").strip()
         if not pat:
             continue
+        if r.operator in ("starts_with", "exact_match") and not pat.startswith("/"):
+            pat = f"/{pat.lstrip('/')}"
         out.append({"operator": r.operator, "pattern": pat})
     return out
 
@@ -839,6 +864,36 @@ async def create_and_enqueue_dashboard_website(
     return refreshed_source, refreshed_job or job
 
 
+def _app_error_for_empty_sitemap_discovery(d: SitemapDiscoveryResult) -> AppError:
+    """Use when ``d.urls`` is empty for explicit sitemap ingest (not dashboard crawl fallback)."""
+    if d.http_success_count == 0 and d.http_failure_count > 0:
+        return AppError(
+            code="knowledge.sitemap_unreachable",
+            message=(
+                "Could not fetch sitemap XML (HTTP error, TLS, or blocked). "
+                "Use a direct https://…/sitemap.xml URL."
+            ),
+            status_code=422,
+        )
+    if d.http_success_count > 0 and not d.had_successful_xml_document:
+        return AppError(
+            code="knowledge.sitemap_invalid",
+            message=(
+                "The response was not valid sitemap XML (often HTML). "
+                "Open Graph preview URLs must point to an XML sitemap, not the storefront homepage."
+            ),
+            status_code=422,
+        )
+    return AppError(
+        code="knowledge.sitemap_empty",
+        message=(
+            "No page URLs in the sitemap matched your path filters, or the sitemap lists no pages. "
+            "Loosen include/exclude rules or point to a different sitemap."
+        ),
+        status_code=422,
+    )
+
+
 async def preview_dashboard_website_filtered_urls(
     payload: WebsiteUrlPreviewRequest,
 ) -> WebsiteUrlPreviewResponse:
@@ -846,8 +901,14 @@ async def preview_dashboard_website_filtered_urls(
     source_url = normalize_dashboard_website_url(payload.protocol, payload.url_input)
     inc = _rules_from_payload(payload.include_rules)
     exc = _rules_from_payload(payload.exclude_rules)
-    urls = await _collect_sitemap_urls(source_url, MAX_DASHBOARD_WEBSITE_PAGES, inc, exc)
+    discovered = await _discover_sitemap_urls(source_url, MAX_DASHBOARD_WEBSITE_PAGES, inc, exc)
+    urls = discovered.urls
     cap = min(int(payload.max_sample_urls), 100)
+    warning = (
+        "Sitemap discovery stopped after many nested sitemap files; the URL list may be incomplete."
+        if discovered.truncated_by_doc_cap
+        else None
+    )
     if urls:
         return WebsiteUrlPreviewResponse(
             discovery_mode="sitemap",
@@ -855,6 +916,33 @@ async def preview_dashboard_website_filtered_urls(
             sample_urls=urls[:cap],
             truncated=len(urls) > cap,
             message=None,
+            discovery_warning=warning,
+            sitemap_truncated=discovered.truncated_by_doc_cap,
+        )
+    if discovered.http_success_count == 0 and discovered.http_failure_count > 0:
+        return WebsiteUrlPreviewResponse(
+            discovery_mode="sitemap_unreachable",
+            filtered_url_count=0,
+            sample_urls=[],
+            truncated=False,
+            message=(
+                "Could not fetch sitemap XML (HTTP error, TLS, or blocked). "
+                "Use a direct https://…/sitemap.xml URL."
+            ),
+            discovery_warning=warning,
+            sitemap_truncated=discovered.truncated_by_doc_cap,
+        )
+    if discovered.http_success_count > 0 and not discovered.had_successful_xml_document:
+        return WebsiteUrlPreviewResponse(
+            discovery_mode="sitemap_invalid",
+            filtered_url_count=0,
+            sample_urls=[],
+            truncated=False,
+            message=(
+                "The response was not valid sitemap XML (often HTML). Point to sitemap.xml, not the homepage."
+            ),
+            discovery_warning=warning,
+            sitemap_truncated=discovered.truncated_by_doc_cap,
         )
     return WebsiteUrlPreviewResponse(
         discovery_mode="bfs_fallback",
@@ -865,6 +953,8 @@ async def preview_dashboard_website_filtered_urls(
             "No matching URLs found in sitemap XML for this site and filters. "
             "A full crawl would use link following (BFS); URL count is not known until the crawl runs."
         ),
+        discovery_warning=warning,
+        sitemap_truncated=discovered.truncated_by_doc_cap,
     )
 
 
@@ -1033,14 +1123,14 @@ def _sitemap_seed_urls(start_url: str) -> list[str]:
     return seeds
 
 
-async def _collect_sitemap_urls(
+async def _discover_sitemap_urls(
     start_url: str,
     max_urls: int,
     include_rules: list[dict[str, str]],
     exclude_rules: list[dict[str, str]],
     *,
     progress: Callable[[int, int], Awaitable[None]] | None = None,
-) -> list[str]:
+) -> SitemapDiscoveryResult:
     """Discover page URLs from sitemap XML (supports nested index files).
 
     Uses streaming ``iterparse`` so multi-megabyte catalog sitemaps (common on large shops)
@@ -1051,67 +1141,124 @@ async def _collect_sitemap_urls(
     seen_sitemaps: set[str] = set()
     sitemap_queue: deque[tuple[str, int]] = deque((u, 0) for u in _sitemap_seed_urls(start_url))
     documents_fetched = 0
+    http_success_count = 0
+    http_failure_count = 0
+    xml_parse_failure_count = 0
+    had_successful_xml_document = False
+    truncated_by_doc_cap = False
 
     # Large regional catalog XML can exceed default read timeouts; discovery only uses this client.
     sitemap_timeout = httpx.Timeout(180.0, connect=20.0)
     async with httpx.AsyncClient(timeout=sitemap_timeout, follow_redirects=True, headers=_WEBSITE_CRAWL_HEADERS) as client:
-        while sitemap_queue and len(results) < max_urls:
-            if documents_fetched >= SITEMAP_MAX_DOCUMENT_FETCHES:
-                break
-            sm_url, depth = sitemap_queue.popleft()
-            if sm_url in seen_sitemaps or depth > 8:
-                continue
-            seen_sitemaps.add(sm_url)
-            documents_fetched += 1
+
+        async def _fetch_sitemap_body(sm_url: str) -> tuple[str, bytes | None]:
             try:
                 response = await client.get(sm_url)
                 response.raise_for_status()
+                return ("ok", response.content or b"")
             except Exception:
-                if progress:
-                    await progress(documents_fetched, len(results))
-                continue
-            content = response.content
+                return ("fail", None)
+
+        while sitemap_queue and len(results) < max_urls:
+            if documents_fetched >= SITEMAP_MAX_DOCUMENT_FETCHES:
+                truncated_by_doc_cap = True
+                break
+
+            batch: list[tuple[str, int]] = []
+            while (
+                len(batch) < SITEMAP_PARALLEL_FETCHES
+                and sitemap_queue
+                and documents_fetched + len(batch) < SITEMAP_MAX_DOCUMENT_FETCHES
+                and len(results) < max_urls
+            ):
+                sm_url, depth = sitemap_queue.popleft()
+                if sm_url in seen_sitemaps or depth > 8:
+                    continue
+                seen_sitemaps.add(sm_url)
+                batch.append((sm_url, depth))
+
+            if not batch:
+                break
+
+            documents_fetched += len(batch)
+            fetched_tuples = await asyncio.gather(*[_fetch_sitemap_body(sm_url) for sm_url, _ in batch])
+
             hit_cap = False
-            try:
-                for _event, elem in ET.iterparse(io.BytesIO(content), events=("end",)):
-                    if len(results) >= max_urls:
-                        hit_cap = True
-                        break
-                    local = _local_xml_tag(elem.tag)
-                    if local == "url":
-                        loc_text: str | None = None
-                        for el in elem:
-                            if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
-                                loc_text = el.text.strip()
-                                break
-                        elem.clear()
-                        if not loc_text:
-                            continue
-                        try:
-                            norm = _normalize_url_string(loc_text)
-                        except AppError:
-                            continue
-                        if _url_passes_filters(norm, include_rules, exclude_rules) and norm not in results:
-                            results.append(norm)
-                    elif local == "sitemap":
-                        for el in elem:
-                            if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
-                                raw_loc = el.text.strip()
-                                try:
-                                    norm_loc = _normalize_url_string(raw_loc)
-                                except AppError:
-                                    norm_loc = raw_loc
-                                sitemap_queue.append((norm_loc, depth + 1))
-                        elem.clear()
-            except ET.ParseError:
-                pass
+            for (_sm_url, depth), (fetch_st, content) in zip(batch, fetched_tuples, strict=True):
+                if fetch_st != "ok" or content is None:
+                    http_failure_count += 1
+                    continue
+                http_success_count += 1
+                doc_parse_ok = False
+                try:
+                    for _event, elem in ET.iterparse(io.BytesIO(content), events=("end",)):
+                        if len(results) >= max_urls:
+                            hit_cap = True
+                            break
+                        local = _local_xml_tag(elem.tag)
+                        if local == "url":
+                            loc_text: str | None = None
+                            for el in elem:
+                                if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
+                                    loc_text = el.text.strip()
+                                    break
+                            elem.clear()
+                            if not loc_text:
+                                continue
+                            try:
+                                norm = _normalize_url_string(loc_text)
+                            except AppError:
+                                continue
+                            if _url_passes_filters(norm, include_rules, exclude_rules) and norm not in results:
+                                results.append(norm)
+                        elif local == "sitemap":
+                            for el in elem:
+                                if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
+                                    raw_loc = el.text.strip()
+                                    try:
+                                        norm_loc = _normalize_url_string(raw_loc)
+                                    except AppError:
+                                        continue
+                                    sitemap_queue.append((norm_loc, depth + 1))
+                            elem.clear()
+                    doc_parse_ok = True
+                except ET.ParseError:
+                    xml_parse_failure_count += 1
+
+                if doc_parse_ok:
+                    had_successful_xml_document = True
+
+                if hit_cap:
+                    break
 
             if progress:
                 await progress(documents_fetched, len(results))
             if hit_cap:
                 break
 
-    return results[:max_urls]
+    return SitemapDiscoveryResult(
+        urls=results[:max_urls],
+        http_success_count=http_success_count,
+        http_failure_count=http_failure_count,
+        xml_parse_failure_count=xml_parse_failure_count,
+        had_successful_xml_document=had_successful_xml_document,
+        truncated_by_doc_cap=truncated_by_doc_cap,
+    )
+
+
+async def _collect_sitemap_urls(
+    start_url: str,
+    max_urls: int,
+    include_rules: list[dict[str, str]],
+    exclude_rules: list[dict[str, str]],
+    *,
+    progress: Callable[[int, int], Awaitable[None]] | None = None,
+) -> list[str]:
+    """Backward-compatible wrapper returning URL list only."""
+    discovered = await _discover_sitemap_urls(
+        start_url, max_urls, include_rules, exclude_rules, progress=progress
+    )
+    return discovered.urls
 
 
 async def _fetch_pages_for_urls(
@@ -1169,6 +1316,17 @@ async def _fetch_pages_for_urls(
     return pages, links_discovered, preview_image_url, stored_text_bytes, stopped_reason
 
 
+def _website_page_index_metadata_json(page: dict[str, object]) -> str:
+    """Persist extracted text on the page row so a later embedding-only worker pass can reload."""
+    return json.dumps(
+        {
+            "extracted_text": str(page.get("text") or ""),
+            "title": page.get("title"),
+        },
+        default=str,
+    )
+
+
 async def _upsert_knowledge_source_page(
     db: AsyncSession,
     *,
@@ -1181,9 +1339,10 @@ async def _upsert_knowledge_source_page(
         text(
             """
             insert into public.knowledge_source_pages (
-              knowledge_source_id, crawl_run_id, user_id, url, depth, status, http_status, last_crawled_at
+              knowledge_source_id, crawl_run_id, user_id, url, depth, status, http_status, last_crawled_at, metadata
             ) values (
-              :source_id, :crawl_run_id, :user_id, :url, :depth, :status, :http_status, now()
+              :source_id, :crawl_run_id, :user_id, :url, :depth, :status, :http_status, now(),
+              cast(:metadata as jsonb)
             )
             on conflict (knowledge_source_id, url)
             do update set
@@ -1191,7 +1350,8 @@ async def _upsert_knowledge_source_page(
               depth = excluded.depth,
               status = excluded.status,
               http_status = excluded.http_status,
-              last_crawled_at = now()
+              last_crawled_at = now(),
+              metadata = excluded.metadata
             """
         ),
         {
@@ -1202,8 +1362,63 @@ async def _upsert_knowledge_source_page(
             "depth": int(page["depth"]),
             "status": "parsed" if str(page["text"]).strip() else "failed",
             "http_status": page["http_status"],
+            "metadata": _website_page_index_metadata_json(page),
         },
     )
+
+
+async def _load_website_pages_for_embedding(
+    db: AsyncSession, *, source_id: UUID, crawl_run_id: UUID, user_id: UUID
+) -> list[dict[str, object]]:
+    result = await db.execute(
+        text(
+            """
+            select url, depth, http_status, status, metadata
+            from public.knowledge_source_pages
+            where knowledge_source_id = :sid
+              and crawl_run_id = :rid
+              and user_id = :uid
+            order by url asc
+            """
+        ),
+        {"sid": str(source_id), "rid": str(crawl_run_id), "uid": str(user_id)},
+    )
+    pages: list[dict[str, object]] = []
+    for row in result.mappings().all():
+        md_raw = row["metadata"]
+        md = dict(md_raw or {}) if isinstance(md_raw, dict) else {}
+        pages.append(
+            {
+                "url": row["url"],
+                "depth": int(row["depth"] or 0),
+                "http_status": row["http_status"],
+                "text": str(md.get("extracted_text") or ""),
+                "title": md.get("title"),
+            }
+        )
+    return pages
+
+
+async def _release_dashboard_job_for_embedding_pass(
+    db: AsyncSession,
+    *,
+    job_id: UUID,
+    embedding_handoff: dict[str, object],
+) -> None:
+    await db.execute(
+        text(
+            """
+            update public.indexing_jobs
+            set status = 'queued',
+                phase = 'embedding_queued',
+                progress_pct = greatest(progress_pct, 25),
+                metrics = coalesce(metrics, '{}'::jsonb) || cast(:extra as jsonb)
+            where id = :job_id
+            """
+        ),
+        {"job_id": str(job_id), "extra": json.dumps(embedding_handoff, default=str)},
+    )
+    await db.commit()
 
 
 async def _dashboard_flush_crawl_pages(
@@ -1267,15 +1482,46 @@ async def _dashboard_seed_queued_urls(
     urls: list[str],
 ) -> None:
     """Insert placeholder rows so the dashboard shows link count before HTML is fetched."""
-    for u in urls:
+    sid = str(source_id)
+    rid = str(crawl_run_id)
+    uid = str(user_id)
+    jid = str(job_id)
+    extra_base = {"crawl_phase": "urls_discovered", "discovery": "sitemap"}
+    if not urls:
         await db.execute(
             text(
                 """
+                update public.indexing_jobs
+                set pages_total = 0, pages_processed = 0, progress_pct = 4, phase = 'crawling',
+                    metrics = coalesce(metrics, '{}'::jsonb) || cast(:extra as jsonb)
+                where id = :job_id
+                """
+            ),
+            {"job_id": jid, "extra": json.dumps({**extra_base, "seeding_total": 0})},
+        )
+        return
+
+    n = len(urls)
+    chunk_idx = 0
+    for start in range(0, n, DASHBOARD_SEED_URL_INSERT_CHUNK):
+        chunk = urls[start : start + DASHBOARD_SEED_URL_INSERT_CHUNK]
+        placeholders = ", ".join(
+            f"(:source_id, :crawl_run_id, :user_id, :url_{i}, 0, 'queued', null, now())"
+            for i in range(len(chunk))
+        )
+        params: dict[str, str] = {
+            "source_id": sid,
+            "crawl_run_id": rid,
+            "user_id": uid,
+        }
+        for i, u in enumerate(chunk):
+            params[f"url_{i}"] = u
+        await db.execute(
+            text(
+                f"""
                 insert into public.knowledge_source_pages (
                   knowledge_source_id, crawl_run_id, user_id, url, depth, status, http_status, last_crawled_at
-                ) values (
-                  :source_id, :crawl_run_id, :user_id, :url, 0, 'queued', null, now()
-                )
+                ) values {placeholders}
                 on conflict (knowledge_source_id, url)
                 do update set
                   crawl_run_id = excluded.crawl_run_id,
@@ -1285,8 +1531,32 @@ async def _dashboard_seed_queued_urls(
                   last_crawled_at = now()
                 """
             ),
-            {"source_id": str(source_id), "crawl_run_id": str(crawl_run_id), "user_id": str(user_id), "url": u},
+            params,
         )
+        if chunk_idx % 3 == 0:
+            done = min(start + len(chunk), n)
+            await db.execute(
+                text(
+                    """
+                    update public.indexing_jobs
+                    set metrics = coalesce(metrics, '{}'::jsonb) || cast(:extra as jsonb)
+                    where id = :job_id
+                    """
+                ),
+                {
+                    "job_id": jid,
+                    "extra": json.dumps(
+                        {
+                            **extra_base,
+                            "seeding_done": done,
+                            "seeding_total": n,
+                            "crawl_phase": "seeding_urls",
+                        }
+                    ),
+                },
+            )
+        chunk_idx += 1
+
     await db.execute(
         text(
             """
@@ -1297,9 +1567,9 @@ async def _dashboard_seed_queued_urls(
             """
         ),
         {
-            "job_id": str(job_id),
-            "pages_total": len(urls),
-            "extra": json.dumps({"crawl_phase": "urls_discovered", "discovery": "sitemap"}),
+            "job_id": jid,
+            "pages_total": n,
+            "extra": json.dumps({**extra_base, "seeding_done": n, "seeding_total": n}),
         },
     )
 
@@ -1342,18 +1612,20 @@ async def _dashboard_fetch_planned_urls_in_batches(
     links_discovered = 0
     n = len(urls)
     for start in range(0, n, DASHBOARD_CRAWL_CONTENT_BATCH):
-        if total_saved >= crawl_budget_bytes and len(all_pages) > 0:
+        remaining_budget = max(0, crawl_budget_bytes - total_saved)
+        if remaining_budget == 0 and len(all_pages) > 0:
             stopped = "budget"
             break
         batch_urls = urls[start : start + DASHBOARD_CRAWL_CONTENT_BATCH]
-        # Enforce budget between batches; once started, finish the current batch.
-        batch_pages, ld, pv, b_used, st = await _fetch_pages_for_urls(batch_urls, crawl_budget_bytes=None)
+        batch_pages, ld, pv, b_used, st = await _fetch_pages_for_urls(
+            batch_urls, crawl_budget_bytes=remaining_budget
+        )
         total_saved += b_used
         links_discovered += ld
         if preview is None and pv:
             preview = pv
-        if st == "budget" and stopped == "complete":
-            stopped = st
+        if st == "budget":
+            stopped = "budget"
         for p in batch_pages:
             p.setdefault("depth", 0)
         all_pages.extend(batch_pages)
@@ -1442,9 +1714,38 @@ async def _finalize_indexing_failure(
                 where id = :crawl_run_id
                 """
             ),
-            {"crawl_run_id": str(crawl_run_id), "error_message": short[:1000]},
+                {"crawl_run_id": str(crawl_run_id), "error_message": short[:1000]},
+            )
+    src_meta = (
+        await db.execute(
+            text(
+                """
+                select user_id, agent_id, type, title
+                from public.knowledge_sources
+                where id = cast(:sid as uuid)
+                """
+            ),
+            {"sid": str(source_id)},
         )
+    ).mappings().first()
     await db.commit()
+    if src_meta:
+        from app.domains.notifications.links import href_knowledge_source
+        from app.domains.notifications.service import create_notification_best_effort
+
+        uid = src_meta["user_id"]
+        aid = src_meta["agent_id"]
+        stype = str(src_meta["type"])
+        stitle = str(src_meta["title"] or "Knowledge source")
+        await create_notification_best_effort(
+            db,
+            user_id=uid,
+            kind="knowledge_index_failed",
+            title="Knowledge indexing failed",
+            body=f"Could not finish indexing “{stitle}”: {short[:280]}",
+            href=href_knowledge_source(source_type=stype, agent_id=aid, source_id=source_id),
+            metadata={"source_id": str(source_id), "source_type": stype},
+        )
 
 
 async def record_worker_indexing_surrogate_failure(
@@ -1504,12 +1805,327 @@ async def record_worker_indexing_surrogate_failure(
     await db.commit()
 
 
+async def _complete_website_indexing_embedding_phase(
+    db: AsyncSession,
+    *,
+    job_id: UUID,
+    user_id: UUID,
+    source: KnowledgeSourceDTO,
+    crawl_run_id: UUID,
+    preview_image_url: str | None,
+    usable_pages: list[dict[str, object]],
+    urls_fetched: int,
+    crawl_http_bytes: int,
+    crawl_budget_bytes: int,
+    crawl_stopped_reason: str,
+    website_discovery_mode: str,
+    links_discovered: int,
+    fetch_stats: dict[str, object],
+    partial_warnings: list[dict[str, object]],
+    dashboard_planned_url_count: int | None,
+    include_rules: list[dict[str, str]],
+    exclude_rules: list[dict[str, str]],
+    effective_storage_cap_bytes: int,
+) -> str | None:
+    indexed_source_bytes = sum(len(str(p["text"]).encode("utf-8")) for p in usable_pages)
+    chunk_records: list[dict[str, object]] = []
+    for page in usable_pages:
+        page_url = str(page.get("url") or source.source_url or "")
+        page_text = str(page.get("text") or "")
+        page_title = str(page.get("title") or source.title or "").strip()
+        prefix_parts = [p for p in [page_title, page_url] if p]
+        chunk_prefix = " | ".join(prefix_parts).strip()
+        for page_chunk_index, chunk in enumerate(_chunk_text(page_text)):
+            chunk_with_context = f"{chunk_prefix}\n\n{chunk}".strip() if chunk_prefix else chunk
+            chunk_records.append(
+                {
+                    "content": chunk_with_context,
+                    "raw_content": chunk,
+                    "page_url": page_url,
+                    "page_title": page_title,
+                    "page_chunk_index": page_chunk_index,
+                }
+            )
+
+    if not chunk_records:
+        raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from website text", status_code=422)
+
+    best_title = next((str(p.get("title") or "").strip() for p in usable_pages if str(p.get("title") or "").strip()), "")
+    if best_title:
+        await db.execute(
+            text(
+                """
+                update public.knowledge_sources
+                set title = :title
+                where id = :source_id
+                """
+            ),
+            {"source_id": str(source.id), "title": best_title[:255]},
+        )
+
+    await db.execute(
+        text(
+            """
+            update public.indexing_jobs
+            set phase = 'chunking', chunks_total = :chunks_total, progress_pct = 45
+            where id = :job_id
+            """
+        ),
+        {"job_id": str(job_id), "chunks_total": len(chunk_records)},
+    )
+
+    embeddings = await _embed_texts([str(rec["content"]) for rec in chunk_records])
+    await db.execute(
+        text(
+            """
+            update public.indexing_jobs
+            set phase = 'embedding', chunks_embedded = :chunks_embedded, progress_pct = 75
+            where id = :job_id
+            """
+        ),
+        {"job_id": str(job_id), "chunks_embedded": len(embeddings)},
+    )
+    await db.execute(
+        text("delete from public.knowledge_chunks where knowledge_source_id = :source_id"),
+        {"source_id": str(source.id)},
+    )
+
+    chunks_persisted = 0
+    storage_stopped_reason = "complete"
+    for batch_start in range(0, len(chunk_records), _CHUNK_PERSIST_BATCH_SIZE):
+        batch_end = min(batch_start + _CHUNK_PERSIST_BATCH_SIZE, len(chunk_records))
+        for idx in range(batch_start, batch_end):
+            rec = chunk_records[idx]
+            chunk = str(rec["content"])
+            embedding = embeddings[idx]
+            if len(embedding) != EMBEDDING_DIMENSION:
+                raise AppError(
+                    code="knowledge.embedding_dimension_mismatch",
+                    message="Embedding dimension does not match vector column",
+                    status_code=500,
+                    details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
+                )
+            await db.execute(
+                text(
+                    """
+                    insert into public.knowledge_chunks (
+                      agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
+                    ) values (
+                      :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "agent_id": str(source.agent_id),
+                    "user_id": str(user_id),
+                    "knowledge_source_id": str(source.id),
+                    "chunk_index": idx,
+                    "content": chunk,
+                    "embedding": _vector_literal(embedding),
+                    "token_count": _token_estimate(chunk),
+                    "metadata": json.dumps(
+                        {
+                            "source_url": source.source_url,
+                            "page_url": rec.get("page_url"),
+                            "page_title": rec.get("page_title"),
+                            "raw_content": rec.get("raw_content"),
+                            "chunk_index": idx,
+                            "page_chunk_index": rec.get("page_chunk_index"),
+                        }
+                    ),
+                },
+            )
+            chunks_persisted += 1
+        await db.commit()
+        used_after_batch = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=source.agent_id)
+        if used_after_batch >= effective_storage_cap_bytes:
+            storage_stopped_reason = "saved_storage_budget"
+            break
+
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set status = 'ready', last_indexed_at = now(), error_message = null
+            where id = :source_id
+            """
+        ),
+        {"source_id": str(source.id)},
+    )
+    planned_urls = dashboard_planned_url_count if dashboard_planned_url_count is not None else urls_fetched
+    success_metrics_obj: dict[str, object] = {
+        "chunk_count": chunks_persisted,
+        "indexed_source_bytes": indexed_source_bytes,
+        "crawl_http_bytes": crawl_http_bytes,
+        "crawl_budget_bytes": crawl_budget_bytes,
+        "crawl_stopped_reason": crawl_stopped_reason,
+        "storage_stopped_reason": storage_stopped_reason,
+        "urls_planned": planned_urls,
+        "urls_fetched": urls_fetched,
+        "urls_indexed": len(usable_pages),
+        "discovery_mode": website_discovery_mode,
+        "filter_summary": _website_filter_summary(include_rules, exclude_rules),
+        "links_discovered_raw_anchors": links_discovered,
+        "fetch_stats": fetch_stats,
+    }
+    if partial_warnings:
+        success_metrics_obj["warnings"] = partial_warnings
+    success_metrics = json.dumps(success_metrics_obj, default=str)
+    await db.execute(
+        text(
+            """
+            update public.indexing_jobs
+            set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
+                pages_total = :pages_total,
+                pages_processed = :pages_processed,
+                chunks_embedded = :chunks_embedded,
+                metrics = cast(:metrics as jsonb)
+            where id = :job_id
+            """
+        ),
+        {
+            "job_id": str(job_id),
+            "pages_total": planned_urls,
+            "pages_processed": urls_fetched,
+            "chunks_embedded": chunks_persisted,
+            "metrics": success_metrics,
+        },
+    )
+    await db.execute(
+        text(
+            """
+            update public.knowledge_crawl_runs
+            set status = 'succeeded',
+                pages_discovered = :pages_discovered,
+                pages_crawled = :pages_crawled,
+                pages_failed = :pages_failed,
+                links_discovered = :links_discovered,
+                finished_at = now()
+            where id = :crawl_run_id
+            """
+        ),
+        {
+            "crawl_run_id": str(crawl_run_id),
+            "pages_discovered": urls_fetched,
+            "pages_crawled": len(usable_pages),
+            "pages_failed": urls_fetched - len(usable_pages),
+            "links_discovered": links_discovered,
+        },
+    )
+    await db.commit()
+    from app.domains.notifications.links import href_knowledge_source
+    from app.domains.notifications.service import create_notification_best_effort
+
+    await create_notification_best_effort(
+        db,
+        user_id=user_id,
+        kind="knowledge_index_complete",
+        title="Knowledge indexing complete",
+        body=f"“{source.title}” is indexed and ready for answers.",
+        href=href_knowledge_source(
+            source_type=source.type, agent_id=source.agent_id, source_id=source.id
+        ),
+        metadata={"source_id": str(source.id), "source_type": source.type},
+    )
+    return preview_image_url
+
+
+async def _process_website_embedding_only(
+    db: AsyncSession,
+    job_id: UUID,
+    user_id: UUID,
+    source: KnowledgeSourceDTO,
+    job_metrics: dict[str, object],
+) -> str | None:
+    raw_cr = job_metrics.get("embedding_crawl_run_id")
+    if raw_cr is None:
+        raise AppError(
+            code="knowledge.embedding_handoff_missing",
+            message="Indexing job is missing crawl handoff metadata; try re-indexing the source.",
+            status_code=500,
+        )
+    crawl_run_id = UUID(str(raw_cr))
+    md = dict(source.metadata or {})
+    _mode, _max_pages, include_rules, exclude_rules = _ingest_params_from_metadata(md)
+
+    pages = await _load_website_pages_for_embedding(
+        db, source_id=source.id, crawl_run_id=crawl_run_id, user_id=user_id
+    )
+    usable_pages = [p for p in pages if str(p["text"]).strip()]
+    if not usable_pages:
+        fs = job_metrics.get("fetch_stats")
+        fetch_stats = dict(fs) if isinstance(fs, dict) else {}
+        planned_urls_metrics = (
+            int(job_metrics["dashboard_planned_url_count"])
+            if job_metrics.get("dashboard_planned_url_count") is not None
+            else len(pages)
+        )
+        raise AppError(
+            code="knowledge.scrape_empty",
+            message="No usable text from fetched pages (all empty, failed HTTP, or blocked by crawl budget).",
+            status_code=422,
+            details={
+                "discovery_mode": str(job_metrics.get("website_discovery_mode") or "unknown"),
+                "urls_planned": planned_urls_metrics,
+                **fetch_stats,
+                "crawl_stopped_reason": str(job_metrics.get("crawl_stopped_reason") or ""),
+                "filter_summary": _website_filter_summary(include_rules, exclude_rules),
+            },
+        )
+
+    _plan_slug, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+
+    pv = job_metrics.get("preview_image_url")
+    preview_image_url = str(pv) if pv not in (None, "") else None
+
+    crawl_http_bytes = int(job_metrics.get("crawl_http_bytes") or 0)
+    crawl_budget_bytes = int(job_metrics.get("crawl_budget_bytes") or 0)
+    crawl_stopped_reason = str(job_metrics.get("crawl_stopped_reason") or "complete")
+    website_discovery_mode = str(job_metrics.get("website_discovery_mode") or "unknown")
+    links_discovered = int(job_metrics.get("links_discovered") or 0)
+    fs2 = job_metrics.get("fetch_stats")
+    fetch_stats = dict(fs2) if isinstance(fs2, dict) else {}
+    pw = job_metrics.get("partial_warnings")
+    partial_warnings: list[dict[str, object]] = (
+        [dict(x) for x in pw if isinstance(x, dict)] if isinstance(pw, list) else []
+    )
+    dpc = job_metrics.get("dashboard_planned_url_count")
+    dashboard_planned_url_count = int(dpc) if dpc is not None else None
+    urls_fetched = int(job_metrics.get("urls_fetched") or len(pages))
+
+    return await _complete_website_indexing_embedding_phase(
+        db,
+        job_id=job_id,
+        user_id=user_id,
+        source=source,
+        crawl_run_id=crawl_run_id,
+        preview_image_url=preview_image_url,
+        usable_pages=usable_pages,
+        urls_fetched=urls_fetched,
+        crawl_http_bytes=crawl_http_bytes,
+        crawl_budget_bytes=crawl_budget_bytes,
+        crawl_stopped_reason=crawl_stopped_reason,
+        website_discovery_mode=website_discovery_mode,
+        links_discovered=links_discovered,
+        fetch_stats=fetch_stats,
+        partial_warnings=partial_warnings,
+        dashboard_planned_url_count=dashboard_planned_url_count,
+        include_rules=include_rules,
+        exclude_rules=exclude_rules,
+        effective_storage_cap_bytes=effective_storage_cap_bytes,
+    )
+
+
 async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) -> str | None:
     result = await db.execute(
         text(
             """
             select
               j.id as job_id,
+              j.phase::text as job_phase,
+              j.metrics as job_metrics,
               s.id, s.agent_id, s.user_id, s.type, s.title, s.status, s.source_url, s.storage_bucket, s.storage_path,
               s.metadata, s.error_message, s.last_indexed_at, s.created_at, s.updated_at
             from public.indexing_jobs j
@@ -1522,9 +2138,44 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
     row = result.mappings().first()
     if row is None:
         raise AppError(code="knowledge.job_not_found", message="Indexing job not found", status_code=404)
-    source = KnowledgeSourceDTO.model_validate(row)
+    row_map = dict(row)
+    row_map.pop("job_id", None)
+    job_phase = str(row_map.pop("job_phase"))
+    raw_metrics = row_map.pop("job_metrics")
+    job_metrics_snapshot: dict[str, object] = dict(raw_metrics) if isinstance(raw_metrics, dict) else {}
+    source = KnowledgeSourceDTO.model_validate(row_map)
     if source.type != "website" or not source.source_url:
         raise AppError(code="validation.invalid_input", message="Only website sources are supported", status_code=422)
+
+    if job_phase == "embedding":
+        cr_emb: UUID | None = None
+        try:
+            raw_handoff = job_metrics_snapshot.get("embedding_crawl_run_id")
+            if raw_handoff is not None:
+                cr_emb = UUID(str(raw_handoff))
+        except ValueError:
+            cr_emb = None
+        try:
+            return await _process_website_embedding_only(db, job_id, user_id, source, job_metrics_snapshot)
+        except Exception as exc:
+            if isinstance(exc, IntegrityError):
+                detail = str(getattr(exc, "orig", None) or exc)
+                if "knowledge_source_pages_knowledge_source_id_fkey" in detail:
+                    exc = AppError(
+                        code="knowledge.source_removed",
+                        message="This website source was deleted while indexing was still running.",
+                        status_code=409,
+                    )
+            await _finalize_indexing_failure(
+                db,
+                job_id=job_id,
+                source_id=source.id,
+                crawl_run_id=cr_emb,
+                exc=exc,
+            )
+            if isinstance(exc, AppError):
+                raise
+            raise AppError(code="knowledge.indexing_failed", message="Indexing job failed", status_code=500) from exc
 
     md = dict(source.metadata or {})
     mode, max_pages, include_rules, exclude_rules = _ingest_params_from_metadata(md)
@@ -1533,7 +2184,6 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
     preview_image_url: str | None = None
 
     try:
-        await _set_job_running(db, job_id)
         crawl_settings: dict[str, object] = {
             "max_pages": max_pages,
             "website_mode": mode,
@@ -1594,22 +2244,16 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             )
         elif mode == "sitemap":
             website_discovery_mode = "sitemap"
-            sitemap_urls = await _collect_sitemap_urls(
+            sitemap_discovered = await _discover_sitemap_urls(
                 source.source_url,
                 max_pages,
                 include_rules,
                 exclude_rules,
                 progress=_indexing_sitemap_progress,
             )
+            sitemap_urls = sitemap_discovered.urls
             if not sitemap_urls:
-                raise AppError(
-                    code="knowledge.sitemap_empty",
-                    message=(
-                        "No page URLs in the sitemap. Point to sitemap.xml (not the homepage), "
-                        "or loosen include path rules if they exclude every URL."
-                    ),
-                    status_code=422,
-                )
+                raise _app_error_for_empty_sitemap_discovery(sitemap_discovered)
             dashboard_planned_url_count = len(sitemap_urls)
             if md.get("origin") == "dashboard_website":
                 await _dashboard_seed_queued_urls(
@@ -1639,13 +2283,15 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 )
         else:
             if md.get("origin") == "dashboard_website":
-                sitemap_plan = await _collect_sitemap_urls(
-                    source.source_url,
-                    max_pages,
-                    include_rules,
-                    exclude_rules,
-                    progress=_indexing_sitemap_progress,
-                )
+                sitemap_plan = (
+                    await _discover_sitemap_urls(
+                        source.source_url,
+                        max_pages,
+                        include_rules,
+                        exclude_rules,
+                        progress=_indexing_sitemap_progress,
+                    )
+                ).urls
                 if len(sitemap_plan) > 0:
                     website_discovery_mode = "sitemap"
                     dashboard_planned_url_count = len(sitemap_plan)
@@ -1763,6 +2409,8 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 }
             )
 
+        split_after_crawl = md.get("origin") == "dashboard_website"
+
         if pages_persisted_incrementally:
             await db.execute(
                 text(
@@ -1798,7 +2446,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 {"job_id": str(job_id), "pages_total": len(pages), "pages_processed": len(pages)},
             )
 
-        if not pages_persisted_incrementally:
+        if not pages_persisted_incrementally or split_after_crawl:
             await _require_knowledge_source_exists(db, source.id)
             for page in pages:
                 await _upsert_knowledge_source_page(
@@ -1809,196 +2457,46 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                     page=page,
                 )
 
-        # Persist crawled URLs before embedding so failures later (e.g. OpenAI) do not roll back page rows.
         await db.commit()
 
-        indexed_source_bytes = sum(len(str(p["text"]).encode("utf-8")) for p in usable_pages)
-        chunk_records: list[dict[str, object]] = []
-        for page in usable_pages:
-            page_url = str(page.get("url") or source.source_url or "")
-            page_text = str(page.get("text") or "")
-            page_title = str(page.get("title") or source.title or "").strip()
-            prefix_parts = [p for p in [page_title, page_url] if p]
-            chunk_prefix = " | ".join(prefix_parts).strip()
-            for page_chunk_index, chunk in enumerate(_chunk_text(page_text)):
-                chunk_with_context = f"{chunk_prefix}\n\n{chunk}".strip() if chunk_prefix else chunk
-                chunk_records.append(
-                    {
-                        "content": chunk_with_context,
-                        "raw_content": chunk,
-                        "page_url": page_url,
-                        "page_title": page_title,
-                        "page_chunk_index": page_chunk_index,
-                    }
-                )
-
-        if not chunk_records:
-            raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from website text", status_code=422)
-
-        best_title = next((str(p.get("title") or "").strip() for p in usable_pages if str(p.get("title") or "").strip()), "")
-        if best_title:
-            await db.execute(
-                text(
-                    """
-                    update public.knowledge_sources
-                    set title = :title
-                    where id = :source_id
-                    """
-                ),
-                {"source_id": str(source.id), "title": best_title[:255]},
-            )
-
-        await db.execute(
-            text(
-                """
-                update public.indexing_jobs
-                set phase = 'chunking', chunks_total = :chunks_total, progress_pct = 45
-                where id = :job_id
-                """
-            ),
-            {"job_id": str(job_id), "chunks_total": len(chunk_records)},
-        )
-
-        embeddings = await _embed_texts([str(rec["content"]) for rec in chunk_records])
-        await db.execute(
-            text(
-                """
-                update public.indexing_jobs
-                set phase = 'embedding', chunks_embedded = :chunks_embedded, progress_pct = 75
-                where id = :job_id
-                """
-            ),
-            {"job_id": str(job_id), "chunks_embedded": len(embeddings)},
-        )
-        await db.execute(
-            text("delete from public.knowledge_chunks where knowledge_source_id = :source_id"),
-            {"source_id": str(source.id)},
-        )
-
-        chunks_persisted = 0
-        storage_stopped_reason = "complete"
-        for batch_start in range(0, len(chunk_records), _CHUNK_PERSIST_BATCH_SIZE):
-            batch_end = min(batch_start + _CHUNK_PERSIST_BATCH_SIZE, len(chunk_records))
-            for idx in range(batch_start, batch_end):
-                rec = chunk_records[idx]
-                chunk = str(rec["content"])
-                embedding = embeddings[idx]
-                if len(embedding) != EMBEDDING_DIMENSION:
-                    raise AppError(
-                        code="knowledge.embedding_dimension_mismatch",
-                        message="Embedding dimension does not match vector column",
-                        status_code=500,
-                        details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
-                    )
-                await db.execute(
-                    text(
-                        """
-                        insert into public.knowledge_chunks (
-                          agent_id, user_id, knowledge_source_id, chunk_index, content, embedding, token_count, metadata
-                        ) values (
-                          :agent_id, :user_id, :knowledge_source_id, :chunk_index, :content, CAST(:embedding AS vector), :token_count, CAST(:metadata AS jsonb)
-                        )
-                        """
-                    ),
-                    {
-                        "agent_id": str(source.agent_id),
-                        "user_id": str(user_id),
-                        "knowledge_source_id": str(source.id),
-                        "chunk_index": idx,
-                        "content": chunk,
-                        "embedding": _vector_literal(embedding),
-                        "token_count": _token_estimate(chunk),
-                        "metadata": json.dumps(
-                            {
-                                "source_url": source.source_url,
-                                "page_url": rec.get("page_url"),
-                                "page_title": rec.get("page_title"),
-                                "raw_content": rec.get("raw_content"),
-                                "chunk_index": idx,
-                                "page_chunk_index": rec.get("page_chunk_index"),
-                            }
-                        ),
-                    },
-                )
-                chunks_persisted += 1
-            await db.commit()
-            used_after_batch = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=source.agent_id)
-            if used_after_batch >= effective_storage_cap_bytes:
-                storage_stopped_reason = "saved_storage_budget"
-                break
-
-        await db.execute(
-            text(
-                """
-                update public.knowledge_sources
-                set status = 'ready', last_indexed_at = now(), error_message = null
-                where id = :source_id
-                """
-            ),
-            {"source_id": str(source.id)},
-        )
-        planned_urls = dashboard_planned_url_count if dashboard_planned_url_count is not None else len(pages)
-        success_metrics_obj: dict[str, object] = {
-            "chunk_count": chunks_persisted,
-            "indexed_source_bytes": indexed_source_bytes,
-            "crawl_http_bytes": crawl_http_bytes,
-            "crawl_budget_bytes": crawl_budget_bytes,
-            "crawl_stopped_reason": crawl_stopped_reason,
-            "storage_stopped_reason": storage_stopped_reason,
-            "urls_planned": planned_urls,
-            "urls_fetched": len(pages),
-            "urls_indexed": len(usable_pages),
-            "discovery_mode": website_discovery_mode,
-            "filter_summary": _website_filter_summary(include_rules, exclude_rules),
-            "links_discovered_raw_anchors": links_discovered,
-            "fetch_stats": fetch_stats,
-        }
-        if partial_warnings:
-            success_metrics_obj["warnings"] = partial_warnings
-        success_metrics = json.dumps(success_metrics_obj, default=str)
-        await db.execute(
-            text(
-                """
-                update public.indexing_jobs
-                set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
-                    pages_total = :pages_total,
-                    pages_processed = :pages_processed,
-                    chunks_embedded = :chunks_embedded,
-                    metrics = cast(:metrics as jsonb)
-                where id = :job_id
-                """
-            ),
-            {
-                "job_id": str(job_id),
-                "pages_total": planned_urls,
-                "pages_processed": len(pages),
-                "chunks_embedded": chunks_persisted,
-                "metrics": success_metrics,
-            },
-        )
-        await db.execute(
-            text(
-                """
-                update public.knowledge_crawl_runs
-                set status = 'succeeded',
-                    pages_discovered = :pages_discovered,
-                    pages_crawled = :pages_crawled,
-                    pages_failed = :pages_failed,
-                    links_discovered = :links_discovered,
-                    finished_at = now()
-                where id = :crawl_run_id
-                """
-            ),
-            {
-                "crawl_run_id": str(crawl_run_id),
-                "pages_discovered": len(pages),
-                "pages_crawled": len(usable_pages),
-                "pages_failed": len(pages) - len(usable_pages),
+        if split_after_crawl:
+            embedding_handoff: dict[str, object] = {
+                "embedding_crawl_run_id": str(crawl_run_id),
+                "preview_image_url": preview_image_url,
+                "dashboard_planned_url_count": dashboard_planned_url_count,
+                "website_discovery_mode": website_discovery_mode,
+                "crawl_http_bytes": crawl_http_bytes,
+                "crawl_budget_bytes": crawl_budget_bytes,
+                "crawl_stopped_reason": crawl_stopped_reason,
                 "links_discovered": links_discovered,
-            },
+                "fetch_stats": fetch_stats,
+                "partial_warnings": partial_warnings,
+                "urls_fetched": len(pages),
+            }
+            await _release_dashboard_job_for_embedding_pass(db, job_id=job_id, embedding_handoff=embedding_handoff)
+            return preview_image_url
+
+        return await _complete_website_indexing_embedding_phase(
+            db,
+            job_id=job_id,
+            user_id=user_id,
+            source=source,
+            crawl_run_id=crawl_run_id,
+            preview_image_url=preview_image_url,
+            usable_pages=usable_pages,
+            urls_fetched=len(pages),
+            crawl_http_bytes=crawl_http_bytes,
+            crawl_budget_bytes=crawl_budget_bytes,
+            crawl_stopped_reason=crawl_stopped_reason,
+            website_discovery_mode=website_discovery_mode,
+            links_discovered=links_discovered,
+            fetch_stats=fetch_stats,
+            partial_warnings=partial_warnings,
+            dashboard_planned_url_count=dashboard_planned_url_count,
+            include_rules=include_rules,
+            exclude_rules=exclude_rules,
+            effective_storage_cap_bytes=effective_storage_cap_bytes,
         )
-        await db.commit()
-        return preview_image_url
     except Exception as exc:
         if isinstance(exc, IntegrityError):
             detail = str(getattr(exc, "orig", None) or exc)
@@ -2180,6 +2678,20 @@ async def index_file_source(
             },
         )
         await db.commit()
+        from app.domains.notifications.links import href_knowledge_source
+        from app.domains.notifications.service import create_notification_best_effort
+
+        await create_notification_best_effort(
+            db,
+            user_id=user_id,
+            kind="knowledge_index_complete",
+            title="Knowledge indexing complete",
+            body=f"“{source.title}” is indexed and ready for answers.",
+            href=href_knowledge_source(
+                source_type=source.type, agent_id=source.agent_id, source_id=source.id
+            ),
+            metadata={"source_id": str(source.id), "source_type": source.type},
+        )
     except Exception as exc:
         await _finalize_indexing_failure(
             db,
@@ -2343,6 +2855,20 @@ async def index_text_snippet_source(
             },
         )
         await db.commit()
+        from app.domains.notifications.links import href_knowledge_source
+        from app.domains.notifications.service import create_notification_best_effort
+
+        await create_notification_best_effort(
+            db,
+            user_id=user_id,
+            kind="knowledge_index_complete",
+            title="Knowledge indexing complete",
+            body=f"“{source.title}” is indexed and ready for answers.",
+            href=href_knowledge_source(
+                source_type=source.type, agent_id=source.agent_id, source_id=source.id
+            ),
+            metadata={"source_id": str(source.id), "source_type": source.type},
+        )
     except Exception as exc:
         await _finalize_indexing_failure(
             db,
@@ -2531,6 +3057,20 @@ async def index_qa_source(db: AsyncSession, source_id: UUID, user_id: UUID) -> t
             },
         )
         await db.commit()
+        from app.domains.notifications.links import href_knowledge_source
+        from app.domains.notifications.service import create_notification_best_effort
+
+        await create_notification_best_effort(
+            db,
+            user_id=user_id,
+            kind="knowledge_index_complete",
+            title="Knowledge indexing complete",
+            body=f"“{source.title}” is indexed and ready for answers.",
+            href=href_knowledge_source(
+                source_type=source.type, agent_id=source.agent_id, source_id=source.id
+            ),
+            metadata={"source_id": str(source.id), "source_type": source.type},
+        )
     except Exception as exc:
         await _finalize_indexing_failure(
             db,
@@ -2829,6 +3369,7 @@ async def list_website_sources_for_agent(
               select count(*)::int as c
               from public.knowledge_source_pages p
               where p.knowledge_source_id = s.id
+                and p.status <> 'excluded'::public.crawl_page_status
             ) cnt on true
             left join lateral (
               select status, phase, pages_total, pages_processed, progress_pct, metrics
@@ -2860,6 +3401,8 @@ async def list_website_sources_for_agent(
         meta = dict(meta_raw) if isinstance(meta_raw, dict) else {}
         dup_r = meta.get("duplicate_reason")
         dup_sid = meta.get("duplicate_of_source_id")
+        jm_raw = row.get("job_metrics")
+        job_metrics_dict = dict(jm_raw) if isinstance(jm_raw, dict) else None
         out.append(
             WebsiteSourceListItemDTO(
                 id=row["id"],
@@ -2873,6 +3416,7 @@ async def list_website_sources_for_agent(
                 error_message=str(row["error_message"]).strip() if row.get("error_message") else None,
                 latest_job_status=str(row["latest_job_status"]) if row["latest_job_status"] else None,
                 latest_job_phase=str(row["latest_job_phase"]) if row["latest_job_phase"] else None,
+                job_metrics=job_metrics_dict,
                 job_pages_total=int(row["job_pages_total"]) if row.get("job_pages_total") is not None else None,
                 job_pages_processed=int(row["job_pages_processed"]) if row.get("job_pages_processed") is not None else None,
                 job_progress_pct=int(row["job_progress_pct"]) if row.get("job_progress_pct") is not None else None,

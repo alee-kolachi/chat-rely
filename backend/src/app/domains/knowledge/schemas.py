@@ -119,6 +119,10 @@ class WebsiteUrlPreviewResponse(BaseModel):
     sample_urls: list[str] = Field(default_factory=list)
     truncated: bool = False
     message: str | None = None
+    discovery_warning: str | None = Field(
+        default=None, description="Non-fatal hint (e.g. nested sitemap walk capped)."
+    )
+    sitemap_truncated: bool = False
 
 
 class WebsiteIndividualRequest(BaseModel):
@@ -143,11 +147,15 @@ class WebsiteSourceListItemDTO(BaseModel):
     source_url: str | None
     status: str
     website_mode: WebsiteMode | None = None
-    link_count: int = 0
+    link_count: int = Field(
+        default=0,
+        description="Page rows for this source excluding excluded placeholders (includes queued while crawl runs).",
+    )
     last_indexed_at: datetime | None = None
     error_message: str | None = None
     latest_job_status: str | None = None
     latest_job_phase: str | None = None
+    job_metrics: dict[str, Any] | None = None
     job_pages_total: int | None = None
     job_pages_processed: int | None = None
     job_progress_pct: int | None = None

@@ -6,6 +6,8 @@ type ShopifyConnectionPanelProps = {
   scopes?: string[];
   lastSyncedAt?: string | null;
   busy?: boolean;
+  /** When false, Connect / input are disabled (e.g. no agent selected). */
+  connectEnabled?: boolean;
   shopDraft: string;
   onShopDraftChange: (value: string) => void;
   onConnect: () => void;
@@ -29,6 +31,7 @@ export function ConnectionCard({
   scopes = [],
   lastSyncedAt,
   busy,
+  connectEnabled = true,
   shopDraft,
   onShopDraftChange,
   onConnect,
@@ -60,12 +63,12 @@ export function ConnectionCard({
               onChange={(e) => onShopDraftChange(e.target.value)}
               placeholder="your-store"
               className="border-ds-outline text-ds-on-surface flex-1 rounded-ds-md border bg-white px-3 py-2 text-sm shadow-sm"
-              disabled={busy}
+              disabled={busy || !connectEnabled}
             />
             <button
               type="button"
               onClick={() => void onConnect()}
-              disabled={busy || !shopDraft.trim()}
+              disabled={busy || !connectEnabled || !shopDraft.trim()}
               className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
             >
               Connect Shopify

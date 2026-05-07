@@ -113,7 +113,7 @@ export function DashboardSidebar() {
   return (
     <aside
       className={cn(
-        "border-ds-outline bg-ds-sidebar hidden shrink-0 flex-col border-r transition-[width] duration-200 md:flex",
+        "border-ds-outline bg-ds-sidebar hidden min-h-0 shrink-0 flex-col overflow-hidden border-r transition-[width] duration-200 md:flex",
         isCollapsed ? "w-20" : "w-64"
       )}
     >
@@ -136,7 +136,7 @@ export function DashboardSidebar() {
         </button>
       </div>
 
-      <nav className="flex flex-col gap-1 p-2">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain p-2">
         {navItems.map((item) => {
           const itemActive = isRouteActive(pathname, item.href);
           const childActive = item.children ? hasActiveChild(pathname, item.children) : false;

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DeployShopifyStatus } from "@/components/deploy/deploy-shopify-status";
+import { DeployWidgetEmbedSnippet } from "@/components/deploy/deploy-widget-embed-snippet";
 import { cn } from "@/lib/utils";
 
 const setupSteps = [
@@ -151,6 +152,8 @@ export default function DeployPage() {
             </div>
           </article>
         </section>
+
+        <DeployWidgetEmbedSnippet />
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
           <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">

@@ -228,7 +228,7 @@ export function PricingComparison({ plans, loading, loadError }: PricingComparis
     }
     const d = cents / 100;
     const s = Number.isInteger(d) ? String(d) : d.toFixed(2);
-    return `$${s} / conversation above cushion`;
+    return `$${s} / conversation beyond included`;
   };
 
   const rows: { label: string; values: string[] }[] = [
@@ -249,7 +249,7 @@ export function PricingComparison({ plans, loading, loadError }: PricingComparis
       values: plans.map((p) => (p.features.shopify_enabled === true ? "Yes" : "—")),
     },
     {
-      label: "Paid overage (after ~120% cushion)",
+      label: "Paid overage (beyond included)",
       values: plans.map((p) => overageLabel(p.overage_conversation_cents)),
     },
   ];

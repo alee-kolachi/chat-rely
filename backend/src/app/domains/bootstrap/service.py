@@ -15,8 +15,6 @@ from app.domains.bootstrap.schemas import (
     SubscriptionDTO,
     UsageSnapshotDTO,
 )
-from app.domains.usage_cushion import cushion_conversation_limit
-
 log = structlog.get_logger(__name__)
 
 
@@ -354,17 +352,7 @@ async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse
 
     usage_snapshot: UsageSnapshotDTO | None = None
     if usage_row:
-        inc = int(usage_row["included_conversations"])
-        bill = int(usage_row["billable_conversations"])
-        cushion = cushion_conversation_limit(inc)
-        in_free = min(max(0, bill - inc), max(0, cushion - inc))
-        usage_snapshot = UsageSnapshotDTO.model_validate(
-            {
-                **dict(usage_row),
-                "cushion_limit_conversations": cushion,
-                "conversations_in_free_cushion": in_free,
-            }
-        )
+        usage_snapshot = UsageSnapshotDTO.model_validate(dict(usage_row))
     return MeContextResponse(profile=profile, subscription=subscription, plan=plan, usage_snapshot=usage_snapshot)
 
 
@@ -379,6 +367,13 @@ async def refresh_usage_snapshot_for_user(user_id: UUID) -> None:
             _, subscription, _ = context
             await _refresh_usage_snapshot_for_subscription(db, user_id, subscription)
             await db.commit()
+            ps = subscription.current_period_start.astimezone(UTC).date()
+            pe = subscription.current_period_end.astimezone(UTC).date()
+            from app.domains.notifications.service import maybe_emit_usage_warning_notification
+
+            await maybe_emit_usage_warning_notification(
+                db, user_id=user_id, period_start=ps, period_end=pe
+            )
         except Exception:
             log.warning("usage.snapshot_refresh_failed", user_id=str(user_id), exc_info=True)
 

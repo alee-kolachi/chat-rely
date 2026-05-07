@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
 import { AccountMenu } from "@/components/layout/account-menu";
+import { NotificationsMenu } from "@/components/layout/notifications-menu";
 import { getDashboardScreenTitle } from "@/lib/dashboard-route-title";
 import { cn } from "@/lib/utils";
 import { useDashboardAgent } from "./dashboard-agent-context";
@@ -29,16 +30,29 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
         <div className="min-w-0 max-w-full flex-1 sm:max-w-md">
           {agentsError ? (
             <span className={cn(onboardingType.body, "text-rose-600 truncate")}>{agentsError}</span>
+          ) : agentsLoading ? (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-label="Loading workspace"
+              className={cn(fieldControlClass, "flex w-full min-w-0 cursor-default items-center gap-2")}
+            >
+              <span className="text-ds-on-surface-variant min-w-0 truncate">Loading workspace</span>
+              <span className="ml-auto flex shrink-0 items-center gap-1" aria-hidden>
+                <span className="ds-thinking-dot" />
+                <span className="ds-thinking-dot" />
+                <span className="ds-thinking-dot" />
+              </span>
+            </div>
           ) : (
             <select
               className={fieldControlClass}
               aria-label="Agent"
               value={selectedAgentId}
-              disabled={agentsLoading || agents.length === 0}
+              disabled={agents.length === 0}
               onChange={(e) => setSelectedAgentId(e.target.value)}
             >
-              {agents.length === 0 && !agentsLoading ? <option value="">No agents</option> : null}
-              {agentsLoading && agents.length === 0 ? <option value="">Loading…</option> : null}
+              {agents.length === 0 ? <option value="">No agents</option> : null}
               {agents.map((agent) => (
                 <option key={agent.id} value={agent.id}>
                   {agent.name}
@@ -50,6 +64,7 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
       </div>
       <div className="flex shrink-0 items-center gap-2 md:gap-3">
         {rightExtras}
+        <NotificationsMenu />
         <AccountMenu />
       </div>
     </header>
