@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,4 +40,16 @@ def get_current_user(
         return AuthContext(user_id=UUID(str(claims["sub"])), claims=claims)
     except (TypeError, ValueError) as exc:
         raise AuthError("Token subject is not a valid UUID") from exc
+
+
+def require_admin(auth: AuthContext = Depends(get_current_user)) -> AuthContext:
+    """Gate `/api/v1/admin/*` routes against the ADMIN_EMAILS allowlist.
+
+    Returns 404 (not 403) so non-admins cannot confirm the admin namespace exists.
+    """
+    settings = get_settings()
+    email = auth.claims.get("email")
+    if not isinstance(email, str) or not settings.is_admin_email(email):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return auth
 

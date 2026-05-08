@@ -203,11 +203,30 @@ export function AccountPlanContent() {
 
     didStartCheckoutPollRef.current = true;
     const startPlanSlug = ctx.plan.slug;
+    const checkoutSessionId = searchParams.get("checkout_session_id")?.trim() ?? "";
 
     setPlanChangeBanner("Finalizing your subscription… checking for updated limits.");
 
     let cancelled = false;
     void (async () => {
+      if (checkoutSessionId.startsWith("cs_")) {
+        try {
+          await backendFetch("/api/v1/billing/checkout/complete", {
+            method: "POST",
+            body: JSON.stringify({ checkout_session_id: checkoutSessionId }),
+          });
+          await refresh();
+        } catch (e) {
+          if (!cancelled) {
+            const msg =
+              e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not finalize checkout";
+            setLoadError(msg);
+          }
+        }
+      }
+
+      if (cancelled) return;
+
       const res = await pollUntilPlanApplied({ startPlanSlug });
       if (cancelled) return;
 

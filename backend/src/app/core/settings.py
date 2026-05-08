@@ -1,8 +1,16 @@
+import json
+import re
 from functools import lru_cache
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import AnyHttpUrl, PostgresDsn, ValidationError, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AnyHttpUrl, PostgresDsn, ValidationError, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+# Strict whitelist for model identifier keys in price-map env vars. Keys are interpolated
+# directly into a dynamic SQL CASE expression in `app.domains.admin.costing`, so we reject
+# anything that could break out of the model literal (quotes, semicolons, parens, …).
+_PRICE_MAP_KEY_RE = re.compile(r"^[A-Za-z0-9._\-:]+$")
 
 
 class Settings(BaseSettings):
@@ -72,6 +80,69 @@ class Settings(BaseSettings):
     billing_app_base_url: str = "http://localhost:3000"
     """Optional shared secret for POST /api/v1/billing/internal/charge-overage (cron)."""
     billing_internal_secret: str | None = None
+
+    """Comma-separated emails authorized to access /api/v1/admin/* (admin panel). Empty = admin disabled.
+
+    `NoDecode` prevents pydantic-settings from JSON-decoding the env value before our validator runs."""
+    admin_emails: Annotated[list[str], NoDecode] = []
+
+    @field_validator("admin_emails", mode="before")
+    @classmethod
+    def split_admin_emails(cls, v: Any) -> list[str]:
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            return [e.strip().lower() for e in v.split(",") if e.strip()]
+        if isinstance(v, list):
+            return [str(e).strip().lower() for e in v if str(e).strip()]
+        return []
+
+    def is_admin_email(self, email: str | None) -> bool:
+        return bool(email) and email.lower() in self.admin_emails
+
+    """Per-model token pricing in USD per 1,000,000 tokens. JSON object keyed by `messages.model`.
+
+    Adding a new model is an env edit + restart — no DB migration. Keys must match the literal
+    `messages.model` value at write-time. Unknown models surface as `unknown_models` in the admin
+    Costing overview rather than silently costing $0.
+
+    `NoDecode` defers parsing to our validator so we get a clear error message on bad JSON / bad
+    keys (vs pydantic-settings's opaque SettingsError)."""
+    llm_input_price_per_million_usd: Annotated[dict[str, float], NoDecode] = {}
+    llm_output_price_per_million_usd: Annotated[dict[str, float], NoDecode] = {}
+    """Keyed by embedding model name (currently always `openai_embedding_model` since
+    `knowledge_chunks` doesn't store a per-row model)."""
+    embedding_price_per_million_usd: Annotated[dict[str, float], NoDecode] = {}
+
+    @field_validator(
+        "llm_input_price_per_million_usd",
+        "llm_output_price_per_million_usd",
+        "embedding_price_per_million_usd",
+        mode="before",
+    )
+    @classmethod
+    def parse_price_map(cls, v: Any) -> dict[str, float]:
+        if v is None or v == "":
+            return {}
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"price map env must be a valid JSON object: {exc.msg}") from exc
+        if not isinstance(v, dict):
+            raise ValueError("price map must be a JSON object (e.g. {\"gpt-4o-mini\":0.15})")
+        out: dict[str, float] = {}
+        for k, val in v.items():
+            key = str(k)
+            if not _PRICE_MAP_KEY_RE.fullmatch(key):
+                raise ValueError(
+                    f"invalid model key {key!r}: only [A-Za-z0-9._-:] characters are allowed"
+                )
+            try:
+                out[key] = float(val)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"price for {key!r} must be a number, got {val!r}") from exc
+        return out
 
     @model_validator(mode="before")
     @classmethod

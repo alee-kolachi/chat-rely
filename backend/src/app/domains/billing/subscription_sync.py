@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 import stripe
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,8 @@ from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.domains.billing.price_map import slug_for_price_id
 from app.domains.billing.stripe_client import configure_stripe
+
+log = structlog.get_logger(__name__)
 
 
 def _stripe_obj_to_dict(obj: Any) -> dict[str, Any]:
@@ -24,6 +27,128 @@ def _stripe_obj_to_dict(obj: Any) -> dict[str, Any]:
     if callable(fn):
         return fn()
     return {}
+
+
+def _coerce_unix_ts(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_subscription_period_bounds(stripe_sub: dict[str, Any]) -> tuple[datetime, datetime]:
+    """Return billing period bounds from either subscription or subscription item payload."""
+    start = _coerce_unix_ts(stripe_sub.get("current_period_start"))
+    end = _coerce_unix_ts(stripe_sub.get("current_period_end"))
+
+    if start is None or end is None:
+        items = stripe_sub.get("items") or {}
+        data = items.get("data") if isinstance(items, dict) else None
+        first = data[0] if isinstance(data, list) and data else {}
+        if isinstance(first, dict):
+            start = start or _coerce_unix_ts(first.get("current_period_start"))
+            end = end or _coerce_unix_ts(first.get("current_period_end"))
+
+    if start is None:
+        start = int(datetime.now(tz=UTC).timestamp())
+    if end is None:
+        end = int((datetime.fromtimestamp(start, tz=UTC) + timedelta(days=31)).timestamp())
+    if end <= start:
+        end = int((datetime.fromtimestamp(start, tz=UTC) + timedelta(days=1)).timestamp())
+
+    return datetime.fromtimestamp(start, tz=UTC), datetime.fromtimestamp(end, tz=UTC)
+
+
+def _uuid_from_metadata(meta: dict[str, Any] | None, key: str) -> UUID | None:
+    if not meta:
+        return None
+    raw = meta.get(key)
+    if not raw:
+        return None
+    try:
+        return UUID(str(raw))
+    except ValueError:
+        return None
+
+
+def user_id_from_checkout_session_payload(data: dict[str, Any]) -> UUID | None:
+    meta = data.get("metadata") or {}
+    uid = _uuid_from_metadata(meta if isinstance(meta, dict) else {}, "user_id")
+    if uid is None and data.get("client_reference_id"):
+        try:
+            uid = UUID(str(data["client_reference_id"]))
+        except ValueError:
+            return None
+    return uid
+
+
+def _stripe_id_field(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return str(value.get("id") or "").strip()
+    return str(value).strip()
+
+
+async def sync_subscription_from_checkout_session_payload(db: AsyncSession, data: dict[str, Any]) -> bool:
+    """
+    Apply a checkout.session payload (subscription mode) to public.subscriptions.
+
+    Used by Stripe webhooks and by the authenticated finalize-checkout endpoint so local/dev
+    works when webhooks cannot reach localhost.
+    """
+    mode = data.get("mode")
+    if mode != "subscription":
+        return False
+
+    sub_id = _stripe_id_field(data.get("subscription"))
+    cust_id = _stripe_id_field(data.get("customer"))
+    if not sub_id or not cust_id:
+        log.warning("stripe.checkout.missing_sub_or_customer", session_id=data.get("id"))
+        return False
+
+    user_id = user_id_from_checkout_session_payload(data)
+    if user_id is None:
+        log.warning("stripe.checkout.missing_user", session_id=data.get("id"))
+        return False
+
+    stripe_sub = await fetch_stripe_subscription(sub_id)
+    plan_id = await resolve_plan_id_for_stripe_subscription(db, stripe_sub)
+    if plan_id is None:
+        meta_raw = data.get("metadata") or {}
+        meta = meta_raw if isinstance(meta_raw, dict) else {}
+        slug = (meta.get("plan_slug") or "").strip().lower()
+        if slug:
+            r = await db.execute(
+                text("select id from public.plans where slug = :slug and is_active = true limit 1"),
+                {"slug": slug},
+            )
+            row = r.mappings().first()
+            if row:
+                plan_id = UUID(str(row["id"]))
+    if plan_id is None:
+        log.error("stripe.checkout.plan_unresolved", user_id=str(user_id), subscription_id=sub_id)
+        return False
+
+    stripe_sub_dict = _stripe_obj_to_dict(stripe_sub)
+    cps, cpe = _extract_subscription_period_bounds(stripe_sub_dict)
+    status = str(stripe_sub_dict.get("status") or "active")
+    cape = bool(stripe_sub_dict.get("cancel_at_period_end"))
+
+    await upsert_user_subscription_from_stripe(
+        db,
+        user_id=user_id,
+        stripe_customer_id=cust_id,
+        stripe_subscription_id=sub_id,
+        plan_id=plan_id,
+        status=status,
+        current_period_start=cps,
+        current_period_end=cpe,
+        cancel_at_period_end=cape,
+    )
+    return True
 
 
 def _month_period(now: datetime) -> tuple[datetime, datetime]:

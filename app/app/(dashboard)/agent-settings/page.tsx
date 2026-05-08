@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function AgentSettingsIndexRedirect() {
-  redirect("/agent-settings/general");
+  redirect("/agent-settings/appearance");
 }

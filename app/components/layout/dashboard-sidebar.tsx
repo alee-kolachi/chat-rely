@@ -35,6 +35,7 @@ const navItems: NavItem[] = [
   { href: "/tickets", label: "Tickets", icon: IconTickets },
   { href: "/deploy", label: "Deploy", icon: IconDeploy },
   { href: "/usage", label: "Usage", icon: IconUsage },
+  { href: "/agent-settings", label: "Agent Settings", icon: IconSettings },
 ];
 
 function isRouteActive(pathname: string, href: string) {
@@ -70,7 +71,7 @@ export function DashboardSidebar() {
   }, [pathname]);
 
   useEffect(() => {
-    setCollapsedFlyoutHref(null);
+    queueMicrotask(() => setCollapsedFlyoutHref(null));
   }, [pathname]);
 
   useEffect(() => {

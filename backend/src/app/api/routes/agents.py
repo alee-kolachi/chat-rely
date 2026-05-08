@@ -5,6 +5,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_user, get_db
+from app.domains.agents.reliability_schemas import (
+    AgentReliabilityDTO,
+    AgentReliabilityUpdateRequest,
+)
+from app.domains.agents.reliability_service import get_reliability, update_reliability
 from app.domains.agents.schemas import (
     AgentCreateRequest,
     AgentDTO,
@@ -70,6 +75,25 @@ async def get_agent_dashboard_route(
         range_to=range_to,
         tick_lifecycle=False,
     )
+
+
+@router.get("/{agent_id}/reliability", response_model=AgentReliabilityDTO)
+async def get_agent_reliability_route(
+    agent_id: UUID,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AgentReliabilityDTO:
+    return await get_reliability(db, user.user_id, agent_id)
+
+
+@router.patch("/{agent_id}/reliability", response_model=AgentReliabilityDTO)
+async def update_agent_reliability_route(
+    agent_id: UUID,
+    payload: AgentReliabilityUpdateRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AgentReliabilityDTO:
+    return await update_reliability(db, user.user_id, agent_id, payload)
 
 
 @router.get("/{agent_id}/analytics", response_model=AgentAnalyticsResponse)

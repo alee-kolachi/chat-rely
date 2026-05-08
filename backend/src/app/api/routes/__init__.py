@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.routes.admin import admin_router
 from app.api.routes.agent_actions import router as agent_actions_router
 from app.api.routes.agents import router as agents_router
 from app.api.routes.billing import router as billing_router
@@ -49,5 +50,6 @@ def get_api_router() -> APIRouter:
     router.include_router(mailjet_inbound_router)
     router.include_router(billing_router)
     router.include_router(webhooks_stripe_router)
+    router.include_router(admin_router)
     return router
 

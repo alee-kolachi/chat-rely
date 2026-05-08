@@ -26,6 +26,7 @@ const mobileNavItems = [
   { href: "/tickets", label: "Tickets" },
   { href: "/deploy", label: "Deploy" },
   { href: "/usage", label: "Usage" },
+  { href: "/agent-settings", label: "Agent Settings" },
   { href: "/account/profile", label: "Account" },
 ];
 

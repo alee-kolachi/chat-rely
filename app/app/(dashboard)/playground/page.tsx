@@ -78,6 +78,24 @@ function creativityBandLabel(value: number): string {
   return "Balanced";
 }
 
+function languagePreviewLabel(raw: string | null): string | null {
+  if (!raw) return null;
+  const key = raw.trim().toLowerCase();
+  if (!key || key === "auto") return null;
+  const labels: Record<string, string> = {
+    en: "English",
+    es: "Spanish",
+    fr: "French",
+    de: "German",
+    pt: "Portuguese",
+    it: "Italian",
+    nl: "Dutch",
+    ja: "Japanese",
+    zh: "Chinese",
+  };
+  return labels[key] ?? raw;
+}
+
 /** Keep playground transcript in sync with Conversations (operator replies, same thread). */
 const PLAYGROUND_THREAD_POLL_MS = 4000;
 
@@ -156,6 +174,9 @@ function PlaygroundPreviewConversation({
   agentName,
   brandColorHex,
   toneRaw,
+  toneDescriptionRaw,
+  greetingMessageRaw,
+  languageRaw,
   model,
   agentType,
   systemPrompt,
@@ -167,6 +188,9 @@ function PlaygroundPreviewConversation({
   agentName: string | null;
   brandColorHex: string | null;
   toneRaw: string | null;
+  toneDescriptionRaw: string | null;
+  greetingMessageRaw: string | null;
+  languageRaw: string | null;
   model: string;
   agentType: string;
   systemPrompt: string;
@@ -408,6 +432,10 @@ function PlaygroundPreviewConversation({
   );
   const displayName = (agentName?.trim() || "Assistant preview").trim();
   const emptyToneLine = previewAssistantLineForTone(toneRaw);
+  const greetingMessage = greetingMessageRaw?.trim() || null;
+  const toneDescription = toneDescriptionRaw?.trim() || null;
+  const languageLabel = languagePreviewLabel(languageRaw);
+  const emptyAssistantLine = greetingMessage ?? emptyToneLine;
 
   const headerToolbarIconBtnClass = useMemo(
     () =>
@@ -594,8 +622,15 @@ function PlaygroundPreviewConversation({
             {previewMessages.length === 0 ? (
               <div className={cn(onboardingType.body, "space-y-3 text-center")}>
                 <p className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-sm border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
-                  {emptyToneLine}
+                  {emptyAssistantLine}
                 </p>
+                {toneDescription || languageLabel ? (
+                  <p className={cn(onboardingType.hint, "text-ds-on-surface-variant text-xs")}>
+                    {toneDescription ? `Tone guidance: ${toneDescription}` : null}
+                    {toneDescription && languageLabel ? " \u00b7 " : null}
+                    {languageLabel ? `Reply language: ${languageLabel}` : null}
+                  </p>
+                ) : null}
                 <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>Send a message to test this agent.</p>
               </div>
             ) : null}
@@ -670,7 +705,7 @@ function PlaygroundPreviewConversation({
             <div className="flex items-center gap-2 sm:gap-3">
               <input
                 className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
-                placeholder="Test your agent…"
+                placeholder={languageLabel ? `Test your agent (${languageLabel})…` : "Test your agent…"}
                 value={messageInput}
                 onChange={(e) => setMessageInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -1277,6 +1312,21 @@ export default function PlaygroundPage() {
               toneRaw={
                 typeof selectedAgent?.behavior_settings?.tone === "string"
                   ? selectedAgent.behavior_settings.tone
+                  : null
+              }
+              toneDescriptionRaw={
+                typeof selectedAgent?.behavior_settings?.tone_description === "string"
+                  ? selectedAgent.behavior_settings.tone_description
+                  : null
+              }
+              greetingMessageRaw={
+                typeof selectedAgent?.behavior_settings?.greeting_message === "string"
+                  ? selectedAgent.behavior_settings.greeting_message
+                  : null
+              }
+              languageRaw={
+                typeof selectedAgent?.behavior_settings?.language === "string"
+                  ? selectedAgent.behavior_settings.language
                   : null
               }
               model={model}

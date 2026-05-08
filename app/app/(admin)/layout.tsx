@@ -1,0 +1,31 @@
+import type { ReactNode } from "react";
+import { notFound } from "next/navigation";
+import { AdminShell } from "@/components/admin/admin-shell";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
+
+export default async function AdminLayout({ children }: { children: ReactNode }) {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) notFound();
+
+  const base = (
+    process.env.BACKEND_INTERNAL_URL ||
+    process.env.API_PROXY_TARGET ||
+    "http://127.0.0.1:8000"
+  )
+    .trim()
+    .replace(/\/$/, "");
+  const res = await fetch(`${base}/api/v1/admin/me`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) notFound();
+
+  const me = (await res.json()) as { email?: string | null; is_admin: boolean };
+  const email = typeof me.email === "string" ? me.email : "";
+  if (!email) notFound();
+
+  return <AdminShell email={email}>{children}</AdminShell>;
+}

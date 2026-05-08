@@ -22,6 +22,8 @@ class PublicWidgetConfigResponse(BaseModel):
     name: str
     brand_color: str | None = None
     widget_position: Literal["bottom_right", "bottom_left"] = "bottom_right"
+    """Optional first assistant bubble shown when the chat opens."""
+    greeting_message: str | None = None
     """True when ``human.escalate`` is enabled for this agent (widget may show Escalate button)."""
     human_escalation_available: bool = False
     """Optional logo URL for header (e.g. favicon from primary website knowledge source)."""

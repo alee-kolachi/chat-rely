@@ -13,6 +13,11 @@ from app.core.settings import get_settings
 from app.domains.billing.customers import ensure_stripe_customer_for_user, fetch_auth_user_email
 from app.domains.billing.price_map import monthly_price_id_for_slug, paid_checkout_slugs
 from app.domains.billing.stripe_client import configure_stripe
+from app.domains.billing.subscription_sync import (
+    _stripe_obj_to_dict,
+    sync_subscription_from_checkout_session_payload,
+    user_id_from_checkout_session_payload,
+)
 
 
 async def create_subscription_checkout_session(
@@ -67,7 +72,8 @@ async def create_subscription_checkout_session(
         raise AppError(code="plan.not_found", message="Plan not found", status_code=404)
 
     base = settings.billing_app_base_url.rstrip("/")
-    success_url = f"{base}/account/plan?checkout=success"
+    # Stripe replaces {CHECKOUT_SESSION_ID} so the app can finalize without webhooks (e.g. localhost).
+    success_url = f"{base}/account/plan?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{base}/account/plan?checkout=cancel"
 
     try:
@@ -101,6 +107,66 @@ async def create_subscription_checkout_session(
     if not url:
         raise AppError(code="stripe.checkout_failed", message="Checkout session missing URL", status_code=502)
     return str(url)
+
+
+async def finalize_subscription_checkout_session(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    checkout_session_id: str,
+) -> None:
+    """
+    Pull subscription state from Stripe after Checkout redirect.
+
+    Webhooks are still the primary path in production; this covers local dev and any environment
+    where Stripe cannot POST to the app (e.g. localhost).
+    """
+    sid = (checkout_session_id or "").strip()
+    if not sid.startswith("cs_"):
+        raise AppError(code="billing.invalid_checkout_session", message="Invalid checkout session id", status_code=400)
+
+    configure_stripe()
+    try:
+        session = stripe.checkout.Session.retrieve(sid, expand=["subscription"])
+    except stripe.StripeError as exc:
+        raise AppError(
+            code="stripe.checkout_retrieve_failed",
+            message="Could not load checkout session from Stripe",
+            status_code=502,
+            details={"stripe": str(exc)[:400]},
+        ) from exc
+
+    data = _stripe_obj_to_dict(session)
+    status = str(data.get("status") or "")
+    if status != "complete":
+        raise AppError(
+            code="billing.checkout_incomplete",
+            message="Checkout session is not complete yet; wait a moment and try again",
+            status_code=409,
+        )
+
+    session_user = user_id_from_checkout_session_payload(data)
+    if session_user is None or session_user != user_id:
+        raise AppError(
+            code="billing.checkout_forbidden",
+            message="This checkout session does not belong to the signed-in user",
+            status_code=403,
+        )
+
+    if str(data.get("mode") or "") != "subscription":
+        raise AppError(
+            code="billing.checkout_wrong_mode",
+            message="Not a subscription checkout session",
+            status_code=400,
+        )
+
+    ok = await sync_subscription_from_checkout_session_payload(db, data)
+    if not ok:
+        raise AppError(
+            code="billing.checkout_finalize_failed",
+            message="Could not apply subscription from checkout; verify Stripe price IDs and plan configuration",
+            status_code=502,
+        )
 
 
 async def change_subscription_plan(

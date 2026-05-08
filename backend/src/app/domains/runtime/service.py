@@ -853,6 +853,9 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
     )
 
     await assert_plan_usage_allows_assistant_reply(db, user_id)
+    # TODO(rate-limit-enforcement): respect agents.behavior_settings.rate_limit
+    # (max_messages, window_seconds, limit_message) per-agent throttle. UI persists
+    # the values today via /agent-settings/rate-limits but enforcement is a follow-up.
 
     await append_message(
         db,
@@ -1180,6 +1183,9 @@ async def run_chat_stream(
 
     try:
         await assert_plan_usage_allows_assistant_reply(db, user_id)
+        # TODO(rate-limit-enforcement): respect agents.behavior_settings.rate_limit
+        # (max_messages, window_seconds, limit_message) per-agent throttle. UI persists
+        # the values today via /agent-settings/rate-limits but enforcement is a follow-up.
     except AppError as exc:
         yield {
             "type": "error",

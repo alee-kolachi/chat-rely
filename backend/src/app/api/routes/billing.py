@@ -16,6 +16,7 @@ from app.domains.billing.checkout_service import (
     change_subscription_plan,
     create_billing_portal_session,
     create_subscription_checkout_session,
+    finalize_subscription_checkout_session,
 )
 from app.domains.billing.overage import charge_conversation_overage_for_user_period
 
@@ -41,6 +42,26 @@ async def billing_checkout(
     )
     await db.commit()
     return {"url": url}
+
+
+class CheckoutCompleteRequest(BaseModel):
+    checkout_session_id: str = Field(min_length=8, max_length=128)
+
+
+@router.post("/checkout/complete")
+async def billing_checkout_complete(
+    body: CheckoutCompleteRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Apply a completed Stripe Checkout session to the workspace (webhook fallback for localhost)."""
+    await finalize_subscription_checkout_session(
+        db,
+        user_id=user.user_id,
+        checkout_session_id=body.checkout_session_id,
+    )
+    await db.commit()
+    return {"status": "ok"}
 
 
 class SubscriptionChangeRequest(BaseModel):

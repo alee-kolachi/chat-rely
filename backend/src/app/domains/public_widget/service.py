@@ -55,11 +55,16 @@ def build_public_widget_config(ctx: PublicWidgetAgentContext) -> PublicWidgetCon
     position: WidgetPosition = cast(WidgetPosition, raw_pos if raw_pos in ("bottom_right", "bottom_left") else "bottom_right")
     brand = b.get("brand_color")
     brand_color = str(brand).strip() if isinstance(brand, str) and brand.strip() else None
+    raw_greeting = b.get("greeting_message")
+    greeting_message = (
+        str(raw_greeting).strip() if isinstance(raw_greeting, str) and raw_greeting.strip() else None
+    )
     return PublicWidgetConfigResponse(
         agent_id=ctx.agent_id,
         name=ctx.name,
         brand_color=brand_color,
         widget_position=position,
+        greeting_message=greeting_message,
     )
 
 

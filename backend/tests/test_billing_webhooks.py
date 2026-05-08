@@ -1,6 +1,6 @@
 from datetime import UTC
 
-from app.domains.billing.webhooks import _extract_subscription_period_bounds
+from app.domains.billing.subscription_sync import _extract_subscription_period_bounds
 
 
 def test_extract_subscription_period_bounds_prefers_subscription_fields() -> None:
