@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
+    runtime_enable_turn_signals: bool = False
+    runtime_enable_shopify_route_classifier: bool = False
     dev_auth_bypass_enabled: bool = False
     dev_auth_bypass_user_id: str = "00000000-0000-0000-0000-000000000001"
 

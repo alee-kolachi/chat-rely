@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { MeContextPayload } from "@/components/layout/me-context-provider";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 
@@ -38,6 +39,56 @@ export function AccountPlanContent() {
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [planChangeBanner, setPlanChangeBanner] = useState<string | null>(null);
   const planActionsRef = useRef<HTMLDivElement | null>(null);
+  const didStartCheckoutPollRef = useRef(false);
+
+  const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  async function getCurrentPlanSlugFromApi(): Promise<string | null> {
+    const me = await backendFetch<MeContextPayload>("/api/v1/me/context");
+    return me?.plan?.slug ?? null;
+  }
+
+  /**
+   * Polls `/api/v1/me/context` until:
+   * - if `expectedPlanSlug` is provided: the plan slug matches it
+   * - otherwise: the plan slug differs from `startPlanSlug`
+   */
+  async function pollUntilPlanApplied(opts: {
+    expectedPlanSlug?: string;
+    startPlanSlug: string | null;
+    timeoutMs?: number;
+    intervalMs?: number;
+  }): Promise<{ applied: boolean; latestPlanSlug: string | null }> {
+    const timeoutMs = opts.timeoutMs ?? 120_000; // ~2 minutes
+    const intervalMs = opts.intervalMs ?? 10_000;
+    const start = Date.now();
+
+    let latestPlanSlug: string | null = null;
+
+    while (Date.now() - start < timeoutMs) {
+      try {
+        latestPlanSlug = await getCurrentPlanSlugFromApi();
+        const expected = (opts.expectedPlanSlug ?? "").trim().toLowerCase();
+
+        if (expected) {
+          if (latestPlanSlug === expected) {
+            await refresh(); // sync ctx.plan + ctx.usage_snapshot for UI
+            return { applied: true, latestPlanSlug };
+          }
+        } else if (opts.startPlanSlug && latestPlanSlug && latestPlanSlug !== opts.startPlanSlug) {
+          await refresh();
+          return { applied: true, latestPlanSlug };
+        }
+      } catch {
+        // Retry on transient errors while Stripe/webhook is settling.
+      }
+
+      await delay(intervalMs);
+    }
+
+    await refresh();
+    return { applied: false, latestPlanSlug };
+  }
 
   const checkoutBanner = useMemo(() => {
     const q = searchParams.get("checkout");
@@ -85,8 +136,18 @@ export function AccountPlanContent() {
         method: "POST",
         body: JSON.stringify({ plan_slug: planSlug, proration_behavior: "create_prorations" }),
       });
-      await refresh();
-      setPlanChangeBanner(`Your plan is switching to ${formatPlanLabel(planSlug)}. Stripe usually finishes within a minute.`);
+
+      setPlanChangeBanner(`Updating to ${formatPlanLabel(planSlug)}… Stripe usually finishes within a minute.`);
+
+      const startPlanSlug = ctx?.plan.slug ?? null;
+      const res = await pollUntilPlanApplied({ expectedPlanSlug: planSlug, startPlanSlug });
+      if (res.applied) {
+        setPlanChangeBanner(`Your plan is now ${formatPlanLabel(res.latestPlanSlug ?? planSlug)}.`);
+      } else {
+        setPlanChangeBanner(
+          `Stripe is still processing your plan change. If it doesn’t update within a few minutes, refresh this page.`,
+        );
+      }
     } catch (e) {
       const msg = e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Plan change failed";
       setLoadError(msg);
@@ -130,6 +191,38 @@ export function AccountPlanContent() {
     const paidHit = PAID_ORDER.includes(slug as (typeof PAID_ORDER)[number]);
     if (!paidHit) return;
     planActionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [searchParams, ctx]);
+
+  // After Stripe checkout redirects back with `?checkout=success`, poll until the upgraded plan applies.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const q = searchParams.get("checkout");
+    if (q !== "success") return;
+    if (!ctx) return;
+    if (didStartCheckoutPollRef.current) return;
+
+    didStartCheckoutPollRef.current = true;
+    const startPlanSlug = ctx.plan.slug;
+
+    setPlanChangeBanner("Finalizing your subscription… checking for updated limits.");
+
+    let cancelled = false;
+    void (async () => {
+      const res = await pollUntilPlanApplied({ startPlanSlug });
+      if (cancelled) return;
+
+      if (res.applied && res.latestPlanSlug) {
+        setPlanChangeBanner(`Your plan is now ${formatPlanLabel(res.latestPlanSlug)}.`);
+      } else {
+        setPlanChangeBanner(
+          "Stripe is still processing. If your plan limits haven’t updated, refresh this page in a couple minutes.",
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, ctx]);
 
   return (

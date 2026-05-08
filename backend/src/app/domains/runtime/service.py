@@ -5,9 +5,11 @@ Conversation memory is loaded from Postgres; extend the graph with tool nodes
 for agentic actions (Shopify, policies) per `supabase/RULES.md`.
 """
 
+import asyncio
 import json
 import re
 import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -19,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from app.core.settings import get_settings
 from app.domains.actions.human_availability import seller_is_available_for_live_chat
 from app.domains.actions.service import (
     get_human_escalation_for_runtime,
@@ -72,9 +75,13 @@ log = structlog.get_logger("runtime.service")
 RAG_RELAX_MIN_SIMILARITY = 0.43
 # After threshold passes, keep at most this many merged candidates; the model sees top N only.
 RAG_MERGED_CHUNK_CAP = 20
-RAG_PROMPT_CHUNK_COUNT = 8
+RAG_PROMPT_CHUNK_COUNT = 4
+RAG_PROMPT_EXCERPT_MAX_CHARS = 700
+RAG_PROMPT_CONTEXT_MAX_CHARS = 2400
 RAG_ANN_CANDIDATE_POOL = 60
 RAG_LEXICAL_CANDIDATE_POOL = 40
+RAG_EMBED_CACHE_TTL_SECONDS = 900
+RAG_EMBED_CACHE_MAX_ITEMS = 512
 
 # Appended to system message when Shopify tools are bound. Overrides RAG-only “use fallback” behavior.
 _SHOPIFY_TOOLS_RUNTIME_BLOCK = (
@@ -99,6 +106,28 @@ _TOOL_RAG_SUPPLEMENT_FOR_TOOLS = (
     "the assistant must invoke the appropriate tool(s) before treating the answer as unknown or using only the "
     "fallback message above."
 )
+
+_embed_cache: OrderedDict[str, tuple[float, list[float]]] = OrderedDict()
+_embed_cache_lock = asyncio.Lock()
+
+
+async def _embed_text_with_cache(text: str) -> list[float]:
+    key = (text or "").strip()
+    if not key:
+        return []
+    now = time.time()
+    async with _embed_cache_lock:
+        cached = _embed_cache.get(key)
+        if cached and (now - cached[0]) < RAG_EMBED_CACHE_TTL_SECONDS:
+            _embed_cache.move_to_end(key)
+            return cached[1]
+    embedding = (await _embed_texts([key]))[0]
+    async with _embed_cache_lock:
+        _embed_cache[key] = (now, embedding)
+        _embed_cache.move_to_end(key)
+        while len(_embed_cache) > RAG_EMBED_CACHE_MAX_ITEMS:
+            _embed_cache.popitem(last=False)
+    return embedding
 
 
 def _serialize_tool_calls_for_db(msg: AIMessage) -> list[dict[str, Any]]:
@@ -653,43 +682,38 @@ async def _retrieve_merged_chunks_for_message(
     msg = (user_message or "").strip()
     if not msg:
         return []
-    raw_embedding = (await _embed_texts([msg]))[0]
+    raw_embedding = await _embed_text_with_cache(msg)
     expanded_embedding: list[float] | None = None
     exp = (expanded_query or "").strip()
     if exp and exp != msg:
-        expanded_embedding = (await _embed_texts([exp]))[0]
+        expanded_embedding = await _embed_text_with_cache(exp)
 
     async def merged_at(floor: float) -> list[dict[str, Any]]:
-        parts = [await _match_chunks_with_embedding(db, agent_id, raw_embedding, floor, match_count=match_count)]
+        tasks = [
+            _match_chunks_with_embedding(db, agent_id, raw_embedding, floor, match_count=match_count)
+        ]
         if expanded_embedding is not None:
-            parts.append(
-                await _match_chunks_with_embedding(
-                    db, agent_id, expanded_embedding, floor, match_count=match_count
-                )
+            tasks.append(
+                _match_chunks_with_embedding(db, agent_id, expanded_embedding, floor, match_count=match_count)
             )
+        parts = await asyncio.gather(*tasks)
         return _merge_chunks_by_best_similarity(parts)[:RAG_MERGED_CHUNK_CAP]
 
     merged = await merged_at(min_similarity)
     if not merged and min_similarity > RAG_RELAX_MIN_SIMILARITY:
         merged = await merged_at(RAG_RELAX_MIN_SIMILARITY)
-    ann_candidates: list[list[dict[str, Any]]] = [
-        await _match_top_chunks_ann(
-            db, agent_id, raw_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count)
-        )
+    ann_tasks = [
+        _match_top_chunks_ann(db, agent_id, raw_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count))
     ]
     if expanded_embedding is not None:
-        ann_candidates.append(
-            await _match_top_chunks_ann(
-                db, agent_id, expanded_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count)
-            )
+        ann_tasks.append(
+            _match_top_chunks_ann(db, agent_id, expanded_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count))
         )
-    lexical_candidates: list[list[dict[str, Any]]] = [
-        await _match_chunks_lexical(db, agent_id, msg, limit=RAG_LEXICAL_CANDIDATE_POOL)
-    ]
+    lexical_tasks = [_match_chunks_lexical(db, agent_id, msg, limit=RAG_LEXICAL_CANDIDATE_POOL)]
     if exp and exp != msg:
-        lexical_candidates.append(
-            await _match_chunks_lexical(db, agent_id, exp, limit=RAG_LEXICAL_CANDIDATE_POOL)
-        )
+        lexical_tasks.append(_match_chunks_lexical(db, agent_id, exp, limit=RAG_LEXICAL_CANDIDATE_POOL))
+    ann_candidates = await asyncio.gather(*ann_tasks)
+    lexical_candidates = await asyncio.gather(*lexical_tasks)
     merged = _merge_chunks_by_best_similarity([merged, *ann_candidates, *lexical_candidates])
     reranked = _rerank_chunks_for_query(merged, msg)
     return reranked[:RAG_MERGED_CHUNK_CAP]
@@ -707,6 +731,24 @@ def _merge_chunks_by_best_similarity(chunks_lists: list[list[dict[str, Any]]]) -
             if prev is None or float(row.get("similarity") or 0) > float(prev.get("similarity") or 0):
                 by_id[cid] = row
     return sorted(by_id.values(), key=lambda r: float(r.get("similarity") or 0), reverse=True)
+
+
+def _build_context_block(chunks: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    total = 0
+    for idx, chunk in enumerate(chunks):
+        text = str(chunk.get("content") or "").strip()
+        if not text:
+            continue
+        excerpt = text[:RAG_PROMPT_EXCERPT_MAX_CHARS]
+        if len(text) > RAG_PROMPT_EXCERPT_MAX_CHARS:
+            excerpt = excerpt.rstrip() + "..."
+        block = f"[Excerpt {idx + 1}]\n{excerpt}"
+        if total + len(block) > RAG_PROMPT_CONTEXT_MAX_CHARS:
+            break
+        lines.append(block)
+        total += len(block) + 2
+    return "\n\n".join(lines)
 
 
 def _extract_query_terms(query_text: str) -> set[str]:
@@ -908,9 +950,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
     grounded_user = payload.message
     if has_context:
         system_content = build_system_prompt(system_prompt, shopify_tools_enabled=shopify_tools_enabled)
-        context_block = "\n\n".join(
-            f"[Excerpt {idx + 1}]\n{chunk['content']}" for idx, chunk in enumerate(prompt_chunks)
-        )
+        context_block = _build_context_block(prompt_chunks)
         grounded_user = build_grounded_user_prompt(
             context_block,
             fallback_message,
@@ -936,11 +976,13 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
     tools_available_count = len(tool_list)
     shopify_route_decision = None
     force_tools_round0 = False
+    settings = get_settings()
     if tool_list:
-        shopify_route_decision = await classify_shopify_tool_route(payload.message, tool_list)
-        force_tools_round0 = tool_choice_required_from_route(
-            shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
-        )
+        if settings.runtime_enable_shopify_route_classifier:
+            shopify_route_decision = await classify_shopify_tool_route(payload.message, tool_list)
+            force_tools_round0 = tool_choice_required_from_route(
+                shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
+            )
         m0 = lc_messages[0]
         if isinstance(m0, SystemMessage):
             lc_messages = [
@@ -1245,9 +1287,7 @@ async def run_chat_stream(
     grounded_user = payload.message
     if has_context:
         system_content = build_system_prompt(system_prompt, shopify_tools_enabled=shopify_tools_enabled)
-        context_block = "\n\n".join(
-            f"[Excerpt {idx + 1}]\n{chunk['content']}" for idx, chunk in enumerate(prompt_chunks)
-        )
+        context_block = _build_context_block(prompt_chunks)
         grounded_user = build_grounded_user_prompt(
             context_block,
             fallback_message,
@@ -1285,11 +1325,13 @@ async def run_chat_stream(
         conv_for_handoff and conv_for_handoff.status in ("open", "escalated")
     )
 
+    settings = get_settings()
     if tool_list:
-        shopify_route_decision = await classify_shopify_tool_route(payload.message, tool_list)
-        force_tools_round0 = tool_choice_required_from_route(
-            shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
-        )
+        if settings.runtime_enable_shopify_route_classifier:
+            shopify_route_decision = await classify_shopify_tool_route(payload.message, tool_list)
+            force_tools_round0 = tool_choice_required_from_route(
+                shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
+            )
         m0 = lc_messages[0]
         if isinstance(m0, SystemMessage):
             lc_messages = [

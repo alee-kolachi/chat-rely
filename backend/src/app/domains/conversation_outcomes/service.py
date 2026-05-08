@@ -196,6 +196,8 @@ async def compute_turn_signals(last_user_message: str, assistant_reply: str) -> 
     settings = get_settings()
     if not settings.openai_api_key:
         return None
+    if not settings.runtime_enable_turn_signals:
+        return None
     llm = ChatOpenAI(
         model=settings.openai_chat_model or "gpt-4o-mini",
         temperature=0,

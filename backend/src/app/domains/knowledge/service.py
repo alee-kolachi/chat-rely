@@ -202,51 +202,111 @@ def _local_xml_tag(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
 
-def _chunk_text(text_value: str, chunk_size: int = 1200, overlap: int = 200) -> list[str]:
-    if not text_value:
-        return []
-    # Prefer semantic block chunking first (paragraph-like blocks), then fallback
-    # to fixed-width slicing when a single block is too large.
-    blocks = [b.strip() for b in re.split(r"\n{2,}", text_value) if b.strip()]
-    if blocks:
-        chunks: list[str] = []
-        current = ""
-        for block in blocks:
-            candidate = f"{current}\n\n{block}".strip() if current else block
-            if len(candidate) <= chunk_size:
-                current = candidate
-                continue
-            if current:
-                chunks.append(current)
-            if len(block) <= chunk_size:
-                current = block
-                continue
-            # Oversized block: split with overlap.
-            start = 0
-            while start < len(block):
-                end = min(start + chunk_size, len(block))
-                piece = block[start:end].strip()
-                if piece:
-                    chunks.append(piece)
-                if end >= len(block):
-                    break
-                start = max(0, end - overlap)
-            current = ""
-        if current:
-            chunks.append(current)
-        if chunks:
-            return chunks
+def _is_markdown_heading(line: str) -> bool:
+    return bool(re.match(r"^\s{0,3}#{1,6}\s+\S", line or ""))
 
-    chunks: list[str] = []
+
+def _extract_heading_path_from_line(line: str) -> tuple[int, str] | None:
+    m = re.match(r"^\s{0,3}(#{1,6})\s+(.+)$", line or "")
+    if not m:
+        return None
+    level = len(m.group(1))
+    title = _normalize_text(m.group(2))
+    if not title:
+        return None
+    return level, title
+
+
+def _looks_like_table_block(block: str) -> bool:
+    lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return False
+    if "|" not in lines[0] or "|" not in lines[1]:
+        return False
+    divider = lines[1].replace("|", "").replace(":", "").replace("-", "").strip()
+    return divider == ""
+
+
+def _split_large_plaintext_block(block: str, chunk_size: int, overlap: int) -> list[str]:
+    pieces: list[str] = []
     start = 0
-    while start < len(text_value):
-        end = min(start + chunk_size, len(text_value))
-        chunk = text_value[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= len(text_value):
+    while start < len(block):
+        end = min(start + chunk_size, len(block))
+        piece = block[start:end].strip()
+        if piece:
+            pieces.append(piece)
+        if end >= len(block):
             break
         start = max(0, end - overlap)
+    return pieces
+
+
+def _chunk_text(text_value: str, chunk_size: int = 3600, overlap: int = 500) -> list[str]:
+    """
+    Semantic-first chunking:
+    - split by paragraph blocks
+    - carry active heading path into every chunk
+    - keep Markdown code fences and tables atomic when possible
+    """
+    if not text_value:
+        return []
+    blocks = [b.strip() for b in re.split(r"\n{2,}", text_value) if b.strip()]
+    if not blocks:
+        return []
+
+    chunks: list[str] = []
+    current = ""
+    heading_stack: dict[int, str] = {}
+
+    def heading_prefix() -> str:
+        if not heading_stack:
+            return ""
+        ordered = [heading_stack[level] for level in sorted(heading_stack.keys())]
+        return " > ".join([h for h in ordered if h])
+
+    def flush_current() -> None:
+        nonlocal current
+        if current.strip():
+            chunks.append(current.strip())
+        current = ""
+
+    for raw_block in blocks:
+        block = raw_block.strip()
+        if not block:
+            continue
+
+        first_line = block.splitlines()[0].strip()
+        heading_match = _extract_heading_path_from_line(first_line)
+        if heading_match:
+            level, title = heading_match
+            heading_stack = {k: v for k, v in heading_stack.items() if k < level}
+            heading_stack[level] = title
+
+        prefix = heading_prefix()
+        decorated_block = block
+        if prefix and not _is_markdown_heading(first_line):
+            decorated_block = f"Section: {prefix}\n\n{block}"
+
+        candidate = f"{current}\n\n{decorated_block}".strip() if current else decorated_block
+        if len(candidate) <= chunk_size:
+            current = candidate
+            continue
+
+        flush_current()
+
+        block_is_atomic = (
+            decorated_block.startswith("```")
+            or "```" in decorated_block
+            or _looks_like_table_block(decorated_block)
+        )
+        if block_is_atomic or len(decorated_block) <= chunk_size:
+            current = decorated_block
+            continue
+
+        for piece in _split_large_plaintext_block(decorated_block, chunk_size=chunk_size, overlap=overlap):
+            chunks.append(piece)
+
+    flush_current()
     return chunks
 
 
@@ -464,16 +524,28 @@ def _extract_page_text(html: str) -> str:
     json_ld_frags = _json_ld_text_fragments(soup)
     for element in soup(["script", "style", "noscript"]):
         element.decompose()
+
     main_candidates = soup.select("main, article, [role='main'], #MainContent, #main-content")
-    if main_candidates:
-        main_text = _normalize_text(" ".join(_normalize_text(c.get_text(" ")) for c in main_candidates))
-        body_text = main_text
-    else:
-        body_text = _normalize_text(soup.get_text(" "))
-    merged = _dedupe_preserve_order_snippets(
-        [*head_frags, *json_ld_frags, body_text] if body_text else [*head_frags, *json_ld_frags]
-    )
-    # Keep paragraph boundaries so chunking can preserve coherent facts.
+    root = main_candidates[0] if main_candidates else (soup.body or soup)
+
+    structural_blocks: list[str] = []
+    for tag in root.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "pre", "code", "table"]):
+        name = str(tag.name).lower()
+        text_val = _normalize_text(tag.get_text(" ", strip=True))
+        if not text_val:
+            continue
+        if name.startswith("h"):
+            level = int(name[1]) if len(name) > 1 and name[1].isdigit() else 2
+            structural_blocks.append(f"{'#' * max(1, min(level, 6))} {text_val}")
+        elif name in {"pre", "code"}:
+            structural_blocks.append(f"```\n{text_val}\n```")
+        elif name == "table":
+            # Keep table content in one block so chunker does not split rows apart.
+            structural_blocks.append(f"[Table]\n{text_val}")
+        else:
+            structural_blocks.append(text_val)
+
+    merged = _dedupe_preserve_order_snippets([*head_frags, *json_ld_frags, *structural_blocks])
     return "\n\n".join(merged).strip()
 
 
@@ -818,26 +890,14 @@ async def create_and_enqueue_dashboard_website(
         exclude_rules=_rules_from_payload(exclude_rules),
     )
     if dup is not None and mode != "individual":
+        # Don't block a new dashboard crawl just because some seed/landing page was indexed
+        # previously (e.g. onboarding preview). We dedupe at per-URL embedding time instead.
         existing_id, dup_reason = dup
         metadata = {
             **metadata,
             "duplicate_of_source_id": str(existing_id),
             "duplicate_reason": dup_reason,
         }
-        source = await create_source(
-            db,
-            user_id,
-            KnowledgeSourceCreateRequest(
-                agent_id=payload.agent_id,
-                type="website",
-                title=title,
-                source_url=source_url,
-                metadata=metadata,
-                status="skipped_duplicate",
-            ),
-        )
-        refreshed_source = await _load_source(db, source.id, user_id)
-        return refreshed_source, None
     if dup is not None and mode == "individual":
         existing_id, dup_reason = dup
         metadata = {
@@ -1827,6 +1887,55 @@ async def _complete_website_indexing_embedding_phase(
     exclude_rules: list[dict[str, str]],
     effective_storage_cap_bytes: int,
 ) -> str | None:
+    crawled_pages_with_text_count = len(usable_pages)
+    skipped_already_indexed = 0
+
+    md = dict(source.metadata or {})
+    origin = str(md.get("origin") or "")
+    website_mode = str(md.get("website_mode") or "crawl")
+    should_dedupe_already_indexed = origin == "dashboard_website" and website_mode != "individual"
+
+    if should_dedupe_already_indexed and usable_pages:
+        page_key_pairs: list[tuple[dict[str, object], str]] = []
+        url_keys: list[str] = []
+        for page in usable_pages:
+            url = str(page.get("url") or "").strip()
+            if not url:
+                continue
+            key = _url_duplicate_key(url)
+            page_key_pairs.append((page, key))
+            url_keys.append(key)
+
+        url_keys = list({k for k in url_keys if k})
+        if url_keys:
+            existing_keys_rows = (
+                await db.execute(
+                    text(
+                        """
+                        select distinct
+                          regexp_replace(lower(btrim(c.metadata->>'page_url')), '/+$', '') as url_key
+                        from public.knowledge_chunks c
+                        where c.agent_id = cast(:agent_id as uuid)
+                          and c.knowledge_source_id <> cast(:source_id as uuid)
+                          and c.metadata ? 'page_url'
+                          and regexp_replace(lower(btrim(c.metadata->>'page_url')), '/+$', '') = any(
+                            cast(:url_keys as text[])
+                          )
+                        """
+                    ),
+                    {
+                        "agent_id": str(source.agent_id),
+                        "source_id": str(source.id),
+                        "url_keys": url_keys,
+                    },
+                )
+            ).mappings().all()
+            existing_keys = {str(r.get("url_key") or "") for r in existing_keys_rows if r.get("url_key") is not None}
+
+            before = len(usable_pages)
+            usable_pages = [p for (p, k) in page_key_pairs if k not in existing_keys]
+            skipped_already_indexed = before - len(usable_pages)
+
     indexed_source_bytes = sum(len(str(p["text"]).encode("utf-8")) for p in usable_pages)
     chunk_records: list[dict[str, object]] = []
     for page in usable_pages:
@@ -1848,7 +1957,99 @@ async def _complete_website_indexing_embedding_phase(
             )
 
     if not chunk_records:
-        raise AppError(code="knowledge.chunking_empty", message="No chunks were produced from website text", status_code=422)
+        # If all candidate pages were already indexed elsewhere for this agent,
+        # embedding would produce zero chunks. Mark the source/job succeeded anyway.
+        planned_urls = dashboard_planned_url_count if dashboard_planned_url_count is not None else urls_fetched
+
+        storage_stopped_reason = "already_indexed" if skipped_already_indexed > 0 else "complete"
+        success_metrics_obj: dict[str, object] = {
+            "chunk_count": 0,
+            "indexed_source_bytes": 0,
+            "crawl_http_bytes": crawl_http_bytes,
+            "crawl_budget_bytes": crawl_budget_bytes,
+            "crawl_stopped_reason": crawl_stopped_reason,
+            "storage_stopped_reason": storage_stopped_reason,
+            "urls_planned": planned_urls,
+            "urls_fetched": urls_fetched,
+            "urls_indexed": 0,
+            "urls_skipped_already_indexed": skipped_already_indexed,
+            "discovery_mode": website_discovery_mode,
+            "filter_summary": _website_filter_summary(include_rules, exclude_rules),
+            "links_discovered_raw_anchors": links_discovered,
+            "fetch_stats": fetch_stats,
+        }
+        if partial_warnings:
+            success_metrics_obj["warnings"] = partial_warnings
+        success_metrics = json.dumps(success_metrics_obj, default=str)
+
+        await db.execute(
+            text(
+                """
+                update public.knowledge_sources
+                set status = 'ready', last_indexed_at = now(), error_message = null
+                where id = :source_id
+                """
+            ),
+            {"source_id": str(source.id)},
+        )
+        await db.execute(
+            text(
+                """
+                update public.indexing_jobs
+                set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now(),
+                    pages_total = :pages_total,
+                    pages_processed = :pages_processed,
+                    chunks_embedded = 0,
+                    metrics = cast(:metrics as jsonb)
+                where id = :job_id
+                """
+            ),
+            {
+                "job_id": str(job_id),
+                "pages_total": planned_urls,
+                "pages_processed": urls_fetched,
+                "metrics": success_metrics,
+            },
+        )
+        await db.execute(
+            text(
+                """
+                update public.knowledge_crawl_runs
+                set status = 'succeeded',
+                    pages_discovered = :pages_discovered,
+                    pages_crawled = :pages_crawled,
+                    pages_failed = :pages_failed,
+                    links_discovered = :links_discovered,
+                    finished_at = now()
+                where id = :crawl_run_id
+                """
+            ),
+            {
+                "crawl_run_id": str(crawl_run_id),
+                "pages_discovered": urls_fetched,
+                "pages_crawled": crawled_pages_with_text_count,
+                "pages_failed": urls_fetched - crawled_pages_with_text_count,
+                "links_discovered": links_discovered,
+            },
+        )
+        await db.commit()
+
+        from app.domains.notifications.links import href_knowledge_source
+        from app.domains.notifications.service import create_notification_best_effort
+
+        await create_notification_best_effort(
+            db,
+            user_id=user_id,
+            kind="knowledge_index_complete",
+            title="Knowledge indexing complete",
+            body=f"“{source.title}” is indexed and ready for answers.",
+            href=href_knowledge_source(
+                source_type=source.type, agent_id=source.agent_id, source_id=source.id
+            ),
+            metadata={"source_id": str(source.id), "source_type": source.type},
+        )
+
+        return preview_image_url
 
     best_title = next((str(p.get("title") or "").strip() for p in usable_pages if str(p.get("title") or "").strip()), "")
     if best_title:
@@ -1968,6 +2169,8 @@ async def _complete_website_indexing_embedding_phase(
         "links_discovered_raw_anchors": links_discovered,
         "fetch_stats": fetch_stats,
     }
+    if skipped_already_indexed:
+        success_metrics_obj["urls_skipped_already_indexed"] = skipped_already_indexed
     if partial_warnings:
         success_metrics_obj["warnings"] = partial_warnings
     success_metrics = json.dumps(success_metrics_obj, default=str)
@@ -2007,8 +2210,8 @@ async def _complete_website_indexing_embedding_phase(
         {
             "crawl_run_id": str(crawl_run_id),
             "pages_discovered": urls_fetched,
-            "pages_crawled": len(usable_pages),
-            "pages_failed": urls_fetched - len(usable_pages),
+            "pages_crawled": crawled_pages_with_text_count,
+            "pages_failed": urls_fetched - crawled_pages_with_text_count,
             "links_discovered": links_discovered,
         },
     )

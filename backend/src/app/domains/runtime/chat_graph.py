@@ -50,8 +50,9 @@ def make_chat_model(model: str, *, temperature: float = 0.0) -> ChatOpenAI:
         model=model,
         temperature=t,
         api_key=settings.openai_api_key,
-        timeout=60,
-        max_retries=2,
+        timeout=20,
+        max_retries=0,
+        max_tokens=140,
     )
 
 
