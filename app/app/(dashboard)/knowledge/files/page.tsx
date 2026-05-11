@@ -311,7 +311,7 @@ export default function KnowledgeFilesPage() {
                   void uploadFiles(e.target.files);
                 }}
               />
-              <div className="border-ds-outline mx-auto mb-4 flex flex-col items-center justify-center rounded-ds-xl border-2 border-dashed bg-ds-surface/80 p-8 text-center hover:border-ds-primary/50">
+              <div className="border-ds-outline mx-auto mb-4 flex flex-col items-center justify-center rounded-ds-xl border-2 border-dashed bg-ds-surface/80 p-8 text-center hover:border-black/45">
                 <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-ds-sidebar ring-1 ring-ds-outline transition-transform hover:scale-105">
                   <IconCloudUpload className="text-ds-primary size-5" />
                 </div>

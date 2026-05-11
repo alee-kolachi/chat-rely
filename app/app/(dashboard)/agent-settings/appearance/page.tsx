@@ -182,7 +182,7 @@ function AppearanceForm() {
               className={cn(
                 "rounded-ds-lg px-5 py-2 text-sm font-semibold shadow-sm transition-colors",
                 dirty && !isSaving && validHex
-                  ? "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+                  ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
                   : "bg-ds-outline/40 text-ds-on-surface-variant cursor-not-allowed"
               )}
             >
@@ -261,7 +261,7 @@ function PositionOption({
         "rounded-ds-lg border p-3 text-left transition-colors",
         checked
           ? "border-ds-primary bg-white ring-2 ring-ds-primary/15"
-          : "border-ds-outline bg-ds-sidebar/50 hover:border-ds-primary/50"
+          : "border-ds-outline bg-ds-sidebar/50 hover:border-black/45"
       )}
     >
       <div className="border-ds-outline relative mb-2 aspect-video rounded-ds-sm border bg-white">

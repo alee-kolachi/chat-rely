@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { cn } from "@/lib/utils";
 
 export const onboardingMenuItems = [
@@ -47,11 +48,12 @@ export function OnboardingFrame({
   return (
     <div className="bg-white text-ds-on-surface flex h-dvh max-h-dvh min-h-0 w-full max-w-[100vw] flex-col">
       <aside className="bg-ds-sidebar border-ds-outline fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r md:flex">
-        <div className="border-ds-outline flex h-14 items-center gap-2 border-b px-3">
-          <div className="bg-ds-primary text-ds-on-primary flex size-8 items-center justify-center rounded-lg text-sm font-bold">
-            C
-          </div>
-          <span className="text-ds-on-surface text-sm font-semibold">ChatRely</span>
+        <div className="border-ds-outline flex h-14 items-center border-b px-3">
+          <ChatRelyWordmark
+            href="/dashboard"
+            iconClassName="h-6 w-auto"
+            textClassName="text-lg font-semibold text-ds-on-surface"
+          />
         </div>
 
         <div className="px-3 pt-5 pb-3">

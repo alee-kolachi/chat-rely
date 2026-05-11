@@ -16,7 +16,7 @@ export function AdminShell({ email, children }: { email: string; children: React
           </div>
           <Link
             href="/dashboard"
-            className="text-ds-primary hover:text-ds-primary/80 shrink-0 text-sm font-medium"
+            className="text-ds-primary hover:text-ds-interactive-hover shrink-0 text-sm font-medium"
           >
             Back to dashboard
           </Link>

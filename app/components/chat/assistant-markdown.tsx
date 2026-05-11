@@ -38,7 +38,7 @@ const markdownComponents: Components = {
   a: ({ href, children }) => (
     <a
       href={href}
-      className="text-ds-primary font-medium underline decoration-ds-primary/35 underline-offset-2 hover:decoration-ds-primary"
+      className="text-ds-primary font-medium underline decoration-ds-primary/35 underline-offset-2 hover:decoration-black"
       target="_blank"
       rel="noopener noreferrer"
     >

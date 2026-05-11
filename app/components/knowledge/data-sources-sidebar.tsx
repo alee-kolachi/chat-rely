@@ -114,7 +114,7 @@ export function DataSourcesSidebar({
             {showUpgrade ? (
               <Link
                 href="/pricing"
-                className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex cursor-pointer rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
+                className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex cursor-pointer rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
               >
                 Upgrade
               </Link>
@@ -219,7 +219,7 @@ export function DataSourcesSidebar({
             {showUpgrade ? (
               <Link
                 href="/pricing"
-                className="border-ds-outline hover:border-ds-primary/40 group flex w-full cursor-pointer items-center justify-between rounded-ds-md border bg-ds-surface p-3 text-left shadow-sm transition-colors"
+                className="border-ds-outline hover:border-black/40 group flex w-full cursor-pointer items-center justify-between rounded-ds-md border bg-ds-surface p-3 text-left shadow-sm transition-colors"
               >
                 <div className="flex items-center gap-2">
                   <IconArrowUp className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />

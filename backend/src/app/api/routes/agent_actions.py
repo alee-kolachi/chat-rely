@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_user, get_db
@@ -48,17 +48,29 @@ async def get_action_catalog(
 @router.get("/{agent_id}/integrations/bootstrap", response_model=AgentIntegrationsBootstrapResponse)
 async def get_agent_integrations_bootstrap(
     agent_id: UUID,
+    include_website_preview: bool = Query(
+        default=True,
+        description="Whether to include computed website preview in the bootstrap payload.",
+    ),
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AgentIntegrationsBootstrapResponse:
     """Single round-trip for Playground / Actions: catalog + Shopify + website preview."""
-    entries = await build_catalog(db, user_id=user.user_id, agent_id=agent_id)
     shopify = await get_connection_status(db, user_id=user.user_id, agent_id=agent_id)
-    website_sources = await list_website_sources_for_agent(db, user.user_id, agent_id)
+    entries = await build_catalog(
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        shopify_connection=shopify,
+    )
+    website_preview = None
+    if include_website_preview:
+        website_sources = await list_website_sources_for_agent(db, user.user_id, agent_id)
+        website_preview = _pick_agent_website_preview(website_sources)
     return AgentIntegrationsBootstrapResponse(
         catalog=ActionCatalogResponse(entries=entries),
         shopify=shopify,
-        website_preview=_pick_agent_website_preview(website_sources),
+        website_preview=website_preview,
     )
 
 

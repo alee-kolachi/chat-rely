@@ -112,7 +112,7 @@ async def list_admin_agents(
           group by agent_id
         )
         select
-          a.id, a.user_id, u.email as user_email,
+          a.id, a.user_id, coalesce(u.email, '') as user_email,
           a.name, a.slug, a.status::text as status, a.model,
           coalesce(ct.n, 0) as conversations_total,
           coalesce(cm.n, 0) as conversations_mtd,
@@ -181,7 +181,7 @@ async def get_admin_agent_detail(
                   where agent_id = :agent_id and enabled = true
                 )
                 select
-                  a.id, a.user_id, u.email as user_email,
+                  a.id, a.user_id, coalesce(u.email, '') as user_email,
                   a.name, a.slug, a.status::text as status, a.model,
                   a.system_prompt, a.behavior_settings, a.public_key,
                   a.created_at, a.archived_at,
@@ -205,7 +205,7 @@ async def get_admin_agent_detail(
             text(
                 """
                 select
-                  ks.id, ks.user_id, u.email as user_email,
+                  ks.id, ks.user_id, coalesce(u.email, '') as user_email,
                   ks.agent_id, a.name as agent_name,
                   ks.type::text as type, ks.title, ks.status::text as status,
                   ks.source_url, ks.last_indexed_at, ks.error_message,
@@ -265,7 +265,7 @@ async def get_admin_agent_detail(
                 select
                   c.id, c.started_at, c.last_activity_at, c.status, c.channel, c.visitor_id,
                   c.agent_id, a.name as agent_name,
-                  c.user_id, u.email as user_email,
+                  c.user_id, coalesce(u.email, '') as user_email,
                   c.customer_message_count, c.assistant_message_count, c.tool_call_count,
                   c.total_input_tokens, c.total_output_tokens,
                   coalesce((c.metadata->>'fallback_used')::boolean, false) as fallback_used,

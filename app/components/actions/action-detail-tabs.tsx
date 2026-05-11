@@ -485,7 +485,7 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
           type="button"
           onClick={runTest}
           disabled={running || !selectedAgentId}
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex items-center gap-2 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex items-center gap-2 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
         >
           <IconPlay className="size-4" />
           {running ? "Running..." : "Run test"}

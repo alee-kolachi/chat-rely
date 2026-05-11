@@ -61,7 +61,7 @@ export function PricingCards({
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="border-ds-outline h-64 animate-pulse rounded-xl border bg-ds-sidebar/40"
+            className="border-ds-outline h-64 animate-pulse rounded-xl border bg-ds-muted/50"
             aria-hidden
           />
         ))}
@@ -170,7 +170,7 @@ export function PricingCards({
                           : "bg-white/10 text-white/60"
                         : feature.included
                           ? "bg-emerald-500/12 text-emerald-700"
-                          : "bg-ds-sidebar text-ds-on-surface-variant"
+                          : "bg-ds-muted text-ds-on-surface-variant"
                     }`}
                   >
                     {feature.included ? "✓" : "✕"}
@@ -185,13 +185,13 @@ export function PricingCards({
                 isOnboarding
                   ? `mx-auto mt-auto w-full max-w-none shrink-0 rounded-ds-md py-3 text-center text-sm font-semibold transition ${
                       highlighted
-                        ? "bg-white text-ds-primary shadow-md hover:bg-ds-tertiary hover:text-white hover:shadow-lg"
-                        : "border-2 border-ds-primary bg-transparent text-ds-primary hover:bg-ds-primary hover:text-ds-on-primary"
+                        ? "bg-white text-ds-primary shadow-md hover:bg-ds-primary-hover hover:text-ds-on-primary hover:shadow-lg"
+                        : "border-2 border-ds-primary bg-transparent text-ds-primary hover:bg-ds-primary-hover hover:text-ds-on-primary"
                     }`
                   : `mx-auto w-full max-w-[17rem] rounded-lg py-3 text-center text-sm font-semibold transition ${
                       highlighted
-                        ? "bg-white text-ds-primary hover:bg-ds-tertiary hover:text-white"
-                        : "border-2 border-ds-primary text-ds-primary hover:bg-ds-primary hover:text-ds-on-primary"
+                        ? "bg-white text-ds-primary hover:bg-ds-primary-hover hover:text-ds-on-primary"
+                        : "border-2 border-ds-primary text-ds-primary hover:bg-ds-primary-hover hover:text-ds-on-primary"
                     }`
               }
             >
@@ -258,7 +258,7 @@ export function PricingComparison({ plans, loading, loadError }: PricingComparis
     <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
       <table className="w-full border-collapse text-left">
         <thead>
-          <tr className="bg-ds-sidebar">
+          <tr className="bg-ds-muted">
             <th className="p-5 text-xs font-bold uppercase tracking-widest">Feature comparison</th>
             {plans.map((p) => (
               <th key={p.slug} className="p-5 text-sm font-semibold">

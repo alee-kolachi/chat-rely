@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.core.settings import get_settings
+from app.db.session import get_session_factory
 from app.domains.actions.human_availability import seller_is_available_for_live_chat
 from app.domains.actions.service import (
     get_human_escalation_for_runtime,
@@ -48,6 +49,7 @@ from app.domains.runtime.chat_graph import (
     make_chat_model,
     slice_history_for_current_turn,
     stream_runtime_chat_graph,
+    text_delta_from_stream_chunk,
     text_from_model_message,
 )
 from app.domains.runtime.prompts import (
@@ -60,6 +62,11 @@ from app.domains.runtime.schemas import (
     RuntimeChatResponse,
     RuntimeEscalationInfo,
 )
+from app.domains.runtime.runtime_intent import (
+    conversation_recent_used_shopify_tools,
+    is_commerce_shopify_intent,
+    resolve_commerce_intent,
+)
 from app.domains.runtime.shopify_lc_tools import build_shopify_langchain_tools, tools_by_name
 from app.domains.runtime.shopify_tool_router import (
     SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE,
@@ -70,16 +77,11 @@ from app.domains.tickets.service import record_escalation, update_visitor_email_
 
 log = structlog.get_logger("runtime.service")
 
-# Cosine similarity (1 - distance) from `match_knowledge_chunks`. Nav/listing-heavy
-# pages often score ~0.45–0.55 vs natural questions; 0.72 filters everything out.
-RAG_RELAX_MIN_SIMILARITY = 0.43
 # After threshold passes, keep at most this many merged candidates; the model sees top N only.
 RAG_MERGED_CHUNK_CAP = 20
 RAG_PROMPT_CHUNK_COUNT = 4
 RAG_PROMPT_EXCERPT_MAX_CHARS = 700
 RAG_PROMPT_CONTEXT_MAX_CHARS = 2400
-RAG_ANN_CANDIDATE_POOL = 60
-RAG_LEXICAL_CANDIDATE_POOL = 40
 RAG_EMBED_CACHE_TTL_SECONDS = 900
 RAG_EMBED_CACHE_MAX_ITEMS = 512
 
@@ -95,6 +97,10 @@ _SHOPIFY_TOOLS_RUNTIME_BLOCK = (
     "If neither exists yet, ask briefly for order number or email—then call the tool.\n"
     "- **Inventory / stock quantity**: call `shopify_inventory_check`.\n"
     "- **Customer history / past purchases**: call `shopify_customer_context` when you have their email.\n"
+    "**Inventory safety:** Never state that a product is unavailable, out of stock, or not carried until "
+    "you have results from the applicable Shopify tool (`shopify_product_search`, `shopify_inventory_check`, …). "
+    "If you have not called the tool yet, reply briefly (e.g. “Let me check our catalog…”) and call the tool — "
+    "do not deny inventory based on guesses or on knowledge-base excerpts alone.\n"
     "Knowledge base excerpts (if present) are **supplementary** marketing/site context; they do **not** replace "
     "live Shopify data for accurate SKU/order/inventory answers.\n"
     "Do **not** reply with the canned fallback (“not fully sure…” / escalate-only) for store-specific questions "
@@ -165,6 +171,160 @@ def _tool_call_parts(tc: Any) -> tuple[str, dict[str, Any], str]:
     )
 
 
+def _aggregated_to_ai_message(accumulated: Any) -> AIMessage:
+    """Convert a streamed AIMessageChunk aggregate into an AIMessage for persistence and routing."""
+    tcs = getattr(accumulated, "tool_calls", None) or []
+    body = text_from_model_message(accumulated)
+    return AIMessage(content=body, tool_calls=list(tcs) if tcs else [])
+
+
+async def _invoke_runtime_tool_with_timeout(
+    tool: Any | None,
+    args: dict[str, Any],
+    *,
+    tool_name: str,
+    conversation_id: UUID,
+    round_idx: int,
+    timeout_s: float,
+) -> str:
+    """Bounded wait for Shopify tool execution so a hung Admin API cannot stall the chat indefinitely."""
+    if tool is None:
+        return json.dumps({"error": f"Unknown tool: {tool_name}"})
+    t0 = time.perf_counter()
+    try:
+        out = await asyncio.wait_for(tool.ainvoke(args), timeout=timeout_s)
+    except TimeoutError:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        log.warning(
+            "runtime.shopify_tool_timeout",
+            conversation_id=str(conversation_id),
+            tool=tool_name,
+            round_idx=round_idx,
+            timeout_s=timeout_s,
+            elapsed_ms=elapsed_ms,
+        )
+        return json.dumps(
+            {
+                "error": "timeout",
+                "message": (
+                    "The store connection timed out before live data could be loaded. "
+                    "Tell the customer to try again shortly."
+                ),
+            }
+        )
+    if not isinstance(out, str):
+        out = str(out)
+    return out
+
+
+async def _retrieve_chunks_with_new_session(
+    agent_id: UUID,
+    *,
+    user_message: str,
+    expanded_query: str,
+    min_similarity: float,
+    match_count: int,
+    skip: bool = False,
+    meta_timing: dict[str, float] | None = None,
+) -> list[dict[str, Any]]:
+    """Runs RAG on a dedicated DB session so it can overlap with Shopify setup (separate session)."""
+    if skip:
+        return []
+    sf = get_session_factory()
+    async with sf() as s:
+        return await _retrieve_merged_chunks_for_message(
+            s,
+            agent_id,
+            user_message=user_message,
+            expanded_query=expanded_query,
+            min_similarity=min_similarity,
+            match_count=match_count,
+            meta_timing=meta_timing,
+        )
+
+
+async def _load_shopify_tools_and_optional_route(
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    user_message: str,
+    route_classifier_enabled: bool,
+    skip_route_classifier: bool = False,
+    conversation_id: UUID | None = None,
+) -> tuple[list[Any], Any | None, bool, dict[str, float]]:
+    """
+    Loads Shopify tools (and optional route classifier) on a dedicated session so it can overlap
+    with retrieval without concurrent use of the request-scoped AsyncSession.
+
+    When ``skip_route_classifier`` is True (e.g. regex already classified commerce intent), the
+    Shopify router LLM is not invoked — saves latency vs a redundant completion.
+    """
+    timings: dict[str, float] = {}
+    sf = get_session_factory()
+    async with sf() as s:
+        t0 = time.perf_counter()
+        enabled_shopify = await list_enabled_shopify_actions_for_runtime(
+            s, user_id=user_id, agent_id=agent_id
+        )
+        timings["list_actions_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        t1 = time.perf_counter()
+        conn_pair = await load_shopify_connection_for_agent(s, user_id=user_id, agent_id=agent_id)
+        timings["load_connection_ms"] = (time.perf_counter() - t1) * 1000.0
+
+        t2 = time.perf_counter()
+        tool_list: list[Any] = []
+        if conn_pair and enabled_shopify:
+            keys = {e[0] for e in enabled_shopify}
+            tool_list = build_shopify_langchain_tools(conn_pair[0], conn_pair[1], keys)
+        timings["build_tools_ms"] = (time.perf_counter() - t2) * 1000.0
+
+        shopify_route_decision = None
+        force_tools_round0 = False
+        if tool_list and route_classifier_enabled and not skip_route_classifier:
+            t3 = time.perf_counter()
+            shopify_route_decision = await classify_shopify_tool_route(user_message, tool_list)
+            force_tools_round0 = tool_choice_required_from_route(
+                shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
+            )
+            timings["router_llm_ms"] = (time.perf_counter() - t3) * 1000.0
+        else:
+            timings["router_llm_ms"] = 0.0
+            if tool_list and route_classifier_enabled and skip_route_classifier:
+                log.info(
+                    "runtime.shopify_router_skipped",
+                    reason="regex_commerce",
+                    conversation_id=str(conversation_id) if conversation_id else None,
+                )
+
+        log.info(
+            "runtime.shopify_setup_breakdown",
+            conversation_id=str(conversation_id) if conversation_id else None,
+            **{k: round(v, 2) for k, v in timings.items()},
+        )
+        return tool_list, shopify_route_decision, force_tools_round0, timings
+
+
+def _extract_usage_tokens(msg: Any) -> tuple[int, int]:
+    """Best-effort token usage extraction from LangChain AI messages/chunks."""
+    usage = getattr(msg, "usage_metadata", None)
+    if isinstance(usage, dict):
+        return (
+            int(usage.get("input_tokens") or 0),
+            int(usage.get("output_tokens") or 0),
+        )
+
+    response_meta = getattr(msg, "response_metadata", None)
+    if isinstance(response_meta, dict):
+        token_usage = response_meta.get("token_usage")
+        if isinstance(token_usage, dict):
+            return (
+                int(token_usage.get("prompt_tokens") or 0),
+                int(token_usage.get("completion_tokens") or 0),
+            )
+    return (0, 0)
+
+
 async def _invoke_chat_with_tools(
     db: AsyncSession,
     *,
@@ -176,7 +336,12 @@ async def _invoke_chat_with_tools(
     fallback_message: str,
     temperature: float = 0.0,
     force_first_round_tool_choice: bool = False,
+    meta_out: dict[str, Any] | None = None,
 ) -> tuple[str, bool, list[str]]:
+    """Multi-round tool loop: round 0 emits tool_calls (structured args); after tools run, a second model
+    pass turns JSON results into natural language. OpenAI-style tool calling cannot merge those into one HTTP
+    completion without dropping tool args or the final reply — a dedicated commerce pipeline would skip round 0."""
+    tool_timeout_s = float(get_settings().shopify_tool_timeout_seconds)
     by_name = tools_by_name(tools)
     bound_names = sorted(by_name.keys())
     log.info(
@@ -200,6 +365,7 @@ async def _invoke_chat_with_tools(
             )
         llm = make_chat_model(model, temperature=temperature).bind_tools(tools, tool_choice=tool_choice)
         ai_msg = await llm.ainvoke(msgs)
+        in_tokens, out_tokens = _extract_usage_tokens(ai_msg)
         tcs = getattr(ai_msg, "tool_calls", None) or []
         if not tcs:
             answer = text_from_model_message(ai_msg)
@@ -216,6 +382,9 @@ async def _invoke_chat_with_tools(
                     tools_invoked_so_far=invoked,
                 )
                 return fallback_message, True, invoked
+            if meta_out is not None:
+                meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
+                meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
             return answer, fallback_used, invoked
         await append_message(
             db,
@@ -225,19 +394,29 @@ async def _invoke_chat_with_tools(
                 role="assistant",
                 content="",
                 model=model,
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
                 tool_call_payload={"tool_calls": _serialize_tool_calls_for_db(ai_msg)},
             ),
         )
+        if meta_out is not None:
+            meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
+            meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
         msgs.append(ai_msg)
         for tc in tcs:
             name, args, t_id = _tool_call_parts(tc)
             invoked.append(name)
             tool = by_name.get(name)
+            t_tool0 = time.perf_counter()
             try:
-                if tool is not None:
-                    out = await tool.ainvoke(args)
-                else:
-                    out = json.dumps({"error": f"Unknown tool: {name}"})
+                out = await _invoke_runtime_tool_with_timeout(
+                    tool,
+                    args,
+                    tool_name=name,
+                    conversation_id=conversation_id,
+                    round_idx=round_idx,
+                    timeout_s=tool_timeout_s,
+                )
             except AppError as exc:
                 err: dict[str, Any] = {"error": exc.message, "code": exc.code}
                 if exc.details:
@@ -252,11 +431,13 @@ async def _invoke_chat_with_tools(
                 )
             except Exception as exc:
                 out = json.dumps({"error": str(exc)[:500]})
+            tool_ms = int((time.perf_counter() - t_tool0) * 1000)
             log.info(
                 "runtime.tool_executed",
                 conversation_id=str(conversation_id),
                 tool=name,
                 round_idx=round_idx,
+                tool_ms=tool_ms,
             )
             if not (isinstance(out, str) and out.strip()):
                 out = json.dumps({"error": "empty_tool_result"})
@@ -306,10 +487,11 @@ async def _invoke_chat_with_tools_token_stream(
     meta_out: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """
-    Same as `_invoke_chat_with_tools` (one `ainvoke` per tool round; no duplicate LLM calls).
-    The final assistant string is re-emitted in small chunks so the client can render incrementally; tool
-    selection and execution are unchanged from the non-streaming path.
+    One streaming LLM call per tool round (`astream` + chunk aggregation). Tokens are yielded as the
+    model generates them; tool selection and execution match `_invoke_chat_with_tools`.
     """
+    tool_timeout_s = float(get_settings().shopify_tool_timeout_seconds)
+    stream_wall_t0 = time.perf_counter()
     by_name = tools_by_name(tools)
     msgs: list[Any] = list(lc_messages)
     invoked: list[str] = []
@@ -318,7 +500,38 @@ async def _invoke_chat_with_tools_token_stream(
             "required" if (round_idx == 0 and force_first_round_tool_choice) else None
         )
         llm = make_chat_model(model, temperature=temperature).bind_tools(tools, tool_choice=tool_choice)
-        ai_msg = await llm.ainvoke(msgs)
+        accumulated: Any | None = None
+        try:
+            async for chunk in llm.astream(msgs):
+                accumulated = chunk if accumulated is None else accumulated + chunk
+                delta = text_delta_from_stream_chunk(chunk)
+                if delta:
+                    if meta_out is not None and meta_out.get("first_token_ms") is None:
+                        meta_out["first_token_ms"] = (time.perf_counter() - stream_wall_t0) * 1000.0
+                    yield delta
+        except Exception as exc:
+            raise AppError(
+                code="runtime.llm_failed",
+                message="LLM request failed",
+                status_code=502,
+                details={"error": str(exc)[:500]},
+            ) from exc
+
+        if accumulated is None:
+            log.warning(
+                "runtime.tool_stream_empty",
+                conversation_id=str(conversation_id),
+                round_idx=round_idx,
+            )
+            if meta_out is not None:
+                meta_out["tools_invoked"] = list(invoked)
+                meta_out["fallback_used"] = True
+            async for p in _yield_text_chunks_for_ui(fallback_message):
+                yield p
+            return
+
+        ai_msg = _aggregated_to_ai_message(accumulated)
+        in_tokens, out_tokens = _extract_usage_tokens(accumulated)
         tcs = getattr(ai_msg, "tool_calls", None) or []
         if not tcs:
             answer = text_from_model_message(ai_msg)
@@ -343,8 +556,8 @@ async def _invoke_chat_with_tools_token_stream(
             if meta_out is not None:
                 meta_out["tools_invoked"] = list(invoked)
                 meta_out["fallback_used"] = False
-            async for p in _yield_text_chunks_for_ui(answer):
-                yield p
+                meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
+                meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
             return
         await append_message(
             db,
@@ -354,19 +567,29 @@ async def _invoke_chat_with_tools_token_stream(
                 role="assistant",
                 content="",
                 model=model,
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
                 tool_call_payload={"tool_calls": _serialize_tool_calls_for_db(ai_msg)},
             ),
         )
+        if meta_out is not None:
+            meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
+            meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
         msgs.append(ai_msg)
         for tc in tcs:
             name, args, t_id = _tool_call_parts(tc)
             invoked.append(name)
             tool = by_name.get(name)
+            t_tool0 = time.perf_counter()
             try:
-                if tool is not None:
-                    out = await tool.ainvoke(args)
-                else:
-                    out = json.dumps({"error": f"Unknown tool: {name}"})
+                out = await _invoke_runtime_tool_with_timeout(
+                    tool,
+                    args,
+                    tool_name=name,
+                    conversation_id=conversation_id,
+                    round_idx=round_idx,
+                    timeout_s=tool_timeout_s,
+                )
             except AppError as exc:
                 err: dict[str, Any] = {"error": exc.message, "code": exc.code}
                 if exc.details:
@@ -381,11 +604,13 @@ async def _invoke_chat_with_tools_token_stream(
                 )
             except Exception as exc:
                 out = json.dumps({"error": str(exc)[:500]})
+            tool_ms = int((time.perf_counter() - t_tool0) * 1000)
             log.info(
                 "runtime.tool_executed",
                 conversation_id=str(conversation_id),
                 tool=name,
                 round_idx=round_idx,
+                tool_ms=tool_ms,
             )
             if not (isinstance(out, str) and out.strip()):
                 out = json.dumps({"error": "empty_tool_result"})
@@ -412,6 +637,7 @@ async def _invoke_chat_with_tools_token_stream(
     if meta_out is not None:
         meta_out["tools_invoked"] = list(invoked)
         meta_out["fallback_used"] = True
+        meta_out["total_elapsed_ms"] = (time.perf_counter() - stream_wall_t0) * 1000.0
     async for p in _yield_text_chunks_for_ui(fallback_message):
         yield p
 
@@ -547,38 +773,6 @@ def _embedding_vector_param(embedding: list[float]) -> str:
     return "[" + ",".join(f"{v:.10f}" for v in embedding) + "]"
 
 
-async def _match_top_chunks_ann(
-    db: AsyncSession,
-    agent_id: UUID,
-    embedding: list[float],
-    *,
-    limit: int,
-) -> list[dict[str, Any]]:
-    """Nearest chunks by cosine distance, no similarity floor (last resort when RPC returns nothing)."""
-    result = await db.execute(
-        text(
-            """
-            select
-              c.id,
-              c.knowledge_source_id,
-              c.content,
-              c.metadata,
-              (1 - (c.embedding <=> cast(:embedding as vector)))::double precision as similarity
-            from public.knowledge_chunks c
-            where c.agent_id = cast(:agent_id as uuid)
-            order by c.embedding <=> cast(:embedding as vector)
-            limit :limit
-            """
-        ),
-        {
-            "agent_id": str(agent_id),
-            "embedding": _embedding_vector_param(embedding),
-            "limit": limit,
-        },
-    )
-    return [dict(row) for row in result.mappings().all()]
-
-
 async def _match_chunks_with_embedding(
     db: AsyncSession,
     agent_id: UUID,
@@ -609,43 +803,6 @@ async def _match_chunks_with_embedding(
     return [dict(row) for row in result.mappings().all()]
 
 
-async def _match_chunks_lexical(
-    db: AsyncSession,
-    agent_id: UUID,
-    query_text: str,
-    *,
-    limit: int,
-) -> list[dict[str, Any]]:
-    q = (query_text or "").strip()
-    if not q:
-        return []
-    result = await db.execute(
-        text(
-            """
-            select
-              c.id,
-              c.knowledge_source_id,
-              c.content,
-              c.metadata,
-              ts_rank_cd(
-                to_tsvector('simple', coalesce(c.content, '')),
-                websearch_to_tsquery('simple', :query_text)
-              )::double precision as lexical_score
-            from public.knowledge_chunks c
-            where c.agent_id = cast(:agent_id as uuid)
-              and to_tsvector('simple', coalesce(c.content, '')) @@ websearch_to_tsquery('simple', :query_text)
-            order by lexical_score desc
-            limit :limit
-            """
-        ),
-        {"agent_id": str(agent_id), "query_text": q, "limit": limit},
-    )
-    rows = [dict(r) for r in result.mappings().all()]
-    for row in rows:
-        row["similarity"] = float(row.get("similarity") or 0.0)
-    return rows
-
-
 async def _retrieve_context(
     db: AsyncSession,
     agent_id: UUID,
@@ -671,22 +828,27 @@ async def _retrieve_merged_chunks_for_message(
     expanded_query: str,
     min_similarity: float,
     match_count: int = 10,
+    meta_timing: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Embed each distinct query string once, match at `min_similarity`, merge.
-    If nothing passes the threshold (common for nav-heavy crawls vs. 0.72),
-    retry the same vectors at RAG_RELAX_MIN_SIMILARITY without extra embedding calls.
-    If still empty, take the top K nearest chunks by ANN (same vectors) so the assistant
-    always gets excerpts when the index has any data for this agent.
+    Embed each distinct query string once, merge vector matches at `min_similarity` only.
+    No ANN/lexical fallback below the configured similarity — avoids irrelevant chunks in the prompt.
     """
     msg = (user_message or "").strip()
     if not msg:
         return []
-    raw_embedding = await _embed_text_with_cache(msg)
-    expanded_embedding: list[float] | None = None
     exp = (expanded_query or "").strip()
+    t_embed = time.perf_counter()
     if exp and exp != msg:
-        expanded_embedding = await _embed_text_with_cache(exp)
+        raw_embedding, expanded_embedding = await asyncio.gather(
+            _embed_text_with_cache(msg),
+            _embed_text_with_cache(exp),
+        )
+    else:
+        raw_embedding = await _embed_text_with_cache(msg)
+        expanded_embedding = None
+    if meta_timing is not None:
+        meta_timing["embed_ms"] = (time.perf_counter() - t_embed) * 1000.0
 
     async def merged_at(floor: float) -> list[dict[str, Any]]:
         tasks = [
@@ -699,23 +861,17 @@ async def _retrieve_merged_chunks_for_message(
         parts = await asyncio.gather(*tasks)
         return _merge_chunks_by_best_similarity(parts)[:RAG_MERGED_CHUNK_CAP]
 
+    t_db = time.perf_counter()
     merged = await merged_at(min_similarity)
-    if not merged and min_similarity > RAG_RELAX_MIN_SIMILARITY:
-        merged = await merged_at(RAG_RELAX_MIN_SIMILARITY)
-    ann_tasks = [
-        _match_top_chunks_ann(db, agent_id, raw_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count))
+    if meta_timing is not None:
+        meta_timing["retrieve_db_ms"] = (time.perf_counter() - t_db) * 1000.0
+
+    filtered = [
+        r
+        for r in merged
+        if float(r.get("similarity") or 0.0) >= float(min_similarity)
     ]
-    if expanded_embedding is not None:
-        ann_tasks.append(
-            _match_top_chunks_ann(db, agent_id, expanded_embedding, limit=max(RAG_ANN_CANDIDATE_POOL, match_count))
-        )
-    lexical_tasks = [_match_chunks_lexical(db, agent_id, msg, limit=RAG_LEXICAL_CANDIDATE_POOL)]
-    if exp and exp != msg:
-        lexical_tasks.append(_match_chunks_lexical(db, agent_id, exp, limit=RAG_LEXICAL_CANDIDATE_POOL))
-    ann_candidates = await asyncio.gather(*ann_tasks)
-    lexical_candidates = await asyncio.gather(*lexical_tasks)
-    merged = _merge_chunks_by_best_similarity([merged, *ann_candidates, *lexical_candidates])
-    reranked = _rerank_chunks_for_query(merged, msg)
+    reranked = _rerank_chunks_for_query(filtered, msg)
     return reranked[:RAG_MERGED_CHUNK_CAP]
 
 
@@ -749,6 +905,127 @@ def _build_context_block(chunks: list[dict[str, Any]]) -> str:
         lines.append(block)
         total += len(block) + 2
     return "\n\n".join(lines)
+
+
+def _log_retrieval_trace(
+    *,
+    conversation_id: UUID,
+    agent_id: UUID,
+    user_message: str,
+    expanded_query: str,
+    min_similarity: float,
+    chunks: list[dict[str, Any]],
+    prompt_chunks: list[dict[str, Any]],
+    kb_retrieval_skipped: bool,
+    rag_fallback_mode: str,
+) -> None:
+    preview: list[dict[str, Any]] = []
+    for idx, chunk in enumerate(prompt_chunks[:5], start=1):
+        metadata = dict(chunk.get("metadata") or {})
+        preview.append(
+            {
+                "rank": idx,
+                "chunk_id": str(chunk.get("id") or ""),
+                "knowledge_source_id": str(chunk.get("knowledge_source_id") or ""),
+                "similarity": round(float(chunk.get("similarity") or 0.0), 4),
+                "url": metadata.get("url"),
+                "title": metadata.get("title"),
+                "snippet": str(chunk.get("content") or "").replace("\n", " ")[:220],
+            }
+        )
+    passed_n = sum(1 for c in chunks if float(c.get("similarity") or 0.0) >= float(min_similarity))
+    log.info(
+        "runtime.retrieval_trace",
+        conversation_id=str(conversation_id),
+        agent_id=str(agent_id),
+        effective_min_similarity=min_similarity,
+        min_similarity=min_similarity,
+        passed_threshold_count=passed_n,
+        kb_retrieval_skipped=kb_retrieval_skipped,
+        rag_fallback_mode=rag_fallback_mode,
+        user_query=user_message,
+        expanded_query=expanded_query,
+        retrieved_count=len(chunks),
+        prompt_chunk_count=len(prompt_chunks),
+        chunks=preview,
+    )
+
+
+def _langchain_messages_prompt_stats(messages: list[Any]) -> dict[str, Any]:
+    """Rough prompt size for observability (actual tokenizer counts come from provider usage)."""
+    total_chars = 0
+    system_chars = 0
+    non_system_n = 0
+    for m in messages:
+        c = getattr(m, "content", None)
+        if isinstance(c, str):
+            n = len(c)
+        elif isinstance(c, list):
+            n = len(json.dumps(c, ensure_ascii=False))
+        else:
+            n = 0
+        total_chars += n
+        if isinstance(m, SystemMessage):
+            system_chars += n
+        else:
+            non_system_n += 1
+    return {
+        "llm_message_count": len(messages),
+        "prompt_approx_chars": total_chars,
+        "system_prompt_approx_chars": system_chars,
+        "non_system_message_count": non_system_n,
+    }
+
+
+def _log_runtime_turn_timing(
+    *,
+    conversation_id: UUID,
+    shopify_load_ms: float,
+    intent_ms: float,
+    retrieve_wall_ms: float,
+    retrieve_timing: dict[str, float],
+    commerce_intent: bool,
+    commerce_intent_source: str,
+    skip_kb_retrieval: bool,
+    assistant_latency_ms: int,
+    first_token_ms: Any | None = None,
+    shopify_setup_breakdown: dict[str, float] | None = None,
+    prompt_stats: dict[str, Any] | None = None,
+    llm_prompt_tokens_total: int | None = None,
+    llm_completion_tokens_total: int | None = None,
+    shopify_router_skipped: bool | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "conversation_id": str(conversation_id),
+        "shopify_load_ms": round(shopify_load_ms, 2),
+        "intent_ms": round(intent_ms, 2),
+        "retrieve_wall_ms": round(retrieve_wall_ms, 2),
+        "embed_ms": round(float(retrieve_timing.get("embed_ms", 0.0)), 2),
+        "retrieve_db_ms": round(float(retrieve_timing.get("retrieve_db_ms", 0.0)), 2),
+        "commerce_intent": commerce_intent,
+        "commerce_intent_source": commerce_intent_source,
+        "kb_retrieval_skipped": skip_kb_retrieval,
+        "total_turn_ms": assistant_latency_ms,
+    }
+    if first_token_ms is not None:
+        payload["first_token_ms"] = round(float(first_token_ms), 2)
+    if shopify_setup_breakdown:
+        for k, v in shopify_setup_breakdown.items():
+            payload[f"shopify_{k}"] = round(float(v), 2)
+    if prompt_stats:
+        payload["llm_message_count"] = int(prompt_stats["llm_message_count"])
+        payload["prompt_approx_chars"] = int(prompt_stats["prompt_approx_chars"])
+        payload["system_prompt_approx_chars"] = int(prompt_stats["system_prompt_approx_chars"])
+        payload["non_system_message_count"] = int(prompt_stats["non_system_message_count"])
+    if llm_prompt_tokens_total is not None:
+        payload["llm_prompt_tokens_total"] = int(llm_prompt_tokens_total)
+    if llm_completion_tokens_total is not None:
+        payload["llm_completion_tokens_total"] = int(llm_completion_tokens_total)
+    if shopify_router_skipped is not None:
+        payload["shopify_router_skipped"] = shopify_router_skipped
+    log.info("runtime.turn_timing", **payload)
+    if assistant_latency_ms >= int(get_settings().runtime_turn_latency_warn_ms):
+        log.warning("runtime.turn_slow", **payload)
 
 
 def _extract_query_terms(query_text: str) -> set[str]:
@@ -925,27 +1202,73 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
     visitor_requests_human_nl = _message_requests_human(payload.message)
 
     history_rows = await list_messages(db, user_id, conversation_id)
-    history = slice_history_for_current_turn(history_rows, current_user_content=payload.message)
+    settings_rt = get_settings()
+    history = slice_history_for_current_turn(
+        history_rows,
+        current_user_content=payload.message,
+        max_window_messages=settings_rt.runtime_max_history_messages,
+    )
 
     expanded_query = build_retrieval_query_for_embedding(history, payload.message)
-    chunks = await _retrieve_merged_chunks_for_message(
-        db,
+    regex_commerce = is_commerce_shopify_intent(payload.message)
+    thread_had_shopify = conversation_recent_used_shopify_tools(history)
+    skip_shopify_router_llm = bool(
+        (regex_commerce or thread_had_shopify)
+        and settings_rt.runtime_enable_shopify_route_classifier
+        and not settings_rt.runtime_force_shopify_route_classifier_for_accuracy
+    )
+    t_shopify = time.perf_counter()
+    shopify_bundle = await _load_shopify_tools_and_optional_route(
+        user_id=user_id,
+        agent_id=payload.agent_id,
+        user_message=payload.message,
+        route_classifier_enabled=settings_rt.runtime_enable_shopify_route_classifier,
+        skip_route_classifier=skip_shopify_router_llm,
+        conversation_id=conversation_id,
+    )
+    shopify_load_ms = (time.perf_counter() - t_shopify) * 1000.0
+
+    tool_list, shopify_route_decision, force_tools_round0, shopify_setup_timings = shopify_bundle
+    t_intent = time.perf_counter()
+    commerce_intent, commerce_intent_source, commerce_conf = await resolve_commerce_intent(
+        payload.message,
+        tool_list=tool_list,
+        shopify_route_decision=shopify_route_decision,
+        llm_fallback_enabled=settings_rt.runtime_intent_llm_fallback_enabled,
+        recent_thread_used_shopify_tools=thread_had_shopify,
+    )
+    intent_ms = (time.perf_counter() - t_intent) * 1000.0
+
+    skip_kb_retrieval = bool(tool_list and commerce_intent)
+    rag_fallback_mode = "skipped_commerce_intent" if skip_kb_retrieval else "vector_threshold_only"
+
+    retrieve_timing: dict[str, float] = {}
+    t_retrieve = time.perf_counter()
+    chunks = await _retrieve_chunks_with_new_session(
         payload.agent_id,
         user_message=payload.message,
         expanded_query=expanded_query,
         min_similarity=min_similarity,
         match_count=10,
+        skip=skip_kb_retrieval,
+        meta_timing=retrieve_timing,
     )
-    prompt_chunks = chunks[:RAG_PROMPT_CHUNK_COUNT]
+    retrieve_wall_ms = (time.perf_counter() - t_retrieve) * 1000.0
 
-    enabled_shopify = await list_enabled_shopify_actions_for_runtime(
-        db, user_id=user_id, agent_id=payload.agent_id
+    force_tools_round0 = force_tools_round0 or (bool(tool_list) and commerce_intent)
+
+    prompt_chunks = chunks[:RAG_PROMPT_CHUNK_COUNT]
+    _log_retrieval_trace(
+        conversation_id=conversation_id,
+        agent_id=payload.agent_id,
+        user_message=payload.message,
+        expanded_query=expanded_query,
+        min_similarity=min_similarity,
+        chunks=chunks,
+        prompt_chunks=prompt_chunks,
+        kb_retrieval_skipped=skip_kb_retrieval,
+        rag_fallback_mode=rag_fallback_mode,
     )
-    conn_pair = await load_shopify_connection_for_agent(db, user_id=user_id, agent_id=payload.agent_id)
-    tool_list: list[Any] = []
-    if conn_pair and enabled_shopify:
-        keys = {e[0] for e in enabled_shopify}
-        tool_list = build_shopify_langchain_tools(conn_pair[0], conn_pair[1], keys)
 
     has_context = bool(prompt_chunks)
     shopify_tools_enabled = bool(tool_list)
@@ -975,23 +1298,23 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         grounded_user_content=grounded_user,
     )
 
-    tools_invoked: list[str] = []
-    tools_available_count = len(tool_list)
-    shopify_route_decision = None
-    force_tools_round0 = False
-    settings = get_settings()
     if tool_list:
-        if settings.runtime_enable_shopify_route_classifier:
-            shopify_route_decision = await classify_shopify_tool_route(payload.message, tool_list)
-            force_tools_round0 = tool_choice_required_from_route(
-                shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
-            )
         m0 = lc_messages[0]
         if isinstance(m0, SystemMessage):
             lc_messages = [
                 SystemMessage(content=(m0.content or "") + _SHOPIFY_TOOLS_RUNTIME_BLOCK),
                 *lc_messages[1:],
             ]
+
+    prompt_stats = _langchain_messages_prompt_stats(lc_messages)
+
+    tools_invoked: list[str] = []
+    tools_available_count = len(tool_list)
+    tool_meta: dict[str, Any] = {}
+    llm_stream_meta: dict[str, Any] = {}
+    if tool_list:
+        llm_usage_input_tokens = 0
+        llm_usage_output_tokens = 0
         answer, fallback_used, tools_invoked = await _invoke_chat_with_tools(
             db,
             user_id=user_id,
@@ -1002,9 +1325,12 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             fallback_message=fallback_message,
             temperature=creativity,
             force_first_round_tool_choice=force_tools_round0,
+            meta_out=tool_meta,
         )
+        llm_usage_input_tokens = int(tool_meta.get("usage_input_tokens") or 0)
+        llm_usage_output_tokens = int(tool_meta.get("usage_output_tokens") or 0)
     else:
-        answer, fallback_used = await invoke_runtime_chat_graph(
+        answer, fallback_used, llm_usage_input_tokens, llm_usage_output_tokens = await invoke_runtime_chat_graph(
             messages=lc_messages,
             model=model,
             fallback_message=fallback_message,
@@ -1023,15 +1349,18 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
                 history_without_current_user=history,
                 grounded_user_content=retry_user,
             )
-            retry_answer, retry_fallback_used = await invoke_runtime_chat_graph(
+            retry_answer, retry_fallback_used, retry_in_tokens, retry_out_tokens = (
+                await invoke_runtime_chat_graph(
                 messages=retry_messages,
                 model=model,
                 fallback_message=fallback_message,
                 temperature=creativity,
                 thread_id=str(conversation_id),
+                )
             )
             if not _looks_like_fallback_response(retry_answer, fallback_message):
                 answer, fallback_used = retry_answer, retry_fallback_used
+                llm_usage_input_tokens, llm_usage_output_tokens = retry_in_tokens, retry_out_tokens
 
     if human_on and visitor_requests_human_nl:
         conv_handoff = await get_conversation(db, user_id, conversation_id)
@@ -1046,6 +1375,10 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
 
     assistant_meta: dict[str, Any] = {
         "fallback_used": fallback_used,
+        "commerce_intent_heuristic": commerce_intent,
+        "commerce_intent_source": commerce_intent_source,
+        "commerce_intent_confidence": commerce_conf,
+        "kb_retrieval_skipped": skip_kb_retrieval,
         "retrieval_count": len(chunks),
         "prompt_chunk_count": len(prompt_chunks),
         "tools_available_count": tools_available_count,
@@ -1067,6 +1400,23 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         turn_signals_model = TurnSignalsDTO.model_validate(ts_raw.model_dump())
 
     assistant_latency_ms = int((time.perf_counter() - turn_latency_start) * 1000)
+    _log_runtime_turn_timing(
+        conversation_id=conversation_id,
+        shopify_load_ms=shopify_load_ms,
+        intent_ms=intent_ms,
+        retrieve_wall_ms=retrieve_wall_ms,
+        retrieve_timing=retrieve_timing,
+        commerce_intent=commerce_intent,
+        commerce_intent_source=commerce_intent_source,
+        skip_kb_retrieval=skip_kb_retrieval,
+        assistant_latency_ms=assistant_latency_ms,
+        first_token_ms=(tool_meta.get("first_token_ms") if tool_list else None),
+        shopify_setup_breakdown=shopify_setup_timings,
+        prompt_stats=prompt_stats,
+        llm_prompt_tokens_total=llm_usage_input_tokens,
+        llm_completion_tokens_total=llm_usage_output_tokens,
+        shopify_router_skipped=skip_shopify_router_llm,
+    )
     assistant_message = await append_message(
         db,
         user_id=user_id,
@@ -1075,6 +1425,8 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             role="assistant",
             content=answer,
             model=model,
+            input_tokens=llm_usage_input_tokens,
+            output_tokens=llm_usage_output_tokens,
             metadata=assistant_meta,
             latency_ms=assistant_latency_ms,
         ),
@@ -1265,27 +1617,73 @@ async def run_chat_stream(
     visitor_requests_human_nl = _message_requests_human(payload.message)
 
     history_rows = await list_messages(db, user_id, conversation_id)
-    history = slice_history_for_current_turn(history_rows, current_user_content=payload.message)
+    settings_rt = get_settings()
+    history = slice_history_for_current_turn(
+        history_rows,
+        current_user_content=payload.message,
+        max_window_messages=settings_rt.runtime_max_history_messages,
+    )
 
     expanded_query = build_retrieval_query_for_embedding(history, payload.message)
-    chunks = await _retrieve_merged_chunks_for_message(
-        db,
+    regex_commerce = is_commerce_shopify_intent(payload.message)
+    thread_had_shopify = conversation_recent_used_shopify_tools(history)
+    skip_shopify_router_llm = bool(
+        (regex_commerce or thread_had_shopify)
+        and settings_rt.runtime_enable_shopify_route_classifier
+        and not settings_rt.runtime_force_shopify_route_classifier_for_accuracy
+    )
+    t_shopify = time.perf_counter()
+    shopify_bundle = await _load_shopify_tools_and_optional_route(
+        user_id=user_id,
+        agent_id=payload.agent_id,
+        user_message=payload.message,
+        route_classifier_enabled=settings_rt.runtime_enable_shopify_route_classifier,
+        skip_route_classifier=skip_shopify_router_llm,
+        conversation_id=conversation_id,
+    )
+    shopify_load_ms = (time.perf_counter() - t_shopify) * 1000.0
+
+    tool_list, shopify_route_decision, force_tools_round0, shopify_setup_timings = shopify_bundle
+    t_intent = time.perf_counter()
+    commerce_intent, commerce_intent_source, commerce_conf = await resolve_commerce_intent(
+        payload.message,
+        tool_list=tool_list,
+        shopify_route_decision=shopify_route_decision,
+        llm_fallback_enabled=settings_rt.runtime_intent_llm_fallback_enabled,
+        recent_thread_used_shopify_tools=thread_had_shopify,
+    )
+    intent_ms = (time.perf_counter() - t_intent) * 1000.0
+
+    skip_kb_retrieval = bool(tool_list and commerce_intent)
+    rag_fallback_mode = "skipped_commerce_intent" if skip_kb_retrieval else "vector_threshold_only"
+
+    retrieve_timing: dict[str, float] = {}
+    t_retrieve = time.perf_counter()
+    chunks = await _retrieve_chunks_with_new_session(
         payload.agent_id,
         user_message=payload.message,
         expanded_query=expanded_query,
         min_similarity=min_similarity,
         match_count=10,
+        skip=skip_kb_retrieval,
+        meta_timing=retrieve_timing,
     )
-    prompt_chunks = chunks[:RAG_PROMPT_CHUNK_COUNT]
+    retrieve_wall_ms = (time.perf_counter() - t_retrieve) * 1000.0
 
-    enabled_shopify = await list_enabled_shopify_actions_for_runtime(
-        db, user_id=user_id, agent_id=payload.agent_id
+    force_tools_round0 = force_tools_round0 or (bool(tool_list) and commerce_intent)
+
+    prompt_chunks = chunks[:RAG_PROMPT_CHUNK_COUNT]
+    _log_retrieval_trace(
+        conversation_id=conversation_id,
+        agent_id=payload.agent_id,
+        user_message=payload.message,
+        expanded_query=expanded_query,
+        min_similarity=min_similarity,
+        chunks=chunks,
+        prompt_chunks=prompt_chunks,
+        kb_retrieval_skipped=skip_kb_retrieval,
+        rag_fallback_mode=rag_fallback_mode,
     )
-    conn_pair = await load_shopify_connection_for_agent(db, user_id=user_id, agent_id=payload.agent_id)
-    tool_list: list[Any] = []
-    if conn_pair and enabled_shopify:
-        keys = {e[0] for e in enabled_shopify}
-        tool_list = build_shopify_langchain_tools(conn_pair[0], conn_pair[1], keys)
 
     has_context = bool(prompt_chunks)
     shopify_tools_enabled = bool(tool_list)
@@ -1315,10 +1713,18 @@ async def run_chat_stream(
         grounded_user_content=grounded_user,
     )
 
+    if tool_list:
+        m0 = lc_messages[0]
+        if isinstance(m0, SystemMessage):
+            lc_messages = [
+                SystemMessage(content=(m0.content or "") + _SHOPIFY_TOOLS_RUNTIME_BLOCK),
+                *lc_messages[1:],
+            ]
+
+    prompt_stats = _langchain_messages_prompt_stats(lc_messages)
+
     tools_invoked: list[str] = []
     tools_available_count = len(tool_list)
-    shopify_route_decision = None
-    force_tools_round0 = False
     answer = ""
     fallback_used = False
 
@@ -1331,20 +1737,8 @@ async def run_chat_stream(
         conv_for_handoff and conv_for_handoff.status in ("open", "escalated")
     )
 
-    settings = get_settings()
+    llm_stream_meta: dict[str, Any] = {}
     if tool_list:
-        if settings.runtime_enable_shopify_route_classifier:
-            shopify_route_decision = await classify_shopify_tool_route(payload.message, tool_list)
-            force_tools_round0 = tool_choice_required_from_route(
-                shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
-            )
-        m0 = lc_messages[0]
-        if isinstance(m0, SystemMessage):
-            lc_messages = [
-                SystemMessage(content=(m0.content or "") + _SHOPIFY_TOOLS_RUNTIME_BLOCK),
-                *lc_messages[1:],
-            ]
-        stream_meta: dict[str, Any] = {}
         parts: list[str] = []
         async for piece in _invoke_chat_with_tools_token_stream(
             db,
@@ -1356,14 +1750,16 @@ async def run_chat_stream(
             fallback_message=fallback_message,
             temperature=creativity,
             force_first_round_tool_choice=force_tools_round0,
-            meta_out=stream_meta,
+            meta_out=llm_stream_meta,
         ):
             parts.append(piece)
             if not handoff_replaces_reply:
                 yield {"type": "token", "text": piece}
         answer = "".join(parts).strip()
-        fallback_used = bool(stream_meta.get("fallback_used"))
-        tools_invoked = list(stream_meta.get("tools_invoked") or [])
+        fallback_used = bool(llm_stream_meta.get("fallback_used"))
+        tools_invoked = list(llm_stream_meta.get("tools_invoked") or [])
+        llm_usage_input_tokens = int(llm_stream_meta.get("usage_input_tokens") or 0)
+        llm_usage_output_tokens = int(llm_stream_meta.get("usage_output_tokens") or 0)
     else:
         parts = []
         async for piece in stream_runtime_chat_graph(
@@ -1371,12 +1767,15 @@ async def run_chat_stream(
             model=model,
             fallback_message=fallback_message,
             temperature=creativity,
+            meta_out=llm_stream_meta,
         ):
             parts.append(piece)
             if not handoff_replaces_reply:
                 yield {"type": "token", "text": piece}
         answer = "".join(parts).strip()
         fallback_used = bool(_looks_like_fallback_response(answer, fallback_message))
+        llm_usage_input_tokens = int(llm_stream_meta.get("usage_input_tokens") or 0)
+        llm_usage_output_tokens = int(llm_stream_meta.get("usage_output_tokens") or 0)
 
     if human_on and visitor_requests_human_nl:
         conv_handoff = conv_for_handoff or await get_conversation(db, user_id, conversation_id)
@@ -1394,6 +1793,10 @@ async def run_chat_stream(
 
     assistant_meta: dict[str, Any] = {
         "fallback_used": fallback_used,
+        "commerce_intent_heuristic": commerce_intent,
+        "commerce_intent_source": commerce_intent_source,
+        "commerce_intent_confidence": commerce_conf,
+        "kb_retrieval_skipped": skip_kb_retrieval,
         "retrieval_count": len(chunks),
         "prompt_chunk_count": len(prompt_chunks),
         "tools_available_count": tools_available_count,
@@ -1415,6 +1818,23 @@ async def run_chat_stream(
         turn_signals_model = TurnSignalsDTO.model_validate(ts_raw.model_dump())
 
     assistant_latency_ms = int((time.perf_counter() - turn_latency_start) * 1000)
+    _log_runtime_turn_timing(
+        conversation_id=conversation_id,
+        shopify_load_ms=shopify_load_ms,
+        intent_ms=intent_ms,
+        retrieve_wall_ms=retrieve_wall_ms,
+        retrieve_timing=retrieve_timing,
+        commerce_intent=commerce_intent,
+        commerce_intent_source=commerce_intent_source,
+        skip_kb_retrieval=skip_kb_retrieval,
+        assistant_latency_ms=assistant_latency_ms,
+        first_token_ms=llm_stream_meta.get("first_token_ms"),
+        shopify_setup_breakdown=shopify_setup_timings,
+        prompt_stats=prompt_stats,
+        llm_prompt_tokens_total=llm_usage_input_tokens,
+        llm_completion_tokens_total=llm_usage_output_tokens,
+        shopify_router_skipped=skip_shopify_router_llm,
+    )
     assistant_message = await append_message(
         db,
         user_id=user_id,
@@ -1423,6 +1843,8 @@ async def run_chat_stream(
             role="assistant",
             content=answer,
             model=model,
+            input_tokens=llm_usage_input_tokens,
+            output_tokens=llm_usage_output_tokens,
             metadata=assistant_meta,
             latency_ms=assistant_latency_ms,
         ),

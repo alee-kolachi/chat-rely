@@ -289,7 +289,7 @@ function BehaviorForm() {
           className={cn(
             "rounded-ds-lg px-5 py-2 text-sm font-semibold shadow-sm transition-colors",
             dirty && !isSaving && allValid && !loadingReliability
-              ? "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+              ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
               : "bg-ds-outline/40 text-ds-on-surface-variant cursor-not-allowed"
           )}
         >

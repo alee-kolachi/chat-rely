@@ -53,7 +53,7 @@ async def list_admin_subscriptions(
 
     list_sql = f"""
         select
-          s.id, s.user_id, u.email as user_email,
+          s.id, s.user_id, coalesce(u.email, '') as user_email,
           p.id as plan_id, p.slug as plan_slug, p.name as plan_name,
           p.monthly_price_cents,
           s.status::text as status, s.provider,
@@ -119,7 +119,7 @@ async def list_admin_usage_snapshots(
 
     list_sql = f"""
         select
-          ups.id, ups.user_id, u.email as user_email,
+          ups.id, ups.user_id, coalesce(u.email, '') as user_email,
           ups.period_start, ups.period_end,
           ups.included_conversations, ups.billable_conversations, ups.overage_conversations,
           ups.estimated_overage_cents, ups.projected_conversations,

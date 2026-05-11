@@ -1,8 +1,20 @@
 "use client";
 
-import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  History,
+  Info,
+  List,
+  RefreshCw,
+  Send,
+  Settings2,
+  ShoppingBag,
+  UserRound,
+} from "lucide-react";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
@@ -588,7 +600,7 @@ function PlaygroundPreviewConversation({
                         onClick={() => void handlePickHistoryConversation(row.id)}
                         className={cn(
                           "border-ds-outline group cursor-pointer rounded-2xl border bg-white p-3.5 text-left shadow-sm transition-all",
-                          "hover:border-ds-primary/35 hover:shadow-md active:scale-[0.99]",
+                          "hover:border-black/35 hover:shadow-md active:scale-[0.99]",
                           "disabled:pointer-events-none disabled:opacity-45",
                           isActive && "border-ds-primary/50 ring-ds-primary/25 bg-ds-sidebar/40 ring-2"
                         )}
@@ -720,7 +732,7 @@ function PlaygroundPreviewConversation({
                   "cursor-pointer shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
                   hasBrand && chrome
                     ? cn(chrome.fabIconClass, "hover:opacity-90")
-                    : "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+                    : "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
                 )}
                 style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
                 onClick={() => void handleSendMessage()}
@@ -1021,7 +1033,7 @@ export default function PlaygroundPage() {
             </div>
             <button
               type="button"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary cursor-pointer inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
               onClick={() => void handleSaveRef.current()}
               disabled={!selectedAgentId || isSaving}
             >
@@ -1106,7 +1118,7 @@ export default function PlaygroundPage() {
                 </label>
                 <button
                   type="button"
-                  className="text-ds-on-surface-variant hover:text-ds-primary cursor-pointer rounded-ds-md p-1 transition-colors"
+                  className="text-ds-on-surface-variant hover:text-ds-interactive-hover cursor-pointer rounded-ds-md p-1 transition-colors"
                   aria-label="About creativity"
                 >
                   <IconInfo className="size-4" />
@@ -1253,7 +1265,7 @@ export default function PlaygroundPage() {
                   </label>
                   <button
                     type="button"
-                    className="text-ds-on-surface-variant hover:text-ds-primary inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors disabled:pointer-events-none disabled:opacity-40"
+                    className="text-ds-on-surface-variant hover:text-ds-interactive-hover inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors disabled:pointer-events-none disabled:opacity-40"
                     disabled={!baseline || systemPrompt === baseline.systemPrompt}
                     onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
                   >
@@ -1283,7 +1295,7 @@ export default function PlaygroundPage() {
                 </div>
                 <button
                   type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex shrink-0 cursor-pointer items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex shrink-0 cursor-pointer items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
                   onClick={() => void handleSave()}
                   disabled={!selectedAgentId || isSaving}
                 >
@@ -1376,120 +1388,42 @@ function ToggleSwitch({
   );
 }
 
-function IconBase({
-  className,
-  children,
-  fill = "none",
-  strokeWidth = "1.8",
-}: {
-  className?: string;
-  children: ReactNode;
-  fill?: string;
-  strokeWidth?: string;
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill={fill}
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      {children}
-    </svg>
-  );
-}
-
 function IconTune({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M4 7h8M16 7h4M9 7v10M4 17h4M12 17h8M15 17V7" />
-    </IconBase>
-  );
+  return <Settings2 className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconInfo({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 10v6M12 7.5h.01" />
-    </IconBase>
-  );
+  return <Info className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconBag({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M6 8h12l-1 11H7L6 8Z" />
-      <path d="M9 9V7a3 3 0 1 1 6 0v2" />
-    </IconBase>
-  );
+  return <ShoppingBag className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconChevron({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="m9 18 6-6-6-6" />
-    </IconBase>
-  );
+  return <ChevronRight className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconPersonPin({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <circle cx="12" cy="8.5" r="3" />
-      <path d="M6 18c1.4-2.5 3.5-3.8 6-3.8s4.6 1.3 6 3.8" />
-    </IconBase>
-  );
+  return <UserRound className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconHistory({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M4 12a8 8 0 1 0 2.4-5.7" />
-      <path d="M4 4v4h4" />
-      <path d="M12 8v5l3 2" />
-    </IconBase>
-  );
+  return <History className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconBot({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <rect x="5" y="7" width="14" height="11" rx="3" />
-      <circle cx="10" cy="12" r="1" fill="currentColor" strokeWidth="0" />
-      <circle cx="14" cy="12" r="1" fill="currentColor" strokeWidth="0" />
-      <path d="M12 4v3M9 16h6" />
-    </IconBase>
-  );
+  return <Bot className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconListChats({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M8 6h13M8 12h13M8 18h13" />
-      <path d="M3 6h.01M3 12h.01M3 18h.01" />
-    </IconBase>
-  );
+  return <List className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconRefresh({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M20 12a8 8 0 1 1-2.3-5.6" />
-      <path d="M20 4v5h-5" />
-    </IconBase>
-  );
+  return <RefreshCw className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconSend({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M21 3 9 15" />
-      <path d="m21 3-7 18-5-6-6-5 18-7Z" />
-    </IconBase>
-  );
+  return <Send className={className} strokeWidth={1.8} aria-hidden />;
 }

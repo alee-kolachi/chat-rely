@@ -8,6 +8,7 @@ import os
 import structlog
 from sqlalchemy import text
 
+from app.core.logging import setup_logging
 from app.core.settings import get_settings
 from app.db.engine import init_engine
 from app.db.session import get_session_factory, init_session_factory
@@ -64,6 +65,17 @@ async def run_loop(interval_seconds: float = 60.0) -> None:
     os.environ.setdefault("SUPABASE_JWKS_URL", "https://example.com/.well-known/jwks.json")
     os.environ.setdefault("SUPABASE_ISSUER", "https://example.com/auth/v1")
     settings = get_settings()
+    setup_logging(
+        settings.log_level,
+        log_file_enabled=settings.log_file_enabled,
+        log_file_path=settings.log_file_path,
+        log_file_max_bytes=settings.log_file_max_bytes,
+        log_file_backup_count=settings.log_file_backup_count,
+        log_pretty_file_enabled=settings.log_pretty_file_enabled,
+        log_pretty_file_path=settings.log_pretty_file_path,
+        log_pretty_file_max_bytes=settings.log_pretty_file_max_bytes,
+        log_pretty_file_backup_count=settings.log_pretty_file_backup_count,
+    )
     init_engine(settings)
     init_session_factory()
     log.info("maintenance_worker_started", interval_seconds=interval_seconds)

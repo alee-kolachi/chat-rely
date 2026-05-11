@@ -132,7 +132,7 @@ async def list_admin_users(
           group by kc.user_id
         )
         select
-          u.id, u.email, p.full_name, u.created_at as signed_up_at,
+          u.id, coalesce(u.email, '') as email, p.full_name, u.created_at as signed_up_at,
           s.plan_slug, s.plan_name, s.status as subscription_status,
           coalesce(ac.n, 0) as agents_count,
           coalesce(mc.n, 0) as conversations_mtd,
@@ -215,7 +215,7 @@ async def get_admin_user_detail(
             text(
                 """
                 select
-                  u.id, u.email, u.created_at as signed_up_at,
+                  u.id, coalesce(u.email, '') as email, u.created_at as signed_up_at,
                   p.full_name, p.avatar_url, coalesce(p.timezone, 'UTC') as timezone
                 from auth.users u
                 left join public.profiles p on p.id = u.id
@@ -288,7 +288,7 @@ async def get_admin_user_detail(
                 select
                   c.id, c.started_at, c.last_activity_at, c.status, c.channel, c.visitor_id,
                   c.agent_id, a.name as agent_name,
-                  c.user_id, u.email as user_email,
+                  c.user_id, coalesce(u.email, '') as user_email,
                   c.customer_message_count, c.assistant_message_count, c.tool_call_count,
                   c.total_input_tokens, c.total_output_tokens,
                   coalesce((c.metadata->>'fallback_used')::boolean, false) as fallback_used,

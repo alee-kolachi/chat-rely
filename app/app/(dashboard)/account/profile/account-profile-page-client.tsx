@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Bell, TriangleAlert } from "lucide-react";
 import { AccountProfileForm } from "@/components/account/account-profile-form";
 import { AccountNotificationPreferences } from "@/components/account/account-notification-preferences";
 import { useUserProfile } from "@/components/account/user-profile-context";
@@ -67,46 +67,9 @@ export function AccountProfilePageClient() {
 }
 
 function IconBell({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M6 10a6 6 0 0 1 12 0v5l1.5 2h-15L6 15v-5Z" />
-      <path d="M10 19a2 2 0 0 0 4 0" />
-    </IconBase>
-  );
+  return <Bell className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconWarning({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M12 3 2.8 19h18.4L12 3Z" />
-      <path d="M12 9v4M12 16h.01" />
-    </IconBase>
-  );
-}
-
-function IconBase({
-  className,
-  children,
-  fill = "none",
-  strokeWidth = "1.8",
-}: {
-  className?: string;
-  children: ReactNode;
-  fill?: string;
-  strokeWidth?: string;
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill={fill}
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      {children}
-    </svg>
-  );
+  return <TriangleAlert className={className} strokeWidth={1.8} aria-hidden />;
 }

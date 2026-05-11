@@ -63,7 +63,7 @@ export function OnboardingPricingClient() {
               Paid tier for production—your setup is saved. Billing in{" "}
               <Link
                 href="/account/plan"
-                className="text-ds-primary font-medium underline decoration-ds-primary/30 underline-offset-[3px] hover:decoration-ds-primary"
+                className="text-ds-primary font-medium underline decoration-ds-primary/30 underline-offset-[3px] hover:decoration-black"
               >
                 Settings → Plan
               </Link>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CHAT_RELY_LOGO_PATH, ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { ConversationalWorkflowSection } from "@/components/marketing/conversational-workflow-section";
 import { PlatformDiscoverySection } from "@/components/marketing/platform-discovery-section";
 import { LandingPricingTeaser } from "@/components/marketing/landing-pricing-teaser";
@@ -29,8 +30,8 @@ export const metadata: Metadata = {
 
 export default function LandingPage() {
   return (
-    <main className="flex-1 bg-ds-sidebar text-ds-on-surface">
-      <section className="bg-ds-sidebar px-6 pb-14 pt-10 sm:pb-16 sm:pt-14 lg:pb-20">
+    <main className="flex-1 bg-ds-surface text-ds-on-surface">
+      <section className="bg-ds-surface px-6 pb-14 pt-10 sm:pb-16 sm:pt-14 lg:pb-20">
         <div className="mx-auto grid max-w-[1200px] gap-16 lg:grid-cols-2 lg:items-center">
           <div className="max-w-xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-ds-outline bg-ds-surface px-3 py-1 text-xs">
@@ -67,13 +68,23 @@ export default function LandingPage() {
             <div className="rounded-[30px] bg-gradient-to-br from-ds-tertiary/55 via-ds-accent-pink/45 to-violet-500/45 p-3 sm:p-4">
               <div className="mx-auto max-w-[540px] overflow-hidden rounded-[22px] border border-ds-outline bg-ds-surface shadow-2xl shadow-zinc-300/35 scale-[0.92] sm:scale-[0.95]">
                 <div className="flex items-center justify-between border-b border-ds-outline bg-white p-3.5 sm:p-4">
-                <div>
-                  <p className="text-sm font-bold">Chatbase Support Agent</p>
-                  <p className="text-xs text-green-600">Online</p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- static SVG from /public */}
+                    <img
+                      src={CHAT_RELY_LOGO_PATH}
+                      alt=""
+                      className="h-7 w-auto shrink-0 object-contain"
+                      width={4931}
+                      height={3503}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold">ChatRely Support Agent</p>
+                      <p className="text-xs text-green-600">Online</p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs text-ds-on-surface-variant">Preview</span>
                 </div>
-                <span className="text-xs text-ds-on-surface-variant">Preview</span>
-                </div>
-                <div className="space-y-3.5 bg-ds-sidebar p-4 sm:p-5">
+                <div className="space-y-3.5 bg-ds-surface p-4 sm:p-5">
                   <div className="max-w-[82%] rounded-2xl rounded-tl-sm border border-ds-outline bg-white p-3 text-sm">
                     Hi! How can I help you build your custom AI agent today?
                   </div>
@@ -85,7 +96,7 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <div className="border-t border-ds-outline bg-white p-3.5 sm:p-4">
-                  <div className="rounded-ds-md bg-ds-sidebar px-4 py-3 text-sm text-ds-on-surface-variant">
+                  <div className="rounded-ds-md bg-ds-surface px-4 py-3 text-sm text-ds-on-surface-variant">
                     Ask anything...
                   </div>
                 </div>
@@ -124,7 +135,7 @@ export default function LandingPage() {
           <div className="grid gap-6 md:grid-cols-3">
             {highlightCards.map(([title, text]) => (
               <article key={title} className="rounded-[28px] border border-ds-outline bg-white p-8 shadow-sm transition hover:shadow-lg">
-                <div className="mb-8 aspect-[4/3] rounded-2xl border border-ds-outline bg-ds-sidebar" />
+                <div className="mb-8 aspect-[4/3] rounded-2xl border border-ds-outline bg-ds-surface" />
                 <h3 className="text-2xl font-semibold">{title}</h3>
                 <p className="mt-3 text-sm leading-6 text-ds-on-surface-variant">{text}</p>
               </article>
@@ -216,7 +227,11 @@ export default function LandingPage() {
       <footer className="bg-black px-6 py-20 text-white">
         <div className="mx-auto grid max-w-[1200px] gap-12 lg:grid-cols-2">
           <div className="space-y-6">
-            <p className="text-2xl font-black tracking-tight">ChatRely</p>
+            <ChatRelyWordmark
+              invertLogo
+              iconClassName="h-7 w-auto"
+              textClassName="text-4xl font-black tracking-tight text-white"
+            />
             <p className="text-sm text-zinc-500">© 2026 ChatRely</p>
             <div className="flex flex-wrap gap-3">
               <a

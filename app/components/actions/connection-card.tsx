@@ -69,7 +69,7 @@ export function ConnectionCard({
               type="button"
               onClick={() => void onConnect()}
               disabled={busy || !connectEnabled || !shopDraft.trim()}
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
             >
               Connect Shopify
             </button>

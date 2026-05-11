@@ -16,7 +16,12 @@ from app.domains.integrations.shopify.tool_runners import (
 
 
 class ProductSearchInput(BaseModel):
-    query: str = Field(description="Keywords or question fragment to match against products or SKUs.")
+    query: str = Field(
+        description=(
+            "Shopify Admin product search query (keywords, SKU, tag). "
+            "For broad ‘what do you sell / browse the catalog’ questions, use exactly: published_status:published"
+        )
+    )
     max_results: int = Field(default=5, ge=1, le=20)
 
 

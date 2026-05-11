@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_version: str = "0.1.0"
     log_level: str = "INFO"
+    log_file_enabled: bool = True
+    log_file_path: str = "logs/backend.log"
+    log_file_max_bytes: int = 10485760
+    log_file_backup_count: int = 10
+    log_pretty_file_enabled: bool = True
+    log_pretty_file_path: str = "logs/backend.pretty.log"
+    log_pretty_file_max_bytes: int = 10485760
+    log_pretty_file_backup_count: int = 10
     allowed_origins: list[AnyHttpUrl] = []
 
     database_url: PostgresDsn
@@ -35,7 +43,22 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
     runtime_enable_turn_signals: bool = False
-    runtime_enable_shopify_route_classifier: bool = False
+    runtime_enable_shopify_route_classifier: bool = True
+    # Accuracy-first mode: always run Shopify route classifier (slower, but less regex bias).
+    runtime_force_shopify_route_classifier_for_accuracy: bool = False
+    # When regex misses commerce intent, reuse Shopify router output or run one cheap LLM classifier.
+    runtime_intent_llm_fallback_enabled: bool = True
+    # Cap prior DB messages sent to the LLM per turn (smaller prompts → faster first token).
+    runtime_max_history_messages: int = 8
+    # Cache enabled Shopify actions list per agent (avoids repeated subscription + agent_actions work).
+    runtime_shopify_actions_cache_ttl_seconds: float = 120.0
+    # After boot, preload Shopify connection + actions caches for connected stores (first chat avoids cold miss).
+    runtime_shopify_cache_warm_on_startup: bool = True
+    runtime_shopify_cache_warm_max_agents: int = 20
+    # Hard timeout for each Shopify Admin tool invocation (GraphQL); avoids hung streams.
+    shopify_tool_timeout_seconds: float = 25.0
+    # Log `runtime.turn_timing` when wall-clock assistant turn exceeds this (milliseconds).
+    runtime_turn_latency_warn_ms: int = 20000
     dev_auth_bypass_enabled: bool = False
     dev_auth_bypass_user_id: str = "00000000-0000-0000-0000-000000000001"
 

@@ -92,7 +92,7 @@ export function AgentSettingsHeader() {
             className={cn(
               "rounded-ds-lg px-4 py-2 text-sm font-semibold shadow-sm transition-colors",
               dirty && !isSavingName
-                ? "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+                ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
                 : "bg-ds-outline/40 text-ds-on-surface-variant cursor-not-allowed"
             )}
           >
@@ -115,7 +115,7 @@ export function AgentSettingsEmptyState() {
       </p>
       <Link
         href="/onboarding"
-        className="bg-ds-primary text-ds-on-primary mt-5 inline-flex items-center justify-center rounded-ds-lg px-4 py-2 text-sm font-semibold shadow-sm hover:bg-ds-secondary"
+        className="bg-ds-primary text-ds-on-primary mt-5 inline-flex items-center justify-center rounded-ds-lg px-4 py-2 text-sm font-semibold shadow-sm hover:bg-ds-primary-hover"
       >
         Continue onboarding
       </Link>

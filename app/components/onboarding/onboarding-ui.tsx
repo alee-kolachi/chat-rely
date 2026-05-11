@@ -1,22 +1,10 @@
 import type { ComponentProps, ReactNode } from "react";
 import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function OnboardingBackChevron({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="m15 18-6-6 6-6" />
-    </svg>
-  );
+  return <ChevronLeft className={className} strokeWidth={2} aria-hidden />;
 }
 
 /** Shared typography + spacing for all onboarding main content */
@@ -68,15 +56,21 @@ export function OnboardingPageHeader({
   subtitle,
   className,
 }: {
-  kicker?: string;
+  kicker?: string | ReactNode;
   title: string;
   subtitle?: string;
   className?: string;
 }) {
   return (
     <header className={cn("mb-8 md:mb-10", className)}>
-      {kicker ? <p className={onboardingType.kicker}>{kicker}</p> : null}
-      <h1 className={cn(onboardingType.title, kicker && "mt-2")}>{title}</h1>
+      {kicker != null ? (
+        typeof kicker === "string" ? (
+          <p className={onboardingType.kicker}>{kicker}</p>
+        ) : (
+          <div className="flex justify-center">{kicker}</div>
+        )
+      ) : null}
+      <h1 className={cn(onboardingType.title, kicker != null && "mt-2")}>{title}</h1>
       {subtitle ? <p className={onboardingType.subtitle}>{subtitle}</p> : null}
     </header>
   );
@@ -172,7 +166,7 @@ export function OnboardingStickyFooter({
             }}
             className={cn(
               controlClass,
-              "relative isolate z-[1] bg-ds-primary text-ds-on-primary hover:bg-ds-secondary",
+              "relative isolate z-[1] bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover",
               "disabled:opacity-45 disabled:cursor-not-allowed",
               primaryPending && "cursor-wait opacity-80"
             )}
@@ -190,7 +184,7 @@ export function OnboardingStickyFooter({
         ) : (
           <a
             href={primaryHref}
-            className={cn(controlClass, "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary")}
+            className={cn(controlClass, "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover")}
           >
             {primaryLabel}
           </a>

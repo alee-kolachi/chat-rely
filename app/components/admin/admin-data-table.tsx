@@ -10,6 +10,8 @@ export type AdminColumn<T> = {
   render: (row: T) => ReactNode;
   sortable?: boolean;
   sortKey?: string;
+  /** When `rowHref` wraps row cells in a link, set true if this cell renders its own links/buttons. */
+  skipRowLinkWrap?: boolean;
 };
 
 export type AdminDataTableProps<T> = {
@@ -58,7 +60,7 @@ export function AdminDataTable<T>({
                       <Link
                         href={buildSortHref({ sort_by: sortKey, sort_dir: nextDir })}
                         className={cn(
-                          "hover:text-ds-primary inline-flex items-center gap-1 transition",
+                          "hover:text-ds-interactive-hover inline-flex items-center gap-1 transition",
                           isActive && "text-ds-primary"
                         )}
                       >
@@ -105,7 +107,7 @@ export function AdminDataTable<T>({
                         col.className
                       );
                       const content = col.render(row);
-                      if (href) {
+                      if (href && !col.skipRowLinkWrap) {
                         return (
                           <td key={col.key} className={cellClass}>
                             <Link href={href} className="block w-full">

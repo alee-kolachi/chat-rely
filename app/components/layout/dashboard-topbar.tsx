@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ChevronRight, Menu, X } from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { cn } from "@/lib/utils";
 
 const mobileNavItems = [
@@ -158,7 +160,11 @@ export function DashboardTopbar() {
         >
           <IconMenu className="size-5" />
         </button>
-        <span className="text-ds-on-surface text-sm font-semibold">ChatRely</span>
+        <ChatRelyWordmark
+          href="/dashboard"
+          iconClassName="h-5 w-auto"
+          textClassName="text-lg font-semibold text-ds-on-surface"
+        />
         <LogoutButton className="text-ds-on-surface-variant hover:bg-ds-neutral touch-manipulation min-h-11 rounded-ds-md px-3 py-2 text-sm transition-colors hover:text-ds-on-surface [-webkit-tap-highlight-color:transparent]" />
       </header>
 
@@ -168,52 +174,13 @@ export function DashboardTopbar() {
 }
 
 function IconChevronSmall({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
+  return <ChevronRight className={className} strokeWidth={2} aria-hidden />;
 }
 
 function IconMenu({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M4 7h16M4 12h16M4 17h16" />
-    </svg>
-  );
+  return <Menu className={className} strokeWidth={2} aria-hidden />;
 }
 
 function IconClose({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="m6 6 12 12M18 6 6 18" />
-    </svg>
-  );
+  return <X className={className} strokeWidth={2} aria-hidden />;
 }

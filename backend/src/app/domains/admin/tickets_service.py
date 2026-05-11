@@ -80,7 +80,7 @@ async def list_admin_tickets(
 
     list_sql = f"""
         select
-          t.id, t.user_id, u.email as user_email,
+          t.id, t.user_id, coalesce(u.email, '') as user_email,
           t.agent_id, a.name as agent_name,
           t.conversation_id, t.status, t.priority,
           t.subject, t.customer_email, t.external_provider, t.external_id,
@@ -124,7 +124,7 @@ async def get_admin_ticket_detail(
             text(
                 """
                 select
-                  t.id, t.user_id, u.email as user_email,
+                  t.id, t.user_id, coalesce(u.email, '') as user_email,
                   t.agent_id, a.name as agent_name,
                   t.conversation_id, t.status, t.priority,
                   t.subject, t.customer_email, t.external_provider, t.external_id,
@@ -153,7 +153,7 @@ async def get_admin_ticket_detail(
                 select
                   c.id, c.started_at, c.last_activity_at, c.status, c.channel, c.visitor_id,
                   c.agent_id, a.name as agent_name,
-                  c.user_id, u.email as user_email,
+                  c.user_id, coalesce(u.email, '') as user_email,
                   c.customer_message_count, c.assistant_message_count, c.tool_call_count,
                   c.total_input_tokens, c.total_output_tokens,
                   coalesce((c.metadata->>'fallback_used')::boolean, false) as fallback_used,

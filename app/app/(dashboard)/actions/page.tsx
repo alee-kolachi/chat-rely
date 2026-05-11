@@ -50,7 +50,7 @@ function ActionsPageContent() {
     error: integrationsError,
     refresh: refreshIntegrations,
     disconnect,
-  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
+  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined, { includeWebsitePreview: false });
 
   const [filter, setFilter] = useState<FilterChip>("All");
   const [chipIdx, setChipIdx] = useState(0);

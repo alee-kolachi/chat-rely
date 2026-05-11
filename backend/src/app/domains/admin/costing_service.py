@@ -619,7 +619,7 @@ async def _user_costing_rows(
           group by kc.user_id
         )
         select
-          u.id as user_id, u.email,
+          u.id as user_id, coalesce(u.email, '') as email,
           s.plan_slug, s.plan_name,
           coalesce(s.monthly_price_cents, 0)::int as revenue_cents,
           coalesce(l.cost, 0.0)::float as llm_cost,

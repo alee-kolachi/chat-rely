@@ -35,10 +35,15 @@ async function adminFetch<T>(path: string): Promise<T> {
     throw new AdminApiError("No active Supabase session", 401, "auth.no_session");
   }
   const url = `${getAdminBackendBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${session.access_token}` },
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: "no-store",
+    });
+  } catch {
+    throw new AdminApiError("Admin API is unreachable", 503, "admin.api_unreachable");
+  }
   if (!res.ok) {
     let payload: unknown = null;
     try {

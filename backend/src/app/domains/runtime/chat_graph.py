@@ -87,6 +87,25 @@ def text_from_model_message(msg: BaseMessage) -> str:
     return ""
 
 
+def usage_tokens_from_model_message(msg: BaseMessage) -> tuple[int, int]:
+    """Best-effort extraction of prompt/completion token counts."""
+    usage = getattr(msg, "usage_metadata", None)
+    if isinstance(usage, dict):
+        return (
+            int(usage.get("input_tokens") or 0),
+            int(usage.get("output_tokens") or 0),
+        )
+    response_meta = getattr(msg, "response_metadata", None)
+    if isinstance(response_meta, dict):
+        token_usage = response_meta.get("token_usage")
+        if isinstance(token_usage, dict):
+            return (
+                int(token_usage.get("prompt_tokens") or 0),
+                int(token_usage.get("completion_tokens") or 0),
+            )
+    return (0, 0)
+
+
 def db_messages_to_chat_messages(messages: list[MessageDTO]) -> list[BaseMessage]:
     """Map persisted rows to LangChain messages (skips `system`: prompt is rebuilt each turn)."""
     out: list[BaseMessage] = []
@@ -174,6 +193,7 @@ async def stream_runtime_chat_graph(
     model: str,
     fallback_message: str,
     temperature: float = 0.0,
+    meta_out: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """
     Stream assistant tokens for one graph-equivalent turn (single LLM call, no tools).
@@ -181,8 +201,13 @@ async def stream_runtime_chat_graph(
     """
     llm = make_chat_model(model, temperature=temperature)
     collected: list[str] = []
+    input_tokens = 0
+    output_tokens = 0
     try:
         async for chunk in llm.astream(messages):
+            in_t, out_t = usage_tokens_from_model_message(chunk)
+            input_tokens = max(input_tokens, in_t)
+            output_tokens = max(output_tokens, out_t)
             piece = text_delta_from_stream_chunk(chunk)
             if piece:
                 collected.append(piece)
@@ -196,6 +221,9 @@ async def stream_runtime_chat_graph(
         ) from exc
 
     text = "".join(collected).strip()
+    if meta_out is not None:
+        meta_out["usage_input_tokens"] = input_tokens
+        meta_out["usage_output_tokens"] = output_tokens
     if not text:
         yield fallback_message if fallback_message else ""
 
@@ -207,7 +235,7 @@ async def invoke_runtime_chat_graph(
     fallback_message: str,
     temperature: float = 0.0,
     thread_id: str | None = None,
-) -> tuple[str, bool]:
+ ) -> tuple[str, bool, int, int]:
     """
     Run the chat graph once. `thread_id` is reserved for a future checkpointer
     (e.g. PostgresSaver); conversation memory is loaded from the DB by the caller.
@@ -227,22 +255,25 @@ async def invoke_runtime_chat_graph(
     out = await graph.ainvoke(initial, config=config if config else None)
     final_messages = out.get("messages") or []
     if not final_messages:
-        return fallback_message, True
+        return fallback_message, True, 0, 0
     last = final_messages[-1]
     text = text_from_model_message(last)
+    input_tokens, output_tokens = usage_tokens_from_model_message(last)
     fallback_used = bool(out.get("fallback_used"))
     if not text:
-        return fallback_message, True
-    return text, fallback_used
+        return fallback_message, True, input_tokens, output_tokens
+    return text, fallback_used, input_tokens, output_tokens
 
 
 def slice_history_for_current_turn(
     db_messages: list[MessageDTO],
     *,
     current_user_content: str,
+    max_window_messages: int = MAX_HISTORY_DB_MESSAGES,
 ) -> list[MessageDTO]:
     """Drop the trailing user row if it matches this turn (already appended to DB)."""
-    window = db_messages[-MAX_HISTORY_DB_MESSAGES:]
+    cap = max(1, min(max_window_messages, MAX_HISTORY_DB_MESSAGES))
+    window = db_messages[-cap:]
     if (
         window
         and window[-1].role == "user"
@@ -256,17 +287,19 @@ def build_retrieval_query_for_embedding(
     history_without_current_user: list[MessageDTO],
     current_user_message: str,
     *,
+    include_conversation_tail: bool = False,
     max_tail_messages: int = 8,
     max_message_chars: int = 700,
     max_total_chars: int = 3200,
 ) -> str:
     """
-    Embed recent dialogue plus the latest question so short follow-ups
-    ("What's the warranty?", "Does it ship to EU?") stay aligned with
-    entities and products from prior turns.
+    Default: embed **only** the latest user message (stable retrieval, less drift).
+
+    Optional `include_conversation_tail=True` restores the legacy behavior: embed recent dialogue
+    plus the latest question for short follow-ups tied to prior turns.
     """
     cur_only = (current_user_message or "").strip()
-    if not history_without_current_user:
+    if not include_conversation_tail or not history_without_current_user:
         return cur_only
     tail = history_without_current_user[-max_tail_messages:]
     lines: list[str] = []

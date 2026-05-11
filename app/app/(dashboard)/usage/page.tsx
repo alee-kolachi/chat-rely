@@ -67,7 +67,7 @@ export default function UsagePage() {
           </div>
           <Link
             href="/account/plan"
-            className="border-ds-outline text-ds-on-surface hover:border-ds-primary/30 inline-flex shrink-0 items-center justify-center rounded-ds-lg border bg-white px-4 py-2 text-sm font-medium shadow-sm transition-colors"
+            className="border-ds-outline text-ds-on-surface hover:border-black/30 inline-flex shrink-0 items-center justify-center rounded-ds-lg border bg-white px-4 py-2 text-sm font-medium shadow-sm transition-colors"
           >
             Change plan
           </Link>
@@ -75,87 +75,101 @@ export default function UsagePage() {
 
         {error ? <p className="mb-6 text-sm text-rose-600">{error}</p> : null}
 
-        {loading ? (
-          <p className="text-ds-on-surface-variant text-sm">Loading usage…</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
-              <h2 className="ds-app-section-title">Conversations</h2>
-              <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                Included conversations are covered by your subscription.{" "}
-                <strong>Paid overage</strong> applies to each billable conversation beyond your included amount for
-                this period.
-              </p>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
+            <h2 className="ds-app-section-title">Conversations</h2>
+            <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
+              Included conversations are covered by your subscription. <strong>Paid overage</strong> applies to each
+              billable conversation beyond your included amount for this period.
+            </p>
 
-              <div className="mt-6">
-                <div className="text-ds-on-surface flex flex-wrap items-baseline justify-between gap-2 text-2xl font-semibold tabular-nums">
-                  <span>{billable.toLocaleString()}</span>
-                  <span className="text-ds-on-surface-variant text-base font-normal">
-                    / {included.toLocaleString()} included
-                  </span>
-                </div>
-                <div className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-ds-sidebar ring-1 ring-ds-outline">
-                  <div
-                    className="h-full bg-ds-primary transition-[width]"
-                    style={{ width: `${segments.includedPct}%` }}
-                    title="Included band usage"
-                  />
-                  <div
-                    className="h-full bg-rose-500 transition-[width]"
-                    style={{ width: `${segments.overPct}%` }}
-                    title="Beyond included (paid overage)"
-                  />
-                </div>
-                <div className="text-ds-on-surface-variant mt-2 flex flex-wrap gap-4 text-[11px] font-medium">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="bg-ds-primary inline-block size-2.5 rounded-full" aria-hidden />
-                    Included
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block size-2.5 rounded-full bg-rose-500" aria-hidden />
-                    Beyond included
-                  </span>
-                </div>
+            <div className="mt-6">
+              <div className="text-ds-on-surface flex flex-wrap items-baseline justify-between gap-2 text-2xl font-semibold tabular-nums">
+                {loading ? (
+                  <>
+                    <span className="bg-ds-sidebar inline-block h-8 w-20 animate-pulse rounded-md" />
+                    <span className="bg-ds-sidebar inline-block h-6 w-36 animate-pulse rounded-md" />
+                  </>
+                ) : (
+                  <>
+                    <span>{billable.toLocaleString()}</span>
+                    <span className="text-ds-on-surface-variant text-base font-normal">
+                      / {included.toLocaleString()} included
+                    </span>
+                  </>
+                )}
               </div>
-
-              <dl className="border-ds-outline mt-8 grid gap-3 border-t pt-6 text-sm">
-                <div className="flex justify-between gap-4">
-                  <dt className="text-ds-on-surface-variant">Throttle tier</dt>
-                  <dd className="font-medium capitalize">{snap?.throttle_tier ?? "—"}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-ds-on-surface-variant">Paid overage conversations</dt>
-                  <dd className="font-medium tabular-nums">{paidOver.toLocaleString()}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-ds-on-surface-variant">Est. overage this period</dt>
-                  <dd className="font-medium tabular-nums">${overageUsd}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-ds-on-surface-variant">Overage rate</dt>
-                  <dd className="font-medium">
-                    {ctx?.plan.overage_conversation_cents
-                      ? `$${(ctx.plan.overage_conversation_cents / 100).toFixed(2)} / conversation`
-                      : "—"}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-
-            <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
-              <h2 className="ds-app-section-title">Workspace</h2>
-              <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                Per-agent analytics (sessions started vs billable) live on the agent <Link href="/dashboard">Dashboard</Link>.
-              </p>
-              <div className="border-ds-outline mt-6 rounded-ds-lg border bg-ds-sidebar/50 p-4">
-                <p className="text-ds-on-surface-variant text-xs leading-relaxed">
-                  Usage totals refresh when you open this page. Overage is estimated from billable conversations beyond
-                  your included allowance for the current subscription period.
-                </p>
+              <div className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-ds-sidebar ring-1 ring-ds-outline">
+                <div
+                  className="h-full bg-ds-primary transition-[width]"
+                  style={{ width: loading ? "0%" : `${segments.includedPct}%` }}
+                  title="Included band usage"
+                />
+                <div
+                  className="h-full bg-rose-500 transition-[width]"
+                  style={{ width: loading ? "0%" : `${segments.overPct}%` }}
+                  title="Beyond included (paid overage)"
+                />
               </div>
-            </section>
-          </div>
-        )}
+              <div className="text-ds-on-surface-variant mt-2 flex flex-wrap gap-4 text-[11px] font-medium">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="bg-ds-primary inline-block size-2.5 rounded-full" aria-hidden />
+                  Included
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block size-2.5 rounded-full bg-rose-500" aria-hidden />
+                  Beyond included
+                </span>
+              </div>
+            </div>
+
+            <dl className="border-ds-outline mt-8 grid gap-3 border-t pt-6 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-ds-on-surface-variant">Throttle tier</dt>
+                <dd className="font-medium capitalize">
+                  {loading ? <span className="bg-ds-sidebar inline-block h-4 w-24 animate-pulse rounded-md" /> : (snap?.throttle_tier ?? "—")}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-ds-on-surface-variant">Paid overage conversations</dt>
+                <dd className="font-medium tabular-nums">
+                  {loading ? <span className="bg-ds-sidebar inline-block h-4 w-14 animate-pulse rounded-md" /> : paidOver.toLocaleString()}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-ds-on-surface-variant">Est. overage this period</dt>
+                <dd className="font-medium tabular-nums">
+                  {loading ? <span className="bg-ds-sidebar inline-block h-4 w-20 animate-pulse rounded-md" /> : `$${overageUsd}`}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-ds-on-surface-variant">Overage rate</dt>
+                <dd className="font-medium">
+                  {loading ? (
+                    <span className="bg-ds-sidebar inline-block h-4 w-32 animate-pulse rounded-md" />
+                  ) : ctx?.plan.overage_conversation_cents ? (
+                    `$${(ctx.plan.overage_conversation_cents / 100).toFixed(2)} / conversation`
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
+            <h2 className="ds-app-section-title">Workspace</h2>
+            <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
+              Per-agent analytics (sessions started vs billable) live on the agent <Link href="/dashboard">Dashboard</Link>.
+            </p>
+            <div className="border-ds-outline mt-6 rounded-ds-lg border bg-ds-sidebar/50 p-4">
+              <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                Usage totals refresh when you open this page. Overage is estimated from billable conversations beyond
+                your included allowance for the current subscription period.
+              </p>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );

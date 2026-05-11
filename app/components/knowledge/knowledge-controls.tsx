@@ -303,7 +303,7 @@ export function ConfirmDialog({
               "cursor-pointer rounded-ds-md px-4 py-2 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-60",
               destructive
                 ? "bg-rose-600 text-white hover:opacity-90"
-                : "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+                : "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
             )}
           >
             {busy ? "Working…" : confirmLabel}

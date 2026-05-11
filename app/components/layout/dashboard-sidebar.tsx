@@ -4,7 +4,22 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  BarChart3,
+  BookOpen,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  LayoutDashboard,
+  MessageSquare,
+  Rocket,
+  Settings,
+  SquareDashedMousePointer,
+  Ticket,
+  Wrench,
+} from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { cn } from "@/lib/utils";
 
 type NavChild = { href?: string; label: string; action?: "logout" };
@@ -113,14 +128,13 @@ export function DashboardSidebar() {
       )}
     >
       <div className="border-ds-outline flex h-14 items-center justify-between border-b px-3 md:h-16">
-        <span
-          className={cn(
-            "text-ds-on-surface overflow-hidden text-sm font-semibold whitespace-nowrap transition-all",
-            isCollapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
-          )}
-        >
-          ChatRely
-        </span>
+        <ChatRelyWordmark
+          href="/dashboard"
+          showText={!isCollapsed}
+          className="min-w-0 overflow-hidden"
+          iconClassName="h-5 w-auto"
+          textClassName="text-lg font-semibold text-ds-on-surface"
+        />
         <button
           type="button"
           onClick={toggleSidebar}
@@ -268,144 +282,50 @@ export function DashboardSidebar() {
   );
 }
 
-function IconStroke({ className, children }: { className?: string; children: ReactNode }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      {children}
-    </svg>
-  );
-}
-
 function IconDashboard(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <rect x="3" y="3" width="8" height="8" />
-      <rect x="13" y="3" width="8" height="5" />
-      <rect x="13" y="10" width="8" height="11" />
-      <rect x="3" y="13" width="8" height="8" />
-    </IconStroke>
-  );
+  return <LayoutDashboard className={className} strokeWidth={1.8} />;
 }
 
 function IconAnalytics(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="M4 19V5" />
-      <path d="M10 19v-8" />
-      <path d="M16 19v-5" />
-      <path d="M22 19v-12" />
-    </IconStroke>
-  );
+  return <BarChart3 className={className} strokeWidth={1.8} />;
 }
 
 function IconPlayground(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="m8 6 10 6-10 6V6Z" />
-    </IconStroke>
-  );
+  return <Bot className={className} strokeWidth={1.8} />;
 }
 
 function IconKnowledge(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="M4 5a2 2 0 0 1 2-2h12v18l-3-2-3 2-3-2-3 2V5Z" />
-    </IconStroke>
-  );
+  return <BookOpen className={className} strokeWidth={1.8} />;
 }
 
 function IconActions(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="M7 7h10v10H7z" />
-      <path d="M3 12h4M17 12h4M12 3v4M12 17v4" />
-    </IconStroke>
-  );
+  return <Wrench className={className} strokeWidth={1.8} />;
 }
 
 function IconConversations(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="M4 5h16v10H8l-4 4V5Z" />
-    </IconStroke>
-  );
+  return <MessageSquare className={className} strokeWidth={1.8} />;
 }
 
 function IconTickets(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="M4 8a2 2 0 0 1 2-2h12v4a2 2 0 1 0 0 4v4H6a2 2 0 0 1-2-2V8Z" />
-    </IconStroke>
-  );
+  return <Ticket className={className} strokeWidth={1.8} />;
 }
 
 function IconDeploy(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="M12 3v13" />
-      <path d="m7 11 5 5 5-5" />
-      <path d="M4 21h16" />
-    </IconStroke>
-  );
+  return <Rocket className={className} strokeWidth={1.8} />;
 }
 
 function IconUsage(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <path d="M4 19a8 8 0 1 1 16 0" />
-      <path d="m12 11 3 3" />
-    </IconStroke>
-  );
+  return <SquareDashedMousePointer className={className} strokeWidth={1.8} />;
 }
 
 function IconSettings(className?: string) {
-  return (
-    <IconStroke className={className}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-    </IconStroke>
-  );
+  return <Settings className={className} strokeWidth={1.8} />;
 }
 
 function IconChevron({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
+  return <ChevronRight className={className} strokeWidth={2} aria-hidden />;
 }
 
 function IconCollapse({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M15 18l-6-6 6-6" />
-    </svg>
-  );
+  return <ChevronLeft className={className} strokeWidth={2} aria-hidden />;
 }

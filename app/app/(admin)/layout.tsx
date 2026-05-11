@@ -17,10 +17,16 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   )
     .trim()
     .replace(/\/$/, "");
-  const res = await fetch(`${base}/api/v1/admin/me`, {
-    headers: { Authorization: `Bearer ${session.access_token}` },
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/v1/admin/me`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: "no-store",
+    });
+  } catch {
+    // Backend not reachable (DNS/connection) should not crash the admin route render.
+    notFound();
+  }
   if (!res.ok) notFound();
 
   const me = (await res.json()) as { email?: string | null; is_admin: boolean };

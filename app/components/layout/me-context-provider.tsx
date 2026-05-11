@@ -71,23 +71,7 @@ export function MeContextProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (hasLoadedOnceRef.current) return;
     hasLoadedOnceRef.current = true;
-
-    const maybeRequestIdleCallback =
-      typeof window !== "undefined" ? window.requestIdleCallback : undefined;
-    if (maybeRequestIdleCallback) {
-      const callbackId = maybeRequestIdleCallback(
-        () => {
-          void refresh();
-        },
-        { timeout: 1200 }
-      );
-      return () => window.cancelIdleCallback(callbackId);
-    }
-
-    const fallbackId = window.setTimeout(() => {
-      void refresh();
-    }, 400);
-    return () => window.clearTimeout(fallbackId);
+    void refresh();
   }, [refresh]);
 
   const value = useMemo(

@@ -57,7 +57,7 @@ export function ActionCard({ action, badgeStatus, enabled, toggleDisabled, onTog
         <StatusBadge status={badgeStatus} />
         <Link
           href={`/actions/${action.id}`}
-          className="text-ds-on-surface hover:text-ds-primary inline-flex items-center gap-1 text-xs font-semibold transition-colors"
+          className="text-ds-on-surface hover:text-ds-interactive-hover inline-flex items-center gap-1 text-xs font-semibold transition-colors"
         >
           Configure
           <IconChevronRight className="size-3.5" />

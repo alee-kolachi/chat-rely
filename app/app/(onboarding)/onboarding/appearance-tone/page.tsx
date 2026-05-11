@@ -204,7 +204,7 @@ export default function AppearanceToneOnboardingPage() {
                       <div className="grid grid-cols-2 gap-3">
                         <button
                           type="button"
-                          className="border-ds-outline hover:border-ds-primary/50 touch-manipulation rounded-ds-lg border bg-ds-sidebar/50 p-3 text-left transition-colors [-webkit-tap-highlight-color:transparent]"
+                          className="border-ds-outline hover:border-black/45 touch-manipulation rounded-ds-lg border bg-ds-sidebar/50 p-3 text-left transition-colors [-webkit-tap-highlight-color:transparent]"
                         >
                           <div className="border-ds-outline relative mb-2 aspect-video rounded-ds-sm border bg-white">
                             <span className="bg-ds-primary absolute bottom-2 left-2 size-3 rounded-full" />

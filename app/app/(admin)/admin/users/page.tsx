@@ -208,7 +208,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: S
         <input type="hidden" name="page_size" value={String(pageSize)} />
         <button
           type="submit"
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary/90 rounded-md px-4 py-2 text-sm font-medium"
+          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-md px-4 py-2 text-sm font-medium"
         >
           Search
         </button>

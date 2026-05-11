@@ -2,7 +2,39 @@
 
 from __future__ import annotations
 
+import re
+
+import structlog
+
 from app.domains.integrations.shopify.admin_client import compact_json, shopify_graphql
+
+log = structlog.get_logger("runtime.shopify.tool_runners")
+
+
+def _product_edges(data: dict[str, object]) -> list[object]:
+    products = data.get("products")
+    if not isinstance(products, dict):
+        return []
+    edges = products.get("edges")
+    return list(edges) if isinstance(edges, list) else []
+
+
+def _needs_broad_catalog_retry(query: str) -> bool:
+    """Conversational questions rarely match Shopify Admin `products(query:)` keyword search."""
+    s = (query or "").strip().lower()
+    if len(s) <= 3:
+        return True
+    if len(s) > 120:
+        return True
+    return bool(
+        re.search(
+            r"(?i)(what\s+(kind|type|sort)s?\s+of|do\s+you\s+(have|sell|carry|offer)|"
+            r"products?\s+(do\s+you|can\s+i|are\s+)|your\s+(website|store)|"
+            r"\bcatalog\b|\bcollection\b|website|tell\s+me\s+about|"
+            r"(check|try|look|search)\s+again|whole\s+range)",
+            s,
+        )
+    )
 
 
 async def run_product_search(
@@ -41,7 +73,30 @@ async def run_product_search(
         query=gql,
         variables={"q": q, "n": n},
     )
-    data = body.get("data") or {}
+    data = dict(body.get("data") or {})
+    initial_count = len(_product_edges(data))
+    retried_broad = False
+
+    if not _product_edges(data) and _needs_broad_catalog_retry(q):
+        # Admin search treats long natural-language strings poorly; list active published products.
+        retried_broad = True
+        n2 = max(n, 10)
+        body2 = await shopify_graphql(
+            shop_domain=shop_domain,
+            access_token=access_token,
+            query=gql,
+            variables={"q": "published_status:published", "n": n2},
+        )
+        data = dict(body2.get("data") or {})
+    final_count = len(_product_edges(data))
+    log.info(
+        "runtime.shopify_product_search_result",
+        query_preview=q[:120],
+        initial_count=initial_count,
+        retried_broad=retried_broad,
+        final_count=final_count,
+    )
+
     return compact_json(data)
 
 

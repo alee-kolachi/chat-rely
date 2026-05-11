@@ -42,11 +42,11 @@ export default function KnowledgePage() {
               key={area.href}
               href={area.href}
               className={cn(
-                "border-ds-outline bg-ds-surface hover:border-ds-primary/40 group rounded-xl border p-4 shadow-sm transition-colors",
+                "border-ds-outline bg-ds-surface hover:border-black/40 group rounded-xl border p-4 shadow-sm transition-colors",
                 "focus-visible:ring-ds-primary/40 outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
               )}
             >
-              <h2 className="text-ds-on-surface group-hover:text-ds-primary text-base font-semibold transition-colors">
+              <h2 className="text-ds-on-surface group-hover:text-ds-interactive-hover text-base font-semibold transition-colors">
                 {area.title}
               </h2>
               <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">{area.description}</p>

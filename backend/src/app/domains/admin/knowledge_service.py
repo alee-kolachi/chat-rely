@@ -66,7 +66,7 @@ async def list_admin_knowledge_sources(
 
     list_sql = f"""
         select
-          ks.id, ks.user_id, u.email as user_email,
+          ks.id, ks.user_id, coalesce(u.email, '') as user_email,
           ks.agent_id, a.name as agent_name,
           ks.type::text as type, ks.title, ks.status::text as status,
           ks.source_url, ks.last_indexed_at, ks.error_message,
@@ -117,7 +117,7 @@ async def get_admin_knowledge_source_detail(
             text(
                 """
                 select
-                  ks.id, ks.user_id, u.email as user_email,
+                  ks.id, ks.user_id, coalesce(u.email, '') as user_email,
                   ks.agent_id, a.name as agent_name,
                   ks.type::text as type, ks.title, ks.status::text as status,
                   ks.source_url, ks.last_indexed_at, ks.error_message,
@@ -151,7 +151,7 @@ async def get_admin_knowledge_source_detail(
             text(
                 """
                 select
-                  ij.id, ij.user_id, u.email as user_email,
+                  ij.id, ij.user_id, coalesce(u.email, '') as user_email,
                   ij.agent_id, a.name as agent_name,
                   ij.knowledge_source_id, ks.title as knowledge_source_title,
                   ij.status::text as status, ij.attempt, ij.triggered_by,
@@ -284,7 +284,7 @@ async def list_admin_indexing_jobs(
 
     list_sql = f"""
         select
-          ij.id, ij.user_id, u.email as user_email,
+          ij.id, ij.user_id, coalesce(u.email, '') as user_email,
           ij.agent_id, a.name as agent_name,
           ij.knowledge_source_id, ks.title as knowledge_source_title,
           ij.status::text as status, ij.attempt, ij.triggered_by,

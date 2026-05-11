@@ -297,7 +297,7 @@ export default function AgentPreviewOnboardingPage() {
                         <button
                           type="submit"
                           disabled={!canSend}
-                          className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary touch-manipulation min-h-11 shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40 sm:min-h-12 sm:px-5 sm:py-3 [-webkit-tap-highlight-color:transparent]"
+                          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover touch-manipulation min-h-11 shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40 sm:min-h-12 sm:px-5 sm:py-3 [-webkit-tap-highlight-color:transparent]"
                         >
                           Send
                         </button>

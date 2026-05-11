@@ -83,14 +83,19 @@ export default async function AdminConversationDetailPage({
           </div>
         )}
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {conversation.messages.length === 0 ? (
             <div className="border-ds-outline text-ds-on-surface-variant rounded-xl border bg-ds-surface px-4 py-8 text-center text-sm">
               This conversation has no messages.
             </div>
           ) : (
-            conversation.messages.map((message) => (
-              <AdminMessageBubble key={message.id} message={message} />
+            conversation.messages.map((message, index) => (
+              <AdminMessageBubble
+                key={message.id}
+                message={message}
+                index={index}
+                total={conversation.messages.length}
+              />
             ))
           )}
         </div>

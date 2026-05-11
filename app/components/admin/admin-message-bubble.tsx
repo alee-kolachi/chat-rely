@@ -2,26 +2,33 @@ import { cn } from "@/lib/utils";
 import type { AdminMessageDTO } from "@/lib/admin/api";
 import { formatCostUsd } from "@/lib/admin/cost-format";
 
-const ROLE_STYLES: Record<string, { badge: string; container: string; label: string }> = {
+const ROLE_STYLES: Record<
+  string,
+  { badge: string; container: string; label: string; align: "left" | "right" }
+> = {
   user: {
     badge: "bg-sky-500/15 text-sky-700",
-    container: "border-sky-200/60 bg-sky-50/40",
+    container: "border-sky-300/60 bg-sky-50/70",
     label: "User",
+    align: "right",
   },
   assistant: {
     badge: "bg-emerald-500/15 text-emerald-700",
-    container: "border-emerald-200/60 bg-emerald-50/40",
+    container: "border-emerald-300/60 bg-emerald-50/70",
     label: "Assistant",
+    align: "left",
   },
   tool: {
     badge: "bg-amber-500/15 text-amber-800",
-    container: "border-amber-200/60 bg-amber-50/40",
+    container: "border-amber-300/60 bg-amber-50/70",
     label: "Tool",
+    align: "left",
   },
   system: {
     badge: "bg-ds-outline/40 text-ds-on-surface-variant",
-    container: "border-ds-outline/60 bg-ds-neutral",
+    container: "border-ds-outline/70 bg-ds-neutral",
     label: "System",
+    align: "left",
   },
 };
 
@@ -39,7 +46,19 @@ function isPayloadEmpty(payload: Record<string, unknown> | null | undefined): bo
   return Object.keys(payload).length === 0;
 }
 
-export function AdminMessageBubble({ message }: { message: AdminMessageDTO }) {
+function compactId(id: string): string {
+  return id.length > 10 ? `${id.slice(0, 8)}...` : id;
+}
+
+export function AdminMessageBubble({
+  message,
+  index,
+  total,
+}: {
+  message: AdminMessageDTO;
+  index: number;
+  total: number;
+}) {
   const style = ROLE_STYLES[message.role] ?? ROLE_STYLES.system;
   const showAssistantFooter =
     message.role === "assistant" &&
@@ -50,7 +69,8 @@ export function AdminMessageBubble({ message }: { message: AdminMessageDTO }) {
   return (
     <article
       className={cn(
-        "flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm",
+        "flex w-full max-w-5xl flex-col gap-2 rounded-xl border px-4 py-3 text-sm shadow-sm",
+        style.align === "right" ? "self-end" : "self-start",
         style.container
       )}
     >
@@ -69,12 +89,20 @@ export function AdminMessageBubble({ message }: { message: AdminMessageDTO }) {
               {message.tool_name}
             </span>
           )}
+          <span className="text-ds-on-surface-variant rounded border border-black/10 bg-white/60 px-1.5 py-0.5 font-mono text-[10px]">
+            #{index + 1}/{total}
+          </span>
+          <span className="text-ds-on-surface-variant rounded border border-black/10 bg-white/60 px-1.5 py-0.5 font-mono text-[10px]">
+            {compactId(message.id)}
+          </span>
         </div>
         <time className="text-ds-on-surface-variant">{formatTimestamp(message.created_at)}</time>
       </header>
 
       {message.content && (
-        <div className="text-ds-on-surface whitespace-pre-wrap break-words">{message.content}</div>
+        <div className="text-ds-on-surface whitespace-pre-wrap break-words rounded-lg border border-black/5 bg-white/70 px-3 py-2 leading-6">
+          {message.content}
+        </div>
       )}
 
       {(hasToolCallPayload || hasToolResultPayload) && (

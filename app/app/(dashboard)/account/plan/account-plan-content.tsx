@@ -367,7 +367,7 @@ export function AccountPlanContent() {
                         type="button"
                         disabled={busySlug !== null}
                         onClick={() => void startCheckout(slug)}
-                        className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-lg px-4 py-2.5 text-sm font-semibold capitalize transition-colors disabled:opacity-50"
+                        className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover w-full rounded-ds-lg px-4 py-2.5 text-sm font-semibold capitalize transition-colors disabled:opacity-50"
                       >
                         {busySlug === slug ? "Redirecting…" : `Subscribe to ${formatPlanLabel(slug)}`}
                       </button>
@@ -393,7 +393,7 @@ export function AccountPlanContent() {
                               type="button"
                               disabled={busySlug !== null}
                               onClick={() => void changePlan(slug, "upgrade")}
-                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
+                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover w-full rounded-ds-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
                             >
                               {busySlug === slug ? "Updating…" : `Upgrade to ${formatPlanLabel(slug)}`}
                             </button>

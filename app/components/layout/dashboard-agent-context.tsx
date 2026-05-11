@@ -1,7 +1,16 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { backendFetch } from "@/lib/backend-api";
 
 const STORAGE_KEY = "chatrely:dashboard:selected-agent-id";
@@ -31,10 +40,8 @@ const DashboardAgentContext = createContext<DashboardAgentContextValue | null>(n
 
 export function DashboardAgentProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<DashboardAgentRecord[]>([]);
-  const [selectedAgentId, setSelectedAgentIdState] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return window.localStorage.getItem(STORAGE_KEY) ?? "";
-  });
+  // Always start empty so SSR matches the client’s first paint; `refreshAgents` + effects apply LS / defaults after mount.
+  const [selectedAgentId, setSelectedAgentIdState] = useState<string>("");
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const hasLoadedOnceRef = useRef(false);
@@ -59,6 +66,11 @@ export function DashboardAgentProvider({ children }: { children: ReactNode }) {
     } finally {
       setAgentsLoading(false);
     }
+  }, []);
+
+  useLayoutEffect(() => {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (saved) setSelectedAgentIdState((prev) => prev || saved);
   }, []);
 
   useEffect(() => {

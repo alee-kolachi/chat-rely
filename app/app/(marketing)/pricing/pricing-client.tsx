@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { PricingCards, PricingComparison } from "@/components/marketing/pricing-sections";
 import { usePublicPlans } from "@/hooks/use-public-plans";
 import { useSessionPresent } from "@/hooks/use-session-present";
@@ -38,7 +39,7 @@ export function MarketingPricingClient() {
   const cardsLoading = loading || !sessionReady;
 
   return (
-    <main className="flex-1 bg-ds-sidebar text-ds-on-surface">
+    <main className="flex-1 bg-ds-surface text-ds-on-surface">
       <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
         <div className="mb-10 text-center sm:mb-14">
           <h1 className="text-3xl font-black tracking-tight text-ds-primary sm:text-4xl md:text-6xl">
@@ -110,7 +111,10 @@ export function MarketingPricingClient() {
 
       <footer className="border-t border-zinc-200 bg-zinc-50 px-6 py-12">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-8 md:flex-row">
-          <p className="text-lg font-black text-ds-primary">ChatRely</p>
+          <ChatRelyWordmark
+            iconClassName="h-7 w-auto"
+            textClassName="text-2xl font-black text-ds-primary"
+          />
           <nav className="flex flex-wrap items-center gap-7">
             {[
               { label: "Privacy", href: "/privacy" },

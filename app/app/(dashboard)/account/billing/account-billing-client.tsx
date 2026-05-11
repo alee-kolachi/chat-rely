@@ -107,7 +107,7 @@ export function AccountBillingClient() {
                   type="button"
                   disabled={portalBusy}
                   onClick={() => void openStripePortal()}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-lg px-6 py-2.5 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-lg px-6 py-2.5 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
                 >
                   {portalBusy ? "Opening…" : "Manage billing in Stripe"}
                 </button>

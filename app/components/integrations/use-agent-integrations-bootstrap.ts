@@ -17,8 +17,16 @@ type BootstrapPayload = {
   website_preview?: AgentWebsitePreviewApi | null;
 };
 
+type UseAgentIntegrationsBootstrapOptions = {
+  includeWebsitePreview?: boolean;
+};
+
 /** One HTTP round-trip for action catalog + Shopify status (Playground, Actions list). */
-export function useAgentIntegrationsBootstrap(agentId: string | undefined) {
+export function useAgentIntegrationsBootstrap(
+  agentId: string | undefined,
+  options: UseAgentIntegrationsBootstrapOptions = {}
+) {
+  const includeWebsitePreview = options.includeWebsitePreview ?? true;
   const [catalog, setCatalog] = useState<ApiActionCatalogResponse | null>(null);
   const [shopify, setShopify] = useState<ShopifyConnectionApi | null>(null);
   const [websitePreview, setWebsitePreview] = useState<AgentWebsitePreviewApi | null>(null);
@@ -36,8 +44,9 @@ export function useAgentIntegrationsBootstrap(agentId: string | undefined) {
     setLoading(true);
     setError(null);
     try {
+      const query = includeWebsitePreview ? "" : "?include_website_preview=false";
       const res = await backendFetch<BootstrapPayload>(
-        `/api/v1/agents/${encodeURIComponent(agentId)}/integrations/bootstrap`
+        `/api/v1/agents/${encodeURIComponent(agentId)}/integrations/bootstrap${query}`
       );
       setCatalog(res.catalog);
       setShopify(res.shopify);
@@ -50,7 +59,7 @@ export function useAgentIntegrationsBootstrap(agentId: string | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, includeWebsitePreview]);
 
   useEffect(() => {
     queueMicrotask(() => void refresh());

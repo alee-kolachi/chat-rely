@@ -109,7 +109,7 @@ async def get_admin_overview(
             text(
                 """
                 select
-                  u.id, u.email, p.full_name, u.created_at as signed_up_at,
+                  u.id, coalesce(u.email, '') as email, p.full_name, u.created_at as signed_up_at,
                   null::text as plan_slug, null::text as plan_name, null::text as subscription_status,
                   0 as agents_count, 0 as conversations_mtd,
                   null::timestamptz as last_activity_at,
@@ -145,7 +145,7 @@ async def get_admin_overview(
                 select
                   c.id, c.started_at, c.last_activity_at, c.status, c.channel, c.visitor_id,
                   c.agent_id, a.name as agent_name,
-                  c.user_id, u.email as user_email,
+                  c.user_id, coalesce(u.email, '') as user_email,
                   c.customer_message_count, c.assistant_message_count, c.tool_call_count,
                   c.total_input_tokens, c.total_output_tokens,
                   coalesce((c.metadata->>'fallback_used')::boolean, false) as fallback_used,
@@ -197,7 +197,7 @@ async def get_admin_overview(
             text(
                 """
                 select
-                  ij.id, ij.user_id, u.email as user_email,
+                  ij.id, ij.user_id, coalesce(u.email, '') as user_email,
                   ij.agent_id, a.name as agent_name,
                   ij.knowledge_source_id, ks.title as knowledge_source_title,
                   ij.status::text as status, ij.attempt, ij.triggered_by,

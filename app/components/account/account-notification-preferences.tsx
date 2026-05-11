@@ -95,7 +95,7 @@ export function AccountNotificationPreferences({
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-lg px-6 py-2 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
+          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-lg px-6 py-2 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save preferences"}
         </button>

@@ -4,46 +4,9 @@ import { useActionState, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LoginTypingPreview } from "@/components/auth/login-typing-preview";
+import { CHAT_RELY_LOGO_PATH, ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { loginWithEmailPassword } from "@/app/(auth)/login/actions";
-
-function IconGrid({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <path
-        d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function IconSmartToy({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <path
-        d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1v2h-1v1a2 2 0 01-2 2H4a2 2 0 01-2-2v-1H1v-2h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2zM7.5 13a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm9 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
 
 function GoogleGlyph({ className }: { className?: string }) {
   return (
@@ -104,33 +67,30 @@ export function ChatRelyLoginScreen() {
   }
 
   return (
-    <div className="bg-ds-sidebar text-ds-on-surface flex min-h-screen flex-col">
+    <div className="bg-ds-surface text-ds-on-surface flex min-h-screen flex-col">
       <header className="z-10 flex w-full shrink-0 items-center justify-between px-6 py-4 md:px-8">
-        <Link
+        <ChatRelyWordmark
           href="/"
-          className="text-ds-primary flex items-center gap-2 text-xl font-bold tracking-tight"
-        >
-          <span className="inline-flex size-9 items-center justify-center rounded-ds-md border border-ds-outline bg-ds-surface shadow-sm">
-            <IconGrid className="size-5" />
-          </span>
-          ChatRely
-        </Link>
+          className="text-ds-primary gap-2 text-2xl font-bold tracking-tight"
+          iconClassName="h-7 w-auto"
+          textClassName="text-2xl font-bold text-ds-primary"
+        />
         <nav className="hidden items-center gap-8 md:flex">
           <Link
             href="/"
-            className="text-ds-on-surface-variant hover:text-ds-primary text-sm font-medium transition-colors"
+            className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-sm font-medium transition-colors"
           >
             Platform
           </Link>
           <Link
             href="/"
-            className="text-ds-on-surface-variant hover:text-ds-primary text-sm font-medium transition-colors"
+            className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-sm font-medium transition-colors"
           >
             Showcase
           </Link>
           <Link
             href="/"
-            className="text-ds-on-surface-variant hover:text-ds-primary text-sm font-medium transition-colors"
+            className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-sm font-medium transition-colors"
           >
             Back to Website
           </Link>
@@ -142,9 +102,10 @@ export function ChatRelyLoginScreen() {
           <div className="mx-auto flex max-w-md flex-1 flex-col justify-center p-10 md:max-w-none md:p-16 lg:max-w-none">
             <div className="mx-auto w-full max-w-[400px]">
               <div className="mb-8">
-                <div className="border-ds-outline flex size-12 items-center justify-center rounded-ds-lg border bg-ds-neutral shadow-sm">
-                  <IconGrid className="text-ds-primary size-6" />
-                </div>
+                <ChatRelyWordmark
+                  iconClassName="h-8 w-auto"
+                  textClassName="text-3xl font-bold text-ds-primary"
+                />
               </div>
               <h1 className="mb-2 text-3xl font-bold tracking-tight">Welcome back</h1>
               <p className="text-ds-on-surface-variant mb-8">
@@ -229,7 +190,7 @@ export function ChatRelyLoginScreen() {
                 <button
                   type="submit"
                   disabled={isAuthPending}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-on-surface mt-2 w-full rounded-ds-md py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover mt-2 w-full rounded-ds-md py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isAuthPending ? "Logging in..." : "Log in"}
                 </button>
@@ -249,13 +210,14 @@ export function ChatRelyLoginScreen() {
             </div>
           </div>
 
-          <div className="dot-grid border-ds-outline bg-ds-sidebar hidden flex-1 items-center justify-center border-l p-12 lg:flex">
+          <div className="dot-grid border-ds-outline hidden flex-1 items-center justify-center border-l p-12 lg:flex">
             <div className="w-full max-w-sm">
               <div className="border-ds-outline flex h-[400px] flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-xl shadow-zinc-200/50">
                 <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="bg-ds-primary flex size-9 items-center justify-center rounded-full text-ds-on-primary">
-                      <IconSmartToy className="size-5" />
+                    <div className="border-ds-outline flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- static SVG from /public */}
+                      <img src={CHAT_RELY_LOGO_PATH} alt="" className="h-5 w-auto object-contain" />
                     </div>
                     <div>
                       <div className="text-ds-primary text-[13px] font-bold">ChatRely Assistant</div>
@@ -307,19 +269,19 @@ export function ChatRelyLoginScreen() {
           <div className="flex flex-wrap justify-center gap-6 md:gap-8">
             <Link
               href="/privacy"
-              className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold uppercase tracking-widest transition-colors"
+              className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-[11px] font-bold uppercase tracking-widest transition-colors"
             >
               Privacy Policy
             </Link>
             <Link
               href="/terms"
-              className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold uppercase tracking-widest transition-colors"
+              className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-[11px] font-bold uppercase tracking-widest transition-colors"
             >
               Terms of Service
             </Link>
             <a
               href="mailto:support@chatrely.com"
-              className="text-ds-on-surface-variant hover:text-ds-primary text-[11px] font-bold uppercase tracking-widest transition-colors"
+              className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-[11px] font-bold uppercase tracking-widest transition-colors"
             >
               Help Center
             </a>

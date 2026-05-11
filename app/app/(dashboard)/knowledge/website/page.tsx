@@ -624,7 +624,7 @@ export default function KnowledgeWebsitePage() {
                   <div className="pt-2">
                     <button
                       type="button"
-                      className="text-ds-on-surface flex cursor-pointer items-center gap-2 text-sm font-semibold hover:text-ds-primary"
+                      className="text-ds-on-surface flex cursor-pointer items-center gap-2 text-sm font-semibold hover:text-ds-interactive-hover"
                       onClick={() => setShowAdvancedOptions((p) => !p)}
                     >
                       <IconChevron
@@ -686,7 +686,7 @@ export default function KnowledgeWebsitePage() {
                   <button
                     type="button"
                     disabled={submitting || !selectedAgentId}
-                    className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary cursor-pointer rounded-ds-md px-6 py-2.5 text-sm font-semibold transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer rounded-ds-md px-6 py-2.5 text-sm font-semibold transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={() => void handleSubmit()}
                   >
                     {submitting ? "Working…" : submitLabel}
@@ -812,7 +812,7 @@ function PathRuleBlock({
               key={c.id}
               type="button"
               onClick={() => onRemove(c.id)}
-              className="bg-ds-sidebar text-ds-on-surface border-ds-outline hover:border-ds-primary/40 inline-flex cursor-pointer items-center gap-1 rounded-full border px-3 py-1.5 text-xs shadow-sm transition-colors"
+              className="bg-ds-sidebar text-ds-on-surface border-ds-outline hover:border-black/40 inline-flex cursor-pointer items-center gap-1 rounded-full border px-3 py-1.5 text-xs shadow-sm transition-colors"
               title="Click to remove"
             >
               <span className="text-ds-on-surface-variant">{operatorLabel(c.operator)}:</span>

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -30,6 +32,31 @@ log = structlog.get_logger(__name__)
 
 # Refresh access token this many seconds before Shopify expires it.
 _ACCESS_TOKEN_REFRESH_BUFFER = timedelta(seconds=120)
+
+
+@dataclass
+class _ShopifyConnCacheEntry:
+    shop_domain: str
+    access_token: str
+    token_expires_at: datetime | None
+    has_refresh_token: bool
+
+
+_shopify_conn_cache: dict[UUID, _ShopifyConnCacheEntry] = {}
+_shopify_conn_locks: dict[UUID, asyncio.Lock] = {}
+
+
+def _shopify_conn_lock(agent_id: UUID) -> asyncio.Lock:
+    lk = _shopify_conn_locks.get(agent_id)
+    if lk is None:
+        lk = asyncio.Lock()
+        _shopify_conn_locks[agent_id] = lk
+    return lk
+
+
+def invalidate_shopify_connection_cache(agent_id: UUID) -> None:
+    """Drop cached plaintext token/decrypted metadata (call after OAuth save or disconnect)."""
+    _shopify_conn_cache.pop(agent_id, None)
 
 
 def normalize_shop_domain(shop: str) -> str:
@@ -335,6 +362,10 @@ async def handle_oauth_callback(
     except Exception:
         log.warning("shopify.stripe_customer_failed", user_id=str(user_id), exc_info=True)
     await db.commit()
+    invalidate_shopify_connection_cache(agent_id)
+    from app.domains.actions.service import invalidate_shopify_actions_runtime_cache
+
+    invalidate_shopify_actions_runtime_cache(user_id=user_id, agent_id=agent_id)
     return user_id, agent_id
 
 
@@ -345,6 +376,10 @@ async def delete_connection(db: AsyncSession, *, user_id: UUID, agent_id: UUID) 
         {"agent_id": str(agent_id)},
     )
     await db.commit()
+    invalidate_shopify_connection_cache(agent_id)
+    from app.domains.actions.service import invalidate_shopify_actions_runtime_cache
+
+    invalidate_shopify_actions_runtime_cache(user_id=user_id, agent_id=agent_id)
 
 
 async def get_connection_status(
@@ -399,59 +434,96 @@ def _needs_access_refresh(token_expires_at: datetime | None, *, has_refresh: boo
 async def load_shopify_connection_for_agent(
     db: AsyncSession, *, user_id: UUID, agent_id: UUID
 ) -> tuple[str, str] | None:
-    """Returns (shop_domain, plaintext_access_token) if connected. Refreshes expiring tokens when due."""
-    await _ensure_agent_owned(db, user_id, agent_id)
-    result = await db.execute(
-        text(
-            """
-            select
-              shop_domain,
-              access_token_encrypted,
-              refresh_token_encrypted,
-              token_expires_at,
-              scopes,
-              status
-            from public.shopify_connections
-            where agent_id = cast(:agent_id as uuid)
-            """
-        ),
-        {"agent_id": str(agent_id)},
-    )
-    row = result.mappings().first()
-    if not row or row["status"] != "connected":
-        return None
-    shop_domain = str(row["shop_domain"])
-    token = decrypt_shopify_access_token_encrypted(str(row["access_token_encrypted"]))
-    refresh_cipher = row.get("refresh_token_encrypted")
-    refresh_plain = (
-        decrypt_shopify_access_token_encrypted(str(refresh_cipher)) if refresh_cipher else None
-    )
-    expires_at: datetime | None = row.get("token_expires_at")
-    if isinstance(expires_at, datetime) and getattr(expires_at, "tzinfo", None) is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
+    """Returns (shop_domain, plaintext_access_token) if connected. Refreshes expiring tokens when due.
 
-    if _needs_access_refresh(expires_at, has_refresh=bool(refresh_plain)) and refresh_plain:
-        try:
-            refreshed = await refresh_shopify_tokens(shop_domain=shop_domain, refresh_token=refresh_plain)
-            new_access = str(refreshed.get("access_token") or "")
-            if not new_access:
-                raise AppError(code="shopify.token_missing", message="No access token after refresh", status_code=502)
-            scope_str = _normalize_scope_from_oauth_response(refreshed) or _scopes_array_to_scope_str(
-                list(row["scopes"] or [])
+    Reuses an in-process cache so repeated chat turns skip DB/decrypt (and skip OAuth refresh POST)
+    while ``token_expires_at`` is still comfortably in the future.
+    """
+    lk = _shopify_conn_lock(agent_id)
+    async with lk:
+        cached = _shopify_conn_cache.get(agent_id)
+        if cached is not None and not _needs_access_refresh(
+            cached.token_expires_at, has_refresh=cached.has_refresh_token
+        ):
+            log.info(
+                "shopify.connection_cache_hit",
+                agent_id=str(agent_id),
+                expires_at=cached.token_expires_at.isoformat() if cached.token_expires_at else None,
             )
-            await save_connection(
-                db,
-                user_id=user_id,
-                agent_id=agent_id,
-                shop_domain=shop_domain,
-                access_token=new_access,
-                scope_str=scope_str,
-                token_response=refreshed,
-            )
-            await db.commit()
-            token = new_access
-        except AppError:
-            await db.rollback()
-            raise
+            return cached.shop_domain, cached.access_token
 
-    return shop_domain, token
+        await _ensure_agent_owned(db, user_id, agent_id)
+        result = await db.execute(
+            text(
+                """
+                select
+                  shop_domain,
+                  access_token_encrypted,
+                  refresh_token_encrypted,
+                  token_expires_at,
+                  scopes,
+                  status
+                from public.shopify_connections
+                where agent_id = cast(:agent_id as uuid)
+                """
+            ),
+            {"agent_id": str(agent_id)},
+        )
+        row = result.mappings().first()
+        if not row or row["status"] != "connected":
+            _shopify_conn_cache.pop(agent_id, None)
+            return None
+        shop_domain = str(row["shop_domain"])
+        token = decrypt_shopify_access_token_encrypted(str(row["access_token_encrypted"]))
+        refresh_cipher = row.get("refresh_token_encrypted")
+        refresh_plain = (
+            decrypt_shopify_access_token_encrypted(str(refresh_cipher)) if refresh_cipher else None
+        )
+        expires_at: datetime | None = row.get("token_expires_at")
+        if isinstance(expires_at, datetime) and getattr(expires_at, "tzinfo", None) is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        has_refresh = bool(refresh_plain)
+
+        if _needs_access_refresh(expires_at, has_refresh=has_refresh) and refresh_plain:
+            try:
+                refreshed = await refresh_shopify_tokens(
+                    shop_domain=shop_domain, refresh_token=refresh_plain
+                )
+                new_access = str(refreshed.get("access_token") or "")
+                if not new_access:
+                    raise AppError(
+                        code="shopify.token_missing",
+                        message="No access token after refresh",
+                        status_code=502,
+                    )
+                scope_str = _normalize_scope_from_oauth_response(refreshed) or _scopes_array_to_scope_str(
+                    list(row["scopes"] or [])
+                )
+                await save_connection(
+                    db,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    shop_domain=shop_domain,
+                    access_token=new_access,
+                    scope_str=scope_str,
+                    token_response=refreshed,
+                )
+                await db.commit()
+                token = new_access
+                expires_at = _token_expires_at_from_response(refreshed)
+                if expires_at is None:
+                    expires_at = row.get("token_expires_at")
+                    if isinstance(expires_at, datetime) and getattr(expires_at, "tzinfo", None) is None:
+                        expires_at = expires_at.replace(tzinfo=UTC)
+                has_refresh = bool(refreshed.get("refresh_token")) or has_refresh
+            except AppError:
+                await db.rollback()
+                raise
+
+        _shopify_conn_cache[agent_id] = _ShopifyConnCacheEntry(
+            shop_domain=shop_domain,
+            access_token=token,
+            token_expires_at=expires_at,
+            has_refresh_token=has_refresh,
+        )
+        return shop_domain, token

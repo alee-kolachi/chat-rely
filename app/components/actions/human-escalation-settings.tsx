@@ -336,7 +336,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
         type="button"
         onClick={() => void save()}
         disabled={saving}
-        className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary mt-6 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-45"
+        className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover mt-6 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-45"
       >
         {saving ? "Saving…" : "Save"}
       </button>

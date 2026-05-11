@@ -221,7 +221,7 @@ export default function DashboardPage() {
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                 <a
                   href="/deploy"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
                   Open deploy settings
                 </a>
@@ -462,7 +462,7 @@ export default function DashboardPage() {
                               <td className="text-ds-on-surface py-3 text-sm font-semibold">
                                 <Link
                                   href={`/conversations?conversation=${encodeURIComponent(item.conversation_id)}&agent=${encodeURIComponent(selectedAgentId ?? "")}`}
-                                  className="hover:text-ds-primary hover:underline"
+                                  className="hover:text-ds-interactive-hover hover:underline"
                                 >
                                   {visitorLabel(item.visitor_id)}
                                 </Link>
@@ -522,7 +522,7 @@ export default function DashboardPage() {
                 </div>
                 <Link
                   href="/knowledge/text-snippet"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary mt-5 inline-flex w-fit rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover mt-5 inline-flex w-fit rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
                 >
                   Improve knowledge base
                 </Link>

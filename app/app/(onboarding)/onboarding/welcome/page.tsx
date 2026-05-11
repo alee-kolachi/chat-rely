@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingMainColumn,
@@ -23,7 +24,7 @@ export default function OnboardingWelcomePage() {
     >
       <OnboardingMainColumn className="max-w-xl text-center">
         <OnboardingPageHeader
-          kicker="ChatRely"
+          kicker={<ChatRelyWordmark iconClassName="h-6 w-auto" textClassName="text-xl font-semibold text-ds-on-surface" />}
           title="Set up your AI support agent"
           subtitle="Six short steps: identity, knowledge, integrations, tone, a quick test, then install. You can exit anytime— progress is saved in the product."
         />

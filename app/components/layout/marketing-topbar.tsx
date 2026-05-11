@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 
 const navItems = [
   { label: "Onboarding", href: "/onboarding/welcome" },
@@ -22,9 +23,12 @@ export function MarketingTopbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-ds-outline/70 bg-ds-surface/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" className="text-base font-semibold tracking-tight text-ds-on-surface">
-          ChatRely
-        </Link>
+        <ChatRelyWordmark
+          href="/"
+          className="text-lg font-semibold tracking-tight text-ds-on-surface"
+          iconClassName="h-6 w-auto"
+          textClassName="text-lg font-semibold tracking-tight text-ds-on-surface"
+        />
 
         <nav className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => (

@@ -104,7 +104,7 @@ async def list_admin_conversations(
         select
           c.id, c.started_at, c.last_activity_at, c.status, c.channel, c.visitor_id,
           c.agent_id, a.name as agent_name,
-          c.user_id, u.email as user_email,
+          c.user_id, coalesce(u.email, '') as user_email,
           c.customer_message_count, c.assistant_message_count, c.tool_call_count,
           c.total_input_tokens, c.total_output_tokens,
           coalesce((c.metadata->>'fallback_used')::boolean, false) as fallback_used,
@@ -161,7 +161,7 @@ async def get_admin_conversation_detail(
                 select
                   c.id, c.started_at, c.last_activity_at, c.status, c.channel, c.visitor_id,
                   c.agent_id, a.name as agent_name,
-                  c.user_id, u.email as user_email,
+                  c.user_id, coalesce(u.email, '') as user_email,
                   c.customer_message_count, c.assistant_message_count, c.tool_call_count,
                   c.total_input_tokens, c.total_output_tokens,
                   coalesce((c.metadata->>'fallback_used')::boolean, false) as fallback_used,

@@ -361,7 +361,7 @@ export default function KnowledgeQAndAPage() {
                 <button
                   type="button"
                   disabled={saving || !question.trim() || !answer.trim()}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors enabled:active:scale-[0.98] disabled:opacity-50"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors enabled:active:scale-[0.98] disabled:opacity-50"
                   onClick={() => void saveQa()}
                 >
                   {saving ? "Saving…" : editingId ? "Update Q&A" : "Save Q&A"}

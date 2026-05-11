@@ -4,10 +4,11 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
-import { backendFetch } from "@/lib/backend-api";
+import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
-const POLL_INTERVAL_MS = 5000;
+/** Used only when SSE connection fails (fallback). */
+const POLL_FALLBACK_MS = 15_000;
 
 function startOfLocalDayIso(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -212,21 +213,108 @@ function ConversationsPageContent() {
   }, [selectedConversationId, refreshMessages]);
 
   useEffect(() => {
-    const tick = () => {
-      void loadConversations({ silent: true });
-      const id = selectedConversationIdRef.current;
-      if (id) void refreshMessages(id, { silent: true });
+    const ac = new AbortController();
+    let fallbackId: ReturnType<typeof setInterval> | null = null;
+
+    const applyWorkspace = (data: {
+      conversations: Conversation[];
+      detail: {
+        conversation: { id: string };
+        messages: ConversationMessage[];
+      } | null;
+    }) => {
+      setConversations(data.conversations);
+      if (data.detail) {
+        const visible = data.detail.messages.filter((m) => m.role === "user" || m.role === "assistant");
+        setMessages(visible);
+        setSelectedConversationId(data.detail.conversation.id);
+        skipNextMessagesRefreshRef.current = true;
+      } else {
+        const currentId = selectedConversationIdRef.current;
+        const detailId = (conversationFromUrl ?? "").trim();
+        if (detailId && !data.detail) {
+          setSelectedConversationId(detailId);
+        } else if (!currentId && data.conversations[0]) {
+          setSelectedConversationId(data.conversations[0].id);
+        } else if (
+          currentId &&
+          data.conversations.length > 0 &&
+          !data.conversations.some((c) => c.id === currentId)
+        ) {
+          setSelectedConversationId(data.conversations[0].id);
+        }
+      }
     };
-    const interval = window.setInterval(tick, POLL_INTERVAL_MS);
+
+    void (async () => {
+      try {
+        const qs = new URLSearchParams();
+        const agentId = (agentFromUrl ?? "").trim() || selectedAgentId;
+        if (agentId) qs.set("agent_id", agentId);
+        if (statusFilter) qs.set("status", statusFilter);
+        if (dateFrom) {
+          const iso = startOfLocalDayIso(dateFrom);
+          if (iso) qs.set("started_after", iso);
+        }
+        if (dateTo) {
+          const iso = startOfNextLocalDayIso(dateTo);
+          if (iso) qs.set("started_before", iso);
+        }
+        const topic = trainingTopicFilter.trim();
+        if (topic) qs.set("training_topic", topic);
+        const detailFocus =
+          selectedConversationId ?? (conversationFromUrl ?? "").trim();
+        if (detailFocus) qs.set("detail_conversation_id", detailFocus);
+
+        await consumeBackendSseJson(
+          `/api/v1/conversations/workspace/stream?${qs.toString()}`,
+          (data) => {
+            applyWorkspace(data);
+          },
+          { signal: ac.signal },
+        );
+      } catch {
+        if (!ac.signal.aborted) {
+          const tick = () => {
+            void loadConversations({ silent: true });
+            const id = selectedConversationIdRef.current;
+            if (id) void refreshMessages(id, { silent: true });
+          };
+          fallbackId = window.setInterval(tick, POLL_FALLBACK_MS);
+          const onVisibility = () => {
+            if (document.visibilityState === "visible") tick();
+          };
+          document.addEventListener("visibilitychange", onVisibility);
+        }
+      }
+    })();
+
     const onVisibility = () => {
-      if (document.visibilityState === "visible") tick();
+      if (document.visibilityState === "visible") {
+        void loadConversations({ silent: true });
+        const id = selectedConversationIdRef.current;
+        if (id) void refreshMessages(id, { silent: true });
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
-      window.clearInterval(interval);
+      ac.abort();
+      if (fallbackId) window.clearInterval(fallbackId);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [loadConversations, refreshMessages]);
+  }, [
+    agentFromUrl,
+    selectedAgentId,
+    statusFilter,
+    dateFrom,
+    dateTo,
+    trainingTopicFilter,
+    conversationFromUrl,
+    selectedConversationId,
+    loadConversations,
+    refreshMessages,
+  ]);
 
   async function handleReply() {
     if (!selectedConversationId || !reply.trim() || sending) return;
@@ -425,7 +513,7 @@ function ConversationsPageContent() {
                 </button>
                 <button
                   type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
                   onClick={() => void updateStatus("resolved")}
                 >
                   Resolve
@@ -473,7 +561,7 @@ function ConversationsPageContent() {
                 />
                 <button
                   type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary shrink-0 rounded-ds-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover shrink-0 rounded-ds-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
                   onClick={() => void handleReply()}
                   disabled={!selectedConversationId || sending || !reply.trim()}
                 >

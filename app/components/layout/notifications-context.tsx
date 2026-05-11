@@ -11,11 +11,13 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import { backendFetch } from "@/lib/backend-api";
+import { X } from "lucide-react";
+import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import type { NotificationsListResponse, UserNotification } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 25_000;
+/** Fallback polling if SSE is unavailable (Tabrid proxy errors, older browsers). */
+const POLL_FALLBACK_MS = 60_000;
 const TOAST_MS = 5200;
 
 type NotificationsContextValue = {
@@ -60,36 +62,40 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     setToast(null);
   }, []);
 
+  const applyNotificationsPayload = useCallback((data: NotificationsListResponse) => {
+    setNotifications(data.notifications);
+    setUnreadCount(data.unread_count);
+
+    const newest = data.notifications[0];
+    const newestId = newest?.id ?? null;
+    const prev = newestIdOnLastFetchRef.current;
+
+    if (
+      initialPollDoneRef.current &&
+      newestId &&
+      newestId !== prev &&
+      newest.read_at == null
+    ) {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setToast(newest);
+      toastTimerRef.current = setTimeout(() => setToast(null), TOAST_MS);
+    }
+
+    newestIdOnLastFetchRef.current = newestId;
+    initialPollDoneRef.current = true;
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       const data = await backendFetch<NotificationsListResponse>("/api/v1/notifications?limit=50");
-      setNotifications(data.notifications);
-      setUnreadCount(data.unread_count);
+      applyNotificationsPayload(data);
       setError(null);
-
-      const newest = data.notifications[0];
-      const newestId = newest?.id ?? null;
-      const prev = newestIdOnLastFetchRef.current;
-
-      if (
-        initialPollDoneRef.current &&
-        newestId &&
-        newestId !== prev &&
-        newest.read_at == null
-      ) {
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        setToast(newest);
-        toastTimerRef.current = setTimeout(() => setToast(null), TOAST_MS);
-      }
-
-      newestIdOnLastFetchRef.current = newestId;
-      initialPollDoneRef.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load notifications");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyNotificationsPayload]);
 
   useEffect(() => {
     if (hasLoadedOnceRef.current) return;
@@ -101,9 +107,32 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
-    const id = window.setInterval(() => void refresh(), POLL_MS);
-    return () => window.clearInterval(id);
-  }, [refresh]);
+    const ac = new AbortController();
+    let fallbackId: ReturnType<typeof setInterval> | null = null;
+
+    void (async () => {
+      try {
+        await consumeBackendSseJson<NotificationsListResponse>(
+          "/api/v1/notifications/stream?limit=50",
+          (data) => {
+            applyNotificationsPayload(data);
+            setError(null);
+            setLoading(false);
+          },
+          { signal: ac.signal },
+        );
+      } catch {
+        if (!ac.signal.aborted) {
+          fallbackId = window.setInterval(() => void refresh(), POLL_FALLBACK_MS);
+        }
+      }
+    })();
+
+    return () => {
+      ac.abort();
+      if (fallbackId) window.clearInterval(fallbackId);
+    };
+  }, [refresh, applyNotificationsPayload]);
 
   useEffect(() => {
     const onFocus = () => void refresh();
@@ -214,18 +243,5 @@ function NotificationToastHost({
 }
 
 function IconClose({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="m6 6 12 12M18 6 6 18" />
-    </svg>
-  );
+  return <X className={className} strokeWidth={2} aria-hidden />;
 }

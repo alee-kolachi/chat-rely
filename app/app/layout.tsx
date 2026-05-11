@@ -14,6 +14,9 @@ export const metadata: Metadata = {
     template: "%s · ChatRely",
   },
   description: "AI support that knows your product",
+  icons: {
+    icon: "/chat-rely.svg",
+  },
 };
 
 export default function RootLayout({

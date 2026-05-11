@@ -73,7 +73,7 @@ export function VerifyEmailClient() {
             type="button"
             disabled={busy}
             onClick={() => void resend()}
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary w-full rounded-ds-md px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+            className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover w-full rounded-ds-md px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
           >
             {busy ? "Sending…" : "Resend verification email"}
           </button>

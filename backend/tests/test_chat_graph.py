@@ -53,12 +53,22 @@ def test_slice_history_keeps_user_when_content_differs() -> None:
     assert len(out) == 2
 
 
+def test_slice_history_respects_max_window() -> None:
+    rows = [_msg(role="user", content=f"m{i}") for i in range(20)]
+    out = chat_graph.slice_history_for_current_turn(
+        rows, current_user_content="new turn", max_window_messages=3
+    )
+    assert len(out) == 3
+    assert out[0].content == "m17"
+    assert out[-1].content == "m19"
+
+
 def test_build_retrieval_query_no_history_returns_current_only() -> None:
     q = chat_graph.build_retrieval_query_for_embedding([], "What's the warranty?")
     assert q == "What's the warranty?"
 
 
-def test_build_retrieval_query_includes_prior_turns() -> None:
+def test_build_retrieval_query_latest_message_only_by_default() -> None:
     hist = [
         _msg(role="user", content="Tell me about the AeroPress Go"),
         _msg(
@@ -67,6 +77,21 @@ def test_build_retrieval_query_includes_prior_turns() -> None:
         ),
     ]
     q = chat_graph.build_retrieval_query_for_embedding(hist, "Does it include filters?")
+    assert q == "Does it include filters?"
+    assert "AeroPress" not in q
+
+
+def test_build_retrieval_query_includes_prior_turns_when_opt_in() -> None:
+    hist = [
+        _msg(role="user", content="Tell me about the AeroPress Go"),
+        _msg(
+            role="assistant",
+            content="The AeroPress Go is a travel coffee maker with a mug and filter holder.",
+        ),
+    ]
+    q = chat_graph.build_retrieval_query_for_embedding(
+        hist, "Does it include filters?", include_conversation_tail=True
+    )
     assert "AeroPress" in q
     assert "filters" in q.lower()
 
@@ -82,7 +107,7 @@ async def test_invoke_runtime_chat_graph_empty_model_uses_fallback(monkeypatch: 
     )
     chat_graph._compiled_graph = None
 
-    text, fb = await chat_graph.invoke_runtime_chat_graph(
+    text, fb, _in_t, _out_t = await chat_graph.invoke_runtime_chat_graph(
         messages=[HumanMessage(content="Hi")],
         model="gpt-4o-mini",
         fallback_message="FALLBACK",
@@ -103,7 +128,7 @@ async def test_invoke_runtime_chat_graph_returns_model_text(monkeypatch: pytest.
     )
     chat_graph._compiled_graph = None
 
-    text, fb = await chat_graph.invoke_runtime_chat_graph(
+    text, fb, _in_t, _out_t = await chat_graph.invoke_runtime_chat_graph(
         messages=[HumanMessage(content="Hi")],
         model="gpt-4o-mini",
         fallback_message="FALLBACK",

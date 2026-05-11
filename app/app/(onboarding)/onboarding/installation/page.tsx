@@ -162,7 +162,7 @@ export default function InstallationOnboardingPage() {
                           {tab === "shopify" ? (
                             <button
                               type="button"
-                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary touch-manipulation min-h-11 rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors sm:min-h-0 sm:px-4 sm:py-2.5 sm:text-sm [-webkit-tap-highlight-color:transparent]"
+                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover touch-manipulation min-h-11 rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors sm:min-h-0 sm:px-4 sm:py-2.5 sm:text-sm [-webkit-tap-highlight-color:transparent]"
                             >
                               Open theme editor (Shopify)
                             </button>

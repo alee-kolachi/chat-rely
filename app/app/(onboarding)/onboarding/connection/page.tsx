@@ -242,7 +242,7 @@ export default function ConnectionOnboardingPage() {
                               type="button"
                               onClick={() => void startOAuth()}
                               disabled={connectBusy || !agentId || !shopDraft.trim()}
-                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary touch-manipulation min-h-12 shrink-0 rounded-ds-md px-5 py-3 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent] sm:min-w-[10rem]"
+                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover touch-manipulation min-h-12 shrink-0 rounded-ds-md px-5 py-3 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent] sm:min-w-[10rem]"
                             >
                               {connectBusy ? "Redirecting…" : "Connect Shopify"}
                             </button>

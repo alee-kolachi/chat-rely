@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { UserRound } from "lucide-react";
 import { initialsFromProfile } from "@/components/account/account-profile-form";
 import { useUserProfile } from "@/components/account/user-profile-context";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -101,19 +102,5 @@ export function AccountMenu() {
 }
 
 function IconUserGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="8" r="3.5" />
-      <path d="M5 20.5c1.2-3.2 3.6-4.5 7-4.5s5.8 1.3 7 4.5" />
-    </svg>
-  );
+  return <UserRound className={className} strokeWidth={1.8} aria-hidden />;
 }

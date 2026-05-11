@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -23,7 +24,11 @@ export function AdminSidebar() {
   return (
     <aside className="border-ds-outline bg-ds-sidebar hidden min-h-0 w-56 shrink-0 flex-col overflow-hidden border-r border-l-4 border-l-ds-primary/45 md:flex">
       <div className="border-ds-outline flex h-14 flex-col justify-center gap-1 border-b px-4 md:h-16">
-        <span className="text-ds-on-surface text-sm font-semibold">ChatRely</span>
+        <ChatRelyWordmark
+          href="/admin"
+          iconClassName="h-5 w-auto"
+          textClassName="text-lg font-semibold text-ds-on-surface"
+        />
         <span className="text-ds-on-surface-variant text-xs font-medium tracking-wide uppercase">Admin</span>
       </div>
 

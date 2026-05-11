@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Bell } from "lucide-react";
 import { useNotifications } from "@/components/layout/notifications-context";
 import { formatNotificationTime } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
@@ -104,19 +105,5 @@ export function NotificationsMenu() {
 }
 
 function IconBell({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M15 18H5.5a1.5 1.5 0 0 1-1.2-2.4L6 13.3V10a6 6 0 1 1 12 0v3.3l1.7 2.3a1.5 1.5 0 0 1-1.2 2.4H15" />
-      <path d="M9.5 18a2.5 2.5 0 0 0 5 0" />
-    </svg>
-  );
+  return <Bell className={className} strokeWidth={1.9} aria-hidden />;
 }

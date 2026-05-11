@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Camera, Mail, UserRound } from "lucide-react";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import type { MeProfile } from "@/components/account/user-profile-context";
@@ -211,7 +212,7 @@ function AccountProfileEditor({
         <button
           type="submit"
           disabled={saving || uploading}
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary rounded-ds-lg px-6 py-2 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60"
+          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-lg px-6 py-2 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save changes"}
         </button>
@@ -235,55 +236,13 @@ export function initialsFromProfile(profile: Pick<MeProfile, "full_name" | "emai
 }
 
 function IconUser({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <circle cx="12" cy="8" r="4" />
-      <path d="M5 20a7 7 0 0 1 14 0" />
-    </svg>
-  );
+  return <UserRound className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconMail({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="m3 7 9 6 9-6" />
-    </svg>
-  );
+  return <Mail className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconCamera({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M4 8h4l2-2h4l2 2h4v10H4z" />
-      <circle cx="12" cy="13" r="3" />
-    </svg>
-  );
+  return <Camera className={className} strokeWidth={1.8} aria-hidden />;
 }

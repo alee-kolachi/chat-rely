@@ -24,7 +24,7 @@ export default function DeployPage() {
             </a>
             <Link
               href="/actions#shopify-integration"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary inline-flex cursor-pointer rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex cursor-pointer rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
             >
               Connect store
             </Link>

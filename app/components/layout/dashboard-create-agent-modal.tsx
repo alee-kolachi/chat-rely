@@ -153,7 +153,7 @@ export function DashboardCreateAgentModal({
             type="button"
             onClick={() => void submit()}
             disabled={busy || !name.trim()}
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-secondary cursor-pointer rounded-ds-md px-4 py-2 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer rounded-ds-md px-4 py-2 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? "Creating…" : "Create agent"}
           </button>

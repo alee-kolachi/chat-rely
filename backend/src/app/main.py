@@ -26,16 +26,28 @@ from app.core.security import TokenVerifier
 from app.core.settings import get_settings, validate_settings
 from app.db.engine import get_engine, init_engine
 from app.db.session import check_db_ready, init_session_factory
+from app.domains.runtime.shopify_runtime_warmup import warm_shopify_runtime_caches
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     validate_settings()
     settings = get_settings()
-    setup_logging(settings.log_level)
+    setup_logging(
+        settings.log_level,
+        log_file_enabled=settings.log_file_enabled,
+        log_file_path=settings.log_file_path,
+        log_file_max_bytes=settings.log_file_max_bytes,
+        log_file_backup_count=settings.log_file_backup_count,
+        log_pretty_file_enabled=settings.log_pretty_file_enabled,
+        log_pretty_file_path=settings.log_pretty_file_path,
+        log_pretty_file_max_bytes=settings.log_pretty_file_max_bytes,
+        log_pretty_file_backup_count=settings.log_pretty_file_backup_count,
+    )
     init_engine(settings)
     init_session_factory()
     await check_db_ready()
+    await warm_shopify_runtime_caches()
     # Always install a real verifier when a Bearer token is present. Dev bypass (see deps.py) only
     # applies to requests *without* Authorization — otherwise every logged-in user would share
     # DEV_AUTH_BYPASS_USER_ID because verify_token was never run.

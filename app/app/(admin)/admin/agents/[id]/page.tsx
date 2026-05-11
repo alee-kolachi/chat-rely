@@ -259,6 +259,7 @@ function RecentConversationsSection({
     {
       key: "owner",
       label: "Owner",
+      skipRowLinkWrap: true,
       render: (row) => (
         <Link
           href={`/admin/users/${row.user_id}`}

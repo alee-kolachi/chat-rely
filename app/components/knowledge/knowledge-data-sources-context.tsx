@@ -58,7 +58,8 @@ const KnowledgeDataSourcesContext = createContext<KnowledgeDataSourcesContextVal
 
 async function fetchWorkspace(agentId: string): Promise<KnowledgeWebsiteWorkspacePayload> {
   return backendFetch<KnowledgeWebsiteWorkspacePayload>(
-    `/api/v1/knowledge/website/workspace?agent_id=${encodeURIComponent(agentId)}`
+    `/api/v1/knowledge/website/workspace?agent_id=${encodeURIComponent(agentId)}`,
+    { networkRetries: 3 }
   );
 }
 
@@ -87,6 +88,8 @@ export function KnowledgeDataSourcesProvider({ children }: { children: ReactNode
       const next = await fetchWorkspace(selectedAgentId);
       setUsage(next.usage);
       setWebsiteSources(next.sources);
+    } catch {
+      // Transient network/backend failures: keep prior snapshot; poll / manual refresh will retry.
     } finally {
       if (!silent) {
         setUsageLoading(false);

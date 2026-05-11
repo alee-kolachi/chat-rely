@@ -92,7 +92,7 @@ export function DeployWidgetEmbedSnippet() {
               "rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors",
               copied
                 ? "border border-emerald-600/40 bg-emerald-50 text-emerald-900"
-                : "bg-ds-primary text-ds-on-primary hover:bg-ds-secondary"
+                : "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
             )}
           >
             {copied ? "Copied" : "Copy snippet"}

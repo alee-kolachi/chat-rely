@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from typing import Any
 from uuid import UUID
 
@@ -10,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from app.core.settings import get_settings
 from app.domains.actions.catalog_definitions import (
     StaticActionDefinition,
     all_static_definitions,
@@ -19,6 +22,18 @@ from app.domains.actions.schemas import ActionCatalogEntry, AgentActionPatchRequ
 from app.domains.agents.service import _fetch_agent_by_id
 from app.domains.bootstrap.service import _ensure_default_subscription
 from app.domains.integrations.shopify.service import get_connection_status
+from app.domains.integrations.shopify.schemas import ShopifyConnectionStatus
+
+import structlog
+
+log = structlog.get_logger(__name__)
+
+_actions_runtime_cache: dict[tuple[str, str], tuple[tuple[Any, ...], float]] = {}
+_actions_runtime_lock = asyncio.Lock()
+
+
+def invalidate_shopify_actions_runtime_cache(*, user_id: UUID, agent_id: UUID) -> None:
+    _actions_runtime_cache.pop((str(user_id), str(agent_id)), None)
 
 
 async def _ensure_action_rows(db: AsyncSession, agent_id: UUID) -> None:
@@ -92,6 +107,7 @@ async def build_catalog(
     *,
     user_id: UUID,
     agent_id: UUID,
+    shopify_connection: ShopifyConnectionStatus | None = None,
 ) -> list[ActionCatalogEntry]:
     await _fetch_agent_by_id(db, user_id, agent_id)
     _, plan = await _ensure_default_subscription(db, user_id)
@@ -100,10 +116,8 @@ async def build_catalog(
     human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
     max_enabled = int(features.get("max_enabled_actions_per_agent") or 0)
 
-    conn = await get_connection_status(db, user_id=user_id, agent_id=agent_id)
+    conn = shopify_connection or await get_connection_status(db, user_id=user_id, agent_id=agent_id)
     granted_set = frozenset((s or "").lower() for s in (conn.scopes or []))
-
-    await _ensure_action_rows(db, agent_id)
     rows = await _load_agent_action_map(db, agent_id)
 
     out: list[ActionCatalogEntry] = []
@@ -268,6 +282,8 @@ async def patch_agent_action(
         },
     )
     await db.commit()
+    if action_key.startswith("shopify."):
+        invalidate_shopify_actions_runtime_cache(user_id=user_id, agent_id=agent_id)
 
     rows = await _load_agent_action_map(db, agent_id)
     row = rows[action_key]
@@ -305,8 +321,17 @@ async def list_enabled_shopify_actions_for_runtime(
     agent_id: UUID,
 ) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
     """Return [(action_key, config, safety_policy), ...] for enabled live Shopify actions."""
+    ttl = float(get_settings().runtime_shopify_actions_cache_ttl_seconds)
+    cache_key = (str(user_id), str(agent_id))
+    now = time.monotonic()
+    if ttl > 0:
+        async with _actions_runtime_lock:
+            hit = _actions_runtime_cache.get(cache_key)
+            if hit is not None and (now - hit[1]) < ttl:
+                log.info("runtime.shopify_actions_cache_hit", agent_id=str(agent_id))
+                return [(str(t[0]), dict(t[1]), dict(t[2])) for t in hit[0]]
+
     await _fetch_agent_by_id(db, user_id, agent_id)
-    await _ensure_action_rows(db, agent_id)
     conn = await get_connection_status(db, user_id=user_id, agent_id=agent_id)
     if not conn.connected:
         return []
@@ -352,6 +377,13 @@ async def list_enabled_shopify_actions_for_runtime(
                 dict(r["safety_policy"] or {}),
             )
         )
+
+    if ttl > 0:
+        async with _actions_runtime_lock:
+            _actions_runtime_cache[cache_key] = (
+                tuple((k, dict(c), dict(s)) for k, c, s in out),
+                time.monotonic(),
+            )
     return out
 
 
