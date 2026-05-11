@@ -122,7 +122,7 @@ export function ChatRelySignupScreen() {
       </header>
 
       <main className="flex flex-1 items-center justify-center p-4 md:p-6">
-        <div className="border-ds-outline flex w-full max-w-6xl overflow-hidden rounded-ds-xl border bg-ds-surface shadow-md lg:h-[min(700px,calc(100vh-9rem))]">
+        <div className="border-ds-outline flex h-auto w-full max-w-6xl overflow-hidden rounded-ds-xl border bg-ds-surface shadow-md lg:min-h-[700px]">
           <div className="mx-auto flex max-w-md flex-1 flex-col justify-center p-10 md:max-w-none md:p-16 lg:max-w-none">
             <div className="mx-auto w-full max-w-[420px]">
               <div className="mb-8">

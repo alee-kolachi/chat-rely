@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CHAT_RELY_LOGO_PATH, ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { ConversationalWorkflowSection } from "@/components/marketing/conversational-workflow-section";
+import { LandingStatsSection } from "@/components/marketing/landing-stats-section";
 import { PlatformDiscoverySection } from "@/components/marketing/platform-discovery-section";
 import { LandingPricingTeaser } from "@/components/marketing/landing-pricing-teaser";
 
@@ -108,20 +109,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="border-y border-zinc-200 bg-[#f8f9fa] px-6 py-20">
-        <div className="mx-auto max-w-[1200px]">
-          <p className="mb-10 text-center text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Trusted by industry leaders worldwide
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            {brands.map((brand) => (
-              <span key={brand} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700">
-                {brand}
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
+      <LandingStatsSection />
 
       <section className="bg-white px-6 py-16 sm:py-20 lg:py-24">
         <div className="mx-auto max-w-[1200px]">
