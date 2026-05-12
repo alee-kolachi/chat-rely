@@ -1,7 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 import { UserProfileProvider } from "@/components/account/user-profile-context";
 import { DashboardAgentProvider } from "@/components/layout/dashboard-agent-context";
 import { DashboardAgentUrlSync } from "@/components/layout/dashboard-agent-url-sync";
@@ -12,7 +14,10 @@ import { DashboardTopbar } from "@/components/layout/dashboard-topbar";
 import { NotificationsProvider } from "@/components/layout/notifications-context";
 
 export function DashboardShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [topbarExtras, setTopbarExtras] = useState<ReactNode>(null);
+  /** Knowledge workspace is full-bleed in this column; inner routes supply their own padding (avoids a gap under the topbar and beside the data-sources sidebar). */
+  const knowledgeMain = pathname.startsWith("/knowledge");
 
   return (
     <DashboardAgentProvider>
@@ -25,7 +30,12 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-ds-surface">
               <DashboardTopbar />
               <DashboardScreenTopbar rightExtras={topbarExtras} />
-              <main className="relative z-0 flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain px-6 pt-6 pb-[max(3rem,calc(1.5rem+env(safe-area-inset-bottom,0px)))] md:pb-[max(4rem,calc(2rem+env(safe-area-inset-bottom,0px)))]">
+              <main
+                className={cn(
+                  "relative z-0 flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[max(3rem,calc(1.5rem+env(safe-area-inset-bottom,0px)))] md:pb-[max(4rem,calc(2rem+env(safe-area-inset-bottom,0px)))]",
+                  knowledgeMain ? "px-0 pt-0" : "px-6 pt-6",
+                )}
+              >
                 {children}
               </main>
             </div>

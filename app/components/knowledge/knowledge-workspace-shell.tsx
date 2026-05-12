@@ -9,5 +9,14 @@ export function KnowledgeWorkspaceShell({
   children: ReactNode;
   className?: string;
 }) {
-  return <div className={cn("ds-app-shell flex flex-col lg:flex-row", className)}>{children}</div>;
+  return (
+    <div
+      className={cn(
+        "ds-app-shell !m-0 flex min-h-0 w-full flex-1 flex-col lg:flex-row",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
 }

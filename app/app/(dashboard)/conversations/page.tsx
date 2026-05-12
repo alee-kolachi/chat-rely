@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
+import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
 import { cn } from "@/lib/utils";
 
 /** Used only when SSE connection fails (fallback). */
@@ -38,7 +39,18 @@ type ConversationMessage = {
   role: string;
   content: string;
   created_at: string;
+  tool_call_payload?: Record<string, unknown> | null;
 };
+
+function ConversationMessagesSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="Loading conversation messages">
+      <div className="bg-ds-sidebar h-16 w-3/4 animate-pulse rounded-2xl" />
+      <div className="bg-ds-sidebar ml-auto h-16 w-2/3 animate-pulse rounded-2xl" />
+      <div className="bg-ds-sidebar h-16 w-4/5 animate-pulse rounded-2xl" />
+    </div>
+  );
+}
 
 function ConversationsPageContent() {
   const router = useRouter();
@@ -51,8 +63,10 @@ function ConversationsPageContent() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [, setMessagesByConversation] = useState<Record<string, ConversationMessage[]>>({});
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -62,9 +76,19 @@ function ConversationsPageContent() {
   const [trainingTopicFilter, setTrainingTopicFilter] = useState("");
   const selectedConversationIdRef = useRef<string | null>(null);
   const skipNextMessagesRefreshRef = useRef(false);
+  const messagesRequestIdRef = useRef(0);
+  const messagesByConversationRef = useRef<Record<string, ConversationMessage[]>>({});
   useLayoutEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
+
+  const cacheMessages = useCallback((conversationId: string, nextMessages: ConversationMessage[]) => {
+    messagesByConversationRef.current = {
+      ...messagesByConversationRef.current,
+      [conversationId]: nextMessages,
+    };
+    setMessagesByConversation(messagesByConversationRef.current);
+  }, []);
 
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
@@ -120,8 +144,10 @@ function ConversationsPageContent() {
       setConversations(data.conversations);
 
       if (!silent && data.detail) {
-        const visible = data.detail.messages.filter((m) => m.role === "user" || m.role === "assistant");
+        const visible = data.detail.messages.filter(isRenderableTranscriptMessage);
+        cacheMessages(data.detail.conversation.id, visible);
         setMessages(visible);
+        setMessagesLoading(false);
         setSelectedConversationId(data.detail.conversation.id);
         skipNextMessagesRefreshRef.current = true;
       } else {
@@ -155,6 +181,7 @@ function ConversationsPageContent() {
     dateTo,
     trainingTopicFilter,
     conversationFromUrl,
+    cacheMessages,
   ]);
 
   function clearFilters() {
@@ -168,6 +195,19 @@ function ConversationsPageContent() {
     router.replace(q ? `${pathname}?${q}` : pathname);
   }
 
+  function selectConversation(conversationId: string) {
+    if (conversationId === selectedConversationIdRef.current) return;
+    const cached = messagesByConversationRef.current[conversationId];
+    if (cached) {
+      setMessages(cached);
+      setMessagesLoading(false);
+    } else {
+      setMessages([]);
+      setMessagesLoading(true);
+    }
+    setSelectedConversationId(conversationId);
+  }
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void loadConversations();
@@ -178,14 +218,17 @@ function ConversationsPageContent() {
   const refreshMessages = useCallback(
     async (conversationId: string, opts?: { silent?: boolean }) => {
       const silent = Boolean(opts?.silent);
+      const requestId = ++messagesRequestIdRef.current;
       if (!silent) {
+        setMessagesLoading(true);
         setError(null);
       }
       try {
         const data = await backendFetch<{ messages: ConversationMessage[] }>(
           `/api/v1/conversations/${conversationId}`
         );
-        const visible = data.messages.filter((m) => m.role === "user" || m.role === "assistant");
+        const visible = data.messages.filter(isRenderableTranscriptMessage);
+        cacheMessages(conversationId, visible);
         if (selectedConversationIdRef.current === conversationId) {
           setMessages(visible);
         }
@@ -193,9 +236,13 @@ function ConversationsPageContent() {
         if (!silent && selectedConversationIdRef.current === conversationId) {
           setError(e instanceof Error ? e.message : "Failed to load conversation");
         }
+      } finally {
+        if (!silent && messagesRequestIdRef.current === requestId && selectedConversationIdRef.current === conversationId) {
+          setMessagesLoading(false);
+        }
       }
     },
-    []
+    [cacheMessages]
   );
 
   useEffect(() => {
@@ -204,11 +251,13 @@ function ConversationsPageContent() {
     }
     if (skipNextMessagesRefreshRef.current) {
       skipNextMessagesRefreshRef.current = false;
+      setMessagesLoading(false);
       return;
     }
     const id = selectedConversationId;
+    const cached = messagesByConversationRef.current[id];
     queueMicrotask(() => {
-      void refreshMessages(id, { silent: false });
+      void refreshMessages(id, { silent: Boolean(cached) });
     });
   }, [selectedConversationId, refreshMessages]);
 
@@ -225,8 +274,10 @@ function ConversationsPageContent() {
     }) => {
       setConversations(data.conversations);
       if (data.detail) {
-        const visible = data.detail.messages.filter((m) => m.role === "user" || m.role === "assistant");
+        const visible = data.detail.messages.filter(isRenderableTranscriptMessage);
+        cacheMessages(data.detail.conversation.id, visible);
         setMessages(visible);
+        setMessagesLoading(false);
         setSelectedConversationId(data.detail.conversation.id);
         skipNextMessagesRefreshRef.current = true;
       } else {
@@ -314,6 +365,7 @@ function ConversationsPageContent() {
     selectedConversationId,
     loadConversations,
     refreshMessages,
+    cacheMessages,
   ]);
 
   async function handleReply() {
@@ -329,7 +381,9 @@ function ConversationsPageContent() {
       const detail = await backendFetch<{ messages: ConversationMessage[] }>(
         `/api/v1/conversations/${selectedConversationId}`
       );
-      setMessages(detail.messages.filter((m) => m.role === "user" || m.role === "assistant"));
+      const visible = detail.messages.filter(isRenderableTranscriptMessage);
+      cacheMessages(selectedConversationId, visible);
+      setMessages(visible);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send reply");
     } finally {
@@ -462,10 +516,10 @@ function ConversationsPageContent() {
                   type="button"
                   key={item.id}
                   className={cn(
-                    "w-full px-4 py-4 text-left transition-colors",
+                    "w-full cursor-pointer px-4 py-4 text-left transition-colors",
                     selectedConversationId === item.id ? "bg-ds-primary/8" : "hover:bg-ds-sidebar/70"
                   )}
-                  onClick={() => setSelectedConversationId(item.id)}
+                  onClick={() => selectConversation(item.id)}
                 >
                   <div className="mb-1 flex items-start justify-between gap-2">
                     <p className="text-ds-on-surface text-sm font-semibold">{item.id.slice(0, 8)}</p>
@@ -521,35 +575,39 @@ function ConversationsPageContent() {
               </div>
             </div>
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}
-                >
+              {messagesLoading ? (
+                <ConversationMessagesSkeleton />
+              ) : (
+                messages.filter(isRenderableTranscriptMessage).map((message) => (
                   <div
-                    className={cn(
-                      "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
-                      message.role === "user"
-                        ? "bg-ds-primary text-ds-on-primary rounded-tr-none"
-                        : "border-ds-outline text-ds-on-surface rounded-tl-none border bg-white"
-                    )}
+                    key={message.id}
+                    className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}
                   >
-                    {message.role === "assistant" ? (
-                      <AssistantMarkdown>{message.content}</AssistantMarkdown>
-                    ) : (
-                      message.content
-                    )}
                     <div
                       className={cn(
-                        "mt-2 text-[10px]",
-                        message.role === "user" ? "text-ds-on-primary/80" : "text-ds-on-surface-variant"
+                        "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
+                        message.role === "user"
+                          ? "bg-ds-primary text-ds-on-primary rounded-tr-none"
+                          : "border-ds-outline text-ds-on-surface rounded-tl-none border bg-white"
                       )}
                     >
-                      {new Date(message.created_at).toLocaleTimeString()}
+                      {message.role === "assistant" ? (
+                        <AssistantMarkdown>{message.content}</AssistantMarkdown>
+                      ) : (
+                        message.content
+                      )}
+                      <div
+                        className={cn(
+                          "mt-2 text-[10px]",
+                          message.role === "user" ? "text-ds-on-primary/80" : "text-ds-on-surface-variant"
+                        )}
+                      >
+                        {new Date(message.created_at).toLocaleTimeString()}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
             <div className="border-ds-outline shrink-0 border-t bg-ds-surface px-5 py-4 sm:px-6">
               <div className="flex items-center gap-3">

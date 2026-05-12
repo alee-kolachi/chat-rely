@@ -156,12 +156,12 @@ export function ChatRelyLoginScreen() {
                     <label htmlFor="login-password" className="text-ds-on-surface text-xs font-semibold">
                       Password
                     </label>
-                    <a
-                      href="mailto:support@chatrely.com?subject=Password%20reset"
+                    <Link
+                      href="/forgot-password"
                       className="text-ds-primary text-xs font-medium hover:underline"
                     >
                       Forgot password?
-                    </a>
+                    </Link>
                   </div>
                   <input
                     id="login-password"
@@ -178,6 +178,7 @@ export function ChatRelyLoginScreen() {
                     id="remember-me"
                     name="remember"
                     type="checkbox"
+                    value="on"
                     className="border-ds-outline text-ds-primary focus:ring-black/5 size-4 cursor-pointer rounded border transition-all"
                   />
                   <label

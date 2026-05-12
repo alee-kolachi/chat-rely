@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
-  ChevronLeft,
   ChevronRight,
   History,
   Info,
@@ -28,6 +27,7 @@ import {
 } from "@/components/playground/playground-page-skeleton";
 import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { BackendApiError, backendFetch, backendNdjsonStream } from "@/lib/backend-api";
+import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
 import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +50,11 @@ function actionsConfigDirty(
 type PlaygroundPreviewMessage = {
   from: "user" | "assistant";
   text: string;
+};
+
+type PlaygroundThreadCacheEntry = {
+  visitorId: string;
+  messages: PlaygroundPreviewMessage[];
 };
 
 type PlaygroundConversationRow = {
@@ -229,8 +234,12 @@ function PlaygroundPreviewConversation({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyRows, setHistoryRows] = useState<PlaygroundConversationRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyThreadLoading, setHistoryThreadLoading] = useState(false);
+  const [, setThreadCacheState] = useState<Record<string, PlaygroundThreadCacheEntry>>({});
   const blockThreadSyncRef = useRef(false);
+  const threadCacheRef = useRef<Record<string, PlaygroundThreadCacheEntry>>({});
+  const threadRequestsRef = useRef(new Map<string, Promise<PlaygroundThreadCacheEntry>>());
   /** When false, transcript updates (polling) must not yank scroll position. */
   const stickToBottomRef = useRef(true);
   useLayoutEffect(() => {
@@ -242,6 +251,89 @@ function PlaygroundPreviewConversation({
     writePlaygroundChatToStorage(agentId, previewMessages, conversationId, visitorId);
   }, [agentId, previewMessages, conversationId, visitorId]);
 
+  const cacheThread = useCallback((threadId: string, entry: PlaygroundThreadCacheEntry) => {
+    threadCacheRef.current = {
+      ...threadCacheRef.current,
+      [threadId]: entry,
+    };
+    setThreadCacheState(threadCacheRef.current);
+  }, []);
+
+  const loadThreadForCache = useCallback(async (threadId: string) => {
+    const cached = threadCacheRef.current[threadId];
+    if (cached) return cached;
+
+    const existing = threadRequestsRef.current.get(threadId);
+    if (existing) return existing;
+
+    const request = (async () => {
+      const data = await backendFetch<{
+        conversation: { visitor_id: string };
+        messages: Array<{ role: string; content: string; tool_call_payload?: unknown }>;
+      }>(`/api/v1/conversations/${encodeURIComponent(threadId)}`);
+      const mapped: PlaygroundPreviewMessage[] = [];
+      for (const m of data.messages) {
+        if (!isRenderableTranscriptMessage(m)) continue;
+        mapped.push({
+          from: m.role as "user" | "assistant",
+          text: m.content ?? "",
+        });
+      }
+      const entry = {
+        visitorId: data.conversation.visitor_id.trim() || newPlaygroundVisitorId(),
+        messages: mapped,
+      };
+      cacheThread(threadId, entry);
+      return entry;
+    })().finally(() => {
+      threadRequestsRef.current.delete(threadId);
+    });
+    threadRequestsRef.current.set(threadId, request);
+    return request;
+  }, [cacheThread]);
+
+  const prefetchHistoryConversation = useCallback((threadId: string) => {
+    if (threadCacheRef.current[threadId] || threadRequestsRef.current.has(threadId)) return;
+    void loadThreadForCache(threadId).catch(() => {
+      /* ignore speculative prefetch failures */
+    });
+  }, [loadThreadForCache]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setHistoryRows([]);
+      setHistoryLoaded(false);
+      setHistoryLoading(false);
+      setHistoryThreadLoading(false);
+      threadCacheRef.current = {};
+      threadRequestsRef.current.clear();
+      setThreadCacheState({});
+
+      if (!agentId) {
+        setConversationId(null);
+        setVisitorId(newPlaygroundVisitorId());
+        setPreviewMessages([]);
+        return;
+      }
+
+      const stored = readPlaygroundChatFromStorage(agentId);
+      const nextMessages = stored?.previewMessages ?? [];
+      const nextConversationId = stored?.conversationId ?? null;
+      const nextVisitorId = stored?.visitorId ?? "playground-preview";
+      setConversationId(nextConversationId);
+      setVisitorId(nextVisitorId);
+      setPreviewMessages(nextMessages);
+      if (nextConversationId) {
+        cacheThread(nextConversationId, { visitorId: nextVisitorId, messages: nextMessages });
+      }
+    });
+  }, [agentId, cacheThread]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    cacheThread(conversationId, { visitorId, messages: previewMessages });
+  }, [conversationId, visitorId, previewMessages, cacheThread]);
+
   useEffect(() => {
     if (!agentId || !conversationId) return;
     const cid = conversationId;
@@ -250,7 +342,7 @@ function PlaygroundPreviewConversation({
       if (blockThreadSyncRef.current) return;
       try {
         const data = await backendFetch<{
-          messages: Array<{ role: string; content: string }>;
+          messages: Array<{ role: string; content: string; tool_call_payload?: unknown }>;
         }>(`/api/v1/conversations/${encodeURIComponent(cid)}`);
         if (cancelled) return;
         // A poll that started before this render can resolve after the user sends a message.
@@ -258,12 +350,13 @@ function PlaygroundPreviewConversation({
         if (blockThreadSyncRef.current) return;
         const mapped: PlaygroundPreviewMessage[] = [];
         for (const m of data.messages) {
-          if (m.role !== "user" && m.role !== "assistant") continue;
+          if (!isRenderableTranscriptMessage(m)) continue;
           mapped.push({
             from: m.role as "user" | "assistant",
-            text: m.content,
+            text: m.content ?? "",
           });
         }
+        cacheThread(cid, { visitorId, messages: mapped });
         setPreviewMessages(mapped);
       } catch {
         /* ignore — offline or transient */
@@ -283,20 +376,23 @@ function PlaygroundPreviewConversation({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [agentId, conversationId]);
+  }, [agentId, conversationId, visitorId, cacheThread]);
 
   useEffect(() => {
     if (!historyOpen || !agentId) return;
     let cancelled = false;
     void (async () => {
-      setHistoryLoading(true);
+      if (!historyLoaded) setHistoryLoading(true);
       try {
         const data = await backendFetch<{ conversations: PlaygroundConversationRow[] }>(
           `/api/v1/conversations?agent_id=${encodeURIComponent(agentId)}&limit=40`
         );
-        if (!cancelled) setHistoryRows(data.conversations);
+        if (!cancelled) {
+          setHistoryRows(data.conversations);
+          setHistoryLoaded(true);
+        }
       } catch {
-        if (!cancelled) setHistoryRows([]);
+        if (!cancelled && !historyLoaded) setHistoryRows([]);
       } finally {
         if (!cancelled) setHistoryLoading(false);
       }
@@ -304,7 +400,7 @@ function PlaygroundPreviewConversation({
     return () => {
       cancelled = true;
     };
-  }, [historyOpen, agentId]);
+  }, [historyOpen, agentId, historyLoaded]);
 
   const onMessagesScroll = useCallback(() => {
     const el = messagesScrollRef.current;
@@ -370,8 +466,12 @@ function PlaygroundPreviewConversation({
             if (prev.length === 0) return prev;
             const last = prev[prev.length - 1];
             if (last.from !== "assistant") return prev;
+            const merged = reply.trim().length > 0 ? reply : last.text;
+            if (!merged.trim()) {
+              return prev.slice(0, -1);
+            }
             const next = [...prev];
-            next[next.length - 1] = { from: "assistant", text: reply };
+            next[next.length - 1] = { from: "assistant", text: merged };
             return next;
           });
         } else if (ev.type === "error") {
@@ -406,30 +506,32 @@ function PlaygroundPreviewConversation({
 
   async function handlePickHistoryConversation(threadId: string) {
     if (!agentId) return;
-    setHistoryThreadLoading(true);
     setChatError(null);
-    try {
-      const data = await backendFetch<{
-        conversation: { visitor_id: string };
-        messages: Array<{ role: string; content: string }>;
-      }>(`/api/v1/conversations/${encodeURIComponent(threadId)}`);
-      const mapped: PlaygroundPreviewMessage[] = [];
-      for (const m of data.messages) {
-        if (m.role !== "user" && m.role !== "assistant") continue;
-        mapped.push({
-          from: m.role,
-          text: m.content,
-        });
-      }
-      const nextVisitorId = data.conversation.visitor_id.trim() || newPlaygroundVisitorId();
+    const cached = threadCacheRef.current[threadId];
+    if (cached) {
       stickToBottomRef.current = true;
       setConversationId(threadId);
-      setVisitorId(nextVisitorId);
-      setPreviewMessages(mapped);
+      setVisitorId(cached.visitorId);
+      setPreviewMessages(cached.messages);
       setHistoryOpen(false);
-      writePlaygroundChatToStorage(agentId, mapped, threadId, nextVisitorId);
+      writePlaygroundChatToStorage(agentId, cached.messages, threadId, cached.visitorId);
+    } else {
+      stickToBottomRef.current = true;
+      setConversationId(threadId);
+      setPreviewMessages([]);
+      setHistoryOpen(false);
+      setHistoryThreadLoading(true);
+    }
+    try {
+      const next = await loadThreadForCache(threadId);
+      stickToBottomRef.current = true;
+      setConversationId(threadId);
+      setVisitorId(next.visitorId);
+      setPreviewMessages(next.messages);
+      setHistoryOpen(false);
+      writePlaygroundChatToStorage(agentId, next.messages, threadId, next.visitorId);
     } catch (e) {
-      setChatError(e instanceof Error ? e.message : "Could not load chat");
+      if (!cached) setChatError(e instanceof Error ? e.message : "Could not load chat");
     } finally {
       setHistoryThreadLoading(false);
     }
@@ -597,6 +699,8 @@ function PlaygroundPreviewConversation({
                       <button
                         type="button"
                         disabled={historyThreadLoading}
+                        onMouseEnter={() => prefetchHistoryConversation(row.id)}
+                        onFocus={() => prefetchHistoryConversation(row.id)}
                         onClick={() => void handlePickHistoryConversation(row.id)}
                         className={cn(
                           "border-ds-outline group cursor-pointer rounded-2xl border bg-white p-3.5 text-left shadow-sm transition-all",
@@ -631,7 +735,7 @@ function PlaygroundPreviewConversation({
             {historyThreadLoading ? (
               <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
             ) : null}
-            {previewMessages.length === 0 ? (
+            {!historyThreadLoading && previewMessages.length === 0 ? (
               <div className={cn(onboardingType.body, "space-y-3 text-center")}>
                 <p className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-sm border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
                   {emptyAssistantLine}
@@ -778,7 +882,7 @@ export default function PlaygroundPage() {
     websitePreview: integrationsWebsitePreview,
     loading: integrationsLoading,
     refresh: refreshIntegrations,
-  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
+  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined, { includeWebsitePreview: false });
   const shopifyConnected = Boolean(shopifyConnection?.connected);
   const setTopbarExtras = useSetDashboardTopbarExtras();
   const [model, setModel] = useState("gpt-4o-mini");

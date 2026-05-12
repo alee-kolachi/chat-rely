@@ -16,6 +16,23 @@ type TicketRow = {
   updated_at: string;
 };
 
+function TicketMetricValue({ loading, value }: { loading: boolean; value: number }) {
+  if (loading) {
+    return <div className="bg-ds-sidebar mt-3 h-8 w-12 animate-pulse rounded-md" aria-label="Loading metric" />;
+  }
+  return <p className="ds-app-metric-value mt-2">{value}</p>;
+}
+
+function TicketsQueueSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="space-y-2 p-3" aria-label="Loading tickets">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index} className="bg-ds-sidebar h-14 animate-pulse rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
 export default function TicketsPage() {
   const { selectedAgentId } = useDashboardAgent();
   const [tickets, setTickets] = useState<TicketRow[]>([]);
@@ -42,7 +59,7 @@ export default function TicketsPage() {
   }, [selectedAgentId]);
 
   useEffect(() => {
-    void load();
+    queueMicrotask(() => void load());
   }, [load]);
 
   const openCount = tickets.filter((t) => t.status === "open").length;
@@ -71,11 +88,11 @@ export default function TicketsPage() {
         <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm">
             <p className="text-ds-on-surface-variant text-sm font-medium">Total</p>
-            <p className="ds-app-metric-value mt-2">{loading ? "…" : total}</p>
+            <TicketMetricValue loading={loading} value={total} />
           </article>
           <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm">
             <p className="text-ds-on-surface-variant text-sm font-medium">Open</p>
-            <p className="ds-app-metric-value mt-2">{loading ? "…" : openCount}</p>
+            <TicketMetricValue loading={loading} value={openCount} />
           </article>
         </section>
 
@@ -85,7 +102,7 @@ export default function TicketsPage() {
           </div>
           <div className="divide-ds-outline divide-y">
             {loading ? (
-              <p className="text-ds-on-surface-variant p-4 text-sm">Loading tickets…</p>
+              <TicketsQueueSkeleton />
             ) : tickets.length === 0 ? (
               <p className="text-ds-on-surface-variant p-4 text-sm">
                 No tickets yet. Escalations appear when the AI hands off and “Escalate to Human” is enabled for this

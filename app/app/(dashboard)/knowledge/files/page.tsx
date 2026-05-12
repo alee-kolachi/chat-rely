@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
-import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
+import {
+  type KnowledgeFileSourceRow as FileSourceRow,
+  useKnowledgeDataSources,
+} from "@/components/knowledge/knowledge-data-sources-context";
 import {
   CollapsibleSection,
   KnowledgeSearchInput,
@@ -27,27 +30,10 @@ import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
-type FileSourceRow = {
-  id: string;
-  title: string;
-  storage_bucket: string | null;
-  storage_path: string | null;
-  status: string;
-  character_count: number;
-  last_indexed_at: string | null;
-};
-
 type FileUploadResult = {
   status: "succeeded" | "failed";
   error_message?: string | null;
 };
-
-async function fetchFileSources(agentId: string): Promise<FileSourceRow[]> {
-  const data = await backendFetch<{ sources: FileSourceRow[] }>(
-    `/api/v1/knowledge/files/sources?agent_id=${encodeURIComponent(agentId)}`
-  );
-  return data.sources;
-}
 
 function formatUpdatedAt(value: string | null): string {
   if (!value) return "Not indexed yet";
@@ -84,9 +70,9 @@ export default function KnowledgeFilesPage() {
   const searchParams = useSearchParams();
   const highlightSourceId = searchParams.get("source")?.trim() ?? null;
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
-  const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
-  const [rows, setRows] = useState<FileSourceRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const knowledgeDs = useKnowledgeDataSources();
+  const { refreshUsage } = knowledgeDs ?? { refreshUsage: async () => {} };
+  const loadFileSources = knowledgeDs?.loadFileSources;
   const [error, setError] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -96,28 +82,28 @@ export default function KnowledgeFilesPage() {
   const [sortKey, setSortKey] = useSortPreference("files");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const sourceCache =
+    knowledgeDs?.agentId === selectedAgentId ? knowledgeDs.files : { rows: null, loading: false, error: null };
+  const rows = useMemo(() => sourceCache.rows ?? [], [sourceCache.rows]);
+  const loading = Boolean(selectedAgentId && sourceCache.loading && sourceCache.rows === null);
+  const visibleError = error ?? sourceCache.error;
 
   useEffect(() => {
-    if (!selectedAgentId) return;
+    if (!selectedAgentId || !loadFileSources) return;
     let cancelled = false;
     void (async () => {
-      setLoading(true);
       setError(null);
       try {
-        const next = await fetchFileSources(selectedAgentId);
-        if (cancelled) return;
-        setRows(next);
-        await refreshUsage();
+        await loadFileSources();
+        if (!cancelled) await refreshUsage({ silent: true });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load file sources");
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedAgentId, refreshUsage]);
+  }, [selectedAgentId, loadFileSources, refreshUsage]);
 
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -200,9 +186,8 @@ export default function KnowledgeFilesPage() {
       }
       setSelected(new Set());
       if (selectedAgentId) {
-        const next = await fetchFileSources(selectedAgentId);
-        setRows(next);
-        await refreshUsage();
+        await loadFileSources?.({ silent: true });
+        await refreshUsage({ silent: true });
       }
     } finally {
       setBulkDeleting(false);
@@ -218,14 +203,13 @@ export default function KnowledgeFilesPage() {
         method: "DELETE",
       });
       if (!selectedAgentId) return;
-      const next = await fetchFileSources(selectedAgentId);
-      setRows(next);
+      await loadFileSources?.({ silent: true });
       setSelected((prev) => {
         const n = new Set(prev);
         n.delete(sourceId);
         return n;
       });
-      await refreshUsage();
+      await refreshUsage({ silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete file source");
     } finally {
@@ -247,9 +231,8 @@ export default function KnowledgeFilesPage() {
         body: form,
       });
       const failed = (uploadRes.results ?? []).filter((item) => item.status === "failed");
-      const next = await fetchFileSources(selectedAgentId);
-      setRows(next);
-      await refreshUsage();
+      await loadFileSources?.({ silent: true });
+      await refreshUsage({ silent: true });
       if (failed.length > 0) {
         const first = failed[0]?.error_message ?? "One or more files failed to upload.";
         setError(`${failed.length} file${failed.length === 1 ? "" : "s"} failed: ${first}`);
@@ -385,10 +368,10 @@ export default function KnowledgeFilesPage() {
                 <tbody className="divide-ds-outline divide-y">
                   {loading ? (
                     <KnowledgeFilesTableSkeleton rows={6} />
-                  ) : error ? (
+                  ) : visibleError ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-6 text-sm text-red-700">
-                        {error}
+                        {visibleError}
                       </td>
                     </tr>
                   ) : filteredRows.length === 0 ? (

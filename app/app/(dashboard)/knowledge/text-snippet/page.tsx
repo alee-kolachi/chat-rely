@@ -3,7 +3,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
-import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
+import {
+  type KnowledgeSnippetRow as SnippetRow,
+  useKnowledgeDataSources,
+} from "@/components/knowledge/knowledge-data-sources-context";
 import {
   CollapsibleSection,
   KnowledgeSearchInput,
@@ -25,23 +28,6 @@ import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
-type SnippetRow = {
-  id: string;
-  title: string;
-  status: string;
-  character_count: number;
-  preview: string;
-  last_indexed_at: string | null;
-  updated_at: string;
-};
-
-async function fetchSnippets(agentId: string): Promise<SnippetRow[]> {
-  const data = await backendFetch<{ sources: SnippetRow[] }>(
-    `/api/v1/knowledge/snippets/sources?agent_id=${encodeURIComponent(agentId)}`
-  );
-  return data.sources;
-}
-
 function formatUpdatedAt(value: string | null): string {
   if (!value) return "Not indexed yet";
   const d = new Date(value);
@@ -59,9 +45,9 @@ export default function KnowledgeTextSnippetPage() {
   const searchParams = useSearchParams();
   const highlightSourceId = searchParams.get("source")?.trim() ?? null;
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
-  const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
-  const [rows, setRows] = useState<SnippetRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const knowledgeDs = useKnowledgeDataSources();
+  const { refreshUsage } = knowledgeDs ?? { refreshUsage: async () => {} };
+  const loadSnippetSources = knowledgeDs?.loadSnippetSources;
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -77,27 +63,28 @@ export default function KnowledgeTextSnippetPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedBody, setExpandedBody] = useState<string>("");
   const [expandedLoading, setExpandedLoading] = useState(false);
+  const sourceCache =
+    knowledgeDs?.agentId === selectedAgentId ? knowledgeDs.snippets : { rows: null, loading: false, error: null };
+  const rows = useMemo(() => sourceCache.rows ?? [], [sourceCache.rows]);
+  const loading = Boolean(selectedAgentId && sourceCache.loading && sourceCache.rows === null);
+  const visibleError = error ?? sourceCache.error;
 
   useEffect(() => {
-    if (!selectedAgentId) return;
+    if (!selectedAgentId || !loadSnippetSources) return;
     let cancelled = false;
     void (async () => {
-      setLoading(true);
       setError(null);
       try {
-        const next = await fetchSnippets(selectedAgentId);
-        if (!cancelled) setRows(next);
-        await refreshUsage();
+        await loadSnippetSources();
+        if (!cancelled) await refreshUsage({ silent: true });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load snippets");
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedAgentId, refreshUsage]);
+  }, [selectedAgentId, loadSnippetSources, refreshUsage]);
 
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -187,9 +174,8 @@ export default function KnowledgeTextSnippetPage() {
           }),
         });
       }
-      const next = await fetchSnippets(selectedAgentId);
-      setRows(next);
-      await refreshUsage();
+      await loadSnippetSources?.({ silent: true });
+      await refreshUsage({ silent: true });
       resetForm();
     } catch (e) {
       if (e instanceof BackendApiError && e.code === "knowledge.storage_budget_exhausted") {
@@ -213,9 +199,8 @@ export default function KnowledgeTextSnippetPage() {
         method: "DELETE",
       });
       if (selectedAgentId) {
-        const next = await fetchSnippets(selectedAgentId);
-        setRows(next);
-        await refreshUsage();
+        await loadSnippetSources?.({ silent: true });
+        await refreshUsage({ silent: true });
       }
       setSelected((prev) => {
         const n = new Set(prev);
@@ -254,9 +239,8 @@ export default function KnowledgeTextSnippetPage() {
       }
       setSelected(new Set());
       if (selectedAgentId) {
-        const next = await fetchSnippets(selectedAgentId);
-        setRows(next);
-        await refreshUsage();
+        await loadSnippetSources?.({ silent: true });
+        await refreshUsage({ silent: true });
       }
     } finally {
       setBulkDeleting(false);
@@ -333,7 +317,7 @@ export default function KnowledgeTextSnippetPage() {
                   onChange={(e) => setBody(e.target.value)}
                 />
               </div>
-              {error ? <p className="text-sm text-red-700">{error}</p> : null}
+              {visibleError ? <p className="text-sm text-red-700">{visibleError}</p> : null}
               <div className="flex flex-wrap justify-end gap-2">
                 {editingId ? (
                   <button

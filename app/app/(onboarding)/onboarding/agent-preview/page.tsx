@@ -81,8 +81,12 @@ export default function AgentPreviewOnboardingPage() {
             if (prev.length === 0) return prev;
             const last = prev[prev.length - 1];
             if (last.from !== "assistant") return prev;
+            const merged = reply.trim().length > 0 ? reply : last.text;
+            if (!merged.trim()) {
+              return prev.slice(0, -1);
+            }
             const next = [...prev];
-            next[next.length - 1] = { from: "assistant", text: reply };
+            next[next.length - 1] = { from: "assistant", text: merged };
             return next;
           });
           const fb = Boolean(ev.fallback_used);

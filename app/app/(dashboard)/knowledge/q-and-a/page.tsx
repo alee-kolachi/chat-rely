@@ -3,7 +3,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
-import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
+import {
+  type KnowledgeQARow as QARow,
+  useKnowledgeDataSources,
+} from "@/components/knowledge/knowledge-data-sources-context";
 import {
   CollapsibleSection,
   KnowledgeSearchInput,
@@ -25,24 +28,6 @@ import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
-type QARow = {
-  id: string;
-  title: string;
-  question: string;
-  answer_preview: string;
-  character_count: number;
-  status: string;
-  last_indexed_at: string | null;
-  updated_at: string;
-};
-
-async function fetchQASources(agentId: string): Promise<QARow[]> {
-  const data = await backendFetch<{ sources: QARow[] }>(
-    `/api/v1/knowledge/qa/sources?agent_id=${encodeURIComponent(agentId)}`
-  );
-  return data.sources;
-}
-
 function formatUpdatedAt(value: string | null): string {
   if (!value) return "Not indexed yet";
   const d = new Date(value);
@@ -60,9 +45,9 @@ export default function KnowledgeQAndAPage() {
   const searchParams = useSearchParams();
   const highlightSourceId = searchParams.get("source")?.trim() ?? null;
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
-  const { refreshUsage } = useKnowledgeDataSources() ?? { refreshUsage: async () => {} };
-  const [rows, setRows] = useState<QARow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const knowledgeDs = useKnowledgeDataSources();
+  const { refreshUsage } = knowledgeDs ?? { refreshUsage: async () => {} };
+  const loadQaSources = knowledgeDs?.loadQaSources;
   const [error, setError] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -78,27 +63,28 @@ export default function KnowledgeQAndAPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedAnswer, setExpandedAnswer] = useState<string>("");
   const [expandedLoading, setExpandedLoading] = useState(false);
+  const sourceCache =
+    knowledgeDs?.agentId === selectedAgentId ? knowledgeDs.qa : { rows: null, loading: false, error: null };
+  const rows = useMemo(() => sourceCache.rows ?? [], [sourceCache.rows]);
+  const loading = Boolean(selectedAgentId && sourceCache.loading && sourceCache.rows === null);
+  const visibleError = error ?? sourceCache.error;
 
   useEffect(() => {
-    if (!selectedAgentId) return;
+    if (!selectedAgentId || !loadQaSources) return;
     let cancelled = false;
     void (async () => {
-      setLoading(true);
       setError(null);
       try {
-        const next = await fetchQASources(selectedAgentId);
-        if (!cancelled) setRows(next);
-        await refreshUsage();
+        await loadQaSources();
+        if (!cancelled) await refreshUsage({ silent: true });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load Q&A");
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedAgentId, refreshUsage]);
+  }, [selectedAgentId, loadQaSources, refreshUsage]);
 
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -121,8 +107,8 @@ export default function KnowledgeQAndAPage() {
   useEffect(() => {
     if (!highlightSourceId || loading) return;
     if (!rows.some((r) => r.id === highlightSourceId)) return;
-    setExpandedId(highlightSourceId);
     queueMicrotask(() => {
+      setExpandedId(highlightSourceId);
       document.getElementById(`knowledge-source-${highlightSourceId}`)?.scrollIntoView({
         behavior: "smooth",
         block: "nearest",
@@ -201,9 +187,8 @@ export default function KnowledgeQAndAPage() {
           }),
         });
       }
-      const next = await fetchQASources(selectedAgentId);
-      setRows(next);
-      await refreshUsage();
+      await loadQaSources?.({ silent: true });
+      await refreshUsage({ silent: true });
       resetForm();
     } catch (e) {
       if (e instanceof BackendApiError && e.code === "knowledge.storage_budget_exhausted") {
@@ -227,9 +212,8 @@ export default function KnowledgeQAndAPage() {
         method: "DELETE",
       });
       if (selectedAgentId) {
-        const next = await fetchQASources(selectedAgentId);
-        setRows(next);
-        await refreshUsage();
+        await loadQaSources?.({ silent: true });
+        await refreshUsage({ silent: true });
       }
       setSelected((prev) => {
         const n = new Set(prev);
@@ -268,9 +252,8 @@ export default function KnowledgeQAndAPage() {
       }
       setSelected(new Set());
       if (selectedAgentId) {
-        const next = await fetchQASources(selectedAgentId);
-        setRows(next);
-        await refreshUsage();
+        await loadQaSources?.({ silent: true });
+        await refreshUsage({ silent: true });
       }
     } finally {
       setBulkDeleting(false);
@@ -347,7 +330,7 @@ export default function KnowledgeQAndAPage() {
                   onChange={(e) => setAnswer(e.target.value)}
                 />
               </div>
-              {error ? <p className="text-sm text-red-700">{error}</p> : null}
+              {visibleError ? <p className="text-sm text-red-700">{visibleError}</p> : null}
               <div className="flex flex-wrap justify-end gap-2">
                 {editingId ? (
                   <button
