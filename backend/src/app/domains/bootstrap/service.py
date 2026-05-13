@@ -155,8 +155,8 @@ async def _fetch_active_subscription_and_plan(
 
 
 async def _default_plan_id_for_new_subscription(db: AsyncSession) -> UUID:
-    """Prefer free tier for new workspaces; fall back to starter if migrations are partial."""
-    for slug in ("free", "starter"):
+    """Prefer free tier for new workspaces; fall back to hobby if migrations are partial."""
+    for slug in ("free", "hobby"):
         res = await db.execute(
             text("select id from public.plans where slug = :slug and is_active = true limit 1"),
             {"slug": slug},
@@ -166,7 +166,7 @@ async def _default_plan_id_for_new_subscription(db: AsyncSession) -> UUID:
             return UUID(str(row["id"]))
     raise AppError(
         code="plan.not_found",
-        message="No active free or starter plan in database. Apply Supabase migrations / seed.",
+        message="No active free or hobby plan in database. Apply Supabase migrations / seed.",
         status_code=500,
     )
 

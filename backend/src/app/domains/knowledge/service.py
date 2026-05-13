@@ -33,6 +33,12 @@ def _parse_html(html: str) -> BeautifulSoup:
 
 from app.core.errors import AppError
 from app.core.settings import get_settings
+from app.domains.plans.plan_limits import (
+    DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES,
+    STARTER_KNOWLEDGE_STORAGE_CAP_BYTES,
+    training_storage_cap_bytes,
+    website_crawl_cap_bytes,
+)
 from app.domains.knowledge.schemas import (
     FileSourceListItemDTO,
     FileUploadResultDTO,
@@ -76,8 +82,6 @@ DASHBOARD_BFS_INCLUDE_RULE_MAX_HOPS = 14
 DASHBOARD_BFS_INCLUDE_RULE_MAX_PAGES_VISITED = 3500
 # Per-response byte charge cap for crawl HTTP bodies (in addition to total indexed storage cap).
 _CRAWL_BODY_CHARGE_CAP_BYTES = 400_000
-DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES = 100 * 1024 * 1024
-STARTER_KNOWLEDGE_STORAGE_CAP_BYTES = 500 * 1024
 STARTER_HIDDEN_STORAGE_GRACE_RATIO = 0.23
 # OpenAI embeddings cap is ~300k tokens per request; batch conservatively (tiktoken can exceed char/4).
 _EMBED_BATCH_MAX_TOKENS_EST = 200_000
@@ -598,6 +602,63 @@ def _embedding_api_error_message(status_code: int, body: str) -> str:
     return f"HTTP {status_code}"
 
 
+async def _post_one_embedding_batch(
+    client: httpx.AsyncClient,
+    batch: list[str],
+    *,
+    allow_split: bool,
+    settings: Any,
+) -> tuple[list[list[float]], int]:
+    """One OpenAI embeddings HTTP call; returns vectors and API-reported prompt/total tokens."""
+    response = await client.post(
+        "https://api.openai.com/v1/embeddings",
+        headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+        json={"model": settings.openai_embedding_model, "input": batch},
+    )
+    if response.status_code >= 400:
+        body = response.text or ""
+        lower = body.lower()
+        oversize = (
+            response.status_code == 400
+            and allow_split
+            and len(batch) > 1
+            and (
+                "maximum request size" in lower
+                or "too many tokens" in lower
+                or "context length" in lower
+            )
+        )
+        if oversize:
+            mid = len(batch) // 2
+            left_v, left_t = await _post_one_embedding_batch(
+                client, batch[:mid], allow_split=True, settings=settings
+            )
+            right_v, right_t = await _post_one_embedding_batch(
+                client, batch[mid:], allow_split=True, settings=settings
+            )
+            return left_v + right_v, left_t + right_t
+        log.warning(
+            "embedding_batch_failed",
+            status_code=response.status_code,
+            body_preview=body[:500],
+            batch_inputs=len(batch),
+        )
+        detail_msg = _embedding_api_error_message(response.status_code, body)
+        raise AppError(
+            code="knowledge.embedding_failed",
+            message=f"Embedding API error: {detail_msg}",
+            status_code=502,
+            details={"status_code": response.status_code, "body": body[:800]},
+        )
+    payload = response.json()
+    vectors = [item["embedding"] for item in payload.get("data", [])]
+    if len(vectors) != len(batch):
+        raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    tokens = int(usage.get("prompt_tokens") or usage.get("total_tokens") or 0)
+    return vectors, tokens
+
+
 async def _embed_texts(chunks: list[str]) -> list[list[float]]:
     settings = get_settings()
     if not settings.openai_api_key:
@@ -609,51 +670,6 @@ async def _embed_texts(chunks: list[str]) -> list[list[float]]:
 
     if not chunks:
         return []
-
-    async def _post_one_batch(
-        client: httpx.AsyncClient, batch: list[str], *, allow_split: bool
-    ) -> list[list[float]]:
-        response = await client.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            json={"model": settings.openai_embedding_model, "input": batch},
-        )
-        if response.status_code >= 400:
-            body = response.text or ""
-            lower = body.lower()
-            oversize = (
-                response.status_code == 400
-                and allow_split
-                and len(batch) > 1
-                and (
-                    "maximum request size" in lower
-                    or "too many tokens" in lower
-                    or "context length" in lower
-                )
-            )
-            if oversize:
-                mid = len(batch) // 2
-                left = await _post_one_batch(client, batch[:mid], allow_split=True)
-                right = await _post_one_batch(client, batch[mid:], allow_split=True)
-                return left + right
-            log.warning(
-                "embedding_batch_failed",
-                status_code=response.status_code,
-                body_preview=body[:500],
-                batch_inputs=len(batch),
-            )
-            detail_msg = _embedding_api_error_message(response.status_code, body)
-            raise AppError(
-                code="knowledge.embedding_failed",
-                message=f"Embedding API error: {detail_msg}",
-                status_code=502,
-                details={"status_code": response.status_code, "body": body[:800]},
-            )
-        payload = response.json()
-        vectors = [item["embedding"] for item in payload.get("data", [])]
-        if len(vectors) != len(batch):
-            raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
-        return vectors
 
     all_vectors: list[list[float]] = []
     idx = 0
@@ -672,11 +688,53 @@ async def _embed_texts(chunks: list[str]) -> list[list[float]]:
                 batch = [chunks[idx]]
                 idx += 1
 
-            all_vectors.extend(await _post_one_batch(client, batch, allow_split=True))
+            vecs, _tokens = await _post_one_embedding_batch(
+                client, batch, allow_split=True, settings=settings
+            )
+            all_vectors.extend(vecs)
 
     if len(all_vectors) != len(chunks):
         raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
     return all_vectors
+
+
+async def embed_texts_with_token_usage(chunks: list[str]) -> tuple[list[list[float]], int]:
+    """Embeddings with summed OpenAI usage tokens across all HTTP batches (RAG / runtime billing)."""
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise AppError(
+            code="knowledge.embedding_not_configured",
+            message="OPENAI_API_KEY is required for indexing embeddings",
+            status_code=500,
+        )
+    if not chunks:
+        return [], 0
+
+    all_vectors: list[list[float]] = []
+    total_tokens = 0
+    idx = 0
+    async with httpx.AsyncClient(timeout=120) as client:
+        while idx < len(chunks):
+            batch: list[str] = []
+            batch_tokens = 0
+            while idx < len(chunks) and len(batch) < _EMBED_BATCH_MAX_INPUTS:
+                next_tok = _approx_embed_request_tokens(chunks[idx])
+                if batch and batch_tokens + next_tok > _EMBED_BATCH_MAX_TOKENS_EST:
+                    break
+                batch.append(chunks[idx])
+                batch_tokens += next_tok
+                idx += 1
+            if not batch:
+                batch = [chunks[idx]]
+                idx += 1
+
+            vecs, tok = await _post_one_embedding_batch(client, batch, allow_split=True, settings=settings)
+            all_vectors.extend(vecs)
+            total_tokens += tok
+
+    if len(all_vectors) != len(chunks):
+        raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
+    return all_vectors, total_tokens
 
 
 def _vector_literal(values: list[float]) -> str:
@@ -2404,7 +2462,9 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
         currently_used_storage_bytes = await _agent_used_storage_bytes(
             db, user_id=user_id, agent_id=source.agent_id
         )
-        crawl_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+        remaining_storage = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+        crawl_cap = website_crawl_cap_bytes(plan_features, included_storage_cap_bytes)
+        crawl_budget_bytes = min(remaining_storage, crawl_cap)
         pages_persisted_incrementally = False
         dashboard_planned_url_count: int | None = None
         website_discovery_mode = "unknown"
@@ -4310,21 +4370,12 @@ def _included_storage_bytes_from_plan_features(features: dict[str, object]) -> i
     """Total indexed knowledge cap (website + files + snippets + Q&A share one pool)."""
     if not isinstance(features, dict):
         return DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES
-    total_mb = features.get("max_total_knowledge_mb")
-    if isinstance(total_mb, (int, float)) and total_mb > 0:
-        return int(total_mb * 1024 * 1024)
-    kb = features.get("max_knowledge_storage_kb")
-    if isinstance(kb, (int, float)) and kb > 0:
-        return int(kb * 1024)
-    mb = features.get("max_file_storage_mb")
-    if isinstance(mb, (int, float)) and mb > 0:
-        return int(mb * 1024 * 1024)
-    return DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES
+    return training_storage_cap_bytes(features)
 
 
 def _effective_storage_cap_bytes(included_storage_bytes: int) -> int:
     """
-    Internal allowance only: starter 500KB plans receive hidden +23% storage headroom.
+    Internal allowance only: hobby/free 500KB-style plans receive hidden +23% storage headroom.
     """
     if included_storage_bytes == STARTER_KNOWLEDGE_STORAGE_CAP_BYTES:
         return int(included_storage_bytes * (1 + STARTER_HIDDEN_STORAGE_GRACE_RATIO))

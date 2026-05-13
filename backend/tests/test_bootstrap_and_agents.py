@@ -44,10 +44,10 @@ def _make_plan(max_agents: int = 3) -> PlanDTO:
     return PlanDTO.model_validate(
         {
             "id": "00000000-0000-0000-0000-000000000777",
-            "slug": "starter",
-            "name": "Starter",
-            "monthly_price_cents": 5900,
-            "included_conversations": 500,
+            "slug": "hobby",
+            "name": "Hobby",
+            "monthly_price_cents": 2900,
+            "included_conversations": 200,
             "max_agents": max_agents,
             "overage_conversation_cents": 8,
             "features": {},

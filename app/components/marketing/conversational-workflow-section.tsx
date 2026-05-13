@@ -11,34 +11,39 @@ type WorkflowItem = {
 
 const workflowItems: WorkflowItem[] = [
   {
-    title: "Build and deploy your agent",
-    status: "Enabled",
-    details: "Train an agent on business data, define safe actions, then launch to customer channels quickly.",
-    cards: ["Invite user", "Configure support playbook"],
+    title: "Connect your Shopify store",
+    status: "Ready",
+    details:
+      "One connection pulls products, orders, policies, and inventory into your agent — no PDF upload marathon or weekly re-crawl.",
+    cards: ["Link store in one flow", "Policies & catalog stay in sync"],
   },
   {
-    title: "Agent solves your customers' problems",
+    title: "Resolve issues with live data",
+    status: "Live",
+    details:
+      "WISMO, returns windows, and stock questions pull from Shopify as it is today — not a snapshot from when you last trained the bot.",
+    cards: ["Order status & tracking", "Refund rules from your store"],
+  },
+  {
+    title: "Take real support actions",
     status: "Running",
-    details: "Use retrieval and actions to resolve common issues while preserving quality and brand tone.",
-    cards: ["Answer policy questions", "Handle billing updates"],
+    details:
+      "Your agent does what a tier-1 teammate would: look up the order, open a ticket, send confirmations — without waiting on a human for every thread.",
+    cards: ["Create ticket with transcript", "Customer-facing follow-ups"],
   },
   {
-    title: "Refine and optimize with feedback",
-    status: "Reviewing",
-    details: "Inspect low-confidence responses and tune prompts, sources, and guardrails for better outcomes.",
-    cards: ["Evaluate transcripts", "Improve source relevance"],
+    title: "Escalate before it guesses wrong",
+    status: "Guarded",
+    details:
+      "When confidence drops or the shopper is stuck, the agent says so and hands off with the full conversation — no “confidently wrong” answers in front of customers.",
+    cards: ["Low-confidence path", "Human sees full context"],
   },
   {
-    title: "Route complex issues to humans",
-    status: "Escalation",
-    details: "Pass sensitive or edge-case conversations to teammates with full context and clear ownership.",
-    cards: ["Escalate to human", "Create ticket with context"],
-  },
-  {
-    title: "Review analytics and insights",
+    title: "Improve from real conversations",
     status: "Insights",
-    details: "Track containment, trending topics, and escalation reasons to prioritize improvements.",
-    cards: ["Monitor resolution rates", "Track customer sentiment"],
+    details:
+      "See what shoppers asked, what worked, and what got escalated — then tighten playbooks without rebuilding your knowledge base from scratch.",
+    cards: ["Spot recurring gaps", "Prioritize what to fix next"],
   },
 ];
 
@@ -56,9 +61,13 @@ export function ConversationalWorkflowSection() {
     <section className="border-y border-zinc-200 bg-[#f8f9fa] px-6 py-16 sm:py-20 lg:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-12 lg:grid-cols-2 lg:items-center">
         <div>
-          <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Conversational AI for customer support</h2>
+          <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            Support conversations that actually finish the job
+          </h2>
           <p className="mt-4 text-base leading-7 text-ds-on-surface-variant sm:mt-6">
-            Customers can find answers, resolve issues, and take actions through seamless AI-driven conversations.
+            Connect once to your live Shopify store. ChatRely answers with current data, runs the right actions, and
+            escalates with full context — so shoppers are not stuck re-explaining and your team is not guessing what
+            happened.
           </p>
 
           <p className="mt-6 text-xs font-medium uppercase tracking-[0.12em] text-ds-on-surface-variant lg:hidden">

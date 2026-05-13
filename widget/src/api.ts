@@ -5,13 +5,32 @@ export type WidgetConfig = {
   widget_position: "bottom_right" | "bottom_left";
   human_escalation_available?: boolean;
   avatar_url?: string | null;
+  /** Hobby / Standard / Pro — show attachment affordance in composer (upload not wired yet). */
+  attachments_ui_enabled?: boolean;
+  /** Pro / Scale: omit “Powered by ChatRely”. Otherwise show only until the visitor sends their first message. */
+  hide_powered_by_chatrely?: boolean;
+  /** Pro / Scale: show thumbs on assistant messages. */
+  message_feedback_enabled?: boolean;
 };
 
 export type NdjsonEvent =
   | { type: "start"; conversation_id: string }
   | { type: "token"; text: string }
-  | { type: "done"; conversation_id: string; response?: string }
+  | {
+      type: "done";
+      conversation_id: string;
+      response?: string;
+      assistant_message_id?: string | null;
+    }
   | { type: "error"; code?: string; message: string };
+
+async function safeJson(res: Response): Promise<{ error?: { message?: string } } | null> {
+  try {
+    return (await res.json()) as { error?: { message?: string } };
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchWidgetConfig(apiBase: string, agentKey: string): Promise<WidgetConfig> {
   const url = `${apiBase}/api/v1/public/widget/config`;
@@ -66,10 +85,23 @@ export async function* streamChat(
   if (tail) yield JSON.parse(tail) as NdjsonEvent;
 }
 
-async function safeJson(res: Response): Promise<{ error?: { message?: string } } | null> {
-  try {
-    return (await res.json()) as { error?: { message?: string } };
-  } catch {
-    return null;
+export async function postWidgetMessageFeedback(
+  apiBase: string,
+  agentKey: string,
+  body: { message_id: string; visitor_id: string; value: 1 | -1 }
+): Promise<void> {
+  const url = `${apiBase}/api/v1/public/widget/message-feedback`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-ChatRely-Agent-Key": agentKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await safeJson(res);
+    const msg = err?.error?.message ?? `Feedback failed (${res.status})`;
+    throw new Error(msg);
   }
 }

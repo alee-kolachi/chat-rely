@@ -21,6 +21,7 @@ from app.core.settings import Settings, get_settings
 from app.domains.admin.costing import (
     build_embedding_cost_usd_expr,
     build_llm_cost_usd_expr,
+    compute_embedding_cost_usd,
     compute_message_cost_usd,
     embedding_pricing_status,
     unknown_models_warning,
@@ -116,14 +117,29 @@ def test_settings_parses_valid_price_map_json(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_settings_empty_env_yields_empty_maps(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LLM_INPUT_PRICE_PER_MILLION_USD", raising=False)
-    monkeypatch.delenv("LLM_OUTPUT_PRICE_PER_MILLION_USD", raising=False)
-    monkeypatch.delenv("EMBEDDING_PRICE_PER_MILLION_USD", raising=False)
+    # Deleting only os.environ keys does not remove values loaded from ``.env``; force empty maps.
+    monkeypatch.setenv("LLM_INPUT_PRICE_PER_MILLION_USD", "{}")
+    monkeypatch.setenv("LLM_OUTPUT_PRICE_PER_MILLION_USD", "{}")
+    monkeypatch.setenv("EMBEDDING_PRICE_PER_MILLION_USD", "{}")
     get_settings.cache_clear()
     s = get_settings()
     assert s.llm_input_price_per_million_usd == {}
     assert s.llm_output_price_per_million_usd == {}
     assert s.embedding_price_per_million_usd == {}
+    get_settings.cache_clear()
+
+
+def test_compute_embedding_cost_usd(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    monkeypatch.setenv(
+        "EMBEDDING_PRICE_PER_MILLION_USD",
+        '{"text-embedding-3-small":0.02}',
+    )
+    get_settings.cache_clear()
+    s = get_settings()
+    assert compute_embedding_cost_usd(s, 0) == 0.0
+    assert abs(compute_embedding_cost_usd(s, 500_000) - 0.01) < 1e-9
+    assert compute_embedding_cost_usd(s, 100) is not None
     get_settings.cache_clear()
 
 
@@ -138,6 +154,33 @@ def test_settings_rejects_injection_in_model_key(monkeypatch: pytest.MonkeyPatch
         Settings()
     assert "invalid model key" in str(exc.value)
     get_settings.cache_clear()
+
+
+def test_admin_conversation_cost_accepts_event_ledger_fields() -> None:
+    cid = uuid4()
+    mid = uuid4()
+    obj = AdminConversationCost(
+        conversation_id=cid,
+        total_input_tokens=0,
+        total_output_tokens=0,
+        total_cost_usd=None,
+        by_model=[],
+        messages=[
+            AdminMessageCostRow(
+                id=mid,
+                role="user",
+                model=None,
+                input_tokens=0,
+                output_tokens=0,
+                cost_usd=None,
+                created_at=datetime(2026, 5, 8, tzinfo=timezone.utc),
+            )
+        ],
+        has_unknown_models=False,
+    )
+    assert obj.cost_events == []
+    assert obj.events_total_cost_usd is None
+    assert obj.by_kind == []
 
 
 def test_settings_rejects_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -351,7 +394,7 @@ def _leaderboard_row(email: str, margin: float, cost: float) -> AdminUserCosting
     return AdminUserCostingRow(
         user_id=uuid4(),
         email=email,
-        plan_slug="growth",
+        plan_slug="standard",
         plan_name="Growth",
         revenue_usd=29.0,
         llm_cost_usd=cost,

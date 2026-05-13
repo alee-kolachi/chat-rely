@@ -11,7 +11,8 @@ so adding a new model is a config edit + restart.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -31,14 +32,16 @@ from app.domains.admin.schemas import (
     AdminConversationCost,
     AdminCostByAgentRow,
     AdminCostByModelRow,
+    AdminCostEventRow,
     AdminCostingLeaderboard,
     AdminCostingPeriod,
+    AdminCostKindRollup,
+    AdminCostPerTurnRollup,
     AdminMessageCostRow,
     AdminPlatformCosting,
     AdminUserCosting,
     AdminUserCostingRow,
 )
-
 
 # --- Tiny in-process TTL cache ---------------------------------------------------
 # Per-process. Multi-worker setups will see brief inconsistencies between workers,
@@ -72,7 +75,7 @@ def _clear_cache() -> None:
 
 def _current_month_window(now: datetime | None = None) -> tuple[datetime, datetime]:
     """Returns [start_of_current_month_utc, start_of_next_month_utc) as aware datetimes."""
-    now = (now or datetime.now(tz=timezone.utc)).astimezone(timezone.utc)
+    now = (now or datetime.now(tz=UTC)).astimezone(UTC)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     if start.month == 12:
         end = start.replace(year=start.year + 1, month=1)
@@ -156,7 +159,7 @@ async def get_conversation_cost(
             total_cost += cost
             model = row["model"]
             slot = by_model_acc.setdefault(
-                model, {"in": 0.0, "out": 0.0, "cost": 0.0}
+                model, {"in": 0.0, "out": 0.0, "emb": 0.0, "cost": 0.0}
             )
             slot["in"] += in_t
             slot["out"] += out_t
@@ -184,19 +187,141 @@ async def get_conversation_cost(
                     model=model,
                     input_tokens=int(slot["in"]),
                     output_tokens=int(slot["out"]),
+                    embedding_tokens=int(slot.get("emb", 0.0)),
                     cost_usd=slot["cost"],
                     pct_of_total=(slot["cost"] / total_cost) * 100.0,
                 )
             )
 
+    conv_meta = (
+        await db.execute(
+            text(
+                "select customer_message_count from public.conversations where id = :conversation_id"
+            ),
+            {"conversation_id": str(conversation_id)},
+        )
+    ).mappings().first()
+    customer_message_count = int(conv_meta["customer_message_count"] or 0) if conv_meta else 0
+
+    ev_rows = (
+        await db.execute(
+            text(
+                """
+                select id, kind, provider_model, turn_user_message_id,
+                       input_tokens, output_tokens, embedding_tokens, cost_usd, metadata, created_at
+                from public.conversation_cost_events
+                where conversation_id = :conversation_id
+                order by created_at asc
+                """
+            ),
+            {"conversation_id": str(conversation_id)},
+        )
+    ).mappings().all()
+
+    cost_events: list[AdminCostEventRow] = []
+    by_kind_acc: dict[str, dict[str, float]] = defaultdict(lambda: {"cost": 0.0, "count": 0.0})
+    per_turn_acc: dict[str, dict[str, float]] = defaultdict(lambda: {"cost": 0.0, "count": 0.0})
+    ev_by_model: dict[str, dict[str, float]] = defaultdict(lambda: {"in": 0.0, "out": 0.0, "emb": 0.0, "cost": 0.0})
+    events_total = 0.0
+    has_unknown_event_pricing = False
+
+    for er in ev_rows:
+        meta = er["metadata"] if isinstance(er["metadata"], dict) else {}
+        in_t = int(er["input_tokens"] or 0)
+        out_t = int(er["output_tokens"] or 0)
+        emb_t = int(er["embedding_tokens"] or 0)
+        c_raw = er["cost_usd"]
+        billable = in_t > 0 or out_t > 0 or emb_t > 0
+        if c_raw is None and billable:
+            has_unknown_event_pricing = True
+        c_val = float(c_raw) if c_raw is not None else 0.0
+        events_total += c_val
+
+        kind_s = str(er["kind"] or "")
+        by_kind_acc[kind_s]["cost"] += c_val
+        by_kind_acc[kind_s]["count"] += 1.0
+
+        tid = er["turn_user_message_id"]
+        if tid is not None:
+            ts = str(tid)
+            per_turn_acc[ts]["cost"] += c_val
+            per_turn_acc[ts]["count"] += 1.0
+
+        mkey = (str(er["provider_model"]).strip() if er["provider_model"] else "") or f"[{kind_s}]"
+        ev_by_model[mkey]["cost"] += c_val
+        ev_by_model[mkey]["in"] += in_t
+        ev_by_model[mkey]["out"] += out_t
+        ev_by_model[mkey]["emb"] += emb_t
+
+        cost_events.append(
+            AdminCostEventRow(
+                id=er["id"],
+                kind=kind_s,
+                provider_model=er["provider_model"],
+                turn_user_message_id=er["turn_user_message_id"],
+                input_tokens=in_t,
+                output_tokens=out_t,
+                embedding_tokens=emb_t,
+                cost_usd=float(c_raw) if c_raw is not None else None,
+                metadata=meta,
+                created_at=er["created_at"],
+            )
+        )
+
+    by_kind_list = [
+        AdminCostKindRollup(kind=k, cost_usd=float(v["cost"]), count=int(v["count"]))
+        for k, v in sorted(by_kind_acc.items(), key=lambda kv: -kv[1]["cost"])
+    ]
+    per_turn_list = [
+        AdminCostPerTurnRollup(
+            turn_user_message_id=UUID(tid),
+            cost_usd=float(v["cost"]),
+            event_count=int(v["count"]),
+        )
+        for tid, v in sorted(per_turn_acc.items(), key=lambda kv: kv[0])
+    ]
+
+    events_total_cost_usd: float | None = None
+    avg_cost_per_customer_message_usd: float | None = None
+    display_by_model = by_model
+    display_total_cost = total_cost if has_priced else None
+
+    if ev_rows:
+        events_total_cost_usd = None if has_unknown_event_pricing else events_total
+        display_total_cost = events_total_cost_usd
+        if (
+            customer_message_count > 0
+            and events_total_cost_usd is not None
+        ):
+            avg_cost_per_customer_message_usd = events_total_cost_usd / float(customer_message_count)
+        ev_total_for_pct = events_total if events_total > 0 else 1.0
+        display_by_model = [
+            AdminCostByModelRow(
+                model=m,
+                input_tokens=int(v["in"]),
+                output_tokens=int(v["out"]),
+                embedding_tokens=int(v["emb"]),
+                cost_usd=float(v["cost"]),
+                pct_of_total=(float(v["cost"]) / ev_total_for_pct) * 100.0,
+            )
+            for m, v in sorted(ev_by_model.items(), key=lambda kv: -kv[1]["cost"])
+        ]
+
     return AdminConversationCost(
         conversation_id=conversation_id,
         total_input_tokens=total_in,
         total_output_tokens=total_out,
-        total_cost_usd=total_cost if has_priced else None,
-        by_model=by_model,
+        total_cost_usd=display_total_cost,
+        by_model=display_by_model,
         messages=messages,
-        has_unknown_models=has_unknown,
+        has_unknown_models=has_unknown or has_unknown_event_pricing,
+        cost_events=cost_events,
+        events_total_cost_usd=events_total_cost_usd,
+        has_unknown_event_pricing=has_unknown_event_pricing,
+        by_kind=by_kind_list,
+        per_turn=per_turn_list,
+        customer_message_count=customer_message_count,
+        avg_cost_per_customer_message_usd=avg_cost_per_customer_message_usd,
     )
 
 
@@ -565,7 +690,7 @@ async def get_platform_costing_overview(
         unknown_models=unknown,
         embedding_model=embed_model,
         embedding_model_priced=embed_priced,
-        cached_at=datetime.now(tz=timezone.utc),
+        cached_at=datetime.now(tz=UTC),
         cache_ttl_seconds=PLATFORM_CACHE_TTL_SECONDS,
     )
     if use_cache:
@@ -687,7 +812,7 @@ async def get_worst_margin_leaderboard(
     leaderboard = AdminCostingLeaderboard(
         metric="worst_margin",
         items=items,
-        cached_at=datetime.now(tz=timezone.utc),
+        cached_at=datetime.now(tz=UTC),
         cache_ttl_seconds=PLATFORM_CACHE_TTL_SECONDS,
     )
     if use_cache:
@@ -720,7 +845,7 @@ async def get_top_spenders_leaderboard(
     leaderboard = AdminCostingLeaderboard(
         metric="top_spend",
         items=items,
-        cached_at=datetime.now(tz=timezone.utc),
+        cached_at=datetime.now(tz=UTC),
         cache_ttl_seconds=PLATFORM_CACHE_TTL_SECONDS,
     )
     if use_cache:

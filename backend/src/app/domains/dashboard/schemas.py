@@ -45,3 +45,4 @@ class AgentDashboardResponse(BaseModel):
     series: list[DashboardSeriesPoint] = Field(default_factory=list)
     recent: list[DashboardRecentRow] = Field(default_factory=list)
     training_topics: list[TrainingTopicSummary] = Field(default_factory=list)
+    sources_suggestions_enabled: bool = False

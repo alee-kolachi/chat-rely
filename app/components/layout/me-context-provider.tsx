@@ -32,6 +32,14 @@ export type MeContextPayload = {
     included_conversations: number;
     max_agents: number;
     overage_conversation_cents: number;
+    features?: Record<string, unknown>;
+    limits?: {
+      included_conversations: number;
+      max_agents: number;
+      max_enabled_actions_per_agent: number;
+      max_total_knowledge_bytes: number;
+      max_website_crawl_bytes: number;
+    };
   };
   usage_snapshot: UsageSnapshot | null;
 };

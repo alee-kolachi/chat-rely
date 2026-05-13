@@ -1,4 +1,4 @@
-"""Runtime enforcement: block assistant replies when billable usage exceeds the plan included amount."""
+"""Runtime usage snapshot refresh; no conversation overage charges (see refresh_usage_period_snapshot)."""
 
 from __future__ import annotations
 
@@ -8,11 +8,14 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import AppError
 
+async def refresh_plan_usage_snapshot(db: AsyncSession, user_id: UUID) -> str | None:
+    """
+    Refresh the usage snapshot for the user's current subscription period.
 
-async def assert_plan_usage_allows_assistant_reply(db: AsyncSession, user_id: UUID) -> None:
-    """Raises AppError 429 when throttle_tier is ``strong`` (billable above included_conversations)."""
+    Returns ``throttle_tier`` as text (``normal`` | ``strong``), or ``None`` if there is no active subscription.
+    ``strong`` means billable conversations exceed the plan's included amount for the period.
+    """
     sub = (
         await db.execute(
             text(
@@ -32,7 +35,7 @@ async def assert_plan_usage_allows_assistant_reply(db: AsyncSession, user_id: UU
         )
     ).mappings().first()
     if not sub:
-        return
+        return None
 
     ps = sub["current_period_start"].astimezone(UTC).date()
     pe = sub["current_period_end"].astimezone(UTC).date()
@@ -57,12 +60,5 @@ async def assert_plan_usage_allows_assistant_reply(db: AsyncSession, user_id: UU
         )
     ).mappings().first()
     if not snap:
-        return
-    tier = str(snap.get("throttle_tier") or "")
-    if tier == "strong":
-        raise AppError(
-            code="plan.usage_limit_exceeded",
-            message="This workspace has exceeded its included billable conversations for this period. "
-            "Upgrade your plan or wait for the next billing period.",
-            status_code=429,
-        )
+        return None
+    return str(snap.get("throttle_tier") or "") or None

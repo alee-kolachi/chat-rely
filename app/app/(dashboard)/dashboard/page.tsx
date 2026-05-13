@@ -10,13 +10,16 @@ import {
   DashboardRecentConversationsEmptyState,
   DashboardRecentTableSkeleton,
   DashboardSelectAgentEmptyState,
+  DashboardSourceSuggestionsPlanGate,
   DashboardTrainingTopicsEmptyState,
   DashboardTrainingTopicsSkeleton,
 } from "@/components/dashboard/dashboard-page-skeleton";
 import { UsagePlanBanner } from "@/components/dashboard/usage-plan-banner";
 import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { useMeContext } from "@/components/layout/me-context-provider";
 import { backendFetch } from "@/lib/backend-api";
+import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
 import {
   buildTimeSeriesChartModel,
   CHART_VB_H,
@@ -42,6 +45,8 @@ type DashboardPayload = {
     last_activity_at: string;
   }[];
   training_topics: { slug: string; label: string; count: number }[];
+  /** Omitted by older API responses; when absent, client treats suggestions as enabled. */
+  sources_suggestions_enabled?: boolean;
 };
 
 function formatRelative(iso: string): string {
@@ -71,6 +76,8 @@ function statusPresentation(status: string): { label: string; tone: "ok" | "huma
 
 export default function DashboardPage() {
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
+  const { data: meData, loading: meLoading } = useMeContext();
+  const showAnalyticsNav = !meLoading && planAllowsAnalyticsPage(meData?.plan.slug);
   const [preset, setPreset] = useState<RangePreset>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -133,22 +140,22 @@ export default function DashboardPage() {
     {
       label: "Conversations started",
       value: data ? String(started) : "—",
-      hint: "All visitor sessions that began in this date range (includes short or abandoned chats).",
+      hint: "Sessions that began in this range, including very short or abandoned chats.",
     },
     {
       label: "Billable conversations",
       value: data ? String(billable) : "—",
-      hint: "Sessions that count toward your plan after idle-close and quality thresholds (closer to invoice usage).",
+      hint: "Sessions that count toward your plan after idle-close and quality checks.",
     },
     {
       label: "Resolved by agent",
       value: data?.resolved_by_agent_pct != null ? `${data.resolved_by_agent_pct}%` : "—",
-      hint: "From AI-analyzed closed chats (see outcomes pipeline).",
+      hint: "Share of closed chats the AI handled without escalation (outcomes pipeline).",
     },
     {
       label: "Needs human help",
       value: data?.needs_human_pct != null ? `${data.needs_human_pct}%` : "—",
-      hint: "Share of chats escalated to your team.",
+      hint: "Chats escalated to your team in this period.",
     },
   ];
 
@@ -171,6 +178,12 @@ export default function DashboardPage() {
             <p className="ds-app-page-description ds-app-page-description--wide">
               A quick pulse on agent activity and support outcomes.
             </p>
+            <Link
+              href="/pricing"
+              className="text-ds-primary mt-2 inline-flex text-sm font-semibold hover:underline"
+            >
+              Plan limits &amp; feature comparison
+            </Link>
           </div>
           <DashboardRangePicker
             preset={preset}
@@ -188,21 +201,23 @@ export default function DashboardPage() {
         <UsagePlanBanner />
 
         <section
-          className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
           aria-busy={showPanelSkeleton}
         >
           {primaryMetrics.map((metric) => (
             <article
               key={metric.label}
-              className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm"
+              className="border-ds-outline bg-ds-surface flex min-h-0 min-w-0 flex-col rounded-ds-xl border p-5 shadow-sm sm:p-6"
             >
-              <h2 className="text-ds-on-surface-variant text-sm font-semibold">{metric.label}</h2>
+              <h2 className="text-ds-on-surface-variant text-sm font-semibold leading-snug">{metric.label}</h2>
               {showPanelSkeleton ? (
                 <DashboardMetricValueSkeleton />
               ) : (
-                <p className="ds-app-metric-value mt-2">{metric.value}</p>
+                <p className="ds-app-metric-value mt-2 min-w-0 break-words">{metric.value}</p>
               )}
-              <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">{metric.hint}</p>
+              <p className="text-ds-on-surface-variant mt-auto pt-3 text-xs leading-relaxed text-pretty break-words">
+                {metric.hint}
+              </p>
             </article>
           ))}
         </section>
@@ -261,12 +276,14 @@ export default function DashboardPage() {
                       Daily volume for the selected period
                     </p>
                   </div>
-                  <Link
-                    href="/analytics"
-                    className="text-ds-primary hover:text-ds-secondary shrink-0 text-sm font-semibold"
-                  >
-                    Analytics →
-                  </Link>
+                  {showAnalyticsNav ? (
+                    <Link
+                      href="/analytics"
+                      className="text-ds-primary hover:text-ds-secondary shrink-0 text-sm font-semibold"
+                    >
+                      Analytics →
+                    </Link>
+                  ) : null}
                 </div>
 
                 <div className="from-ds-sidebar/20 relative min-h-0 flex-1 bg-gradient-to-b to-transparent px-3 pb-3 pt-2 sm:px-4">
@@ -497,26 +514,33 @@ export default function DashboardPage() {
               </article>
 
               <article className="border-ds-outline bg-ds-surface flex flex-col rounded-ds-xl border p-6 shadow-sm">
-                <h3 className="ds-app-section-title">Unresolved topics to train</h3>
+                <h3 className="ds-app-section-title">Source suggestions</h3>
                 <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                  From AI-analyzed closures—add coverage in Knowledge.
+                  Topics from AI-analyzed chats where extra knowledge would help—open matching conversations or add
+                  coverage in Knowledge.
                 </p>
                 <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
                   {showPanelSkeleton ? <DashboardTrainingTopicsSkeleton /> : null}
+                  {!showPanelSkeleton && data?.sources_suggestions_enabled === false ? (
+                    <DashboardSourceSuggestionsPlanGate />
+                  ) : null}
+                  {!showPanelSkeleton && data?.sources_suggestions_enabled !== false
+                    ? (data?.training_topics ?? []).map((topic) => (
+                        <Link
+                          key={topic.slug}
+                          href={`/conversations?agent=${encodeURIComponent(selectedAgentId ?? "")}&training_topic=${encodeURIComponent(topic.slug)}`}
+                          className="border-ds-outline block rounded-ds-lg border bg-ds-sidebar/80 p-3 shadow-sm transition-colors hover:bg-ds-sidebar"
+                        >
+                          <p className="text-ds-on-surface text-sm font-semibold">{topic.label}</p>
+                          <p className="text-ds-on-surface-variant mt-0.5 text-xs">
+                            {topic.count} in this period
+                          </p>
+                        </Link>
+                      ))
+                    : null}
                   {!showPanelSkeleton &&
-                    (data?.training_topics ?? []).map((topic) => (
-                      <Link
-                        key={topic.slug}
-                        href={`/conversations?agent=${encodeURIComponent(selectedAgentId ?? "")}&training_topic=${encodeURIComponent(topic.slug)}`}
-                        className="border-ds-outline block rounded-ds-lg border bg-ds-sidebar/80 p-3 shadow-sm transition-colors hover:bg-ds-sidebar"
-                      >
-                        <p className="text-ds-on-surface text-sm font-semibold">{topic.label}</p>
-                        <p className="text-ds-on-surface-variant mt-0.5 text-xs">
-                          {topic.count} in this period
-                        </p>
-                      </Link>
-                    ))}
-                  {!showPanelSkeleton && !(data?.training_topics ?? []).length ? (
+                  data?.sources_suggestions_enabled !== false &&
+                  !(data?.training_topics ?? []).length ? (
                     <DashboardTrainingTopicsEmptyState />
                   ) : null}
                 </div>

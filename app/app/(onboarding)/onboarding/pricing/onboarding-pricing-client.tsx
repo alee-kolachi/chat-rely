@@ -6,11 +6,9 @@ import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agen
 import { PricingCards } from "@/components/marketing/pricing-sections";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import { OnboardingStickyFooter } from "@/components/onboarding/onboarding-ui";
-import { usePublicPlans } from "@/hooks/use-public-plans";
 
 export function OnboardingPricingClient() {
   const agentId = useResolvedOnboardingAgentId();
-  const { plans, error, loading } = usePublicPlans();
 
   const backHref = useMemo(
     () => (agentId ? `/onboarding/agent-preview?agentId=${encodeURIComponent(agentId)}` : "/onboarding/agent-preview"),
@@ -81,13 +79,7 @@ export function OnboardingPricingClient() {
           </header>
 
           <div className="mt-4 min-w-0 sm:mt-6 md:mt-8">
-            <PricingCards
-              variant="onboarding"
-              plans={plans}
-              loading={loading}
-              loadError={error}
-              isAuthenticated
-            />
+            <PricingCards variant="onboarding" isAuthenticated />
           </div>
         </div>
       </div>

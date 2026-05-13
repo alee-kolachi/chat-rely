@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from time import perf_counter
+from typing import Literal
 from uuid import UUID
 
 import structlog
@@ -27,6 +28,7 @@ async def build_agent_analytics(
     *,
     user_id: UUID,
     agent_id: UUID,
+    analytics_tier: Literal["basic", "full"],
     range_key: str | None,
     range_from: datetime | None,
     range_to: datetime | None,
@@ -326,7 +328,24 @@ async def build_agent_analytics(
         total_ms=total_ms,
     )
 
+    if analytics_tier == "basic":
+        return AgentAnalyticsResponse(
+            analytics_tier="basic",
+            range_from=rf,
+            range_to=rt,
+            conversations_started=conversations_started,
+            resolved_by_agent_pct=resolved_by_agent_pct,
+            escalations_pct=escalations_pct,
+            avg_response_time_ms=avg_response_time_ms,
+            series=series,
+            top_intents=[],
+            sentiment=[],
+            countries=[],
+            quality=[],
+        )
+
     return AgentAnalyticsResponse(
+        analytics_tier="full",
         range_from=rf,
         range_to=rt,
         conversations_started=conversations_started,

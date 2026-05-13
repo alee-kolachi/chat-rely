@@ -188,7 +188,7 @@ def test_get_user_detail_returns_full_shape(
             subscriptions=[
                 AdminSubscriptionSummary(
                     id=sub_id,
-                    plan_slug="growth",
+                    plan_slug="standard",
                     plan_name="Growth",
                     monthly_price_cents=2900,
                     status="active",
@@ -265,7 +265,7 @@ def test_get_user_detail_returns_full_shape(
     assert response.status_code == 200
     body = response.json()
     assert body["email"] == "alice@x.com"
-    assert body["subscriptions"][0]["plan_slug"] == "growth"
+    assert body["subscriptions"][0]["plan_slug"] == "standard"
     assert body["agents"][0]["name"] == "Support Bot"
     assert body["recent_conversations"][0]["agent_name"] == "Support Bot"
     assert body["knowledge_summary"]["by_kind"]["website"] == 3

@@ -174,12 +174,38 @@ input[type="reset"]:disabled {
 }
 
 .cr-powered {
-  padding: 6px 12px 8px;
+  padding: 8px 12px 9px;
   font-size: 10px;
   color: #64748b;
   text-align: center;
   border-top: 1px solid var(--cr-border);
   background: #fafafa;
+}
+
+.cr-powered-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.cr-powered-logo {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.cr-powered-text {
+  font-size: 10px;
+  line-height: 1.25;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.cr-powered-text strong {
+  font-weight: 700;
+  color: #334155;
 }
 
 .cr-messages {
@@ -227,10 +253,39 @@ input[type="reset"]:disabled {
 
 .cr-composer {
   display: flex;
+  align-items: center;
   gap: 8px;
   padding: 10px;
   border-top: 1px solid var(--cr-border);
   background: #fafafa;
+}
+
+.cr-attach-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.cr-attach {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--cr-border);
+  border-radius: 10px;
+  background: #fff;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.cr-attach:disabled {
+  opacity: 0.85;
+}
+
+.cr-attach svg {
+  display: block;
 }
 
 .cr-input {
@@ -259,4 +314,46 @@ input[type="reset"]:disabled {
 .cr-send:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.cr-msg-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.cr-msg-wrap .cr-msg {
+  margin-bottom: 0;
+}
+
+.cr-msg-feedback {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-left: 2px;
+}
+
+.cr-feedback-btn {
+  border: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+  border-radius: 8px;
+  width: 32px;
+  height: 28px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cr-feedback-btn:hover {
+  border-color: var(--cr-accent);
+}
+
+.cr-feedback-btn[aria-pressed="true"] {
+  border-color: var(--cr-accent);
+  background: color-mix(in srgb, var(--cr-accent) 12%, var(--cr-surface));
 }

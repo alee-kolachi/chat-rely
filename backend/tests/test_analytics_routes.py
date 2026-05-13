@@ -31,11 +31,17 @@ def _patch_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_agent_analytics(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
+
+    async def _standard_plan(_db: object, _uid: object) -> str:
+        return "standard"
+
+    monkeypatch.setattr("app.api.routes.agents.fetch_active_plan_slug", _standard_plan)
     agent_id = uuid4()
     now = datetime.now(tz=UTC)
 
     async def _analytics(*_: Any, **__: Any) -> AgentAnalyticsResponse:
         return AgentAnalyticsResponse(
+            analytics_tier="full",
             range_from=now,
             range_to=now,
             conversations_started=5,
@@ -79,3 +85,51 @@ def test_get_agent_analytics(client: TestClient, monkeypatch: pytest.MonkeyPatch
     assert body["sentiment"][0]["bucket"] == "positive"
     assert body["countries"][0]["key"] == "US"
     assert body["quality"][0]["key"] == "resolution_confidence"
+    assert body["analytics_tier"] == "full"
+
+
+def test_get_agent_analytics_forbidden_without_paid_plan(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_auth(monkeypatch)
+
+    async def _free_plan(_db: object, _uid: object) -> str:
+        return "free"
+
+    async def _build_should_not_run(*args: object, **kwargs: object) -> AgentAnalyticsResponse:
+        raise AssertionError("build_agent_analytics must not run when analytics is unavailable")
+
+    monkeypatch.setattr("app.api.routes.agents.fetch_active_plan_slug", _free_plan)
+    monkeypatch.setattr("app.api.routes.agents.build_agent_analytics", _build_should_not_run)
+
+    agent_id = uuid4()
+    response = client.get(
+        f"/api/v1/agents/{agent_id}/analytics?range_key=30d",
+        headers=_auth_header(),
+    )
+    assert response.status_code == 403
+    err = response.json()["error"]
+    assert err["code"] == "plan.analytics_not_available"
+
+
+def test_get_agent_analytics_forbidden_when_no_active_plan_slug(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_auth(monkeypatch)
+
+    async def _no_plan(_db: object, _uid: object) -> str | None:
+        return None
+
+    async def _build_should_not_run(*args: object, **kwargs: object) -> AgentAnalyticsResponse:
+        raise AssertionError("build_agent_analytics must not run when analytics is unavailable")
+
+    monkeypatch.setattr("app.api.routes.agents.fetch_active_plan_slug", _no_plan)
+    monkeypatch.setattr("app.api.routes.agents.build_agent_analytics", _build_should_not_run)
+
+    agent_id = uuid4()
+    response = client.get(
+        f"/api/v1/agents/{agent_id}/analytics?range_key=30d",
+        headers=_auth_header(),
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "plan.analytics_not_available"

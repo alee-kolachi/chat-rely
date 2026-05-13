@@ -35,3 +35,6 @@ def test_plans_public_route(client: TestClient, plans_public_patch: None) -> Non
     assert len(body) == 1
     assert body[0]["slug"] == "free"
     assert body[0]["included_conversations"] == 50
+    assert body[0]["limits"]["max_agents"] == 1
+    assert body[0]["limits"]["included_conversations"] == 50
+    assert body[0]["limits"]["max_enabled_actions_per_agent"] == 0

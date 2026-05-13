@@ -20,6 +20,7 @@ from app.domains.conversation_outcomes.schemas import (
 )
 from app.domains.conversations.schemas import MessageDTO
 from app.domains.conversations.service import get_conversation, list_messages
+from app.domains.runtime.chat_graph import usage_tokens_from_model_message
 
 log = structlog.get_logger("conversation_outcomes")
 
@@ -90,15 +91,46 @@ def resolve_primary_intent_from_llm(
     return "", ""
 
 
+def _closure_tool_result_summary(content: str, tool_name: str | None) -> str:
+    """Short line for closure analysis: signal success vs error without huge JSON."""
+    name = (tool_name or "tool").strip() or "tool"
+    raw = (content or "").strip()
+    if not raw:
+        return f"Tool ({name}): [empty]"
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        cut = 180
+        one = raw.replace("\n", " ")[:cut]
+        return f"Tool ({name}): {one}{'…' if len(raw) > cut else ''}"
+    if isinstance(obj, dict) and obj.get("error") is not None:
+        return f"Tool ({name}): error — {str(obj.get('error'))[:140]}"
+    return f"Tool ({name}): returned structured data (success)"
+
+
 def _format_transcript(messages: list[MessageDTO]) -> str:
+    """User + assistant text plus compact tool-call context (not omitted at thread close)."""
     lines: list[str] = []
     for m in messages:
         if m.role == "user":
-            lines.append(f"User: {m.content.strip()}")
+            lines.append(f"User: {(m.content or '').strip()}")
         elif m.role == "assistant":
-            text_content = m.content.strip()
+            text_content = (m.content or "").strip()
             if text_content:
                 lines.append(f"Assistant: {text_content}")
+                continue
+            tcs = (m.tool_call_payload or {}).get("tool_calls")
+            if isinstance(tcs, list) and tcs:
+                names: list[str] = []
+                for c in tcs:
+                    if isinstance(c, dict):
+                        n = str(c.get("name") or "").strip()
+                        if n:
+                            names.append(n)
+                if names:
+                    lines.append(f"Assistant: [invoked tools: {', '.join(names)}]")
+        elif m.role == "tool":
+            lines.append(_closure_tool_result_summary(m.content, m.tool_name))
     return "\n".join(lines)
 
 
@@ -168,7 +200,14 @@ async def _invoke_closure_llm(
             "even if the user stopped replying without thanks (window_closed / user_abandoned). "
             "If the user left frustrated without a real fix, resolved_by_agent=false. "
             "escalated_to_human applies when handoff to humans was the correct outcome. "
-            "training_topics: short phrases for KB gaps (empty if none). "
+            "training_topics: 0–5 short phrases for real KB/agent gaps — where the assistant lacked grounded facts, "
+            "could not verify, gave only vague/generic help, refused without a substitute, or left the shopper's "
+            "question effectively unanswered. "
+            "Do NOT list topics the assistant already resolved well earlier in the thread (including after a "
+            "successful tool-backed lookup shown in the transcript). "
+            "If the shopper moved from one subject to another, weight the LATER messages heavily: prefer training "
+            "labels that match unresolved concerns near the end of the thread, not the opening question alone. "
+            "Return an empty list when there is no genuine gap. "
             f"{intent_rules} "
             f"Conversation status field from system: {conversation_status}."
         )
@@ -188,16 +227,21 @@ async def _invoke_closure_llm(
     return result
 
 
-async def compute_turn_signals(last_user_message: str, assistant_reply: str) -> TurnSignals | None:
-    """Small side-call after each AI reply; stored on assistant message metadata."""
+async def compute_turn_signals(
+    last_user_message: str, assistant_reply: str
+) -> tuple[TurnSignals | None, int, int]:
+    """Small side-call after each AI reply; stored on assistant message metadata.
+
+    Returns ``(signals_or_none, input_tokens, output_tokens)``.
+    """
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_openai import ChatOpenAI
 
     settings = get_settings()
     if not settings.openai_api_key:
-        return None
+        return None, 0, 0
     if not settings.runtime_enable_turn_signals:
-        return None
+        return None, 0, 0
     llm = ChatOpenAI(
         model=settings.openai_chat_model or "gpt-4o-mini",
         temperature=0,
@@ -205,7 +249,7 @@ async def compute_turn_signals(last_user_message: str, assistant_reply: str) -> 
         timeout=30,
         max_retries=1,
     )
-    structured = llm.with_structured_output(TurnSignals)
+    structured = llm.with_structured_output(TurnSignals, include_raw=True)
     sys = SystemMessage(
         content=(
             "Given one user message and the assistant reply, classify briefly. "
@@ -216,11 +260,22 @@ async def compute_turn_signals(last_user_message: str, assistant_reply: str) -> 
         content=f"User: {last_user_message.strip()}\n\nAssistant: {assistant_reply.strip()}"
     )
     try:
-        out = await structured.ainvoke([sys, human])
-        return out if isinstance(out, TurnSignals) else None
+        raw_out = await structured.ainvoke([sys, human])
+        in_t, out_t = 0, 0
+        if isinstance(raw_out, dict):
+            raw_msg = raw_out.get("raw")
+            parsed = raw_out.get("parsed")
+            if raw_msg is not None:
+                in_t, out_t = usage_tokens_from_model_message(raw_msg)
+            if isinstance(parsed, TurnSignals):
+                return parsed, in_t, out_t
+            return None, in_t, out_t
+        if isinstance(raw_out, TurnSignals):
+            return raw_out, 0, 0
+        return None, 0, 0
     except Exception as exc:
         log.warning("turn_signals.failed", error=str(exc))
-        return None
+        return None, 0, 0
 
 
 def _fallback_payload(conversation_status: str) -> ConversationOutcomePayload:

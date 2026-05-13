@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
+    """When billable conversations exceed the plan included amount, visitor chat uses this model (subscription is unchanged; no per-conversation overage). Override via env."""
+    runtime_usage_limit_exceeded_model: str = "gpt-4o-mini"
     runtime_enable_turn_signals: bool = False
     runtime_enable_shopify_route_classifier: bool = True
     # Accuracy-first mode: always run Shopify route classifier (slower, but less regex bias).
@@ -95,10 +97,13 @@ class Settings(BaseSettings):
     """Signing secret from Dashboard webhook endpoint or `stripe listen` (whsec_...)."""
     stripe_webhook_secret: str | None = None
     """Recurring Price IDs (price_...) from Stripe Dashboard, not Product IDs (prod_...)."""
-    stripe_price_starter_monthly: str | None = None
-    stripe_price_growth_monthly: str | None = None
+    stripe_price_hobby_monthly: str | None = None
+    stripe_price_standard_monthly: str | None = None
     stripe_price_pro_monthly: str | None = None
     stripe_price_scale_monthly: str | None = None
+    """Legacy env names; used when new names are unset (existing Stripe prices / rollout)."""
+    stripe_price_starter_monthly: str | None = None
+    stripe_price_growth_monthly: str | None = None
     """Origin for Checkout return URLs, e.g. http://localhost:3000"""
     billing_app_base_url: str = "http://localhost:3000"
     """Optional shared secret for POST /api/v1/billing/internal/charge-overage (cron)."""

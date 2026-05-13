@@ -1,6 +1,9 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check } from "lucide-react";
 import {
   AnalyticsCountryListSkeleton,
   AnalyticsIntentListSkeleton,
@@ -16,15 +19,44 @@ import {
 } from "@/components/dashboard/dashboard-page-skeleton";
 import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
-import { backendFetch } from "@/lib/backend-api";
+import { useMeContext } from "@/components/layout/me-context-provider";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
 import {
   buildTimeSeriesChartModel,
   CHART_VB_H,
   CHART_VB_W,
 } from "@/lib/dashboard-chart-model";
+import { messageFeedbackEnabledForPlanSlug } from "@/lib/widget-branding";
 import { cn } from "@/lib/utils";
 
+type MessageFeedbackPayload = {
+  thumbs_up_count: number;
+  thumbs_down_unresolved_count: number;
+  thumbs_down_resolved_count: number;
+  unresolved_items: Array<{
+    message_id: string;
+    conversation_id: string;
+    content_preview: string;
+    visitor_id: string;
+    feedback_at: string;
+  }>;
+  resolved_items: Array<{
+    message_id: string;
+    conversation_id: string;
+    content_preview: string;
+    visitor_id: string;
+    feedback_at: string;
+    resolved_at: string | null;
+  }>;
+  summary: string | null;
+  topics: string[];
+  latest_batch_index: number | null;
+  playground_included: boolean;
+};
+
 type AnalyticsPayload = {
+  analytics_tier: "basic" | "full";
   range_from: string;
   range_to: string;
   conversations_started: number;
@@ -36,6 +68,7 @@ type AnalyticsPayload = {
   sentiment: { bucket: string; count: number; pct: number | null }[];
   countries: { key: string; label: string; count: number }[];
   quality: { key: string; label: string; value: string; hint: string }[];
+  message_feedback?: MessageFeedbackPayload | null;
 };
 
 function formatAvgResponse(ms: number | null | undefined): string {
@@ -52,6 +85,8 @@ const DONUT_R = 40;
 const DONUT_C = 2 * Math.PI * DONUT_R;
 
 export default function AnalyticsPage() {
+  const router = useRouter();
+  const { data: meData, loading: meContextLoading } = useMeContext();
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const [preset, setPreset] = useState<RangePreset>("30d");
   const [customFrom, setCustomFrom] = useState("");
@@ -59,20 +94,36 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [includePlaygroundFeedback, setIncludePlaygroundFeedback] = useState(false);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  const accessDeniedByPlan =
+    !meContextLoading && meData != null && !planAllowsAnalyticsPage(meData.plan.slug);
+
+  useEffect(() => {
+    if (accessDeniedByPlan) {
+      router.replace("/dashboard");
+    }
+  }, [accessDeniedByPlan, router]);
 
   const analyticsUrl = useMemo(() => {
     if (!selectedAgentId) return null;
     const base = `/api/v1/agents/${selectedAgentId}/analytics`;
+    const q = new URLSearchParams();
     if (preset === "custom") {
       if (!customFrom || !customTo) return null;
       const fromIso = new Date(`${customFrom}T00:00:00.000Z`).toISOString();
       const toIso = new Date(`${customTo}T23:59:59.999Z`).toISOString();
-      const q = new URLSearchParams({ from: fromIso, to: toIso });
-      return `${base}?${q.toString()}`;
+      q.set("from", fromIso);
+      q.set("to", toIso);
+    } else {
+      q.set("range_key", preset);
     }
-    const q = new URLSearchParams({ range_key: preset });
+    if (includePlaygroundFeedback && messageFeedbackEnabledForPlanSlug(meData?.plan.slug)) {
+      q.set("include_playground", "true");
+    }
     return `${base}?${q.toString()}`;
-  }, [selectedAgentId, preset, customFrom, customTo]);
+  }, [selectedAgentId, preset, customFrom, customTo, includePlaygroundFeedback, meData?.plan.slug]);
 
   const load = useCallback(async () => {
     if (!analyticsUrl) {
@@ -86,12 +137,20 @@ export default function AnalyticsPage() {
       const res = await backendFetch<AnalyticsPayload>(analyticsUrl);
       setData(res);
     } catch (e) {
+      if (
+        e instanceof BackendApiError &&
+        e.status === 403 &&
+        e.code === "plan.analytics_not_available"
+      ) {
+        router.replace("/dashboard");
+        return;
+      }
       setError(e instanceof Error ? e.message : "Failed to load analytics");
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [analyticsUrl]);
+  }, [analyticsUrl, router]);
 
   useEffect(() => {
     void load();
@@ -174,6 +233,34 @@ export default function AnalyticsPage() {
       },
     ];
   }, [data]);
+
+  const showFullAnalytics = data?.analytics_tier === "full";
+
+  const resolveFeedback = useCallback(
+    async (messageId: string) => {
+      if (!selectedAgentId) return;
+      setResolvingId(messageId);
+      try {
+        await backendFetch(
+          `/api/v1/agents/${encodeURIComponent(selectedAgentId)}/message-feedback/resolve`,
+          {
+            method: "POST",
+            body: JSON.stringify({ message_id: messageId, resolved: true }),
+          }
+        );
+        await load();
+      } catch {
+        /* ignore */
+      } finally {
+        setResolvingId(null);
+      }
+    },
+    [selectedAgentId, load]
+  );
+
+  if (accessDeniedByPlan) {
+    return null;
+  }
 
   return (
     <div className="ds-app-shell p-6 md:p-8">
@@ -339,6 +426,18 @@ export default function AnalyticsPage() {
           </article>
         </section>
 
+        {data?.analytics_tier === "basic" && !showPanelSkeleton ? (
+          <p className="text-ds-on-surface-variant text-sm leading-relaxed">
+            Your plan includes core KPIs and the conversation trend.{" "}
+            <Link href="/pricing" className="text-ds-primary font-semibold hover:underline">
+              View plans
+            </Link>{" "}
+            for intents, geography, sentiment, and quality metrics (Standard and Pro).
+          </p>
+        ) : null}
+
+        {showFullAnalytics ? (
+          <>
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <h2 className="ds-app-section-title mb-5">Top intents</h2>
@@ -508,6 +607,133 @@ export default function AnalyticsPage() {
             </p>
           </article>
         </section>
+
+        {data?.message_feedback && messageFeedbackEnabledForPlanSlug(meData?.plan.slug) ? (
+          <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="ds-app-section-title">Visitor message feedback</h2>
+                <p className="text-ds-on-surface-variant mt-1 max-w-3xl text-xs leading-relaxed">
+                  Thumbs are shown on assistant replies in the embed widget (Pro). Use{" "}
+                  <span className="text-ds-on-surface font-semibold">Mark resolved</span> when you have fixed the
+                  underlying issue (for example you now stock a product shoppers asked about). Resolved threads drop
+                  out of the <strong>active</strong> list and are excluded from the next AI summary. Summaries refresh in
+                  batches (first when there is at least one open thumbs-down in this date range, then after each
+                  additional group of five open downvotes); clearing summaries after resolve keeps themes accurate.
+                </p>
+              </div>
+            </div>
+            <label className="text-ds-on-surface-variant mb-4 flex cursor-pointer items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                className="accent-ds-primary"
+                checked={includePlaygroundFeedback}
+                onChange={(e) => setIncludePlaygroundFeedback(e.target.checked)}
+              />
+              Include playground / test chats in counts and summaries (off by default so preview traffic does not skew
+              storefront metrics).
+            </label>
+            <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
+                <p className="text-ds-on-surface-variant text-xs font-medium">Thumbs up</p>
+                <p className="ds-app-metric-value mt-1 text-xl">
+                  {formatKpiNumber(data.message_feedback.thumbs_up_count)}
+                </p>
+              </div>
+              <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
+                <p className="text-ds-on-surface-variant text-xs font-medium">Open thumbs down</p>
+                <p className="ds-app-metric-value mt-1 text-xl">
+                  {formatKpiNumber(data.message_feedback.thumbs_down_unresolved_count)}
+                </p>
+              </div>
+              <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
+                <p className="text-ds-on-surface-variant text-xs font-medium">Resolved thumbs down</p>
+                <p className="ds-app-metric-value mt-1 text-xl">
+                  {formatKpiNumber(data.message_feedback.thumbs_down_resolved_count)}
+                </p>
+              </div>
+            </div>
+            {data.message_feedback.summary ? (
+              <div className="border-ds-outline mb-6 rounded-ds-lg border bg-ds-sidebar/40 px-4 py-3">
+                <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
+                  Summary of open issues
+                </p>
+                <p className="text-ds-on-surface mt-2 text-sm leading-relaxed">{data.message_feedback.summary}</p>
+                {(data.message_feedback.topics ?? []).length > 0 ? (
+                  <ul className="text-ds-on-surface-variant mt-3 flex flex-wrap gap-2 text-xs">
+                    {data.message_feedback.topics.map((t) => (
+                      <li
+                        key={t}
+                        className="border-ds-outline rounded-full border bg-white px-2.5 py-1 font-medium text-ds-on-surface"
+                      >
+                        {t}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+            <h3 className="text-ds-on-surface mb-2 text-sm font-semibold">Open thumbs-down replies</h3>
+            {(data.message_feedback.unresolved_items ?? []).length === 0 ? (
+              <p className="text-ds-on-surface-variant text-sm">No open thumbs-down in this range.</p>
+            ) : (
+              <ul className="space-y-3">
+                {data.message_feedback.unresolved_items.map((row) => (
+                  <li
+                    key={`${row.message_id}-${row.visitor_id}`}
+                    className="border-ds-outline flex flex-col gap-2 rounded-ds-lg border bg-ds-sidebar/40 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-ds-on-surface text-sm leading-snug">{row.content_preview}</p>
+                      <p className="text-ds-on-surface-variant mt-1 text-[11px]">
+                        {new Date(row.feedback_at).toLocaleString()}
+                      </p>
+                      <Link
+                        href={`/conversations?conversation=${encodeURIComponent(row.conversation_id)}`}
+                        className="text-ds-primary mt-2 inline-block text-xs font-semibold hover:underline"
+                      >
+                        Open conversation
+                      </Link>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={resolvingId === row.message_id}
+                      onClick={() => void resolveFeedback(row.message_id)}
+                      className="border-ds-outline text-ds-on-surface inline-flex shrink-0 items-center gap-1.5 rounded-ds-md border bg-white px-3 py-2 text-xs font-semibold shadow-sm hover:bg-ds-sidebar/60 disabled:opacity-50"
+                    >
+                      <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
+                      Mark resolved
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(data.message_feedback.resolved_items ?? []).length > 0 ? (
+              <details className="mt-6">
+                <summary className="text-ds-on-surface-variant cursor-pointer text-sm font-semibold">
+                  Recently resolved ({data.message_feedback.resolved_items.length})
+                </summary>
+                <ul className="mt-3 space-y-2">
+                  {data.message_feedback.resolved_items.map((row) => (
+                    <li
+                      key={row.message_id}
+                      className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/30 px-3 py-2 text-xs text-ds-on-surface-variant"
+                    >
+                      <span className="text-ds-on-surface line-clamp-2 text-sm">{row.content_preview}</span>
+                      {row.resolved_at ? (
+                        <span className="mt-1 block">
+                          Resolved {new Date(row.resolved_at).toLocaleString()}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </section>
+        ) : null}
+          </>
+        ) : null}
       </div>
     </div>
   );

@@ -226,6 +226,7 @@ export type AdminCostByModelRow = {
   model: string;
   input_tokens: number;
   output_tokens: number;
+  embedding_tokens?: number;
   cost_usd: number;
   pct_of_total: number;
 };
@@ -250,6 +251,32 @@ export type AdminMessageCostRow = {
   created_at: string;
 };
 
+export type AdminCostKindRollup = {
+  kind: string;
+  cost_usd: number;
+  count: number;
+};
+
+export type AdminCostPerTurnRollup = {
+  turn_user_message_id: string;
+  cost_usd: number;
+  event_count: number;
+};
+
+export type AdminCostEventRow = {
+  id: string;
+  kind: string;
+  provider_model: string | null;
+  turn_user_message_id: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  embedding_tokens: number;
+  cost_usd: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+
 export type AdminConversationCost = {
   conversation_id: string;
   total_input_tokens: number;
@@ -258,6 +285,14 @@ export type AdminConversationCost = {
   by_model: AdminCostByModelRow[];
   messages: AdminMessageCostRow[];
   has_unknown_models: boolean;
+  /** Present once backend migration is applied; treat as empty when absent. */
+  cost_events?: AdminCostEventRow[];
+  events_total_cost_usd?: number | null;
+  has_unknown_event_pricing?: boolean;
+  by_kind?: AdminCostKindRollup[];
+  per_turn?: AdminCostPerTurnRollup[];
+  customer_message_count?: number;
+  avg_cost_per_customer_message_usd?: number | null;
 };
 
 export type AdminUserCosting = {

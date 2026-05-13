@@ -1,16 +1,20 @@
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
 from app.api.deps import get_db
 from app.core.errors import AppError
+from app.domains.message_feedback.service import public_upsert_feedback
+from app.domains.plans.plan_limits import message_feedback_enabled_for_plan_slug
+from app.domains.plans.subscription_queries import fetch_active_plan_slug
 from app.domains.public_widget.schemas import (
     PublicWidgetAgentContext,
     PublicWidgetChatRequest,
     PublicWidgetConfigResponse,
+    PublicWidgetMessageFeedbackRequest,
 )
 from app.domains.public_widget.service import (
     build_public_widget_config_response,
@@ -74,3 +78,30 @@ async def public_widget_chat_stream_route(
             yield (json.dumps(err, default=str) + "\n").encode("utf-8")
 
     return StreamingResponse(ndjson_body(), media_type="application/x-ndjson")
+
+
+@router.post(
+    "/message-feedback",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def public_widget_message_feedback_route(
+    ctx: WidgetAgentDep,
+    payload: PublicWidgetMessageFeedbackRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    plan_slug = await fetch_active_plan_slug(db, ctx.user_id)
+    if not message_feedback_enabled_for_plan_slug(plan_slug):
+        raise AppError(
+            code="plan.message_feedback_not_available",
+            message="Message feedback is not available for this store.",
+            status_code=403,
+        )
+    await public_upsert_feedback(
+        db,
+        agent_id=ctx.agent_id,
+        message_id=payload.message_id,
+        visitor_id=payload.visitor_id,
+        value=payload.value,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

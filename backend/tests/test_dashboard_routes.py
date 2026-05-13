@@ -57,6 +57,7 @@ def test_get_agent_dashboard(client: TestClient, monkeypatch: pytest.MonkeyPatch
             training_topics=[
                 TrainingTopicSummary(slug="returns", label="Returns policy", count=2),
             ],
+            sources_suggestions_enabled=True,
         )
 
     monkeypatch.setattr("app.api.routes.agents.build_agent_dashboard", _dash)
@@ -70,6 +71,7 @@ def test_get_agent_dashboard(client: TestClient, monkeypatch: pytest.MonkeyPatch
     assert body["conversations_started"] == 3
     assert body["resolved_by_agent_pct"] == 50.0
     assert body["training_topics"][0]["slug"] == "returns"
+    assert body.get("sources_suggestions_enabled") is True
 
 
 def test_list_conversations_training_topic_query(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

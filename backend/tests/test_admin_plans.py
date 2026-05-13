@@ -46,7 +46,7 @@ def test_list_plans_returns_inactive_plans_and_counts(
         return AdminPlanListResponse(
             items=[
                 _make_plan("free", is_active=True, subs=20),
-                _make_plan("growth", is_active=True, subs=5),
+                _make_plan("standard", is_active=True, subs=5),
                 _make_plan("legacy_starter", is_active=False, subs=2),
             ]
         )
@@ -61,9 +61,9 @@ def test_list_plans_returns_inactive_plans_and_counts(
     legacy = next(item for item in body["items"] if item["slug"] == "legacy_starter")
     assert legacy["is_active"] is False
     assert legacy["subscriptions_count"] == 2
-    growth = next(item for item in body["items"] if item["slug"] == "growth")
-    assert growth["features"] == {"human_escalation_enabled": True}
-    assert growth["throttle_policy"] == {"soft_threshold_pct": 80}
+    standard = next(item for item in body["items"] if item["slug"] == "standard")
+    assert standard["features"] == {"human_escalation_enabled": True}
+    assert standard["throttle_policy"] == {"soft_threshold_pct": 80}
 
 
 def test_list_plans_non_admin_returns_404(admin_client: TestClient) -> None:

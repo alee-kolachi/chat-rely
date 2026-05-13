@@ -1,5 +1,5 @@
 import cssText from "./styles.css?inline";
-import { fetchWidgetConfig, streamChat } from "./api";
+import { fetchWidgetConfig, postWidgetMessageFeedback, streamChat } from "./api";
 
 declare global {
   interface Window {
@@ -79,6 +79,61 @@ function renderAssistantHtml(raw: string): string {
   return withBold.replace(/\n/g, "<br>");
 }
 
+function poweredByChatRelyHtml(): string {
+  const logo =
+    '<svg class="cr-powered-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="24" height="24" rx="7" fill="#0f172a"/><rect x="6" y="9" width="3" height="6" rx="0.5" fill="#831C91"/><rect x="10.5" y="9" width="3" height="6" rx="0.5" fill="#831C91"/><rect x="15" y="9" width="3" height="6" rx="0.5" fill="#831C91"/></svg>';
+  return `<span class="cr-powered-row">${logo}<span class="cr-powered-text">Powered by <strong>ChatRely</strong></span></span>`;
+}
+
+function mountMessageFeedback(
+  wrap: HTMLElement,
+  apiBase: string,
+  agentKey: string,
+  visitorId: string,
+  messageId: string | null | undefined
+): void {
+  if (!messageId) return;
+  const row = document.createElement("div");
+  row.className = "cr-msg-feedback";
+  const up = document.createElement("button");
+  const down = document.createElement("button");
+  up.type = "button";
+  down.type = "button";
+  up.className = "cr-feedback-btn";
+  down.className = "cr-feedback-btn";
+  up.setAttribute("aria-label", "Helpful");
+  down.setAttribute("aria-label", "Not helpful");
+  up.textContent = "👍";
+  down.textContent = "👎";
+  let current: 1 | -1 | null = null;
+  let saving = false;
+  const setPressed = () => {
+    up.setAttribute("aria-pressed", current === 1 ? "true" : "false");
+    down.setAttribute("aria-pressed", current === -1 ? "true" : "false");
+  };
+  const send = async (val: 1 | -1) => {
+    if (saving) return;
+    saving = true;
+    try {
+      await postWidgetMessageFeedback(apiBase, agentKey, {
+        message_id: messageId,
+        visitor_id: visitorId,
+        value: val,
+      });
+      current = val;
+      setPressed();
+    } catch {
+      /* ignore */
+    } finally {
+      saving = false;
+    }
+  };
+  up.addEventListener("click", () => void send(1));
+  down.addEventListener("click", () => void send(-1));
+  row.append(up, down);
+  wrap.appendChild(row);
+}
+
 async function boot(): Promise<void> {
   const script = getEmbedLoaderScript();
   if (!script) {
@@ -148,6 +203,18 @@ async function boot(): Promise<void> {
 
   const composer = document.createElement("div");
   composer.className = "cr-composer";
+  const attachWrap = document.createElement("div");
+  attachWrap.className = "cr-attach-wrap";
+  attachWrap.style.display = "none";
+  const attachBtn = document.createElement("button");
+  attachBtn.type = "button";
+  attachBtn.className = "cr-attach";
+  attachBtn.setAttribute("aria-label", "Add attachment");
+  attachBtn.title = "Attachments coming soon";
+  attachBtn.disabled = true;
+  attachBtn.innerHTML =
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M17.5 12.5v-5a5.5 5.5 0 1 0-11 0v9a4 4 0 0 0 8 0V9a2.5 2.5 0 0 0-5 0v6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  attachWrap.appendChild(attachBtn);
   const input = document.createElement("input");
   input.className = "cr-input";
   input.autocomplete = "off";
@@ -156,13 +223,9 @@ async function boot(): Promise<void> {
   send.type = "button";
   send.className = "cr-send";
   send.textContent = "Send";
-  composer.append(input, send);
+  composer.append(attachWrap, input, send);
 
-  const footerNote = document.createElement("div");
-  footerNote.className = "cr-powered";
-  footerNote.textContent = "Powered by ChatRely";
-
-  panel.append(header, escalateRow, messages, composer, footerNote);
+  panel.append(header, escalateRow, messages, composer);
   root.append(launcher, panel);
 
   document.body.appendChild(host);
@@ -173,6 +236,20 @@ async function boot(): Promise<void> {
   } catch (e) {
     console.warn("[ChatRely] Config error:", e);
     return;
+  }
+
+  let poweredByEl: HTMLDivElement | null = null;
+  function hidePoweredByLine(): void {
+    if (poweredByEl) {
+      poweredByEl.style.display = "none";
+    }
+  }
+
+  if (!cfg.hide_powered_by_chatrely) {
+    poweredByEl = document.createElement("div");
+    poweredByEl.className = "cr-powered";
+    poweredByEl.innerHTML = poweredByChatRelyHtml();
+    panel.appendChild(poweredByEl);
   }
 
   titleEl.textContent = cfg.name || "Chat";
@@ -193,6 +270,10 @@ async function boot(): Promise<void> {
       avatarImg.style.display = "none";
       avatarFallback.style.display = "flex";
     };
+  }
+
+  if (cfg.attachments_ui_enabled) {
+    attachWrap.style.display = "flex";
   }
 
   if (cfg.human_escalation_available) {
@@ -229,7 +310,7 @@ async function boot(): Promise<void> {
     launcher.setAttribute("aria-expanded", next ? "true" : "false");
   }
 
-  launcher.addEventListener("click", () => setOpen(!open));
+  launcher.addEventListener("click", () => setOpen(panel.hidden));
 
   async function sendEscalation(): Promise<void> {
     if (sending) return;
@@ -238,10 +319,14 @@ async function boot(): Promise<void> {
     send.disabled = true;
     const msg = "I'd like to speak with a human agent.";
     appendMessage("user", msg);
+    hidePoweredByLine();
+    const wrap = document.createElement("div");
+    wrap.className = "cr-msg-wrap";
     const assistantEl = document.createElement("div");
     assistantEl.className = "cr-msg cr-msg--assistant";
     assistantEl.innerHTML = "";
-    messages.appendChild(assistantEl);
+    wrap.appendChild(assistantEl);
+    messages.appendChild(wrap);
 
     try {
       for await (const ev of streamChat(apiBase, agentKey, {
@@ -265,13 +350,20 @@ async function boot(): Promise<void> {
             assistantEl.innerHTML = renderAssistantHtml(ev.response);
             assistantEl.removeAttribute("data-plain");
           }
+          const mid =
+            typeof (ev as { assistant_message_id?: unknown }).assistant_message_id === "string"
+              ? (ev as { assistant_message_id: string }).assistant_message_id
+              : null;
+          if (cfg.message_feedback_enabled && mid) {
+            mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
+          }
         } else if (ev.type === "error") {
-          assistantEl.remove();
+          wrap.remove();
           appendMessage("err", ev.message || "Something went wrong.");
         }
       }
     } catch (e) {
-      assistantEl.remove();
+      wrap.remove();
       appendMessage("err", e instanceof Error ? e.message : "Network error.");
     } finally {
       sending = false;
@@ -286,10 +378,14 @@ async function boot(): Promise<void> {
     send.disabled = true;
     input.value = "";
     appendMessage("user", text);
+    hidePoweredByLine();
+    const wrap = document.createElement("div");
+    wrap.className = "cr-msg-wrap";
     const assistantEl = document.createElement("div");
     assistantEl.className = "cr-msg cr-msg--assistant";
     assistantEl.innerHTML = "";
-    messages.appendChild(assistantEl);
+    wrap.appendChild(assistantEl);
+    messages.appendChild(wrap);
 
     try {
       for await (const ev of streamChat(apiBase, agentKey, {
@@ -315,13 +411,20 @@ async function boot(): Promise<void> {
             assistantEl.innerHTML = renderAssistantHtml(ev.response);
             assistantEl.removeAttribute("data-plain");
           }
+          const mid =
+            typeof (ev as { assistant_message_id?: unknown }).assistant_message_id === "string"
+              ? (ev as { assistant_message_id: string }).assistant_message_id
+              : null;
+          if (cfg.message_feedback_enabled && mid) {
+            mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
+          }
         } else if (ev.type === "error") {
-          assistantEl.remove();
+          wrap.remove();
           appendMessage("err", ev.message || "Something went wrong.");
         }
       }
     } catch (e) {
-      assistantEl.remove();
+      wrap.remove();
       appendMessage("err", e instanceof Error ? e.message : "Network error.");
     } finally {
       sending = false;

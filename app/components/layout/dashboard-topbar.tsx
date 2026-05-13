@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { useMeContext } from "@/components/layout/me-context-provider";
+import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
 import { cn } from "@/lib/utils";
 
 const mobileNavItems = [
@@ -42,8 +44,19 @@ function hasActiveChild(pathname: string, children: { href: string }[]) {
 
 export function DashboardTopbar() {
   const pathname = usePathname();
+  const { data: meData, loading: meLoading } = useMeContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [mobileOpenSections, setMobileOpenSections] = useState<Record<string, boolean>>({});
+
+  const mobileNavItemsVisible = useMemo(
+    () =>
+      mobileNavItems.filter(
+        (item) =>
+          item.href !== "/analytics" ||
+          (!meLoading && planAllowsAnalyticsPage(meData?.plan.slug))
+      ),
+    [meData?.plan, meLoading]
+  );
 
   useEffect(() => {
     if (!isMenuOpen) return;
@@ -56,11 +69,11 @@ export function DashboardTopbar() {
 
   useEffect(() => {
     const next: Record<string, boolean> = {};
-    mobileNavItems.forEach((item) => {
+    mobileNavItemsVisible.forEach((item) => {
       if (item.children) next[item.href] = hasActiveChild(pathname, item.children);
     });
     queueMicrotask(() => setMobileOpenSections((prev) => ({ ...next, ...prev })));
-  }, [pathname]);
+  }, [pathname, mobileNavItemsVisible]);
 
   const mobileMenu = isMenuOpen ? (
       <div className="fixed inset-0 z-[200] md:hidden" role="dialog" aria-modal="true">
@@ -84,7 +97,7 @@ export function DashboardTopbar() {
           </div>
 
           <nav className="space-y-1">
-            {mobileNavItems.map((item) => {
+            {mobileNavItemsVisible.map((item) => {
               const childActive = item.children ? hasActiveChild(pathname, item.children) : false;
               const active = isRouteActive(pathname, item.href) || childActive;
               const sectionOpen = item.children ? mobileOpenSections[item.href] : false;

@@ -430,6 +430,15 @@ def test_included_storage_from_max_total_knowledge_mb() -> None:
     assert _included_storage_bytes_from_plan_features({"max_total_knowledge_mb": 5}) == 5 * 1024 * 1024
 
 
+def test_included_storage_uses_strictest_when_mb_and_kb_present() -> None:
+    from app.domains.knowledge.service import _included_storage_bytes_from_plan_features
+
+    assert (
+        _included_storage_bytes_from_plan_features({"max_total_knowledge_mb": 1, "max_knowledge_storage_kb": 500})
+        == 500 * 1024
+    )
+
+
 def test_job_crawl_limit_exceeded_flag() -> None:
     from app.domains.knowledge.service import _job_crawl_limit_exceeded
 

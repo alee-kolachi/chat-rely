@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
-import { PricingCards, PricingComparison } from "@/components/marketing/pricing-sections";
-import { usePublicPlans } from "@/hooks/use-public-plans";
+import { PricingCards, PricingFeatureMatrix } from "@/components/marketing/pricing-sections";
 import { useSessionPresent } from "@/hooks/use-session-present";
 
 const faqs = [
@@ -14,9 +13,9 @@ const faqs = [
     open: true,
   },
   {
-    question: "When does paid conversation overage start?",
+    question: "What happens if I go over my included conversations?",
     answer:
-      "Each billable conversation beyond your plan’s included amount for the billing period is counted as paid overage at the rate shown on the pricing page (overage is $0 on the Free plan).",
+      "We do not charge for extra conversations at this time. After you pass your plan’s included billable conversations for the period, the assistant automatically switches to a lower-cost model until the cycle resets or you move to a higher plan.",
     open: false,
   },
   {
@@ -34,9 +33,7 @@ const faqs = [
 ] as const;
 
 export function MarketingPricingClient() {
-  const { plans, error, loading } = usePublicPlans();
   const { ready: sessionReady, hasSession } = useSessionPresent();
-  const cardsLoading = loading || !sessionReady;
 
   return (
     <main className="flex-1 bg-ds-surface text-ds-on-surface">
@@ -46,21 +43,17 @@ export function MarketingPricingClient() {
             Predictable pricing, scalable plans
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-5 sm:max-w-2xl sm:text-xl">
-            Billable conversations—not opaque message credits. Plans load from our catalog (change anytime without app deploys).
+            Billable conversations—not opaque message credits. Compare plans below; on the home page, compact cards
+            use info icons for extra detail on dense rows.
           </p>
         </div>
 
         <div className="mb-14 sm:mb-20 lg:mb-24">
-          <PricingCards
-            plans={plans}
-            loading={cardsLoading}
-            loadError={error}
-            isAuthenticated={hasSession}
-          />
+          <PricingCards variant="pricing" isAuthenticated={sessionReady && hasSession} />
         </div>
 
-        <div className="mb-32">
-          <PricingComparison plans={plans} loading={loading} loadError={error} />
+        <div className="mb-20 sm:mb-24">
+          <PricingFeatureMatrix />
         </div>
 
         <section className="mx-auto mb-32 max-w-3xl">

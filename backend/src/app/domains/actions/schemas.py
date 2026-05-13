@@ -24,6 +24,8 @@ class ActionCatalogResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entries: list[ActionCatalogEntry]
+    max_enabled_shopify_actions: int = 0
+    enabled_shopify_actions: int = 0
 
 
 class AgentActionPatchRequest(BaseModel):

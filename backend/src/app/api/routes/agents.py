@@ -1,10 +1,11 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_user, get_db
+from app.core.errors import AppError
 from app.domains.agents.reliability_schemas import (
     AgentReliabilityDTO,
     AgentReliabilityUpdateRequest,
@@ -21,6 +22,20 @@ from app.domains.analytics.schemas import AgentAnalyticsResponse
 from app.domains.analytics.service import build_agent_analytics
 from app.domains.dashboard.schemas import AgentDashboardResponse
 from app.domains.dashboard.service import build_agent_dashboard
+from app.domains.message_feedback.schemas import (
+    MessageFeedbackResolveRequest,
+    MessageFeedbackVoteRequest,
+)
+from app.domains.message_feedback.service import (
+    build_message_feedback_analytics,
+    owner_upsert_feedback,
+    resolve_message_feedback,
+)
+from app.domains.plans.plan_limits import (
+    analytics_access_tier_for_plan_slug,
+    message_feedback_enabled_for_plan_slug,
+)
+from app.domains.plans.subscription_queries import fetch_active_plan_slug
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -105,16 +120,98 @@ async def get_agent_analytics_route(
     ),
     range_from: datetime | None = Query(default=None, alias="from"),
     range_to: datetime | None = Query(default=None, alias="to"),
+    include_playground: bool = Query(
+        default=False,
+        description="Include preview/playground visitor threads in message feedback aggregates.",
+    ),
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AgentAnalyticsResponse:
-    return await build_agent_analytics(
+    plan_slug = await fetch_active_plan_slug(db, user.user_id)
+    tier = analytics_access_tier_for_plan_slug(plan_slug)
+    if tier == "none":
+        raise AppError(
+            code="plan.analytics_not_available",
+            message="Analytics is not available on your plan.",
+            status_code=403,
+        )
+    base = await build_agent_analytics(
         db,
         user_id=user.user_id,
         agent_id=agent_id,
+        analytics_tier=tier,
         range_key=range_key,
         range_from=range_from,
         range_to=range_to,
         tick_lifecycle=False,
     )
+    if message_feedback_enabled_for_plan_slug(plan_slug):
+        mf = await build_message_feedback_analytics(
+            db,
+            user_id=user.user_id,
+            agent_id=agent_id,
+            range_from=base.range_from,
+            range_to=base.range_to,
+            include_playground=include_playground,
+        )
+        return base.model_copy(update={"message_feedback": mf})
+    return base
+
+
+@router.post(
+    "/{agent_id}/message-feedback",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def post_agent_message_feedback_route(
+    agent_id: UUID,
+    payload: MessageFeedbackVoteRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    plan_slug = await fetch_active_plan_slug(db, user.user_id)
+    if not message_feedback_enabled_for_plan_slug(plan_slug):
+        raise AppError(
+            code="plan.message_feedback_not_available",
+            message="Message feedback is not available on your plan.",
+            status_code=403,
+        )
+    await owner_upsert_feedback(
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        message_id=payload.message_id,
+        value=payload.value,
+        visitor_id=payload.visitor_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{agent_id}/message-feedback/resolve",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def post_agent_message_feedback_resolve_route(
+    agent_id: UUID,
+    payload: MessageFeedbackResolveRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    plan_slug = await fetch_active_plan_slug(db, user.user_id)
+    if not message_feedback_enabled_for_plan_slug(plan_slug):
+        raise AppError(
+            code="plan.message_feedback_not_available",
+            message="Message feedback is not available on your plan.",
+            status_code=403,
+        )
+    await resolve_message_feedback(
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        message_id=payload.message_id,
+        resolved=payload.resolved,
+        note=payload.note,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 

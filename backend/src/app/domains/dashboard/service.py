@@ -16,6 +16,8 @@ from app.domains.dashboard.schemas import (
     DashboardSeriesPoint,
     TrainingTopicSummary,
 )
+from app.domains.plans.plan_limits import sources_suggestions_enabled_for_plan_slug
+from app.domains.plans.subscription_queries import fetch_active_plan_slug
 
 log = structlog.get_logger("dashboard")
 
@@ -257,6 +259,11 @@ async def build_agent_dashboard(
         TrainingTopicSummary.model_validate(item)
         for item in (crow["topics_json"] or [])
     ]
+    plan_slug = await fetch_active_plan_slug(db, user_id)
+    sources_suggestions_enabled = sources_suggestions_enabled_for_plan_slug(plan_slug)
+    if not sources_suggestions_enabled:
+        training_topics = []
+
     open_escalations = int(crow["open_escalations"] or 0)
     awaiting_customer = int(crow["awaiting_customer_reply"] or 0)
 
@@ -286,4 +293,5 @@ async def build_agent_dashboard(
         series=series,
         recent=recent,
         training_topics=training_topics,
+        sources_suggestions_enabled=sources_suggestions_enabled,
     )

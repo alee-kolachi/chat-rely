@@ -11,7 +11,7 @@ import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from app.domains.runtime.chat_graph import make_chat_model
+from app.domains.runtime.chat_graph import make_chat_model, usage_tokens_from_model_message
 
 log = structlog.get_logger("runtime.shopify_router")
 
@@ -77,13 +77,17 @@ def tool_choice_required_from_route(route: ShopifyToolRoute | None, *, min_confi
     return route.requires_live_shopify_data and route.confidence >= min_confidence
 
 
-async def classify_shopify_tool_route(user_message: str, tools: list[Any]) -> ShopifyToolRoute | None:
+async def classify_shopify_tool_route(
+    user_message: str, tools: list[Any]
+) -> tuple[ShopifyToolRoute | None, int, int]:
     """
-    Ask a small LLM whether this turn needs Shopify tools; returns None on failure (caller treats as no force).
+    Ask a small LLM whether this turn needs Shopify tools.
+
+    Returns ``(decision, input_tokens, output_tokens)``. On failure, ``(None, 0, 0)``.
     """
     msg = (user_message or "").strip()
     if not msg or not tools:
-        return None
+        return None, 0, 0
 
     catalog = tool_catalog_lines(tools)
     human = (
@@ -92,18 +96,31 @@ async def classify_shopify_tool_route(user_message: str, tools: list[Any]) -> Sh
     )
 
     try:
-        llm = make_chat_model(SHOPIFY_ROUTER_MODEL).with_structured_output(ShopifyToolRoute)
-        decision = await llm.ainvoke(
+        llm = make_chat_model(SHOPIFY_ROUTER_MODEL).with_structured_output(
+            ShopifyToolRoute, include_raw=True
+        )
+        raw_out = await llm.ainvoke(
             [SystemMessage(content=_ROUTER_SYSTEM), HumanMessage(content=human)]
         )
-        if not isinstance(decision, ShopifyToolRoute):
-            return None
+        in_t, out_t = 0, 0
+        decision: ShopifyToolRoute | None = None
+        if isinstance(raw_out, dict):
+            raw_msg = raw_out.get("raw")
+            parsed = raw_out.get("parsed")
+            if raw_msg is not None:
+                in_t, out_t = usage_tokens_from_model_message(raw_msg)
+            if isinstance(parsed, ShopifyToolRoute):
+                decision = parsed
+        elif isinstance(raw_out, ShopifyToolRoute):
+            decision = raw_out
+        if decision is None:
+            return None, in_t, out_t
         log.info(
             "shopify_router.decision",
             requires_live_shopify_data=decision.requires_live_shopify_data,
             confidence=decision.confidence,
         )
-        return decision
+        return decision, in_t, out_t
     except Exception as exc:
         log.warning("shopify_router.failed", error=str(exc)[:400])
-        return None
+        return None, 0, 0

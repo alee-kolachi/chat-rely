@@ -6,9 +6,27 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from app.domains.plans.plan_limits import message_feedback_enabled_for_plan_slug
+from app.domains.plans.subscription_queries import fetch_active_plan_slug
 from app.domains.public_widget.schemas import PublicWidgetAgentContext, PublicWidgetConfigResponse
 
 WidgetPosition = Literal["bottom_right", "bottom_left"]
+
+FREE_PLAN_SLUG = "free"
+
+
+def attachments_ui_enabled_for_plan_slug(plan_slug: str | None) -> bool:
+    """Roadmap: paid tiers get an attachment affordance in the storefront widget; Free does not."""
+    s = (plan_slug or "").strip().lower()
+    if not s:
+        return False
+    return s != FREE_PLAN_SLUG
+
+
+def hide_powered_by_chatrely_for_plan_slug(plan_slug: str | None) -> bool:
+    """White-label: no attribution footer in the embed widget (Pro and legacy Scale)."""
+    s = (plan_slug or "").strip().lower()
+    return s in ("pro", "scale")
 
 
 async def resolve_agent_for_widget_key(db: AsyncSession, public_key: str) -> PublicWidgetAgentContext:
@@ -119,4 +137,17 @@ async def build_public_widget_config_response(
     raw_url = str(url_row["source_url"]).strip() if url_row and url_row.get("source_url") else ""
     avatar_url = _favicon_from_site_url(raw_url) if raw_url else None
 
-    return base.model_copy(update={"human_escalation_available": human_ok, "avatar_url": avatar_url})
+    plan_slug = await fetch_active_plan_slug(db, ctx.user_id)
+    attachments_ui = attachments_ui_enabled_for_plan_slug(plan_slug)
+    hide_powered = hide_powered_by_chatrely_for_plan_slug(plan_slug)
+    message_feedback = message_feedback_enabled_for_plan_slug(plan_slug)
+
+    return base.model_copy(
+        update={
+            "human_escalation_available": human_ok,
+            "avatar_url": avatar_url,
+            "attachments_ui_enabled": attachments_ui,
+            "hide_powered_by_chatrely": hide_powered,
+            "message_feedback_enabled": message_feedback,
+        }
+    )

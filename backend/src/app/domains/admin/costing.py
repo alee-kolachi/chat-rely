@@ -110,6 +110,19 @@ def build_embedding_cost_usd_expr(
     return f"({alias}.{tokens_column} * {price}) / 1000000.0"
 
 
+def compute_embedding_cost_usd(settings: Settings, embedding_tokens: int) -> float | None:
+    """USD for embedding API usage at `settings.openai_embedding_model` price (per-million map)."""
+    if embedding_tokens <= 0:
+        return 0.0
+    model = (settings.openai_embedding_model or "").strip()
+    if not model:
+        return None
+    price = settings.embedding_price_per_million_usd.get(model)
+    if price is None:
+        return None
+    return (embedding_tokens * price) / 1_000_000.0
+
+
 def compute_message_cost_usd(
     settings: Settings,
     model: str | None,

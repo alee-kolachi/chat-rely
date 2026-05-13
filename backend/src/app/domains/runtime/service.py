@@ -28,7 +28,16 @@ from app.domains.actions.service import (
     get_human_escalation_for_runtime,
     list_enabled_shopify_actions_for_runtime,
 )
-from app.domains.billing.usage_gate import assert_plan_usage_allows_assistant_reply
+from app.domains.billing.cost_events import (
+    COST_KIND_EMBEDDING_RAG,
+    COST_KIND_LLM_INTENT_FALLBACK,
+    COST_KIND_LLM_MAIN,
+    COST_KIND_LLM_SHOPIFY_ROUTER,
+    COST_KIND_LLM_TURN_SIGNALS,
+    COST_KIND_TOOL_SHOPIFY,
+    record_cost_event,
+)
+from app.domains.billing.usage_gate import refresh_plan_usage_snapshot
 from app.domains.conversation_outcomes.schemas import TurnSignalsDTO
 from app.domains.conversation_outcomes.service import compute_turn_signals
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
@@ -40,7 +49,7 @@ from app.domains.conversations.service import (
     merge_client_context_metadata,
 )
 from app.domains.integrations.shopify.service import load_shopify_connection_for_agent
-from app.domains.knowledge.service import _embed_texts
+from app.domains.knowledge.service import _embed_texts, embed_texts_with_token_usage
 from app.domains.runtime.chat_graph import (
     MAX_TOOL_ROUNDS,
     build_retrieval_query_for_embedding,
@@ -57,18 +66,19 @@ from app.domains.runtime.prompts import (
     build_system_prompt,
     resolve_agent_type_prompt,
 )
-from app.domains.runtime.schemas import (
-    RuntimeChatRequest,
-    RuntimeChatResponse,
-    RuntimeEscalationInfo,
-)
 from app.domains.runtime.runtime_intent import (
     conversation_recent_used_shopify_tools,
     is_commerce_shopify_intent,
     resolve_commerce_intent,
 )
+from app.domains.runtime.schemas import (
+    RuntimeChatRequest,
+    RuntimeChatResponse,
+    RuntimeEscalationInfo,
+)
 from app.domains.runtime.shopify_lc_tools import build_shopify_langchain_tools, tools_by_name
 from app.domains.runtime.shopify_tool_router import (
+    SHOPIFY_ROUTER_MODEL,
     SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE,
     classify_shopify_tool_route,
     tool_choice_required_from_route,
@@ -117,23 +127,25 @@ _embed_cache: OrderedDict[str, tuple[float, list[float]]] = OrderedDict()
 _embed_cache_lock = asyncio.Lock()
 
 
-async def _embed_text_with_cache(text: str) -> list[float]:
+async def _embed_text_with_cache(text: str) -> tuple[list[float], int | None]:
+    """Return embedding vector and billed prompt tokens (``None`` if served from in-process cache)."""
     key = (text or "").strip()
     if not key:
-        return []
+        return [], None
     now = time.time()
     async with _embed_cache_lock:
         cached = _embed_cache.get(key)
         if cached and (now - cached[0]) < RAG_EMBED_CACHE_TTL_SECONDS:
             _embed_cache.move_to_end(key)
-            return cached[1]
-    embedding = (await _embed_texts([key]))[0]
+            return cached[1], None
+    vectors, billed_tokens = await embed_texts_with_token_usage([key])
+    embedding = vectors[0]
     async with _embed_cache_lock:
         _embed_cache[key] = (now, embedding)
         _embed_cache.move_to_end(key)
         while len(_embed_cache) > RAG_EMBED_CACHE_MAX_ITEMS:
             _embed_cache.popitem(last=False)
-    return embedding
+    return embedding, billed_tokens
 
 
 def _serialize_tool_calls_for_db(msg: AIMessage) -> list[dict[str, Any]]:
@@ -226,10 +238,14 @@ async def _retrieve_chunks_with_new_session(
     match_count: int,
     skip: bool = False,
     meta_timing: dict[str, float] | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Runs RAG on a dedicated DB session so it can overlap with Shopify setup (separate session)."""
+    empty_billing: dict[str, Any] = {
+        "rag_embedding_raw_tokens": None,
+        "rag_embedding_expanded_tokens": None,
+    }
     if skip:
-        return []
+        return [], empty_billing
     sf = get_session_factory()
     async with sf() as s:
         return await _retrieve_merged_chunks_for_message(
@@ -251,15 +267,19 @@ async def _load_shopify_tools_and_optional_route(
     route_classifier_enabled: bool,
     skip_route_classifier: bool = False,
     conversation_id: UUID | None = None,
-) -> tuple[list[Any], Any | None, bool, dict[str, float]]:
+) -> tuple[list[Any], Any | None, bool, dict[str, float], int, int]:
     """
     Loads Shopify tools (and optional route classifier) on a dedicated session so it can overlap
     with retrieval without concurrent use of the request-scoped AsyncSession.
 
     When ``skip_route_classifier`` is True (e.g. regex already classified commerce intent), the
     Shopify router LLM is not invoked — saves latency vs a redundant completion.
+
+    Returns ``router_input_tokens, router_output_tokens`` (zeros when the router LLM was not called).
     """
     timings: dict[str, float] = {}
+    router_in = 0
+    router_out = 0
     sf = get_session_factory()
     async with sf() as s:
         t0 = time.perf_counter()
@@ -283,7 +303,9 @@ async def _load_shopify_tools_and_optional_route(
         force_tools_round0 = False
         if tool_list and route_classifier_enabled and not skip_route_classifier:
             t3 = time.perf_counter()
-            shopify_route_decision = await classify_shopify_tool_route(user_message, tool_list)
+            shopify_route_decision, router_in, router_out = await classify_shopify_tool_route(
+                user_message, tool_list
+            )
             force_tools_round0 = tool_choice_required_from_route(
                 shopify_route_decision, min_confidence=SHOPIFY_TOOL_ROUTE_MIN_CONFIDENCE
             )
@@ -302,7 +324,7 @@ async def _load_shopify_tools_and_optional_route(
             conversation_id=str(conversation_id) if conversation_id else None,
             **{k: round(v, 2) for k, v in timings.items()},
         )
-        return tool_list, shopify_route_decision, force_tools_round0, timings
+        return tool_list, shopify_route_decision, force_tools_round0, timings, router_in, router_out
 
 
 def _extract_usage_tokens(msg: Any) -> tuple[int, int]:
@@ -330,6 +352,7 @@ async def _invoke_chat_with_tools(
     *,
     user_id: UUID,
     conversation_id: UUID,
+    agent_id: UUID,
     lc_messages: list[Any],
     model: str,
     tools: list[Any],
@@ -337,6 +360,7 @@ async def _invoke_chat_with_tools(
     temperature: float = 0.0,
     force_first_round_tool_choice: bool = False,
     meta_out: dict[str, Any] | None = None,
+    turn_user_message_id: UUID | None = None,
 ) -> tuple[str, bool, list[str]]:
     """Multi-round tool loop: round 0 emits tool_calls (structured args); after tools run, a second model
     pass turns JSON results into natural language. OpenAI-style tool calling cannot merge those into one HTTP
@@ -367,6 +391,19 @@ async def _invoke_chat_with_tools(
         ai_msg = await llm.ainvoke(msgs)
         in_tokens, out_tokens = _extract_usage_tokens(ai_msg)
         tcs = getattr(ai_msg, "tool_calls", None) or []
+        phase = "tool_calls" if tcs else "answer"
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_MAIN,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=model,
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
+            metadata={"round_idx": round_idx, "phase": phase},
+        )
         if not tcs:
             answer = text_from_model_message(ai_msg)
             if round_idx == 0 and not invoked:
@@ -381,10 +418,13 @@ async def _invoke_chat_with_tools(
                     conversation_id=str(conversation_id),
                     tools_invoked_so_far=invoked,
                 )
+                if meta_out is not None:
+                    meta_out["usage_input_tokens"] = 0
+                    meta_out["usage_output_tokens"] = 0
                 return fallback_message, True, invoked
             if meta_out is not None:
-                meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
-                meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
+                meta_out["usage_input_tokens"] = in_tokens
+                meta_out["usage_output_tokens"] = out_tokens
             return answer, fallback_used, invoked
         await append_message(
             db,
@@ -399,9 +439,6 @@ async def _invoke_chat_with_tools(
                 tool_call_payload={"tool_calls": _serialize_tool_calls_for_db(ai_msg)},
             ),
         )
-        if meta_out is not None:
-            meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
-            meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
         msgs.append(ai_msg)
         for tc in tcs:
             name, args, t_id = _tool_call_parts(tc)
@@ -442,6 +479,16 @@ async def _invoke_chat_with_tools(
             if not (isinstance(out, str) and out.strip()):
                 out = json.dumps({"error": "empty_tool_result"})
             body = out[:120000]
+            await record_cost_event(
+                db,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                user_id=user_id,
+                kind=COST_KIND_TOOL_SHOPIFY,
+                turn_user_message_id=turn_user_message_id,
+                provider_model=None,
+                metadata={"tool_name": name, "round_idx": round_idx, "tool_ms": tool_ms},
+            )
             await append_message(
                 db,
                 user_id=user_id,
@@ -461,6 +508,9 @@ async def _invoke_chat_with_tools(
         max_rounds=MAX_TOOL_ROUNDS,
         tools_invoked=invoked,
     )
+    if meta_out is not None:
+        meta_out["usage_input_tokens"] = 0
+        meta_out["usage_output_tokens"] = 0
     return fallback_message, True, invoked
 
 
@@ -478,6 +528,7 @@ async def _invoke_chat_with_tools_token_stream(
     *,
     user_id: UUID,
     conversation_id: UUID,
+    agent_id: UUID,
     lc_messages: list[Any],
     model: str,
     tools: list[Any],
@@ -485,6 +536,7 @@ async def _invoke_chat_with_tools_token_stream(
     temperature: float = 0.0,
     force_first_round_tool_choice: bool = False,
     meta_out: dict[str, Any] | None = None,
+    turn_user_message_id: UUID | None = None,
 ) -> AsyncIterator[str]:
     """
     One streaming LLM call per tool round (`astream` + chunk aggregation). Tokens are yielded as the
@@ -526,6 +578,8 @@ async def _invoke_chat_with_tools_token_stream(
             if meta_out is not None:
                 meta_out["tools_invoked"] = list(invoked)
                 meta_out["fallback_used"] = True
+                meta_out["usage_input_tokens"] = 0
+                meta_out["usage_output_tokens"] = 0
             async for p in _yield_text_chunks_for_ui(fallback_message):
                 yield p
             return
@@ -533,6 +587,19 @@ async def _invoke_chat_with_tools_token_stream(
         ai_msg = _aggregated_to_ai_message(accumulated)
         in_tokens, out_tokens = _extract_usage_tokens(accumulated)
         tcs = getattr(ai_msg, "tool_calls", None) or []
+        phase = "tool_calls" if tcs else "answer"
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_MAIN,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=model,
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
+            metadata={"round_idx": round_idx, "phase": phase, "streamed": True},
+        )
         if not tcs:
             answer = text_from_model_message(ai_msg)
             if round_idx == 0 and not invoked:
@@ -550,14 +617,16 @@ async def _invoke_chat_with_tools_token_stream(
                 if meta_out is not None:
                     meta_out["tools_invoked"] = list(invoked)
                     meta_out["fallback_used"] = True
+                    meta_out["usage_input_tokens"] = 0
+                    meta_out["usage_output_tokens"] = 0
                 async for p in _yield_text_chunks_for_ui(fallback_message):
                     yield p
                 return
             if meta_out is not None:
                 meta_out["tools_invoked"] = list(invoked)
                 meta_out["fallback_used"] = False
-                meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
-                meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
+                meta_out["usage_input_tokens"] = in_tokens
+                meta_out["usage_output_tokens"] = out_tokens
             return
         await append_message(
             db,
@@ -572,9 +641,6 @@ async def _invoke_chat_with_tools_token_stream(
                 tool_call_payload={"tool_calls": _serialize_tool_calls_for_db(ai_msg)},
             ),
         )
-        if meta_out is not None:
-            meta_out["usage_input_tokens"] = int(meta_out.get("usage_input_tokens") or 0) + in_tokens
-            meta_out["usage_output_tokens"] = int(meta_out.get("usage_output_tokens") or 0) + out_tokens
         msgs.append(ai_msg)
         for tc in tcs:
             name, args, t_id = _tool_call_parts(tc)
@@ -615,6 +681,16 @@ async def _invoke_chat_with_tools_token_stream(
             if not (isinstance(out, str) and out.strip()):
                 out = json.dumps({"error": "empty_tool_result"})
             body = out[:120000]
+            await record_cost_event(
+                db,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                user_id=user_id,
+                kind=COST_KIND_TOOL_SHOPIFY,
+                turn_user_message_id=turn_user_message_id,
+                provider_model=None,
+                metadata={"tool_name": name, "round_idx": round_idx, "tool_ms": tool_ms},
+            )
             await append_message(
                 db,
                 user_id=user_id,
@@ -638,6 +714,8 @@ async def _invoke_chat_with_tools_token_stream(
         meta_out["tools_invoked"] = list(invoked)
         meta_out["fallback_used"] = True
         meta_out["total_elapsed_ms"] = (time.perf_counter() - stream_wall_t0) * 1000.0
+        meta_out["usage_input_tokens"] = 0
+        meta_out["usage_output_tokens"] = 0
     async for p in _yield_text_chunks_for_ui(fallback_message):
         yield p
 
@@ -649,6 +727,30 @@ def _resolve_runtime_model(model: str) -> str:
     if normalized in legacy_aliases:
         return "gpt-4o-mini"
     return model
+
+
+def _apply_usage_limit_model_downgrade(
+    *,
+    throttle_tier: str | None,
+    model: str,
+    model_override: str | None,
+) -> str:
+    """When billable conversations exceed the plan included amount, use ``runtime_usage_limit_exceeded_model`` (env: ``RUNTIME_USAGE_LIMIT_EXCEEDED_MODEL``)."""
+    if model_override:
+        return model
+    if throttle_tier != "strong":
+        return model
+    cheap = (get_settings().runtime_usage_limit_exceeded_model or "gpt-4o-mini").strip() or "gpt-4o-mini"
+    out = _resolve_runtime_model(cheap)
+    base = _resolve_runtime_model(model)
+    if out != base:
+        log.info(
+            "runtime.model_downgraded_usage_limit",
+            throttle_tier=throttle_tier,
+            requested_model=base,
+            effective_model=out,
+        )
+    return out
 
 
 def _build_open_chat_system_prompt(system_prompt: str) -> str:
@@ -829,23 +931,35 @@ async def _retrieve_merged_chunks_for_message(
     min_similarity: float,
     match_count: int = 10,
     meta_timing: dict[str, float] | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
     Embed each distinct query string once, merge vector matches at `min_similarity` only.
     No ANN/lexical fallback below the configured similarity — avoids irrelevant chunks in the prompt.
+
+    Returns ``(chunks, rag_billing)`` where ``rag_billing`` has optional keys
+    ``rag_embedding_raw_tokens`` / ``rag_embedding_expanded_tokens`` (API tokens, ``None`` if cache hit).
     """
+    billing: dict[str, Any] = {
+        "rag_embedding_raw_tokens": None,
+        "rag_embedding_expanded_tokens": None,
+    }
     msg = (user_message or "").strip()
     if not msg:
-        return []
+        return [], billing
     exp = (expanded_query or "").strip()
     t_embed = time.perf_counter()
     if exp and exp != msg:
-        raw_embedding, expanded_embedding = await asyncio.gather(
+        raw_pack, exp_pack = await asyncio.gather(
             _embed_text_with_cache(msg),
             _embed_text_with_cache(exp),
         )
+        raw_embedding, raw_t = raw_pack
+        expanded_embedding, exp_t = exp_pack
+        billing["rag_embedding_raw_tokens"] = raw_t
+        billing["rag_embedding_expanded_tokens"] = exp_t
     else:
-        raw_embedding = await _embed_text_with_cache(msg)
+        raw_embedding, raw_t = await _embed_text_with_cache(msg)
+        billing["rag_embedding_raw_tokens"] = raw_t
         expanded_embedding = None
     if meta_timing is not None:
         meta_timing["embed_ms"] = (time.perf_counter() - t_embed) * 1000.0
@@ -872,7 +986,7 @@ async def _retrieve_merged_chunks_for_message(
         if float(r.get("similarity") or 0.0) >= float(min_similarity)
     ]
     reranked = _rerank_chunks_for_query(filtered, msg)
-    return reranked[:RAG_MERGED_CHUNK_CAP]
+    return reranked[:RAG_MERGED_CHUNK_CAP], billing
 
 
 def _merge_chunks_by_best_similarity(chunks_lists: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -1100,6 +1214,41 @@ def _human_handoff_reply_already_escalated() -> str:
     return "Our team already has this conversation and will follow up as soon as they can."
 
 
+async def _record_embedding_rag_events(
+    db: AsyncSession,
+    *,
+    conversation_id: UUID,
+    agent_id: UUID,
+    user_id: UUID,
+    turn_user_message_id: UUID,
+    rag_billing: dict[str, Any],
+) -> None:
+    raw_t = rag_billing.get("rag_embedding_raw_tokens")
+    if isinstance(raw_t, int) and raw_t > 0:
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            kind=COST_KIND_EMBEDDING_RAG,
+            turn_user_message_id=turn_user_message_id,
+            embedding_tokens=raw_t,
+            metadata={"variant": "raw_query"},
+        )
+    exp_t = rag_billing.get("rag_embedding_expanded_tokens")
+    if isinstance(exp_t, int) and exp_t > 0:
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            kind=COST_KIND_EMBEDDING_RAG,
+            turn_user_message_id=turn_user_message_id,
+            embedding_tokens=exp_t,
+            metadata={"variant": "expanded_query"},
+        )
+
+
 async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest) -> RuntimeChatResponse:
     config = await _load_agent_runtime_config(db, user_id, payload.agent_id)
     model = _resolve_runtime_model(payload.model_override or config["model"])
@@ -1129,17 +1278,23 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         conversation_id=payload.conversation_id,
     )
 
-    await assert_plan_usage_allows_assistant_reply(db, user_id)
+    usage_tier = await refresh_plan_usage_snapshot(db, user_id)
+    model = _apply_usage_limit_model_downgrade(
+        throttle_tier=usage_tier,
+        model=model,
+        model_override=payload.model_override,
+    )
     # TODO(rate-limit-enforcement): respect agents.behavior_settings.rate_limit
     # (max_messages, window_seconds, limit_message) per-agent throttle. UI persists
     # the values today via /agent-settings/rate-limits but enforcement is a follow-up.
 
-    await append_message(
+    user_turn_message = await append_message(
         db,
         user_id=user_id,
         conversation_id=conversation_id,
         payload=ConversationMessageCreateRequest(role="user", content=payload.message, model=model),
     )
+    turn_user_message_id = user_turn_message.id
 
     ve = (payload.visitor_email or "").strip()
     if ve:
@@ -1228,9 +1383,35 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
     )
     shopify_load_ms = (time.perf_counter() - t_shopify) * 1000.0
 
-    tool_list, shopify_route_decision, force_tools_round0, shopify_setup_timings = shopify_bundle
+    (
+        tool_list,
+        shopify_route_decision,
+        force_tools_round0,
+        shopify_setup_timings,
+        router_in_tokens,
+        router_out_tokens,
+    ) = shopify_bundle
+    if router_in_tokens or router_out_tokens:
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_SHOPIFY_ROUTER,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=SHOPIFY_ROUTER_MODEL,
+            input_tokens=router_in_tokens,
+            output_tokens=router_out_tokens,
+            metadata={"skipped": skip_shopify_router_llm},
+        )
+
     t_intent = time.perf_counter()
-    commerce_intent, commerce_intent_source, commerce_conf = await resolve_commerce_intent(
+    (
+        commerce_intent,
+        commerce_intent_source,
+        commerce_conf,
+        intent_extra_usage,
+    ) = await resolve_commerce_intent(
         payload.message,
         tool_list=tool_list,
         shopify_route_decision=shopify_route_decision,
@@ -1238,13 +1419,28 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         recent_thread_used_shopify_tools=thread_had_shopify,
     )
     intent_ms = (time.perf_counter() - t_intent) * 1000.0
+    if intent_extra_usage:
+        ie_in, ie_out = intent_extra_usage
+        if ie_in or ie_out:
+            await record_cost_event(
+                db,
+                conversation_id=conversation_id,
+                agent_id=payload.agent_id,
+                user_id=user_id,
+                kind=COST_KIND_LLM_INTENT_FALLBACK,
+                turn_user_message_id=turn_user_message_id,
+                provider_model=SHOPIFY_ROUTER_MODEL,
+                input_tokens=ie_in,
+                output_tokens=ie_out,
+                metadata={"source": commerce_intent_source},
+            )
 
     skip_kb_retrieval = bool(tool_list and commerce_intent)
     rag_fallback_mode = "skipped_commerce_intent" if skip_kb_retrieval else "vector_threshold_only"
 
     retrieve_timing: dict[str, float] = {}
     t_retrieve = time.perf_counter()
-    chunks = await _retrieve_chunks_with_new_session(
+    chunks, rag_billing = await _retrieve_chunks_with_new_session(
         payload.agent_id,
         user_message=payload.message,
         expanded_query=expanded_query,
@@ -1254,6 +1450,15 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         meta_timing=retrieve_timing,
     )
     retrieve_wall_ms = (time.perf_counter() - t_retrieve) * 1000.0
+    if not skip_kb_retrieval:
+        await _record_embedding_rag_events(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            turn_user_message_id=turn_user_message_id,
+            rag_billing=rag_billing,
+        )
 
     force_tools_round0 = force_tools_round0 or (bool(tool_list) and commerce_intent)
 
@@ -1311,7 +1516,6 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
     tools_invoked: list[str] = []
     tools_available_count = len(tool_list)
     tool_meta: dict[str, Any] = {}
-    llm_stream_meta: dict[str, Any] = {}
     if tool_list:
         llm_usage_input_tokens = 0
         llm_usage_output_tokens = 0
@@ -1319,6 +1523,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             db,
             user_id=user_id,
             conversation_id=conversation_id,
+            agent_id=payload.agent_id,
             lc_messages=lc_messages,
             model=model,
             tools=tool_list,
@@ -1326,6 +1531,7 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             temperature=creativity,
             force_first_round_tool_choice=force_tools_round0,
             meta_out=tool_meta,
+            turn_user_message_id=turn_user_message_id,
         )
         llm_usage_input_tokens = int(tool_meta.get("usage_input_tokens") or 0)
         llm_usage_output_tokens = int(tool_meta.get("usage_output_tokens") or 0)
@@ -1336,6 +1542,18 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
             fallback_message=fallback_message,
             temperature=creativity,
             thread_id=str(conversation_id),
+        )
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_MAIN,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=model,
+            input_tokens=llm_usage_input_tokens,
+            output_tokens=llm_usage_output_tokens,
+            metadata={"phase": "main", "streamed": False},
         )
         if has_context and _looks_like_fallback_response(answer, fallback_message):
             retry_user = (
@@ -1357,6 +1575,18 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
                 temperature=creativity,
                 thread_id=str(conversation_id),
                 )
+            )
+            await record_cost_event(
+                db,
+                conversation_id=conversation_id,
+                agent_id=payload.agent_id,
+                user_id=user_id,
+                kind=COST_KIND_LLM_MAIN,
+                turn_user_message_id=turn_user_message_id,
+                provider_model=model,
+                input_tokens=retry_in_tokens,
+                output_tokens=retry_out_tokens,
+                metadata={"phase": "main_retry", "streamed": False},
             )
             if not _looks_like_fallback_response(retry_answer, fallback_message):
                 answer, fallback_used = retry_answer, retry_fallback_used
@@ -1394,10 +1624,24 @@ async def run_chat(db: AsyncSession, user_id: UUID, payload: RuntimeChatRequest)
         ),
     }
     turn_signals_model: TurnSignalsDTO | None = None
-    ts_raw = await compute_turn_signals(payload.message, answer)
+    ts_raw, ts_in, ts_out = await compute_turn_signals(payload.message, answer)
     if ts_raw:
         assistant_meta["turn_signals"] = ts_raw.model_dump()
         turn_signals_model = TurnSignalsDTO.model_validate(ts_raw.model_dump())
+    if ts_in or ts_out:
+        ts_model = get_settings().openai_chat_model or "gpt-4o-mini"
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_TURN_SIGNALS,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=ts_model,
+            input_tokens=ts_in,
+            output_tokens=ts_out,
+            metadata={},
+        )
 
     assistant_latency_ms = int((time.perf_counter() - turn_latency_start) * 1000)
     _log_runtime_turn_timing(
@@ -1533,28 +1777,25 @@ async def run_chat_stream(
         conversation_id=payload.conversation_id,
     )
 
-    try:
-        await assert_plan_usage_allows_assistant_reply(db, user_id)
-        # TODO(rate-limit-enforcement): respect agents.behavior_settings.rate_limit
-        # (max_messages, window_seconds, limit_message) per-agent throttle. UI persists
-        # the values today via /agent-settings/rate-limits but enforcement is a follow-up.
-    except AppError as exc:
-        yield {
-            "type": "error",
-            "code": exc.code,
-            "message": exc.message,
-            "details": exc.details,
-        }
-        return
+    usage_tier = await refresh_plan_usage_snapshot(db, user_id)
+    model = _apply_usage_limit_model_downgrade(
+        throttle_tier=usage_tier,
+        model=model,
+        model_override=payload.model_override,
+    )
+    # TODO(rate-limit-enforcement): respect agents.behavior_settings.rate_limit
+    # (max_messages, window_seconds, limit_message) per-agent throttle. UI persists
+    # the values today via /agent-settings/rate-limits but enforcement is a follow-up.
 
     yield {"type": "start", "conversation_id": str(conversation_id)}
 
-    await append_message(
+    user_turn_message = await append_message(
         db,
         user_id=user_id,
         conversation_id=conversation_id,
         payload=ConversationMessageCreateRequest(role="user", content=payload.message, model=model),
     )
+    turn_user_message_id = user_turn_message.id
 
     ve = (payload.visitor_email or "").strip()
     if ve:
@@ -1643,9 +1884,35 @@ async def run_chat_stream(
     )
     shopify_load_ms = (time.perf_counter() - t_shopify) * 1000.0
 
-    tool_list, shopify_route_decision, force_tools_round0, shopify_setup_timings = shopify_bundle
+    (
+        tool_list,
+        shopify_route_decision,
+        force_tools_round0,
+        shopify_setup_timings,
+        router_in_tokens,
+        router_out_tokens,
+    ) = shopify_bundle
+    if router_in_tokens or router_out_tokens:
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_SHOPIFY_ROUTER,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=SHOPIFY_ROUTER_MODEL,
+            input_tokens=router_in_tokens,
+            output_tokens=router_out_tokens,
+            metadata={"skipped": skip_shopify_router_llm},
+        )
+
     t_intent = time.perf_counter()
-    commerce_intent, commerce_intent_source, commerce_conf = await resolve_commerce_intent(
+    (
+        commerce_intent,
+        commerce_intent_source,
+        commerce_conf,
+        intent_extra_usage,
+    ) = await resolve_commerce_intent(
         payload.message,
         tool_list=tool_list,
         shopify_route_decision=shopify_route_decision,
@@ -1653,13 +1920,28 @@ async def run_chat_stream(
         recent_thread_used_shopify_tools=thread_had_shopify,
     )
     intent_ms = (time.perf_counter() - t_intent) * 1000.0
+    if intent_extra_usage:
+        ie_in, ie_out = intent_extra_usage
+        if ie_in or ie_out:
+            await record_cost_event(
+                db,
+                conversation_id=conversation_id,
+                agent_id=payload.agent_id,
+                user_id=user_id,
+                kind=COST_KIND_LLM_INTENT_FALLBACK,
+                turn_user_message_id=turn_user_message_id,
+                provider_model=SHOPIFY_ROUTER_MODEL,
+                input_tokens=ie_in,
+                output_tokens=ie_out,
+                metadata={"source": commerce_intent_source},
+            )
 
     skip_kb_retrieval = bool(tool_list and commerce_intent)
     rag_fallback_mode = "skipped_commerce_intent" if skip_kb_retrieval else "vector_threshold_only"
 
     retrieve_timing: dict[str, float] = {}
     t_retrieve = time.perf_counter()
-    chunks = await _retrieve_chunks_with_new_session(
+    chunks, rag_billing = await _retrieve_chunks_with_new_session(
         payload.agent_id,
         user_message=payload.message,
         expanded_query=expanded_query,
@@ -1669,6 +1951,15 @@ async def run_chat_stream(
         meta_timing=retrieve_timing,
     )
     retrieve_wall_ms = (time.perf_counter() - t_retrieve) * 1000.0
+    if not skip_kb_retrieval:
+        await _record_embedding_rag_events(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            turn_user_message_id=turn_user_message_id,
+            rag_billing=rag_billing,
+        )
 
     force_tools_round0 = force_tools_round0 or (bool(tool_list) and commerce_intent)
 
@@ -1744,6 +2035,7 @@ async def run_chat_stream(
             db,
             user_id=user_id,
             conversation_id=conversation_id,
+            agent_id=payload.agent_id,
             lc_messages=lc_messages,
             model=model,
             tools=tool_list,
@@ -1751,6 +2043,7 @@ async def run_chat_stream(
             temperature=creativity,
             force_first_round_tool_choice=force_tools_round0,
             meta_out=llm_stream_meta,
+            turn_user_message_id=turn_user_message_id,
         ):
             parts.append(piece)
             if not handoff_replaces_reply:
@@ -1776,6 +2069,18 @@ async def run_chat_stream(
         fallback_used = bool(_looks_like_fallback_response(answer, fallback_message))
         llm_usage_input_tokens = int(llm_stream_meta.get("usage_input_tokens") or 0)
         llm_usage_output_tokens = int(llm_stream_meta.get("usage_output_tokens") or 0)
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_MAIN,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=model,
+            input_tokens=llm_usage_input_tokens,
+            output_tokens=llm_usage_output_tokens,
+            metadata={"phase": "main", "streamed": True},
+        )
 
     if human_on and visitor_requests_human_nl:
         conv_handoff = conv_for_handoff or await get_conversation(db, user_id, conversation_id)
@@ -1812,10 +2117,24 @@ async def run_chat_stream(
         ),
     }
     turn_signals_model: TurnSignalsDTO | None = None
-    ts_raw = await compute_turn_signals(payload.message, answer)
+    ts_raw, ts_in, ts_out = await compute_turn_signals(payload.message, answer)
     if ts_raw:
         assistant_meta["turn_signals"] = ts_raw.model_dump()
         turn_signals_model = TurnSignalsDTO.model_validate(ts_raw.model_dump())
+    if ts_in or ts_out:
+        ts_model = get_settings().openai_chat_model or "gpt-4o-mini"
+        await record_cost_event(
+            db,
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_id=user_id,
+            kind=COST_KIND_LLM_TURN_SIGNALS,
+            turn_user_message_id=turn_user_message_id,
+            provider_model=ts_model,
+            input_tokens=ts_in,
+            output_tokens=ts_out,
+            metadata={"streamed": True},
+        )
 
     assistant_latency_ms = int((time.perf_counter() - turn_latency_start) * 1000)
     _log_runtime_turn_timing(

@@ -14,4 +14,6 @@ export type ApiActionCatalogEntry = {
 
 export type ApiActionCatalogResponse = {
   entries: ApiActionCatalogEntry[];
+  max_enabled_shopify_actions: number;
+  enabled_shopify_actions: number;
 };

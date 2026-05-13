@@ -35,6 +35,7 @@ export function UsagePlanBanner() {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+  const overageCharged = snap.estimated_overage_cents > 0;
 
   return (
     <div
@@ -50,12 +51,19 @@ export function UsagePlanBanner() {
         {` · `}
         {snap.included_conversations.toLocaleString()} included
         {snap.overage_conversations > 0
-          ? ` · ${snap.overage_conversations.toLocaleString()} paid overage (~$${overageMoney} est.)`
+          ? overageCharged
+            ? ` · ${snap.overage_conversations.toLocaleString()} paid overage (~$${overageMoney} est.)`
+            : ` · ${snap.overage_conversations.toLocaleString()} beyond included (no per-conversation charge; responses may use a lighter model)`
           : ""}
       </p>
-      <Link href="/usage" className="text-ds-primary mt-2 inline-block text-xs font-semibold hover:underline">
-        View usage details
-      </Link>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+        <Link href="/usage" className="text-ds-primary text-xs font-semibold hover:underline">
+          View usage details
+        </Link>
+        <Link href="/pricing" className="text-ds-primary text-xs font-semibold hover:underline">
+          Compare plans
+        </Link>
+      </div>
     </div>
   );
 }

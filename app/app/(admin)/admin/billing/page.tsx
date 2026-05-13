@@ -181,7 +181,7 @@ async function SubscriptionsTab({ sp }: { sp: ParsedSp }) {
           <input name="user_email" defaultValue={userEmail} placeholder="alice@…" className={inputClass} />
         </Field>
         <Field label="Plan slug">
-          <input name="plan_slug" defaultValue={planSlug} placeholder="growth" className={inputClass} />
+          <input name="plan_slug" defaultValue={planSlug} placeholder="standard" className={inputClass} />
         </Field>
         <Field label="Status">
           <select name="status" defaultValue={status} className={inputClass}>

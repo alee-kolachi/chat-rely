@@ -9,6 +9,8 @@ import {
   getConversationCost,
   type AdminConversationCost,
   type AdminCostByModelRow,
+  type AdminCostEventRow,
+  type AdminCostKindRollup,
 } from "@/lib/admin/api";
 
 type RouteParams = Promise<{ id: string }>;
@@ -52,6 +54,8 @@ export default async function AdminConversationDetailPage({
 
   const showByModel =
     costBreakdown !== null && costBreakdown.by_model.length > 1;
+  const costEvents = costBreakdown?.cost_events ?? [];
+  const showEventLedger = costEvents.length > 0;
 
   return (
     <div className="grid grid-cols-1 gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -74,7 +78,22 @@ export default async function AdminConversationDetailPage({
           </div>
         )}
 
+        {costBreakdown?.has_unknown_event_pricing && (
+          <div className="border-amber-200/60 bg-amber-50/60 text-amber-900 rounded-md border px-4 py-2 text-xs">
+            One or more cost events use a model missing from env pricing — ledger total is hidden
+            until prices are configured.
+          </div>
+        )}
+
         {showByModel && costBreakdown && <CostByModelTable rows={costBreakdown.by_model} />}
+
+        {showEventLedger && costBreakdown && (
+          <TrueCostEventsTable events={costEvents} />
+        )}
+
+        {showEventLedger && costBreakdown && costBreakdown.by_kind && costBreakdown.by_kind.length > 0 && (
+          <CostByKindTable rows={costBreakdown.by_kind} />
+        )}
 
         {costBreakdown?.has_unknown_models && (
           <div className="border-amber-200/60 bg-amber-50/60 text-amber-900 rounded-md border px-4 py-2 text-xs">
@@ -156,6 +175,20 @@ export default async function AdminConversationDetailPage({
               {formatCostUsd(costBreakdown?.total_cost_usd ?? null)}
             </span>
           </KV>
+          {(costBreakdown?.cost_events?.length ?? 0) > 0 && (
+            <>
+              <KV label="Ledger total (API)">
+                <span className="text-ds-on-surface font-semibold">
+                  {formatCostUsd(costBreakdown?.events_total_cost_usd ?? null)}
+                </span>
+              </KV>
+              <KV label="Avg / customer message">
+                {costBreakdown?.avg_cost_per_customer_message_usd != null
+                  ? formatCostUsd(costBreakdown.avg_cost_per_customer_message_usd)
+                  : "—"}
+              </KV>
+            </>
+          )}
         </SidebarCard>
 
         <SidebarCard title="Metadata">
@@ -200,6 +233,7 @@ function KV({ label, children }: { label: string; children: React.ReactNode }) {
 }
 
 function CostByModelTable({ rows }: { rows: AdminCostByModelRow[] }) {
+  const showEmb = rows.some((r) => (r.embedding_tokens ?? 0) > 0);
   return (
     <section className="border-ds-outline rounded-xl border bg-ds-surface p-4">
       <header className="mb-3 flex items-baseline justify-between">
@@ -220,6 +254,11 @@ function CostByModelTable({ rows }: { rows: AdminCostByModelRow[] }) {
             <th className="border-ds-outline border-b px-2 py-1.5 text-right font-semibold">
               Out
             </th>
+            {showEmb && (
+              <th className="border-ds-outline border-b px-2 py-1.5 text-right font-semibold">
+                Embed
+              </th>
+            )}
             <th className="border-ds-outline border-b px-2 py-1.5 text-right font-semibold">
               Cost
             </th>
@@ -234,6 +273,11 @@ function CostByModelTable({ rows }: { rows: AdminCostByModelRow[] }) {
               <td className="px-2 py-1.5 font-mono text-xs">{row.model}</td>
               <td className="px-2 py-1.5 text-right">{row.input_tokens.toLocaleString()}</td>
               <td className="px-2 py-1.5 text-right">{row.output_tokens.toLocaleString()}</td>
+              {showEmb && (
+                <td className="px-2 py-1.5 text-right">
+                  {(row.embedding_tokens ?? 0).toLocaleString()}
+                </td>
+              )}
               <td className="px-2 py-1.5 text-right">{formatCostUsd(row.cost_usd)}</td>
               <td className="text-ds-on-surface-variant px-2 py-1.5 text-right">
                 {row.pct_of_total.toFixed(1)}%
@@ -242,6 +286,87 @@ function CostByModelTable({ rows }: { rows: AdminCostByModelRow[] }) {
           ))}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+function CostByKindTable({ rows }: { rows: AdminCostKindRollup[] }) {
+  return (
+    <section className="border-ds-outline rounded-xl border bg-ds-surface p-4">
+      <header className="mb-3">
+        <h2 className="text-ds-on-surface text-sm font-semibold">Cost by operation kind</h2>
+        <p className="text-ds-on-surface-variant mt-1 text-[11px]">
+          Roll-up from the API ledger (LLM rounds, embeddings, tools).
+        </p>
+      </header>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-ds-on-surface-variant text-[11px] uppercase tracking-wide">
+            <th className="border-ds-outline border-b px-2 py-1.5 text-left font-semibold">Kind</th>
+            <th className="border-ds-outline border-b px-2 py-1.5 text-right font-semibold">Events</th>
+            <th className="border-ds-outline border-b px-2 py-1.5 text-right font-semibold">Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.kind} className="border-ds-outline border-b last:border-b-0">
+              <td className="px-2 py-1.5 font-mono text-xs">{row.kind}</td>
+              <td className="px-2 py-1.5 text-right">{row.count.toLocaleString()}</td>
+              <td className="px-2 py-1.5 text-right">{formatCostUsd(row.cost_usd)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function TrueCostEventsTable({ events }: { events: AdminCostEventRow[] }) {
+  return (
+    <section className="border-ds-outline rounded-xl border bg-ds-surface p-4">
+      <header className="mb-3">
+        <h2 className="text-ds-on-surface text-sm font-semibold">True cost ledger</h2>
+        <p className="text-ds-on-surface-variant mt-1 text-[11px]">
+          One row per billed API operation (including RAG embeddings and each LLM round). Shopify
+          tool rows are $0 (Admin API, not OpenAI metered).
+        </p>
+      </header>
+      <div className="max-h-[28rem] overflow-auto rounded-md border border-black/10">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead className="bg-ds-neutral sticky top-0">
+            <tr className="text-ds-on-surface-variant text-[11px] uppercase tracking-wide">
+              <th className="border-b px-2 py-1.5 text-left font-semibold">Time</th>
+              <th className="border-b px-2 py-1.5 text-left font-semibold">Kind</th>
+              <th className="border-b px-2 py-1.5 text-left font-semibold">Model</th>
+              <th className="border-b px-2 py-1.5 text-right font-semibold">In / out</th>
+              <th className="border-b px-2 py-1.5 text-right font-semibold">Embed tok</th>
+              <th className="border-b px-2 py-1.5 text-right font-semibold">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((ev) => (
+              <tr key={ev.id} className="border-ds-outline border-b last:border-b-0">
+                <td className="text-ds-on-surface-variant px-2 py-1.5 whitespace-nowrap text-[11px]">
+                  {formatDateTime(ev.created_at)}
+                </td>
+                <td className="px-2 py-1.5 font-mono text-[11px]">{ev.kind}</td>
+                <td className="px-2 py-1.5 font-mono text-[11px]">
+                  {ev.provider_model ?? "—"}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono text-[11px]">
+                  {ev.input_tokens.toLocaleString()} / {ev.output_tokens.toLocaleString()}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono text-[11px]">
+                  {ev.embedding_tokens.toLocaleString()}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono text-[11px]">
+                  {formatCostUsd(ev.cost_usd)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

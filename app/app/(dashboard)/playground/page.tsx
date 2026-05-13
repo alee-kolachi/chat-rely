@@ -12,11 +12,15 @@ import {
   Send,
   Settings2,
   ShoppingBag,
+  ThumbsDown,
+  ThumbsUp,
   UserRound,
 } from "lucide-react";
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
+import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { useMeContext } from "@/components/layout/me-context-provider";
 import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
 import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
@@ -29,6 +33,7 @@ import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard
 import { BackendApiError, backendFetch, backendNdjsonStream } from "@/lib/backend-api";
 import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
 import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
+import { planHidesPoweredByChatrely, messageFeedbackEnabledForPlanSlug } from "@/lib/widget-branding";
 import { cn } from "@/lib/utils";
 
 /** Uses global `.ds-app-field` (design-system tokens + focus ring). */
@@ -50,6 +55,8 @@ function actionsConfigDirty(
 type PlaygroundPreviewMessage = {
   from: "user" | "assistant";
   text: string;
+  assistantMessageId?: string | null;
+  feedbackVote?: 1 | -1 | null;
 };
 
 type PlaygroundThreadCacheEntry = {
@@ -462,6 +469,10 @@ function PlaygroundPreviewConversation({
         } else if (ev.type === "done") {
           setConversationId(ev.conversation_id);
           const reply = typeof ev.response === "string" ? ev.response : "";
+          const assistantMessageId =
+            typeof (ev as { assistant_message_id?: unknown }).assistant_message_id === "string"
+              ? (ev as { assistant_message_id: string }).assistant_message_id
+              : null;
           setPreviewMessages((prev) => {
             if (prev.length === 0) return prev;
             const last = prev[prev.length - 1];
@@ -471,7 +482,11 @@ function PlaygroundPreviewConversation({
               return prev.slice(0, -1);
             }
             const next = [...prev];
-            next[next.length - 1] = { from: "assistant", text: merged };
+            next[next.length - 1] = {
+              from: "assistant",
+              text: merged,
+              assistantMessageId: assistantMessageId ?? last.assistantMessageId ?? undefined,
+            };
             return next;
           });
         } else if (ev.type === "error") {
@@ -538,6 +553,39 @@ function PlaygroundPreviewConversation({
   }
 
   const footerError = saveError ?? chatError;
+
+  const { data: meData, loading: meLoading } = useMeContext();
+  const hidePoweredByPlan = useMemo(
+    () => !meLoading && planHidesPoweredByChatrely(meData?.plan.slug),
+    [meLoading, meData?.plan]
+  );
+  const messageFeedbackEnabled = useMemo(
+    () => !meLoading && messageFeedbackEnabledForPlanSlug(meData?.plan.slug),
+    [meLoading, meData?.plan]
+  );
+
+  const submitPlaygroundFeedback = useCallback(
+    async (messageId: string, value: 1 | -1) => {
+      if (!agentId) return;
+      try {
+        await backendFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/message-feedback`, {
+          method: "POST",
+          body: JSON.stringify({ message_id: messageId, value, visitor_id: visitorId }),
+        });
+        setPreviewMessages((prev) =>
+          prev.map((m) => (m.assistantMessageId === messageId ? { ...m, feedbackVote: value } : m))
+        );
+      } catch {
+        /* ignore */
+      }
+    },
+    [agentId, visitorId]
+  );
+
+  const showPoweredByEphemeral = useMemo(
+    () => !previewMessages.some((m) => m.from === "user"),
+    [previewMessages]
+  );
 
   const hasBrand = Boolean(brandColorHex);
   const chrome = useMemo(
@@ -786,6 +834,41 @@ function PlaygroundPreviewConversation({
                         ) : (
                           <AssistantMarkdown>{msg.text}</AssistantMarkdown>
                         )}
+                        {messageFeedbackEnabled &&
+                        msg.assistantMessageId &&
+                        !isStreamingAssistant &&
+                        msg.text.trim() ? (
+                          <div className="mt-2 flex items-center gap-1 border-t border-ds-outline/60 pt-2">
+                            <button
+                              type="button"
+                              className={cn(
+                                "inline-flex size-8 items-center justify-center rounded-md border text-ds-on-surface-variant transition-colors",
+                                msg.feedbackVote === 1
+                                  ? "border-ds-primary bg-ds-primary/10 text-ds-primary"
+                                  : "border-ds-outline/80 hover:bg-ds-sidebar/60"
+                              )}
+                              aria-label="Thumbs up"
+                              aria-pressed={msg.feedbackVote === 1}
+                              onClick={() => void submitPlaygroundFeedback(msg.assistantMessageId!, 1)}
+                            >
+                              <ThumbsUp className="size-3.5" strokeWidth={2} />
+                            </button>
+                            <button
+                              type="button"
+                              className={cn(
+                                "inline-flex size-8 items-center justify-center rounded-md border text-ds-on-surface-variant transition-colors",
+                                msg.feedbackVote === -1
+                                  ? "border-rose-500/60 bg-rose-500/10 text-rose-700"
+                                  : "border-ds-outline/80 hover:bg-ds-sidebar/60"
+                              )}
+                              aria-label="Thumbs down"
+                              aria-pressed={msg.feedbackVote === -1}
+                              onClick={() => void submitPlaygroundFeedback(msg.assistantMessageId!, -1)}
+                            >
+                              <ThumbsDown className="size-3.5" strokeWidth={2} />
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ) : (
@@ -818,6 +901,9 @@ function PlaygroundPreviewConversation({
           </>
         ) : (
           <>
+            {!hidePoweredByPlan && showPoweredByEphemeral ? (
+              <PoweredByChatRely compact className="mb-3 border-b border-ds-outline/70 pb-2" />
+            ) : null}
             <div className="flex items-center gap-2 sm:gap-3">
               <input
                 className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}

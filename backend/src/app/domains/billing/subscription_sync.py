@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.core.settings import get_settings
-from app.domains.billing.price_map import slug_for_price_id
+from app.domains.billing.price_map import canonical_plan_slug, slug_for_price_id
 from app.domains.billing.stripe_client import configure_stripe
 
 log = structlog.get_logger(__name__)
@@ -119,7 +119,7 @@ async def sync_subscription_from_checkout_session_payload(db: AsyncSession, data
     if plan_id is None:
         meta_raw = data.get("metadata") or {}
         meta = meta_raw if isinstance(meta_raw, dict) else {}
-        slug = (meta.get("plan_slug") or "").strip().lower()
+        slug = canonical_plan_slug(str(meta.get("plan_slug") or ""))
         if slug:
             r = await db.execute(
                 text("select id from public.plans where slug = :slug and is_active = true limit 1"),

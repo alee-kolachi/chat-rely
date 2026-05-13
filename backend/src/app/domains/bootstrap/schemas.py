@@ -2,7 +2,9 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+from app.domains.plans.schemas import PlanLimitsDTO
 
 
 class ProfileDTO(BaseModel):
@@ -25,6 +27,17 @@ class PlanDTO(BaseModel):
     max_agents: int
     overage_conversation_cents: int
     features: dict[str, Any]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def limits(self) -> PlanLimitsDTO:
+        from app.domains.plans.plan_limits import plan_limits_dto_from_row
+
+        return plan_limits_dto_from_row(
+            included_conversations=self.included_conversations,
+            max_agents=self.max_agents,
+            features=self.features,
+        )
 
 
 class SubscriptionDTO(BaseModel):

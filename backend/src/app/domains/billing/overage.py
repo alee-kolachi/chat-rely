@@ -1,4 +1,4 @@
-"""Option A overage: one-off invoice for conversation usage above the plan included amount."""
+"""Conversation overage invoicing (Stripe). Snapshots currently keep ``estimated_overage_cents`` at 0, so this path is inactive until metered billing is enabled."""
 
 from __future__ import annotations
 

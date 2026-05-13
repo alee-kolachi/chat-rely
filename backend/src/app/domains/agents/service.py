@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.domains.agents.schemas import AgentCreateRequest, AgentDTO, AgentUpdateRequest
 from app.domains.bootstrap.service import _ensure_default_subscription
+from app.domains.plans.plan_limits import plan_limits_dto_from_row
 
 
 def _slugify(value: str) -> str:
@@ -32,7 +33,11 @@ async def _get_user_agent_count(db: AsyncSession, user_id: UUID) -> int:
 
 async def _get_user_plan_max_agents(db: AsyncSession, user_id: UUID) -> int:
     _, plan = await _ensure_default_subscription(db, user_id)
-    return plan.max_agents
+    return plan_limits_dto_from_row(
+        included_conversations=plan.included_conversations,
+        max_agents=plan.max_agents,
+        features=plan.features,
+    ).max_agents
 
 
 async def _fetch_agent_by_id(db: AsyncSession, user_id: UUID, agent_id: UUID) -> AgentDTO:

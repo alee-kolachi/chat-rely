@@ -172,10 +172,48 @@ export function DashboardTrainingTopicsEmptyState() {
           />
         </svg>
       </div>
-      <p className="text-ds-on-surface text-sm font-medium">No training gaps for this range</p>
+      <p className="text-ds-on-surface text-sm font-medium">No source suggestions for this range</p>
       <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-[18rem] text-xs leading-relaxed">
-        When closures suggest missing coverage, suggested topics will show up here.
+        When resolved chats show missing coverage, suggested topics appear here so you can add snippets, Q&amp;A, or
+        pages in Knowledge.
       </p>
+    </div>
+  );
+}
+
+/** Shown when Source suggestions are a Standard / Pro feature for this workspace. */
+export function DashboardSourceSuggestionsPlanGate() {
+  return (
+    <div className="border-ds-outline rounded-ds-lg border border-dashed bg-ds-sidebar/40 px-4 py-8 text-center">
+      <div
+        className="text-ds-on-surface-variant mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-ds-surface ring-1 ring-ds-outline"
+        aria-hidden
+      >
+        <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+          />
+        </svg>
+      </div>
+      <p className="text-ds-on-surface text-sm font-medium">Source suggestions</p>
+      <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-[19rem] text-xs leading-relaxed">
+        AI highlights gaps in your knowledge sources after closures. Included on{" "}
+        <span className="text-ds-on-surface font-medium">Standard</span> and{" "}
+        <span className="text-ds-on-surface font-medium">Pro</span>.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+        <Link
+          href="/account/plan"
+          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex rounded-ds-md px-4 py-2 text-xs font-semibold transition-colors"
+        >
+          View plans
+        </Link>
+        <Link href="/pricing" className="text-ds-primary text-xs font-semibold hover:underline">
+          Compare features
+        </Link>
+      </div>
     </div>
   );
 }

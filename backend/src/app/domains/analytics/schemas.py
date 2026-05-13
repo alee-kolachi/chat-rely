@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app.domains.message_feedback.schemas import MessageFeedbackAnalyticsDTO
 
 
 class AnalyticsSeriesPoint(BaseModel):
@@ -40,6 +43,7 @@ class AnalyticsQualityMetric(BaseModel):
 class AgentAnalyticsResponse(BaseModel):
     model_config = {"extra": "forbid"}
 
+    analytics_tier: Literal["basic", "full"]
     range_from: datetime
     range_to: datetime
     conversations_started: int
@@ -51,3 +55,4 @@ class AgentAnalyticsResponse(BaseModel):
     sentiment: list[AnalyticsSentimentSlice] = Field(default_factory=list)
     countries: list[AnalyticsNamedCount] = Field(default_factory=list)
     quality: list[AnalyticsQualityMetric] = Field(default_factory=list)
+    message_feedback: MessageFeedbackAnalyticsDTO | None = None

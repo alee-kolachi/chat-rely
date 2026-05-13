@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.domains.billing.customers import ensure_stripe_customer_for_user, fetch_auth_user_email
-from app.domains.billing.price_map import monthly_price_id_for_slug, paid_checkout_slugs
+from app.domains.billing.price_map import canonical_plan_slug, monthly_price_id_for_slug, paid_checkout_slugs
 from app.domains.billing.stripe_client import configure_stripe
 from app.domains.billing.subscription_sync import (
     _stripe_obj_to_dict,
@@ -33,7 +33,7 @@ async def create_subscription_checkout_session(
             message="Only monthly checkout is configured",
             status_code=400,
         )
-    slug = plan_slug.strip().lower()
+    slug = canonical_plan_slug(plan_slug.strip().lower())
     settings = get_settings()
     if slug not in paid_checkout_slugs(settings):
         raise AppError(
@@ -180,7 +180,7 @@ async def change_subscription_plan(
     Immediate plan change on the existing Stripe subscription (proration default: charge/credit prorations).
     DB is updated when Stripe sends customer.subscription.updated.
     """
-    slug = new_plan_slug.strip().lower()
+    slug = canonical_plan_slug(new_plan_slug.strip().lower())
     settings = get_settings()
     new_price = monthly_price_id_for_slug(settings, slug)
     if not new_price or slug not in paid_checkout_slugs(settings):

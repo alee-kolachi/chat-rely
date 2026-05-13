@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { useMeContext } from "@/components/layout/me-context-provider";
+import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
 import { cn } from "@/lib/utils";
 
 type NavChild = { href?: string; label: string; action?: "logout" };
@@ -67,10 +69,21 @@ const collapsedRailItemClass =
 
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const { data: meData, loading: meLoading } = useMeContext();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [collapsedFlyoutHref, setCollapsedFlyoutHref] = useState<string | null>(null);
   const flyoutContainerRef = useRef<HTMLDivElement>(null);
+
+  const sidebarNavItems = useMemo(
+    () =>
+      navItems.filter(
+        (item) =>
+          item.href !== "/analytics" ||
+          (!meLoading && planAllowsAnalyticsPage(meData?.plan.slug))
+      ),
+    [meData?.plan, meLoading]
+  );
 
   useEffect(() => {
     const savedCollapsed = window.localStorage.getItem("dashboard-sidebar-collapsed");
@@ -79,11 +92,11 @@ export function DashboardSidebar() {
 
   useEffect(() => {
     const nextOpenSections: Record<string, boolean> = {};
-    navItems.forEach((item) => {
+    sidebarNavItems.forEach((item) => {
       if (item.children) nextOpenSections[item.href] = hasActiveChild(pathname, item.children);
     });
     queueMicrotask(() => setOpenSections((prev) => ({ ...nextOpenSections, ...prev })));
-  }, [pathname]);
+  }, [pathname, sidebarNavItems]);
 
   useEffect(() => {
     queueMicrotask(() => setCollapsedFlyoutHref(null));
@@ -146,7 +159,7 @@ export function DashboardSidebar() {
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain p-2">
-        {navItems.map((item) => {
+        {sidebarNavItems.map((item) => {
           const itemActive = isRouteActive(pathname, item.href);
           const childActive = item.children ? hasActiveChild(pathname, item.children) : false;
           const sectionOpen = item.children ? openSections[item.href] : false;

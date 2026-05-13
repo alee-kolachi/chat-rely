@@ -28,6 +28,19 @@ class PublicWidgetConfigResponse(BaseModel):
     human_escalation_available: bool = False
     """Optional logo URL for header (e.g. favicon from primary website knowledge source)."""
     avatar_url: str | None = None
+    """When True, widget may show an attachment affordance (Hobby+); Free hides it. Upload not implemented yet."""
+    attachments_ui_enabled: bool = False
+    hide_powered_by_chatrely: bool = Field(
+        default=False,
+        description=(
+            "When True, omit “Powered by ChatRely” in the embed (Pro and legacy Scale). "
+            "When False, the widget may show it only until the visitor sends their first message."
+        ),
+    )
+    message_feedback_enabled: bool = Field(
+        default=False,
+        description="When True, embed may show thumbs up/down on assistant replies (Pro / Scale).",
+    )
 
 
 class PublicWidgetChatRequest(BaseModel):
@@ -42,3 +55,11 @@ class PublicWidgetChatRequest(BaseModel):
     request_human: bool = False
     locale: str | None = None
     country_code: str | None = None
+
+
+class PublicWidgetMessageFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: UUID
+    visitor_id: str = Field(min_length=1, max_length=255)
+    value: Literal[-1, 1]

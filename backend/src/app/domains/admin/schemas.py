@@ -10,7 +10,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-
 # Money policy: USD floats throughout. Per-message costs go down to fractions of a cent
 # ($0.0001 territory) so cents-int (used by `subscriptions.monthly_price_cents`) loses
 # precision. Display rounding lives in `app/lib/admin/cost-format.ts`.
@@ -185,10 +184,38 @@ class AdminUserDetail(BaseModel):
 # ---------- Phase 3: Costing -----------------------------------------------------
 
 
+class AdminCostEventRow(BaseModel):
+    """One row from ``conversation_cost_events`` (true-cost ledger)."""
+
+    id: UUID
+    kind: str
+    provider_model: str | None = None
+    turn_user_message_id: UUID | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    embedding_tokens: int = 0
+    cost_usd: float | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class AdminCostKindRollup(BaseModel):
+    kind: str
+    cost_usd: float = 0.0
+    count: int = 0
+
+
+class AdminCostPerTurnRollup(BaseModel):
+    turn_user_message_id: UUID
+    cost_usd: float = 0.0
+    event_count: int = 0
+
+
 class AdminCostByModelRow(BaseModel):
     model: str
     input_tokens: int = 0
     output_tokens: int = 0
+    embedding_tokens: int = 0
     cost_usd: float = 0.0
     pct_of_total: float = 0.0  # 0..100
 
@@ -223,6 +250,14 @@ class AdminConversationCost(BaseModel):
     by_model: list[AdminCostByModelRow] = Field(default_factory=list)
     messages: list[AdminMessageCostRow] = Field(default_factory=list)
     has_unknown_models: bool = False
+    # True-cost ledger (forward from migration); empty for older conversations.
+    cost_events: list[AdminCostEventRow] = Field(default_factory=list)
+    events_total_cost_usd: float | None = None
+    has_unknown_event_pricing: bool = False
+    by_kind: list[AdminCostKindRollup] = Field(default_factory=list)
+    per_turn: list[AdminCostPerTurnRollup] = Field(default_factory=list)
+    customer_message_count: int = 0
+    avg_cost_per_customer_message_usd: float | None = None
 
 
 class AdminUserCosting(BaseModel):

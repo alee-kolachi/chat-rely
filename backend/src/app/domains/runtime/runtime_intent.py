@@ -111,55 +111,61 @@ async def resolve_commerce_intent(
     shopify_route_decision: ShopifyToolRoute | None,
     llm_fallback_enabled: bool,
     recent_thread_used_shopify_tools: bool = False,
-) -> tuple[bool, str, float | None]:
+) -> tuple[bool, str, float | None, tuple[int, int] | None]:
     """
     Combine regex with LLM-backed routing.
 
-    Returns ``(commerce_intent, source, confidence_or_none)`` where ``source`` is one of:
+    Returns ``(commerce_intent, source, confidence_or_none, llm_usage_or_none)`` where ``source`` is one of:
     ``regex``, ``thread_shopify_context``, ``router``, ``router_negative``, ``llm_fallback``,
     ``llm_fallback_negative``, ``none``.
+
+    ``llm_usage_or_none`` is ``(input_tokens, output_tokens)`` only when this function invoked
+    the Shopify router LLM itself (``llm_fallback*`` / ``none`` after a failed parse path);
+    router usage from setup is billed separately.
     """
     msg = (user_message or "").strip()
     if not msg:
-        return False, "none", None
+        return False, "none", None, None
 
     if is_commerce_shopify_intent(msg):
-        return True, "regex", None
+        return True, "regex", None, None
 
     if not tool_list:
-        return False, "none", None
+        return False, "none", None, None
 
     if recent_thread_used_shopify_tools:
         log.info("runtime.commerce_intent_resolved", source="thread_shopify_context")
-        return True, "thread_shopify_context", None
+        return True, "thread_shopify_context", None, None
 
     if not llm_fallback_enabled:
-        return False, "none", None
+        return False, "none", None, None
 
     # Reuse Shopify router output when present (already paid for in _load_shopify_tools_and_optional_route).
     if shopify_route_decision is not None:
         conf = float(shopify_route_decision.confidence or 0.0)
         if shopify_route_decision.requires_live_shopify_data and conf >= _COMMERCE_FROM_LLM_MIN_CONFIDENCE:
             log.info("runtime.commerce_intent_resolved", source="router", confidence=conf)
-            return True, "router", conf
+            return True, "router", conf, None
         log.info(
             "runtime.commerce_intent_resolved",
             source="router_negative",
             confidence=conf,
             requires_live=shopify_route_decision.requires_live_shopify_data,
         )
-        return False, "router_negative", conf
+        return False, "router_negative", conf, None
 
     # Router disabled or returned nothing — one cheap structured classification call.
-    route = await classify_shopify_tool_route(msg, tool_list)
+    route, in_t, out_t = await classify_shopify_tool_route(msg, tool_list)
     if route is None:
         log.warning("runtime.commerce_intent_resolved", source="llm_fallback_failed")
-        return False, "none", None
+        usage = (in_t, out_t) if (in_t or out_t) else None
+        return False, "none", None, usage
 
     conf = float(route.confidence or 0.0)
+    usage = (in_t, out_t) if (in_t or out_t) else None
     if route.requires_live_shopify_data and conf >= _COMMERCE_FROM_LLM_MIN_CONFIDENCE:
         log.info("runtime.commerce_intent_resolved", source="llm_fallback", confidence=conf)
-        return True, "llm_fallback", conf
+        return True, "llm_fallback", conf, usage
 
     log.info(
         "runtime.commerce_intent_resolved",
@@ -167,4 +173,4 @@ async def resolve_commerce_intent(
         confidence=conf,
         requires_live=route.requires_live_shopify_data,
     )
-    return False, "llm_fallback_negative", conf
+    return False, "llm_fallback_negative", conf, usage

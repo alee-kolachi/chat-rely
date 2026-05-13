@@ -9,18 +9,45 @@ import { LandingPricingTeaser } from "@/components/marketing/landing-pricing-tea
 const brands = ["Make", "Shopify", "Zendesk", "Notion", "Slack", "Stripe", "Salesforce", "WhatsApp", "Zapier"];
 
 const highlightCards = [
-  ["Purpose-built for LLMs", "Reasoning-focused responses for complex support cases with context-aware generation."],
-  ["Designed for simplicity", "Create and deploy AI agents quickly with guided setup and low operational overhead."],
-  ["Engineered for security", "Enterprise controls, access policies, and compliance-ready workflows built in."],
+  [
+    "Always on — even during your biggest sales",
+    "Flash sale or midnight spike, your agent stays live. Customers talk to your brand, not an error screen.",
+  ],
+  [
+    "Live store data, not last week's upload",
+    "Price change Tuesday, your agent knows Tuesday. No retraining, no stale answers.",
+  ],
+  [
+    "Acts like support, not a FAQ box",
+    "Looks up orders, opens tickets, hands off with the full thread. Your team gets context, not confusion.",
+  ],
 ] as const;
 
 const featureCards = [
-  ["Sync with real-time data", "Connect to order, CRM, and billing systems for live customer context."],
-  ["Take actions automatically", "Execute workflows like plan upgrades and support escalations in real time."],
-  ["Compare AI models", "Test model quality and cost side-by-side for your support use-cases."],
-  ["Smart escalation", "Escalate based on policy, confidence, and customer sentiment."],
-  ["Advanced reporting", "Track resolution rates, trends, and satisfaction signals over time."],
-  ["Flexible integrations", "Use APIs and native integrations to connect your full support stack."],
+  [
+    "Multi-agent ready",
+    "Run separate agents for support, returns, and product questions. Each one trained on exactly what it needs — nothing it doesn't.",
+  ],
+  [
+    "You choose the model",
+    "From lightweight and fast to the most capable available. Match the model to the conversation, not the other way around.",
+  ],
+  [
+    "Learns from tickets, not just documents",
+    "Every resolved ticket becomes a potential knowledge update. Your agent gets sharper from real support history — not just what you thought to upload.",
+  ],
+  [
+    "No retraining cycle",
+    "Catalog updated. Policy revised. Agent already knows. There is no step two.",
+  ],
+  [
+    "White-label ready",
+    "Your brand, your colors, your name. ChatRely stays invisible — your support experience stays yours.",
+  ],
+  [
+    "Access controls that make sense",
+    "Set what each agent can see, do, and escalate. Useful for teams managing multiple stores or handing access to contractors without handing over everything.",
+  ],
 ] as const;
 
 export const metadata: Metadata = {
@@ -114,10 +141,12 @@ export default function LandingPage() {
       <section className="bg-white px-6 py-16 sm:py-20 lg:py-24">
         <div className="mx-auto max-w-[1200px]">
           <div className="mb-16 grid gap-10 lg:grid-cols-2">
-            <h2 className="text-4xl font-semibold tracking-tight">The complete platform for AI support agents</h2>
+            <h2 className="text-4xl font-semibold tracking-tight">
+              Support that stays on, stays accurate, and actually gets things done
+            </h2>
             <p className="text-base leading-7 text-ds-on-surface-variant lg:max-w-md lg:justify-self-end">
-              ChatRely is designed for building AI customer support agents that solve customer issues while improving
-              business outcomes.
+              ChatRely connects directly to your live Shopify store — looking up orders, handling returns, and escalating
+              with full context — so your customers never hit an error screen and your team never starts from scratch.
             </p>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
@@ -136,9 +165,12 @@ export default function LandingPage() {
 
       <section className="bg-white px-6 py-16 sm:py-20 lg:py-24">
         <div className="mx-auto max-w-[1200px]">
-          <h2 className="max-w-2xl text-4xl font-semibold tracking-tight">Build the perfect customer-facing AI agent</h2>
+          <h2 className="max-w-2xl text-4xl font-semibold tracking-tight">
+            Built for stores that can't afford a broken support experience
+          </h2>
           <p className="mt-5 max-w-2xl text-lg text-ds-on-surface-variant">
-            ChatRely gives you the tools to train your ideal support agent and connect it to your systems.
+            ChatRely was designed around one constraint: whatever happens — traffic spike, catalog update, edge-case
+            question — your customers should never feel the gap.
           </p>
           <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {featureCards.map(([title, text]) => (

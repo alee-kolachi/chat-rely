@@ -8,6 +8,7 @@ import time
 from typing import Any
 from uuid import UUID
 
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,13 +19,16 @@ from app.domains.actions.catalog_definitions import (
     all_static_definitions,
     get_static_definition,
 )
-from app.domains.actions.schemas import ActionCatalogEntry, AgentActionPatchRequest
+from app.domains.actions.schemas import (
+    ActionCatalogEntry,
+    ActionCatalogResponse,
+    AgentActionPatchRequest,
+)
 from app.domains.agents.service import _fetch_agent_by_id
 from app.domains.bootstrap.service import _ensure_default_subscription
-from app.domains.integrations.shopify.service import get_connection_status
 from app.domains.integrations.shopify.schemas import ShopifyConnectionStatus
-
-import structlog
+from app.domains.integrations.shopify.service import get_connection_status
+from app.domains.plans.plan_limits import plan_limits_dto_from_row
 
 log = structlog.get_logger(__name__)
 
@@ -102,6 +106,46 @@ def _effective_status(
     return "live"
 
 
+async def _count_enabled_shopify_agent_actions(db: AsyncSession, agent_id: UUID) -> int:
+    result = await db.execute(
+        text(
+            """
+            select count(*)::int as n
+            from public.agent_actions
+            where agent_id = cast(:agent_id as uuid)
+              and enabled = true
+              and action_key like 'shopify.%'
+            """
+        ),
+        {"agent_id": str(agent_id)},
+    )
+    return int(result.mappings().one()["n"])
+
+
+async def fetch_action_catalog_response(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    shopify_connection: ShopifyConnectionStatus | None = None,
+) -> ActionCatalogResponse:
+    entries = await build_catalog(
+        db, user_id=user_id, agent_id=agent_id, shopify_connection=shopify_connection
+    )
+    _, plan = await _ensure_default_subscription(db, user_id)
+    lim = plan_limits_dto_from_row(
+        included_conversations=plan.included_conversations,
+        max_agents=plan.max_agents,
+        features=plan.features,
+    )
+    enabled_n = await _count_enabled_shopify_agent_actions(db, agent_id)
+    return ActionCatalogResponse(
+        entries=entries,
+        max_enabled_shopify_actions=lim.max_enabled_actions_per_agent,
+        enabled_shopify_actions=enabled_n,
+    )
+
+
 async def build_catalog(
     db: AsyncSession,
     *,
@@ -114,7 +158,6 @@ async def build_catalog(
     features = plan.features or {}
     shopify_plan_ok = bool(features.get("shopify_enabled", False))
     human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
-    max_enabled = int(features.get("max_enabled_actions_per_agent") or 0)
 
     conn = shopify_connection or await get_connection_status(db, user_id=user_id, agent_id=agent_id)
     granted_set = frozenset((s or "").lower() for s in (conn.scopes or []))
@@ -147,7 +190,6 @@ async def build_catalog(
         )
         out.append(entry)
 
-    _ = max_enabled  # reserved for stricter validation messages
     return out
 
 
@@ -168,7 +210,12 @@ async def patch_agent_action(
     features = plan.features or {}
     shopify_plan_ok = bool(features.get("shopify_enabled", False))
     human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
-    max_enabled = int(features.get("max_enabled_actions_per_agent") or 0)
+    limits = plan_limits_dto_from_row(
+        included_conversations=plan.included_conversations,
+        max_agents=plan.max_agents,
+        features=features,
+    )
+    max_enabled = limits.max_enabled_actions_per_agent
 
     conn = await get_connection_status(db, user_id=user_id, agent_id=agent_id)
     granted_set = frozenset((s or "").lower() for s in (conn.scopes or []))
@@ -340,6 +387,14 @@ async def list_enabled_shopify_actions_for_runtime(
     features = plan.features or {}
     if not bool(features.get("shopify_enabled", False)):
         return []
+    limits = plan_limits_dto_from_row(
+        included_conversations=plan.included_conversations,
+        max_agents=plan.max_agents,
+        features=features,
+    )
+    max_n = limits.max_enabled_actions_per_agent
+    if max_n <= 0:
+        return []
 
     result = await db.execute(
         text(
@@ -377,6 +432,10 @@ async def list_enabled_shopify_actions_for_runtime(
                 dict(r["safety_policy"] or {}),
             )
         )
+
+    out.sort(key=lambda t: t[0])
+    if len(out) > max_n:
+        out = out[:max_n]
 
     if ttl > 0:
         async with _actions_runtime_lock:

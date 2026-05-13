@@ -80,7 +80,7 @@ def test_conversation_recent_used_shopify_tools_from_assistant_payload() -> None
 @pytest.mark.asyncio
 async def test_resolve_commerce_any_followup_after_shopify_thread() -> None:
     """No phrase list: arbitrary user text stays commerce if the thread already ran Shopify tools."""
-    intent, source, conf = await resolve_commerce_intent(
+    intent, source, conf, _usage = await resolve_commerce_intent(
         "Yeah try that once more using different words",
         tool_list=[object()],
         shopify_route_decision=None,
@@ -94,7 +94,7 @@ async def test_resolve_commerce_any_followup_after_shopify_thread() -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_commerce_regex_short_circuits() -> None:
-    intent, source, conf = await resolve_commerce_intent(
+    intent, source, conf, _usage = await resolve_commerce_intent(
         "Do you have blue widgets?",
         tool_list=[object()],
         shopify_route_decision=None,
@@ -109,15 +109,15 @@ async def test_resolve_commerce_regex_short_circuits() -> None:
 async def test_resolve_commerce_llm_fallback_when_regex_misses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_classify(_msg: str, _tools: object) -> ShopifyToolRoute:
-        return ShopifyToolRoute(requires_live_shopify_data=True, confidence=0.9)
+    async def _fake_classify(_msg: str, _tools: object) -> tuple[ShopifyToolRoute, int, int]:
+        return ShopifyToolRoute(requires_live_shopify_data=True, confidence=0.9), 10, 3
 
     monkeypatch.setattr(
         "app.domains.runtime.runtime_intent.classify_shopify_tool_route",
         _fake_classify,
     )
 
-    intent, source, conf = await resolve_commerce_intent(
+    intent, source, conf, usage = await resolve_commerce_intent(
         "Show me something unique about your warehouse inventory for widgets",
         tool_list=[object()],
         shopify_route_decision=None,
@@ -126,12 +126,13 @@ async def test_resolve_commerce_llm_fallback_when_regex_misses(
     assert intent is True
     assert source == "llm_fallback"
     assert conf == 0.9
+    assert usage == (10, 3)
 
 
 @pytest.mark.asyncio
 async def test_resolve_commerce_reuses_router_without_extra_llm() -> None:
     route = ShopifyToolRoute(requires_live_shopify_data=True, confidence=0.72)
-    intent, source, conf = await resolve_commerce_intent(
+    intent, source, conf, _usage = await resolve_commerce_intent(
         "xyzzy frobnitz plugh metaphor about assortment preferences without stock nouns",
         tool_list=[object()],
         shopify_route_decision=route,

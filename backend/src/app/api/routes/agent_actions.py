@@ -4,13 +4,16 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_user, get_db
-from app.domains.actions.bootstrap_schemas import AgentIntegrationsBootstrapResponse, AgentWebsitePreview
+from app.domains.actions.bootstrap_schemas import (
+    AgentIntegrationsBootstrapResponse,
+    AgentWebsitePreview,
+)
 from app.domains.actions.schemas import (
     ActionCatalogEntry,
     ActionCatalogResponse,
     AgentActionPatchRequest,
 )
-from app.domains.actions.service import build_catalog, patch_agent_action
+from app.domains.actions.service import fetch_action_catalog_response, patch_agent_action
 from app.domains.integrations.shopify.service import get_connection_status
 from app.domains.knowledge.schemas import WebsiteSourceListItemDTO
 from app.domains.knowledge.service import list_website_sources_for_agent
@@ -41,8 +44,9 @@ async def get_action_catalog(
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ActionCatalogResponse:
-    entries = await build_catalog(db, user_id=user.user_id, agent_id=agent_id)
-    return ActionCatalogResponse(entries=entries)
+    return await fetch_action_catalog_response(
+        db, user_id=user.user_id, agent_id=agent_id
+    )
 
 
 @router.get("/{agent_id}/integrations/bootstrap", response_model=AgentIntegrationsBootstrapResponse)
@@ -57,7 +61,7 @@ async def get_agent_integrations_bootstrap(
 ) -> AgentIntegrationsBootstrapResponse:
     """Single round-trip for Playground / Actions: catalog + Shopify + website preview."""
     shopify = await get_connection_status(db, user_id=user.user_id, agent_id=agent_id)
-    entries = await build_catalog(
+    catalog = await fetch_action_catalog_response(
         db,
         user_id=user.user_id,
         agent_id=agent_id,
@@ -68,7 +72,7 @@ async def get_agent_integrations_bootstrap(
         website_sources = await list_website_sources_for_agent(db, user.user_id, agent_id)
         website_preview = _pick_agent_website_preview(website_sources)
     return AgentIntegrationsBootstrapResponse(
-        catalog=ActionCatalogResponse(entries=entries),
+        catalog=catalog,
         shopify=shopify,
         website_preview=website_preview,
     )

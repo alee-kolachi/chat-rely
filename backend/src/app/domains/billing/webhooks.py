@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
 from app.domains.billing.stripe_client import configure_stripe
+from app.domains.billing.price_map import canonical_plan_slug
 from app.domains.billing.subscription_sync import (
     _extract_subscription_period_bounds,
     fetch_stripe_subscription,
@@ -102,7 +103,7 @@ async def _handle_subscription_updated(db: AsyncSession, obj: dict[str, Any]) ->
     stripe_sub = await fetch_stripe_subscription(sub_id)
     plan_id = await resolve_plan_id_for_stripe_subscription(db, stripe_sub)
     if plan_id is None:
-        slug = (meta.get("plan_slug") or "").strip().lower()
+        slug = canonical_plan_slug(str(meta.get("plan_slug") or ""))
         if slug:
             r = await db.execute(
                 text("select id from public.plans where slug = :slug and is_active = true limit 1"),

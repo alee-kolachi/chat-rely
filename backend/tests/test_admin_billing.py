@@ -29,7 +29,7 @@ def _make_subscription_row(status: str = "active") -> AdminSubscriptionRow:
         user_id=uuid4(),
         user_email="alice@x.com",
         plan_id=uuid4(),
-        plan_slug="growth",
+        plan_slug="standard",
         plan_name="Growth",
         monthly_price_cents=2900,
         status=status,
@@ -80,12 +80,12 @@ def test_list_subscriptions_passes_filters(
 
     response = admin_client.get(
         "/api/v1/admin/billing/subscriptions",
-        params={"status": "active", "plan_slug": "growth", "user_email": "ali"},
+        params={"status": "active", "plan_slug": "standard", "user_email": "ali"},
         headers=admin_auth(),
     )
     assert response.status_code == 200
     assert captured["status"] == "active"
-    assert captured["plan_slug"] == "growth"
+    assert captured["plan_slug"] == "standard"
     assert captured["user_email"] == "ali"
 
 

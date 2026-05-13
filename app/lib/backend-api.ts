@@ -182,6 +182,7 @@ export type RuntimeChatNdjsonEvent =
       type: "done";
       conversation_id: string;
       response: string;
+      assistant_message_id?: string | null;
       fallback_used: boolean;
       retrieval_count: number;
       tools_invoked?: string[];

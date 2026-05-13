@@ -9,7 +9,7 @@ import { useMeContext } from "@/components/layout/me-context-provider";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 
 /** Tier order used for upgrade vs downgrade (matches billing price map). */
-const PAID_ORDER = ["starter", "growth", "pro", "scale"] as const;
+const PAID_ORDER = ["hobby", "standard", "pro"] as const;
 
 function paidTierIndex(slug: string): number | null {
   const i = PAID_ORDER.indexOf(slug as (typeof PAID_ORDER)[number]);
@@ -323,8 +323,10 @@ export function AccountPlanContent() {
                       <span className="font-semibold text-ds-on-surface">{ctx.usage_snapshot.throttle_tier}</span>
                       {ctx.usage_snapshot.throttle_tier === "strong" ? (
                         <span className="block pt-1">
-                          New AI replies are blocked until you upgrade or the cycle resets (included conversations
-                          exceeded).
+                          You have passed your included billable conversations for this cycle. You are only charged
+                          your monthly subscription—there is no extra fee for additional conversations. The assistant
+                          temporarily uses a lower-cost model (configured on the server) until the cycle resets or you
+                          upgrade.
                         </span>
                       ) : null}
                     </div>
@@ -436,7 +438,7 @@ export function AccountPlanContent() {
                 {ctx.plan.slug !== "free" && !catalogPaidTier ? (
                   <div className="mt-5 border-t border-ds-outline pt-5">
                     <p className="text-ds-on-surface-variant text-xs leading-relaxed">
-                      Self-serve upgrades and downgrades apply to Starter–Scale. For custom or legacy plans, use billing
+                      Self-serve upgrades and downgrades apply to Hobby–Pro. Legacy Scale or custom plans: use billing
                       or contact support.
                     </p>
                     <button
