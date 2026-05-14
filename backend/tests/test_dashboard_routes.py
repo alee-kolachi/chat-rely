@@ -39,7 +39,7 @@ def test_get_agent_dashboard(client: TestClient, monkeypatch: pytest.MonkeyPatch
             range_from=now,
             range_to=now,
             conversations_started=3,
-            billable_conversations=2,
+            active_conversations=1,
             resolved_by_agent_pct=50.0,
             needs_human_pct=10.0,
             open_escalations=1,
@@ -69,6 +69,7 @@ def test_get_agent_dashboard(client: TestClient, monkeypatch: pytest.MonkeyPatch
     assert response.status_code == 200
     body = response.json()
     assert body["conversations_started"] == 3
+    assert body["active_conversations"] == 1
     assert body["resolved_by_agent_pct"] == 50.0
     assert body["training_topics"][0]["slug"] == "returns"
     assert body.get("sources_suggestions_enabled") is True

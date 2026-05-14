@@ -18,6 +18,44 @@ from app.domains.bootstrap.schemas import (
 log = structlog.get_logger(__name__)
 
 
+async def user_dashboard_onboarding_completed(db: AsyncSession, user_id: UUID) -> bool:
+    """
+    Dashboard is allowed when the user finished the guided onboarding flow, or when they have
+    active agent(s) but no onboarding_sessions rows (accounts created before onboarding existed).
+    """
+    row = (
+        await db.execute(
+            text(
+                """
+                select
+                  exists (
+                    select 1
+                    from public.onboarding_sessions s
+                    where s.user_id = cast(:user_id as uuid)
+                      and s.status = 'completed'
+                  ) as has_completed,
+                  exists (
+                    select 1
+                    from public.agents a
+                    where a.user_id = cast(:user_id as uuid)
+                      and a.archived_at is null
+                  ) as has_active_agent,
+                  exists (
+                    select 1
+                    from public.onboarding_sessions s2
+                    where s2.user_id = cast(:user_id as uuid)
+                  ) as has_any_session
+                """
+            ),
+            {"user_id": str(user_id)},
+        )
+    ).mappings().one()
+    has_completed = bool(row["has_completed"])
+    has_active_agent = bool(row["has_active_agent"])
+    has_any_session = bool(row["has_any_session"])
+    return has_completed or (has_active_agent and not has_any_session)
+
+
 def _month_period(now: datetime) -> tuple[datetime, datetime]:
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     next_month_seed = start.replace(day=28) + timedelta(days=4)
@@ -323,8 +361,11 @@ async def _fetch_context_profile_subscription_plan(
 async def bootstrap_me(db: AsyncSession, user_id: UUID) -> BootstrapResponse:
     profile = await _ensure_profile(db, user_id)
     subscription, plan = await _ensure_default_subscription(db, user_id)
+    onboarding_completed = await user_dashboard_onboarding_completed(db, user_id)
     await db.commit()
-    return BootstrapResponse(profile=profile, subscription=subscription, plan=plan)
+    return BootstrapResponse(
+        profile=profile, subscription=subscription, plan=plan, onboarding_completed=onboarding_completed
+    )
 
 
 async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse:
@@ -344,7 +385,7 @@ async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse
               period_start,
               period_end,
               included_conversations,
-              billable_conversations,
+              conversations_used,
               overage_conversations,
               estimated_overage_cents,
               throttle_tier
@@ -362,7 +403,14 @@ async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse
     usage_snapshot: UsageSnapshotDTO | None = None
     if usage_row:
         usage_snapshot = UsageSnapshotDTO.model_validate(dict(usage_row))
-    return MeContextResponse(profile=profile, subscription=subscription, plan=plan, usage_snapshot=usage_snapshot)
+    onboarding_completed = await user_dashboard_onboarding_completed(db, user_id)
+    return MeContextResponse(
+        profile=profile,
+        subscription=subscription,
+        plan=plan,
+        usage_snapshot=usage_snapshot,
+        onboarding_completed=onboarding_completed,
+    )
 
 
 async def refresh_usage_snapshot_for_user(user_id: UUID) -> None:

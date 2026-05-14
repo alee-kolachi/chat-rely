@@ -31,8 +31,8 @@ export default function AppearanceToneOnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const agentId = useResolvedOnboardingAgentId();
 
-  const connectionBackHref = useMemo(() => {
-    const path = "/onboarding/connection";
+  const agentPreviewBackHref = useMemo(() => {
+    const path = "/onboarding/agent-preview";
     if (!agentId) return path;
     return `${path}?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
@@ -67,7 +67,7 @@ export default function AppearanceToneOnboardingPage() {
           },
         }),
       });
-      router.push(`/onboarding/agent-preview?agentId=${encodeURIComponent(agentId)}`);
+      router.push(`/onboarding/pricing?agentId=${encodeURIComponent(agentId)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save appearance settings");
     } finally {
@@ -78,12 +78,12 @@ export default function AppearanceToneOnboardingPage() {
   return (
     <OnboardingFrame
       activeItem="Appearance & Tone"
-      completedItems={["Agent Name", "Knowledge Base", "Connection"]}
-      stepLabel="Step 4 of 6"
+      completedItems={["Agent Name", "Knowledge Base", "Connection", "Agent Preview"]}
+      stepLabel="Step 5 of 5"
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
-          backHref={connectionBackHref}
+          backHref={agentPreviewBackHref}
           backLabel="Back"
           primaryAsButton
           onPrimaryClick={handleContinue}
@@ -106,10 +106,10 @@ export default function AppearanceToneOnboardingPage() {
 
           <div className={cn(onboardingSplitCard, "flex flex-col max-lg:flex-none lg:min-h-0 lg:flex-1")}>
             <div className={onboardingSplitGrid}>
-              <section className="flex flex-col overflow-visible p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:p-10">
+              <section className="flex flex-col overflow-visible p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-auto lg:p-10">
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
-                    Step 4
+                    Step 5
                   </p>
                   <h1 className="text-ds-on-surface text-2xl font-semibold tracking-tight sm:text-3xl lg:text-[2rem]">
                     <span className="text-ds-primary font-bold">Appearance</span> and tone
@@ -196,31 +196,6 @@ export default function AppearanceToneOnboardingPage() {
                           />
                         </div>
                       </div>
-
-                      <p className="text-ds-on-surface mt-8 mb-1 text-sm font-semibold">Widget position</p>
-                      <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
-                        Where the launcher appears on the storefront.
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          className="border-ds-outline hover:border-black/45 touch-manipulation rounded-ds-lg border bg-ds-sidebar/50 p-3 text-left transition-colors [-webkit-tap-highlight-color:transparent]"
-                        >
-                          <div className="border-ds-outline relative mb-2 aspect-video rounded-ds-sm border bg-white">
-                            <span className="bg-ds-primary absolute bottom-2 left-2 size-3 rounded-full" />
-                          </div>
-                          <span className="text-xs font-medium text-ds-on-surface">Bottom left</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="border-ds-primary ring-ds-primary/15 touch-manipulation rounded-ds-lg border bg-white p-3 text-left ring-2 [-webkit-tap-highlight-color:transparent]"
-                        >
-                          <div className="border-ds-outline relative mb-2 aspect-video rounded-ds-sm border bg-white">
-                            <span className="bg-ds-primary absolute right-2 bottom-2 size-3 rounded-full" />
-                          </div>
-                          <span className="text-xs font-semibold text-ds-on-surface">Bottom right</span>
-                        </button>
-                      </div>
                     </div>
 
                     {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
@@ -228,7 +203,7 @@ export default function AppearanceToneOnboardingPage() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col overflow-visible border-t p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:items-center lg:justify-center lg:overflow-y-auto lg:overscroll-contain lg:border-t-0 lg:border-l lg:p-10">
+              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col overflow-visible border-t p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:items-center lg:justify-center lg:overflow-y-auto lg:overscroll-y-auto lg:border-t-0 lg:border-l lg:p-10">
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{

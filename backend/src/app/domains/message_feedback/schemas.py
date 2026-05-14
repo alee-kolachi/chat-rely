@@ -1,19 +1,29 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class MessageFeedbackVoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message_id: UUID
-    value: Literal[-1, 1]
+    """When true, deletes this visitor's vote for the message (``value`` ignored)."""
+    remove: bool = False
+    value: Literal[-1, 1] | None = None
     """When set (e.g. playground thread visitor), stored as this visitor_id; else owner-scoped id."""
     visitor_id: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def _value_or_remove(self) -> Self:
+        if self.remove:
+            return self
+        if self.value is None:
+            raise ValueError("value is required when remove is false")
+        return self
 
 
 class PublicMessageFeedbackRequest(BaseModel):
@@ -21,7 +31,16 @@ class PublicMessageFeedbackRequest(BaseModel):
 
     message_id: UUID
     visitor_id: str = Field(min_length=1, max_length=255)
-    value: Literal[-1, 1]
+    remove: bool = False
+    value: Literal[-1, 1] | None = None
+
+    @model_validator(mode="after")
+    def _value_or_remove(self) -> Self:
+        if self.remove:
+            return self
+        if self.value is None:
+            raise ValueError("value is required when remove is false")
+        return self
 
 
 class MessageFeedbackResolveRequest(BaseModel):

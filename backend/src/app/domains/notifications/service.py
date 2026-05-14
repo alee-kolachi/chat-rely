@@ -212,14 +212,14 @@ async def maybe_emit_usage_warning_notification(
     period_start: Any,
     period_end: Any,
 ) -> None:
-    """If billable usage is >= 80% and below 100% of included conversations, insert once per period."""
+    """If conversations_used is >= 80% and below 100% of included conversations, insert once per period."""
     from app.domains.notifications.links import href_usage
 
     row = (
         await db.execute(
             text(
                 """
-                select billable_conversations, included_conversations
+                select conversations_used, included_conversations
                 from public.usage_period_snapshots
                 where user_id = cast(:uid as uuid)
                   and period_start = :ps
@@ -233,10 +233,10 @@ async def maybe_emit_usage_warning_notification(
         return
 
     included = int(row.get("included_conversations") or 0)
-    billable = int(row.get("billable_conversations") or 0)
+    used = int(row.get("conversations_used") or 0)
     if included <= 0:
         return
-    ratio = billable / float(included)
+    ratio = used / float(included)
     if ratio < 0.8 or ratio >= 1.0:
         return
 
@@ -247,8 +247,8 @@ async def maybe_emit_usage_warning_notification(
         user_id=user_id,
         kind="usage_warning_80",
         title="Usage reached 80%",
-        body=f"You have used about {pct}% of included conversations this billing period ({billable} of {included}).",
+        body=f"You have used about {pct}% of included conversations this billing period ({used} of {included}).",
         href=href_usage(),
-        metadata={"billable": billable, "included": included, "period_start": str(period_start), "period_end": str(period_end)},
+        metadata={"conversations_used": used, "included": included, "period_start": str(period_start), "period_end": str(period_end)},
         dedupe_key=dedupe,
     )

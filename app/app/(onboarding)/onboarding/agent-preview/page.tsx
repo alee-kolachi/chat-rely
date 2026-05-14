@@ -17,7 +17,7 @@ import {
 
 const checklistItems = [
   { label: "Knowledge sources connected", done: true },
-  { label: "Agent tone and appearance set", done: true },
+  { label: "Agent tone and appearance set", done: false },
   { label: "Shopify connection started", done: true },
   { label: "Try at least one real question", done: false },
 ];
@@ -34,14 +34,14 @@ export default function AgentPreviewOnboardingPage() {
   const [retrievalSummary, setRetrievalSummary] = useState<string>("No retrieval yet");
 
   const canSend = Boolean(agentId && input.trim() && !isSending);
-  const continueHref = useMemo(() => {
-    if (!agentId) return "/onboarding/pricing";
-    return `/onboarding/pricing?agentId=${encodeURIComponent(agentId)}`;
-  }, [agentId]);
-
-  const appearanceBackHref = useMemo(() => {
+  const appearanceToneHref = useMemo(() => {
     if (!agentId) return "/onboarding/appearance-tone";
     return `/onboarding/appearance-tone?agentId=${encodeURIComponent(agentId)}`;
+  }, [agentId]);
+
+  const connectionBackHref = useMemo(() => {
+    if (!agentId) return "/onboarding/connection";
+    return `/onboarding/connection?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
 
   async function handleSend(event: FormEvent) {
@@ -118,15 +118,15 @@ export default function AgentPreviewOnboardingPage() {
   return (
     <OnboardingFrame
       activeItem="Agent Preview"
-      completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone"]}
-      stepLabel="Step 5 of 6"
+      completedItems={["Agent Name", "Knowledge Base", "Connection"]}
+      stepLabel="Step 4 of 5"
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
-          backHref={appearanceBackHref}
+          backHref={connectionBackHref}
           backLabel="Back"
-          primaryHref={continueHref}
-          primaryLabel="Choose plan & continue"
+          primaryHref={appearanceToneHref}
+          primaryLabel="Continue"
         />
       }
     >
@@ -146,7 +146,7 @@ export default function AgentPreviewOnboardingPage() {
               <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
-                    Step 5
+                    Step 4
                   </p>
                   <h1 className="text-ds-on-surface text-2xl font-semibold tracking-tight sm:text-3xl lg:text-[2rem]">
                     Test your <span className="text-ds-primary font-bold">agent</span> before go-live

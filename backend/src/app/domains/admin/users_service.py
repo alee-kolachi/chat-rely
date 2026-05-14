@@ -359,7 +359,7 @@ async def get_admin_user_detail(
                 """
                 select
                   id, period_start, period_end,
-                  included_conversations, billable_conversations, overage_conversations,
+                  included_conversations, conversations_used, overage_conversations,
                   estimated_overage_cents, projected_conversations,
                   throttle_tier::text as throttle_tier, last_computed_at
                 from public.usage_period_snapshots

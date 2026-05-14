@@ -21,8 +21,9 @@ from app.domains.agents.service import create_agent, list_agents, update_agent
 from app.domains.analytics.schemas import AgentAnalyticsResponse
 from app.domains.analytics.service import build_agent_analytics
 from app.domains.dashboard.schemas import AgentDashboardResponse
-from app.domains.dashboard.service import build_agent_dashboard
+from app.domains.dashboard.service import build_agent_dashboard, resolve_dashboard_range
 from app.domains.message_feedback.schemas import (
+    MessageFeedbackAnalyticsDTO,
     MessageFeedbackResolveRequest,
     MessageFeedbackVoteRequest,
 )
@@ -111,8 +112,8 @@ async def update_agent_reliability_route(
     return await update_reliability(db, user.user_id, agent_id, payload)
 
 
-@router.get("/{agent_id}/analytics", response_model=AgentAnalyticsResponse)
-async def get_agent_analytics_route(
+@router.get("/{agent_id}/analytics/message-feedback", response_model=MessageFeedbackAnalyticsDTO)
+async def get_agent_message_feedback_analytics_route(
     agent_id: UUID,
     range_key: str | None = Query(
         default=None,
@@ -124,6 +125,45 @@ async def get_agent_analytics_route(
         default=False,
         description="Include preview/playground visitor threads in message feedback aggregates.",
     ),
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MessageFeedbackAnalyticsDTO:
+    plan_slug = await fetch_active_plan_slug(db, user.user_id)
+    tier = analytics_access_tier_for_plan_slug(plan_slug)
+    if tier == "none":
+        raise AppError(
+            code="plan.analytics_not_available",
+            message="Analytics is not available on your plan.",
+            status_code=403,
+        )
+    if not message_feedback_enabled_for_plan_slug(plan_slug):
+        raise AppError(
+            code="plan.message_feedback_not_available",
+            message="Message feedback is not available on your plan.",
+            status_code=403,
+        )
+    rf, rt = resolve_dashboard_range(
+        range_key=range_key, range_from=range_from, range_to=range_to
+    )
+    return await build_message_feedback_analytics(
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        range_from=rf,
+        range_to=rt,
+        include_playground=include_playground,
+    )
+
+
+@router.get("/{agent_id}/analytics", response_model=AgentAnalyticsResponse)
+async def get_agent_analytics_route(
+    agent_id: UUID,
+    range_key: str | None = Query(
+        default=None,
+        description="7d, 30d, 90d, 365d (ignored if from/to set)",
+    ),
+    range_from: datetime | None = Query(default=None, alias="from"),
+    range_to: datetime | None = Query(default=None, alias="to"),
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AgentAnalyticsResponse:
@@ -152,7 +192,7 @@ async def get_agent_analytics_route(
             agent_id=agent_id,
             range_from=base.range_from,
             range_to=base.range_to,
-            include_playground=include_playground,
+            include_playground=False,
         )
         return base.model_copy(update={"message_feedback": mf})
     return base
@@ -183,6 +223,7 @@ async def post_agent_message_feedback_route(
         message_id=payload.message_id,
         value=payload.value,
         visitor_id=payload.visitor_id,
+        remove=payload.remove,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

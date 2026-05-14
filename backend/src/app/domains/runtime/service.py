@@ -735,7 +735,7 @@ def _apply_usage_limit_model_downgrade(
     model: str,
     model_override: str | None,
 ) -> str:
-    """When billable conversations exceed the plan included amount, use ``runtime_usage_limit_exceeded_model`` (env: ``RUNTIME_USAGE_LIMIT_EXCEEDED_MODEL``)."""
+    """When conversations used exceed the plan included amount, use ``runtime_usage_limit_exceeded_model`` (env: ``RUNTIME_USAGE_LIMIT_EXCEEDED_MODEL``)."""
     if model_override:
         return model
     if throttle_tier != "strong":

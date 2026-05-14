@@ -28,7 +28,9 @@ type ActionDetailTabsProps = {
 };
 
 export function ActionDetailTabs({ action, catalogEntry, selectedAgentId }: ActionDetailTabsProps) {
-  const isComingSoon = action.status === "coming-soon";
+  const isComingSoon = catalogEntry
+    ? catalogEntry.status === "coming_soon"
+    : action.status === "coming-soon";
   const tabs = useMemo(
     () => (isComingSoon ? ALL_TABS.filter((tab) => tab.id !== "test") : ALL_TABS),
     [isComingSoon]

@@ -39,7 +39,7 @@ function KnowledgeBaseOnboardingFallback() {
     <OnboardingFrame
       activeItem="Knowledge Base"
       completedItems={["Agent Name"]}
-      stepLabel="Step 2 of 6"
+      stepLabel="Step 2 of 5"
       footer={
         <OnboardingStickyFooter
           backHref="/onboarding"
@@ -169,7 +169,7 @@ function KnowledgeBaseOnboardingPageInner() {
     <OnboardingFrame
       activeItem="Knowledge Base"
       completedItems={["Agent Name"]}
-      stepLabel="Step 2 of 6"
+      stepLabel="Step 2 of 5"
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter

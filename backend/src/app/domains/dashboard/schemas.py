@@ -37,7 +37,7 @@ class AgentDashboardResponse(BaseModel):
     range_from: datetime
     range_to: datetime
     conversations_started: int
-    billable_conversations: int = 0
+    active_conversations: int = 0
     resolved_by_agent_pct: float | None = None
     needs_human_pct: float | None = None
     open_escalations: int = 0

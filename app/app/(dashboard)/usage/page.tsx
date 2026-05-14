@@ -8,7 +8,7 @@ type UsageSnapshot = {
   period_start: string;
   period_end: string;
   included_conversations: number;
-  billable_conversations: number;
+  conversations_used: number;
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
@@ -29,7 +29,7 @@ export default function UsagePage() {
 
   const snap = ctx?.usage_snapshot;
   const included = snap?.included_conversations ?? ctx?.plan.included_conversations ?? 0;
-  const billable = snap?.billable_conversations ?? 0;
+  const used = snap?.conversations_used ?? 0;
   const paidOver = snap?.overage_conversations ?? 0;
   const overageUsd = ((snap?.estimated_overage_cents ?? 0) / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -37,17 +37,17 @@ export default function UsagePage() {
   });
 
   const segments = useMemo(() => {
-    if (!included && !billable) {
+    if (!included && !used) {
       return { includedPct: 0, overPct: 0 };
     }
-    const denom = Math.max(included, billable, 1);
-    const usedIncluded = Math.min(billable, included);
-    const usedOver = Math.max(0, billable - included);
+    const denom = Math.max(included, used, 1);
+    const usedIncluded = Math.min(used, included);
+    const usedOver = Math.max(0, used - included);
     return {
       includedPct: Math.min(100, (usedIncluded / denom) * 100),
       overPct: Math.min(100, (usedOver / denom) * 100),
     };
-  }, [billable, included]);
+  }, [used, included]);
 
   return (
     <div className="ds-app-shell px-6 pt-6 pb-16 md:px-8 md:pt-8 md:pb-20">
@@ -56,7 +56,7 @@ export default function UsagePage() {
           <div>
             <h1 className="ds-app-page-title">Usage</h1>
             <p className="ds-app-page-description ds-app-page-description--wide">
-              Billable conversations for <strong>{ctx?.plan.name ?? "your plan"}</strong>
+              Conversation usage for <strong>{ctx?.plan.name ?? "your plan"}</strong>
               {snap ? (
                 <>
                   {" "}
@@ -79,8 +79,9 @@ export default function UsagePage() {
           <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
             <h2 className="ds-app-section-title">Conversations</h2>
             <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-              Included conversations are covered by your subscription. <strong>Paid overage</strong> applies to each
-              billable conversation beyond your included amount for this period.
+              Included conversations are covered by your subscription. Counts include closed chats with any visitor
+              message, assistant reply, or tool activity. We do not charge per extra conversation today; usage beyond
+              included may switch responses to a lighter model.
             </p>
 
             <div className="mt-6">
@@ -92,7 +93,7 @@ export default function UsagePage() {
                   </>
                 ) : (
                   <>
-                    <span>{billable.toLocaleString()}</span>
+                    <span>{used.toLocaleString()}</span>
                     <span className="text-ds-on-surface-variant text-base font-normal">
                       / {included.toLocaleString()} included
                     </span>
@@ -108,7 +109,7 @@ export default function UsagePage() {
                 <div
                   className="h-full bg-rose-500 transition-[width]"
                   style={{ width: loading ? "0%" : `${segments.overPct}%` }}
-                  title="Beyond included (paid overage)"
+                  title="Beyond included (not charged per conversation today)"
                 />
               </div>
               <div className="text-ds-on-surface-variant mt-2 flex flex-wrap gap-4 text-[11px] font-medium">
@@ -131,7 +132,7 @@ export default function UsagePage() {
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-ds-on-surface-variant">Paid overage conversations</dt>
+                <dt className="text-ds-on-surface-variant">Beyond included (count)</dt>
                 <dd className="font-medium tabular-nums">
                   {loading ? <span className="bg-ds-sidebar inline-block h-4 w-14 animate-pulse rounded-md" /> : paidOver.toLocaleString()}
                 </dd>
@@ -160,12 +161,12 @@ export default function UsagePage() {
           <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
             <h2 className="ds-app-section-title">Workspace</h2>
             <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-              Per-agent analytics (sessions started vs billable) live on the agent <Link href="/dashboard">Dashboard</Link>.
+              Per-agent analytics (volume over time and team queue) live on the agent <Link href="/dashboard">Dashboard</Link>.
             </p>
             <div className="border-ds-outline mt-6 rounded-ds-lg border bg-ds-sidebar/50 p-4">
               <p className="text-ds-on-surface-variant text-xs leading-relaxed">
-                Usage totals refresh when you open this page. Overage is estimated from billable conversations beyond
-                your included allowance for the current subscription period.
+                Usage totals refresh when you open this page. The bar reflects conversations used toward your included
+                allowance for the current subscription period.
               </p>
             </div>
           </section>

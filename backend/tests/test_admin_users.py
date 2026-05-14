@@ -246,7 +246,7 @@ def test_get_user_detail_returns_full_shape(
                     period_start=datetime(2026, 5, 1).date(),
                     period_end=datetime(2026, 6, 1).date(),
                     included_conversations=100,
-                    billable_conversations=60,
+                    conversations_used=60,
                     overage_conversations=0,
                     estimated_overage_cents=0,
                     projected_conversations=85,

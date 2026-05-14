@@ -167,7 +167,7 @@ async def build_agent_dashboard(
             select
               (select ok from agent_ok) as agent_exists,
               (select count(*)::int from convo_range) as started_n,
-              (select count(*)::int from convo_range where counts_toward_plan = true) as billable_n,
+              (select count(*)::int from convo_all where status = 'open') as active_open_n,
               (select count(*)::int from convo_range where status = 'escalated') as escalated_n,
               (select count(*)::int from outcomes) as outcome_total,
               (
@@ -234,7 +234,7 @@ async def build_agent_dashboard(
     if not bool(crow["agent_exists"]):
         raise AppError(code="agent.not_found", message="Agent not found", status_code=404)
     conversations_started = int(crow["started_n"] or 0)
-    billable_conversations = int(crow["billable_n"] or 0)
+    active_conversations = int(crow["active_open_n"] or 0)
     escalated_n = int(crow["escalated_n"] or 0)
     outcome_total = int(crow["outcome_total"] or 0)
     resolved_n = int(crow["resolved_n"] or 0)
@@ -285,7 +285,7 @@ async def build_agent_dashboard(
         range_from=rf,
         range_to=rt,
         conversations_started=conversations_started,
-        billable_conversations=billable_conversations,
+        active_conversations=active_conversations,
         resolved_by_agent_pct=resolved_by_agent_pct,
         needs_human_pct=needs_human_pct,
         open_escalations=open_escalations,

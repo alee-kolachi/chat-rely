@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
-    """When billable conversations exceed the plan included amount, visitor chat uses this model (subscription is unchanged; no per-conversation overage). Override via env."""
+    """When conversations used exceed the plan included amount, visitor chat uses this model (subscription is unchanged; no per-conversation overage). Override via env."""
     runtime_usage_limit_exceeded_model: str = "gpt-4o-mini"
     runtime_enable_turn_signals: bool = False
     runtime_enable_shopify_route_classifier: bool = True

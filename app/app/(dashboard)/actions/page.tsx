@@ -369,10 +369,14 @@ function ActionsPageContent() {
             </p>
           ) : (
             filtered.map(({ static: action, api }) => {
-              const badgeStatus = api ? mapApiStatusForBadge(api.status) : "coming-soon";
+              const badgeStatus = api ? mapApiStatusForBadge(api.status) : action.status;
               const enabled = api?.enabled ?? false;
               const toggleDisabled =
-                !api || api.status !== "live" || catalogBusy || !selectedAgentId;
+                !api ||
+                api.status !== "live" ||
+                !api.scopes_satisfied ||
+                catalogBusy ||
+                !selectedAgentId;
               const key = shopifyActionSlugToKey(action.id);
               return (
                 <ActionCard

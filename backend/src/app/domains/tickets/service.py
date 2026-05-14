@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.domains.conversations.service import get_conversation, try_mark_conversation_billable
+from app.domains.conversations.service import get_conversation, try_mark_conversation_counts_toward_plan
 from app.domains.notifications.links import href_escalation
 from app.domains.notifications.service import create_notification_best_effort
 from app.domains.tickets.schemas import TicketDTO
@@ -47,7 +47,7 @@ async def record_escalation(
             "agent_id": str(agent_id),
         },
     )
-    await try_mark_conversation_billable(db, conversation_id)
+    await try_mark_conversation_counts_toward_plan(db, conversation_id)
 
     result = await db.execute(
         text(

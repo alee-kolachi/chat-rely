@@ -152,7 +152,7 @@ export default function OnboardingPage() {
   return (
     <OnboardingFrame
       activeItem="Agent Name"
-      stepLabel="Step 1 of 6"
+      stepLabel="Step 1 of 5"
       footer={stepFooter}
     >
       <OnboardingMainColumn className={cn(onboardingSplitRoot, "max-lg:pb-28")}>

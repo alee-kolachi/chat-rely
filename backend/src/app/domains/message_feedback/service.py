@@ -38,6 +38,56 @@ def _playground_sql_filter(include_playground: bool) -> str:
     return f" and c.visitor_id not in ({ids})"
 
 
+async def delete_visitor_feedback(
+    db: AsyncSession,
+    *,
+    agent_id: UUID,
+    message_id: UUID,
+    visitor_id: str,
+    require_visitor_match: bool,
+) -> None:
+    """Remove this visitor's vote row (toggle off / revert)."""
+    vid = visitor_id.strip()
+    row = (
+        await db.execute(
+            text(
+                """
+                select m.id, c.visitor_id::text as conv_visitor
+                from public.messages m
+                join public.conversations c on c.id = m.conversation_id
+                where m.id = cast(:mid as uuid)
+                  and m.agent_id = cast(:aid as uuid)
+                  and m.role = 'assistant'
+                """
+            ),
+            {"mid": str(message_id), "aid": str(agent_id)},
+        )
+    ).mappings().first()
+    if row is None:
+        raise AppError(
+            code="feedback.invalid_message",
+            message="Assistant message not found for this agent.",
+            status_code=404,
+        )
+    if require_visitor_match and str(row["conv_visitor"] or "").strip() != vid:
+        raise AppError(
+            code="feedback.visitor_mismatch",
+            message="Visitor does not match this conversation.",
+            status_code=403,
+        )
+
+    await db.execute(
+        text(
+            """
+            delete from public.message_visitor_feedback
+            where message_id = cast(:mid as uuid) and visitor_id = :vid
+            """
+        ),
+        {"mid": str(message_id), "vid": vid},
+    )
+    await db.commit()
+
+
 async def upsert_visitor_feedback(
     db: AsyncSession,
     *,
@@ -529,8 +579,19 @@ async def public_upsert_feedback(
     agent_id: UUID,
     message_id: UUID,
     visitor_id: str,
-    value: int,
+    value: int | None,
+    remove: bool,
 ) -> None:
+    if remove:
+        await delete_visitor_feedback(
+            db,
+            agent_id=agent_id,
+            message_id=message_id,
+            visitor_id=visitor_id,
+            require_visitor_match=True,
+        )
+        return
+    assert value is not None
     await upsert_visitor_feedback(
         db,
         agent_id=agent_id,
@@ -547,11 +608,22 @@ async def owner_upsert_feedback(
     user_id: UUID,
     agent_id: UUID,
     message_id: UUID,
-    value: int,
+    value: int | None,
     visitor_id: str | None,
+    remove: bool,
 ) -> None:
     await verify_message_belongs_to_user_agent(db, user_id=user_id, agent_id=agent_id, message_id=message_id)
     vid = (visitor_id or "").strip() or f"owner:{user_id}"
+    if remove:
+        await delete_visitor_feedback(
+            db,
+            agent_id=agent_id,
+            message_id=message_id,
+            visitor_id=vid,
+            require_visitor_match=False,
+        )
+        return
+    assert value is not None
     await upsert_visitor_feedback(
         db,
         agent_id=agent_id,

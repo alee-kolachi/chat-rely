@@ -103,5 +103,6 @@ async def public_widget_message_feedback_route(
         message_id=payload.message_id,
         visitor_id=payload.visitor_id,
         value=payload.value,
+        remove=payload.remove,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

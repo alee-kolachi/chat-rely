@@ -15,7 +15,7 @@ import {
 
 function KnowledgeBaseTrainingFallback() {
   return (
-    <OnboardingFrame activeItem="Knowledge Base" completedItems={["Agent Name"]} stepLabel="Step 2 of 6">
+    <OnboardingFrame activeItem="Knowledge Base" completedItems={["Agent Name"]} stepLabel="Step 2 of 5">
       <div className="flex min-h-0 w-full min-w-0 flex-col items-center justify-center px-4 py-8 pt-6 pb-[max(6.5rem,calc(4.5rem+env(safe-area-inset-bottom,0px)))] md:min-h-[calc(100dvh-3.5rem)] md:px-8 md:py-10 md:pb-24">
         <p className="text-ds-on-surface-variant text-sm">Loading…</p>
       </div>
@@ -93,7 +93,7 @@ function KnowledgeBaseTrainingPageInner() {
     <OnboardingFrame
       activeItem="Knowledge Base"
       completedItems={["Agent Name"]}
-      stepLabel="Step 2 of 6"
+      stepLabel="Step 2 of 5"
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter

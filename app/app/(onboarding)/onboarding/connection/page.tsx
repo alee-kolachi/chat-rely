@@ -49,8 +49,8 @@ export default function ConnectionOnboardingPage() {
   const [connectBusy, setConnectBusy] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
 
-  const appearanceHref = useMemo(() => {
-    const path = "/onboarding/appearance-tone";
+  const agentPreviewHref = useMemo(() => {
+    const path = "/onboarding/agent-preview";
     if (!agentId) return path;
     return `${path}?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
@@ -133,7 +133,7 @@ export default function ConnectionOnboardingPage() {
     <OnboardingFrame
       activeItem="Connection"
       completedItems={["Agent Name", "Knowledge Base"]}
-      stepLabel="Step 3 of 6"
+      stepLabel="Step 3 of 5"
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
@@ -143,7 +143,7 @@ export default function ConnectionOnboardingPage() {
               : "/onboarding/knowledge-base/training"
           }
           backLabel="Back"
-          primaryHref={appearanceHref}
+          primaryHref={agentPreviewHref}
           primaryLabel="Continue"
         />
       }
@@ -201,7 +201,7 @@ export default function ConnectionOnboardingPage() {
                         </div>
                         {!connected ? (
                           <Link
-                            href={appearanceHref}
+                            href={agentPreviewHref}
                             className="text-ds-on-surface-variant hover:text-ds-on-surface touch-manipulation min-h-11 shrink-0 rounded-ds-md px-2 text-[11px] font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent]"
                           >
                             Connect later

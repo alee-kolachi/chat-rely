@@ -36,10 +36,22 @@ export default function ActionDetailPage() {
     [catalog, actionKey]
   );
 
-  const badgeStatus = apiEntry ? mapApiStatusForBadge(apiEntry.status) : "coming-soon";
+  const badgeStatus = apiEntry
+    ? mapApiStatusForBadge(apiEntry.status)
+    : shopifyAction
+      ? shopifyAction.status
+      : "coming-soon";
   const enabled = apiEntry?.enabled ?? false;
   const isComingSoon = badgeStatus === "coming-soon";
-  const toggleDisabled = !apiEntry || apiEntry.status !== "live" || loading || !selectedAgentId;
+  const needsShopifyConnection = Boolean(
+    shopifyAction && apiEntry && apiEntry.status === "live" && !apiEntry.scopes_satisfied
+  );
+  const toggleDisabled =
+    !apiEntry ||
+    apiEntry.status !== "live" ||
+    !apiEntry.scopes_satisfied ||
+    loading ||
+    !selectedAgentId;
 
   const needsCatalog = !shopifyAction;
   /** Catalog fetch returns null until success; avoids notFound() on first paint before the hook runs. */
@@ -247,12 +259,30 @@ export default function ActionDetailPage() {
             <div className="text-sm text-amber-950">
               <p className="font-semibold">This action isn&apos;t available yet.</p>
               <p className="mt-1 text-amber-900/90 leading-relaxed">
-                Complete Shopify OAuth with the required scopes, upgrade your plan if needed, or wait until this
-                capability launches.
+                Upgrade your plan if needed, or wait until this capability launches.
               </p>
             </div>
           </div>
         )}
+
+        {needsShopifyConnection && !isComingSoon ? (
+          <div className="border-ds-outline mb-6 flex items-start gap-3 rounded-ds-md border bg-sky-50 p-4">
+            <IconWarning className="text-ds-primary mt-0.5 size-4 shrink-0" aria-hidden />
+            <div className="text-sm text-slate-900">
+              <p className="font-semibold">Connect Shopify to use this action</p>
+              <p className="mt-1 leading-relaxed text-slate-700">
+                This tool is available for your plan, but your agent needs a store connection that includes the
+                required OAuth scopes before you can enable it or run a test.
+              </p>
+              <Link
+                href="/actions#shopify-integration"
+                className="text-ds-primary mt-3 inline-block text-sm font-semibold underline-offset-2 hover:underline"
+              >
+                Open Shopify connection
+              </Link>
+            </div>
+          </div>
+        ) : null}
 
         <ActionDetailTabs
           action={action}

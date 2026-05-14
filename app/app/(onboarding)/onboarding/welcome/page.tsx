@@ -12,7 +12,7 @@ import {
 } from "@/components/onboarding/onboarding-ui";
 
 /**
- * Optional entry screen — not in the 6-step sidebar; reduces cold-start anxiety.
+ * Optional entry screen — not in the 5-step sidebar; reduces cold-start anxiety.
  */
 export default function OnboardingWelcomePage() {
   return (
@@ -26,7 +26,7 @@ export default function OnboardingWelcomePage() {
         <OnboardingPageHeader
           kicker={<ChatRelyWordmark iconClassName="h-6 w-auto" textClassName="text-xl font-semibold text-ds-on-surface" />}
           title="Set up your AI support agent"
-          subtitle="Six short steps: identity, knowledge, integrations, tone, a quick test, then install. You can exit anytime— progress is saved in the product."
+          subtitle="Five short steps: identity, knowledge, integrations, a quick test, appearance and tone, then plan selection. You can exit anytime— progress is saved in the product."
         />
         <OnboardingSectionCard>
           <ul className="space-y-3 text-left text-sm text-ds-on-surface">
@@ -39,8 +39,8 @@ export default function OnboardingWelcomePage() {
               Add files or sheets for richer answers
             </li>
             <li className="flex gap-2">
-              <span className="text-ds-tertiary font-bold">3–6</span>
-              Connect Shopify, tune experience, validate, install
+              <span className="text-ds-tertiary font-bold">3–5</span>
+              Connect Shopify, test your agent, tune appearance, then choose a plan
             </li>
           </ul>
           <div className="mt-6 flex justify-center">

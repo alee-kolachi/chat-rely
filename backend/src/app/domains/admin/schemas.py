@@ -85,7 +85,7 @@ class AdminUsageSnapshotSummary(BaseModel):
     period_start: date
     period_end: date
     included_conversations: int
-    billable_conversations: int
+    conversations_used: int
     overage_conversations: int
     estimated_overage_cents: int
     projected_conversations: int
@@ -555,7 +555,7 @@ class AdminUsageSnapshotRow(BaseModel):
     period_start: date
     period_end: date
     included_conversations: int
-    billable_conversations: int
+    conversations_used: int
     overage_conversations: int
     estimated_overage_cents: int
     projected_conversations: int

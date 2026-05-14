@@ -14,6 +14,7 @@ from app.domains.analytics.schemas import (
     AnalyticsSentimentSlice,
     AnalyticsSeriesPoint,
 )
+from app.domains.message_feedback.schemas import MessageFeedbackAnalyticsDTO
 
 
 def _auth_header() -> dict[str, str]:
@@ -86,6 +87,67 @@ def test_get_agent_analytics(client: TestClient, monkeypatch: pytest.MonkeyPatch
     assert body["countries"][0]["key"] == "US"
     assert body["quality"][0]["key"] == "resolution_confidence"
     assert body["analytics_tier"] == "full"
+
+
+def test_get_agent_message_feedback_analytics(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_auth(monkeypatch)
+
+    async def _standard_plan(_db: object, _uid: object) -> str:
+        return "pro"
+
+    monkeypatch.setattr("app.api.routes.agents.fetch_active_plan_slug", _standard_plan)
+    agent_id = uuid4()
+    now = datetime.now(tz=UTC)
+
+    async def _mf(*_: Any, **__: Any) -> MessageFeedbackAnalyticsDTO:
+        return MessageFeedbackAnalyticsDTO(
+            thumbs_up_count=2,
+            thumbs_down_unresolved_count=1,
+            thumbs_down_resolved_count=0,
+            unresolved_items=[],
+            resolved_items=[],
+            summary=None,
+            topics=[],
+            latest_batch_index=None,
+            playground_included=False,
+        )
+
+    monkeypatch.setattr("app.api.routes.agents.build_message_feedback_analytics", _mf)
+
+    response = client.get(
+        f"/api/v1/agents/{agent_id}/analytics/message-feedback?range_key=30d",
+        headers=_auth_header(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["thumbs_up_count"] == 2
+    assert body["thumbs_down_unresolved_count"] == 1
+    assert body["playground_included"] is False
+
+
+def test_get_agent_message_feedback_analytics_forbidden_without_message_feedback_plan(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_auth(monkeypatch)
+
+    async def _standard_plan(_db: object, _uid: object) -> str:
+        return "standard"
+
+    async def _build_should_not_run(*args: object, **kwargs: object) -> MessageFeedbackAnalyticsDTO:
+        raise AssertionError("build_message_feedback_analytics must not run")
+
+    monkeypatch.setattr("app.api.routes.agents.fetch_active_plan_slug", _standard_plan)
+    monkeypatch.setattr("app.api.routes.agents.build_message_feedback_analytics", _build_should_not_run)
+
+    agent_id = uuid4()
+    response = client.get(
+        f"/api/v1/agents/{agent_id}/analytics/message-feedback?range_key=30d",
+        headers=_auth_header(),
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "plan.message_feedback_not_available"
 
 
 def test_get_agent_analytics_forbidden_without_paid_plan(

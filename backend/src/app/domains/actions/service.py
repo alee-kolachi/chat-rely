@@ -101,8 +101,8 @@ def _effective_status(
         return "blocked_by_plan"
     if not definition.code_ready:
         return "coming_soon"
-    if not _scopes_satisfied(definition.required_scopes, granted):
-        return "coming_soon"
+    # Ship-ready tools stay "live" in the catalog; `scopes_satisfied` on the entry
+    # reflects OAuth / connection (including disconnected store — not "coming soon").
     return "live"
 
 

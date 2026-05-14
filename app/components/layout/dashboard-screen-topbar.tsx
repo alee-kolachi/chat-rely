@@ -13,6 +13,24 @@ import { useDashboardAgent } from "./dashboard-agent-context";
 
 const fieldControlClass = cn("ds-app-field max-w-[min(100%,20rem)] text-sm");
 
+function titleCaseSlugWords(slug: string): string {
+  return slug
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+/** Prefer API `plan.name`; fall back to slug. Append " Plan" when missing. */
+function planChipLabel(plan: { name?: unknown; slug?: unknown }): string | null {
+  const name = typeof plan.name === "string" ? plan.name.trim() : "";
+  const slug = typeof plan.slug === "string" ? plan.slug.trim() : "";
+  const base = name || (slug ? titleCaseSlugWords(slug) : "");
+  if (!base) return null;
+  if (/\bplan\s*$/i.test(base)) return base;
+  return `${base} Plan`;
+}
+
 type DashboardScreenTopbarProps = {
   rightExtras?: ReactNode;
 };
@@ -29,9 +47,10 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
   const atAgentLimit = typeof maxAgents === "number" && agents.length >= maxAgents;
   const createTitle =
     typeof maxAgents === "number" && atAgentLimit ? "Agent limit reached for your plan" : "Create new agent";
+  const planChip = meData?.plan ? planChipLabel(meData.plan) : null;
 
   return (
-    <header className="border-ds-outline bg-ds-surface flex h-14 shrink-0 items-center justify-between border-b px-4 md:h-16 md:px-8">
+    <header className="border-ds-outline bg-ds-surface flex h-14 min-w-0 shrink-0 items-center justify-between border-b px-4 md:h-16 md:px-8">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
         <div className="flex min-w-0 max-w-full flex-1 items-center gap-2 sm:gap-3 md:max-w-lg">
           <span className="text-ds-on-surface-variant shrink-0 text-[11px] font-semibold tracking-wide uppercase sm:text-xs">
@@ -106,6 +125,20 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
       </div>
       <div className="flex shrink-0 items-center gap-2 md:gap-3">
         {rightExtras}
+        {planChip ? (
+          <div className="shrink-0">
+            <Link
+              href="/account/plan"
+              className={cn(
+                "border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex h-9 max-w-[9.5rem] items-center truncate rounded-full border bg-white px-2.5 text-xs font-semibold shadow-sm transition-colors md:max-w-[15rem] md:px-3 md:text-sm",
+                "focus-visible:ring-ds-primary focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+              )}
+              title={planChip}
+            >
+              {planChip}
+            </Link>
+          </div>
+        ) : null}
         <NotificationsMenu />
         <AccountMenu />
       </div>

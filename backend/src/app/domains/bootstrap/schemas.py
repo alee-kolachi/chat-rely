@@ -56,7 +56,7 @@ class UsageSnapshotDTO(BaseModel):
     period_start: date
     period_end: date
     included_conversations: int
-    billable_conversations: int
+    conversations_used: int
     overage_conversations: int
     estimated_overage_cents: int
     throttle_tier: str
@@ -66,6 +66,7 @@ class BootstrapResponse(BaseModel):
     profile: ProfileDTO
     subscription: SubscriptionDTO
     plan: PlanDTO
+    onboarding_completed: bool
 
 
 class MeContextResponse(BaseModel):
@@ -73,4 +74,9 @@ class MeContextResponse(BaseModel):
     subscription: SubscriptionDTO
     plan: PlanDTO
     usage_snapshot: UsageSnapshotDTO | None
+    onboarding_completed: bool
+
+
+class OnboardingGateResponse(BaseModel):
+    onboarding_completed: bool
 

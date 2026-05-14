@@ -103,33 +103,79 @@ function mountMessageFeedback(
   down.className = "cr-feedback-btn";
   up.setAttribute("aria-label", "Helpful");
   down.setAttribute("aria-label", "Not helpful");
-  up.textContent = "👍";
-  down.textContent = "👎";
+  up.innerHTML =
+    '<svg class="cr-feedback-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
+  down.innerHTML =
+    '<svg class="cr-feedback-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
   let current: 1 | -1 | null = null;
-  let saving = false;
-  const setPressed = () => {
-    up.setAttribute("aria-pressed", current === 1 ? "true" : "false");
-    down.setAttribute("aria-pressed", current === -1 ? "true" : "false");
-  };
-  const send = async (val: 1 | -1) => {
-    if (saving) return;
-    saving = true;
-    try {
-      await postWidgetMessageFeedback(apiBase, agentKey, {
-        message_id: messageId,
-        visitor_id: visitorId,
-        value: val,
-      });
-      current = val;
-      setPressed();
-    } catch {
-      /* ignore */
-    } finally {
-      saving = false;
+  /** undefined = no successful sync yet for this bubble */
+  let acked: 1 | -1 | null | undefined = undefined;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const syncVisibility = () => {
+    if (current === null) {
+      up.hidden = false;
+      down.hidden = false;
+    } else if (current === 1) {
+      up.hidden = false;
+      down.hidden = true;
+    } else {
+      up.hidden = true;
+      down.hidden = false;
     }
   };
-  up.addEventListener("click", () => void send(1));
-  down.addEventListener("click", () => void send(-1));
+
+  const flush = async (): Promise<void> => {
+    debounceTimer = null;
+    while (true) {
+      const desired = current;
+      const hasAcked = acked !== undefined;
+      if (!hasAcked) {
+        if (desired === null) return;
+      } else if (desired === acked) {
+        return;
+      }
+
+      const snap = desired;
+      try {
+        if (desired === null) {
+          await postWidgetMessageFeedback(apiBase, agentKey, {
+            message_id: messageId,
+            visitor_id: visitorId,
+            remove: true,
+          });
+        } else {
+          await postWidgetMessageFeedback(apiBase, agentKey, {
+            message_id: messageId,
+            visitor_id: visitorId,
+            value: desired,
+          });
+        }
+        acked = desired;
+      } catch {
+        const roll = hasAcked ? acked : null;
+        if (current === snap) {
+          current = roll;
+          syncVisibility();
+        }
+        return;
+      }
+    }
+  };
+
+  const apply = (next: 1 | -1 | null): void => {
+    current = next;
+    syncVisibility();
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => void flush(), 450);
+  };
+  up.addEventListener("click", () => {
+    apply(current === 1 ? null : 1);
+  });
+  down.addEventListener("click", () => {
+    apply(current === -1 ? null : -1);
+  });
+  syncVisibility();
   row.append(up, down);
   wrap.appendChild(row);
 }

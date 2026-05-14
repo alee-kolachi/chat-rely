@@ -167,6 +167,25 @@ function readPlaygroundChatFromStorage(agentId: string): {
   }
 }
 
+/** Map API transcript row to playground state; keep assistant `id` for thumbs / feedback. */
+function mapApiMessageToPlaygroundPreview(m: {
+  role: string;
+  content?: string | null;
+  id?: string;
+  tool_call_payload?: unknown;
+}): PlaygroundPreviewMessage | null {
+  if (!isRenderableTranscriptMessage(m)) return null;
+  const from = m.role as "user" | "assistant";
+  const row: PlaygroundPreviewMessage = {
+    from,
+    text: m.content ?? "",
+  };
+  if (from === "assistant" && m.id != null && String(m.id).length > 0) {
+    row.assistantMessageId = String(m.id);
+  }
+  return row;
+}
+
 function writePlaygroundChatToStorage(
   agentId: string,
   previewMessages: PlaygroundPreviewMessage[],
@@ -249,9 +268,27 @@ function PlaygroundPreviewConversation({
   const threadRequestsRef = useRef(new Map<string, Promise<PlaygroundThreadCacheEntry>>());
   /** When false, transcript updates (polling) must not yank scroll position. */
   const stickToBottomRef = useRef(true);
+  /** Last vote successfully synced per assistant message (undefined = not yet synced this session). */
+  const feedbackAckedRef = useRef<Map<string, 1 | -1 | null>>(new Map());
+  const feedbackDesiredRef = useRef<Map<string, 1 | -1 | null>>(new Map());
+  const feedbackDebounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   useLayoutEffect(() => {
     blockThreadSyncRef.current = isSending || historyThreadLoading;
   }, [isSending, historyThreadLoading]);
+
+  const clearFeedbackSyncState = useCallback(() => {
+    for (const t of feedbackDebounceRef.current.values()) clearTimeout(t);
+    feedbackDebounceRef.current.clear();
+    feedbackAckedRef.current.clear();
+    feedbackDesiredRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const t of feedbackDebounceRef.current.values()) clearTimeout(t);
+      feedbackDebounceRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!agentId) return;
@@ -276,15 +313,12 @@ function PlaygroundPreviewConversation({
     const request = (async () => {
       const data = await backendFetch<{
         conversation: { visitor_id: string };
-        messages: Array<{ role: string; content: string; tool_call_payload?: unknown }>;
+        messages: Array<{ id?: string; role: string; content: string; tool_call_payload?: unknown }>;
       }>(`/api/v1/conversations/${encodeURIComponent(threadId)}`);
       const mapped: PlaygroundPreviewMessage[] = [];
       for (const m of data.messages) {
-        if (!isRenderableTranscriptMessage(m)) continue;
-        mapped.push({
-          from: m.role as "user" | "assistant",
-          text: m.content ?? "",
-        });
+        const row = mapApiMessageToPlaygroundPreview(m);
+        if (row) mapped.push(row);
       }
       const entry = {
         visitorId: data.conversation.visitor_id.trim() || newPlaygroundVisitorId(),
@@ -308,6 +342,7 @@ function PlaygroundPreviewConversation({
 
   useEffect(() => {
     queueMicrotask(() => {
+      clearFeedbackSyncState();
       setHistoryRows([]);
       setHistoryLoaded(false);
       setHistoryLoading(false);
@@ -334,7 +369,7 @@ function PlaygroundPreviewConversation({
         cacheThread(nextConversationId, { visitorId: nextVisitorId, messages: nextMessages });
       }
     });
-  }, [agentId, cacheThread]);
+  }, [agentId, cacheThread, clearFeedbackSyncState]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -349,7 +384,7 @@ function PlaygroundPreviewConversation({
       if (blockThreadSyncRef.current) return;
       try {
         const data = await backendFetch<{
-          messages: Array<{ role: string; content: string; tool_call_payload?: unknown }>;
+          messages: Array<{ id?: string; role: string; content: string; tool_call_payload?: unknown }>;
         }>(`/api/v1/conversations/${encodeURIComponent(cid)}`);
         if (cancelled) return;
         // A poll that started before this render can resolve after the user sends a message.
@@ -357,11 +392,8 @@ function PlaygroundPreviewConversation({
         if (blockThreadSyncRef.current) return;
         const mapped: PlaygroundPreviewMessage[] = [];
         for (const m of data.messages) {
-          if (!isRenderableTranscriptMessage(m)) continue;
-          mapped.push({
-            from: m.role as "user" | "assistant",
-            text: m.content ?? "",
-          });
+          const row = mapApiMessageToPlaygroundPreview(m);
+          if (row) mapped.push(row);
         }
         cacheThread(cid, { visitorId, messages: mapped });
         setPreviewMessages(mapped);
@@ -469,10 +501,13 @@ function PlaygroundPreviewConversation({
         } else if (ev.type === "done") {
           setConversationId(ev.conversation_id);
           const reply = typeof ev.response === "string" ? ev.response : "";
+          const rawId = (ev as Record<string, unknown>).assistant_message_id;
           const assistantMessageId =
-            typeof (ev as { assistant_message_id?: unknown }).assistant_message_id === "string"
-              ? (ev as { assistant_message_id: string }).assistant_message_id
-              : null;
+            typeof rawId === "string" && rawId.length > 0
+              ? rawId
+              : rawId != null
+                ? String(rawId)
+                : null;
           setPreviewMessages((prev) => {
             if (prev.length === 0) return prev;
             const last = prev[prev.length - 1];
@@ -560,24 +595,83 @@ function PlaygroundPreviewConversation({
     [meLoading, meData?.plan]
   );
   const messageFeedbackEnabled = useMemo(
-    () => !meLoading && messageFeedbackEnabledForPlanSlug(meData?.plan.slug),
-    [meLoading, meData?.plan]
+    () => messageFeedbackEnabledForPlanSlug(meData?.plan.slug),
+    [meData?.plan.slug]
   );
 
   const submitPlaygroundFeedback = useCallback(
-    async (messageId: string, value: 1 | -1) => {
+    (messageId: string, clicked: 1 | -1) => {
       if (!agentId) return;
-      try {
-        await backendFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/message-feedback`, {
-          method: "POST",
-          body: JSON.stringify({ message_id: messageId, value, visitor_id: visitorId }),
-        });
-        setPreviewMessages((prev) =>
-          prev.map((m) => (m.assistantMessageId === messageId ? { ...m, feedbackVote: value } : m))
-        );
-      } catch {
-        /* ignore */
-      }
+      let found = false;
+      setPreviewMessages((prev) => {
+        const i = prev.findIndex((m) => m.assistantMessageId === messageId);
+        if (i === -1) return prev;
+        found = true;
+        const cur = prev[i].feedbackVote ?? null;
+        const remove = cur === clicked;
+        const nextVote = remove ? null : clicked;
+        feedbackDesiredRef.current.set(messageId, nextVote);
+        return prev.map((m, j) => (j === i ? { ...m, feedbackVote: nextVote } : m));
+      });
+      if (!found) return;
+
+      const existing = feedbackDebounceRef.current.get(messageId);
+      if (existing) clearTimeout(existing);
+      const t = setTimeout(() => {
+        feedbackDebounceRef.current.delete(messageId);
+        void (async () => {
+          const aid = agentId;
+          const vid = visitorId;
+          if (!aid) return;
+          while (true) {
+            const desired = feedbackDesiredRef.current.get(messageId) ?? null;
+            const hasAcked = feedbackAckedRef.current.has(messageId);
+            const ackedVal = hasAcked ? feedbackAckedRef.current.get(messageId)! : undefined;
+            if (!hasAcked) {
+              if (desired === null) return;
+            } else if (desired === ackedVal) {
+              return;
+            }
+
+            const snap = desired;
+            try {
+              if (desired === null) {
+                await backendFetch(`/api/v1/agents/${encodeURIComponent(aid)}/message-feedback`, {
+                  method: "POST",
+                  body: JSON.stringify({
+                    message_id: messageId,
+                    remove: true,
+                    visitor_id: vid,
+                  }),
+                });
+              } else {
+                await backendFetch(`/api/v1/agents/${encodeURIComponent(aid)}/message-feedback`, {
+                  method: "POST",
+                  body: JSON.stringify({
+                    message_id: messageId,
+                    value: desired,
+                    visitor_id: vid,
+                  }),
+                });
+              }
+              feedbackAckedRef.current.set(messageId, desired);
+            } catch {
+              const rollHas = feedbackAckedRef.current.has(messageId);
+              const roll = rollHas ? feedbackAckedRef.current.get(messageId)! : null;
+              if ((feedbackDesiredRef.current.get(messageId) ?? null) === snap) {
+                feedbackDesiredRef.current.set(messageId, roll);
+                setPreviewMessages((prev) =>
+                  prev.map((m) =>
+                    m.assistantMessageId === messageId ? { ...m, feedbackVote: roll } : m
+                  )
+                );
+              }
+              return;
+            }
+          }
+        })();
+      }, 450);
+      feedbackDebounceRef.current.set(messageId, t);
     },
     [agentId, visitorId]
   );
@@ -821,52 +915,46 @@ function PlaygroundPreviewConversation({
                           <IconBot className="text-ds-on-surface-variant size-3.5" />
                         )}
                       </div>
-                      <div
-                        className={cn(
-                          "border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white text-sm shadow-sm",
-                          isStreamingAssistant
-                            ? "flex items-center leading-none px-3 py-2 sm:px-3.5 sm:py-2"
-                            : "leading-relaxed px-4 py-3 sm:px-5"
-                        )}
-                      >
-                        {isStreamingAssistant ? (
-                          <AssistantThinkingDots brandColorHex={brandColorHex} />
-                        ) : (
-                          <AssistantMarkdown>{msg.text}</AssistantMarkdown>
-                        )}
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <div
+                          className={cn(
+                            "border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white text-sm shadow-sm",
+                            isStreamingAssistant
+                              ? "flex items-center leading-none px-3 py-2 sm:px-3.5 sm:py-2"
+                              : "leading-relaxed px-4 py-3 sm:px-5"
+                          )}
+                        >
+                          {isStreamingAssistant ? (
+                            <AssistantThinkingDots brandColorHex={brandColorHex} />
+                          ) : (
+                            <AssistantMarkdown>{msg.text}</AssistantMarkdown>
+                          )}
+                        </div>
                         {messageFeedbackEnabled &&
                         msg.assistantMessageId &&
                         !isStreamingAssistant &&
                         msg.text.trim() ? (
-                          <div className="mt-2 flex items-center gap-1 border-t border-ds-outline/60 pt-2">
-                            <button
-                              type="button"
-                              className={cn(
-                                "inline-flex size-8 items-center justify-center rounded-md border text-ds-on-surface-variant transition-colors",
-                                msg.feedbackVote === 1
-                                  ? "border-ds-primary bg-ds-primary/10 text-ds-primary"
-                                  : "border-ds-outline/80 hover:bg-ds-sidebar/60"
-                              )}
-                              aria-label="Thumbs up"
-                              aria-pressed={msg.feedbackVote === 1}
-                              onClick={() => void submitPlaygroundFeedback(msg.assistantMessageId!, 1)}
-                            >
-                              <ThumbsUp className="size-3.5" strokeWidth={2} />
-                            </button>
-                            <button
-                              type="button"
-                              className={cn(
-                                "inline-flex size-8 items-center justify-center rounded-md border text-ds-on-surface-variant transition-colors",
-                                msg.feedbackVote === -1
-                                  ? "border-rose-500/60 bg-rose-500/10 text-rose-700"
-                                  : "border-ds-outline/80 hover:bg-ds-sidebar/60"
-                              )}
-                              aria-label="Thumbs down"
-                              aria-pressed={msg.feedbackVote === -1}
-                              onClick={() => void submitPlaygroundFeedback(msg.assistantMessageId!, -1)}
-                            >
-                              <ThumbsDown className="size-3.5" strokeWidth={2} />
-                            </button>
+                          <div className="flex items-center gap-0.5 pl-0.5">
+                            {(msg.feedbackVote ?? null) !== -1 ? (
+                              <button
+                                type="button"
+                                className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-sidebar/80 inline-flex size-7 items-center justify-center rounded-md transition-colors"
+                                aria-label="Good response"
+                                onClick={() => submitPlaygroundFeedback(msg.assistantMessageId!, 1)}
+                              >
+                                <ThumbsUp className="size-3" strokeWidth={2} />
+                              </button>
+                            ) : null}
+                            {(msg.feedbackVote ?? null) !== 1 ? (
+                              <button
+                                type="button"
+                                className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-sidebar/80 inline-flex size-7 items-center justify-center rounded-md transition-colors"
+                                aria-label="Bad response"
+                                onClick={() => submitPlaygroundFeedback(msg.assistantMessageId!, -1)}
+                              >
+                                <ThumbsDown className="size-3" strokeWidth={2} />
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -953,7 +1041,7 @@ export default function PlaygroundPage() {
     useDashboardAgent();
   const appliedUrlAgentRef = useRef(false);
 
-  /** One-time: Installation "Finish" links with ?agentId= so the right agent is selected. */
+  /** One-time: onboarding / pricing flow links with ?agentId= so the right agent is selected. */
   useEffect(() => {
     if (appliedUrlAgentRef.current || typeof window === "undefined") return;
     const id = new URLSearchParams(window.location.search).get("agentId");
@@ -968,7 +1056,7 @@ export default function PlaygroundPage() {
     websitePreview: integrationsWebsitePreview,
     loading: integrationsLoading,
     refresh: refreshIntegrations,
-  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined, { includeWebsitePreview: false });
+  } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
   const shopifyConnected = Boolean(shopifyConnection?.connected);
   const setTopbarExtras = useSetDashboardTopbarExtras();
   const [model, setModel] = useState("gpt-4o-mini");
@@ -1237,7 +1325,7 @@ export default function PlaygroundPage() {
   }, [setTopbarExtras, isSaving, selectedAgentId, isDirty]);
 
   return (
-    <div className="onboarding-main-surface -mx-6 -mt-6 -mb-6 flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="onboarding-main-surface -mx-6 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="border-ds-outline bg-ds-sidebar/80 flex shrink-0 items-center gap-2 border-b p-2.5 xl:hidden">
         <button
           type="button"
@@ -1378,7 +1466,7 @@ export default function PlaygroundPage() {
                     ) : (
                       <div className="space-y-4">
                         {shopifyCatalogEntries.map((e) => {
-                          const off = e.status !== "live";
+                          const off = e.status !== "live" || !e.scopes_satisfied;
                           return (
                             <div
                               key={e.action_key}
@@ -1501,11 +1589,11 @@ export default function PlaygroundPage() {
         <section
           className={cn(
             "min-w-0 flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
-            "xl:items-center xl:justify-center xl:self-start xl:min-h-0 xl:p-12 xl:pt-10 xl:pb-12",
+            "xl:items-center xl:justify-start xl:self-start xl:min-h-0 xl:p-12 xl:pt-10 xl:pb-12",
             mobileTab === "preview" ? "" : "hidden xl:flex"
           )}
         >
-          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center overflow-hidden xl:flex-none xl:h-auto xl:justify-start">
+          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-start overflow-hidden xl:flex-none xl:h-auto">
             <PlaygroundPreviewConversation
               key={selectedAgentId ?? "__no_agent__"}
               agentId={selectedAgentId}

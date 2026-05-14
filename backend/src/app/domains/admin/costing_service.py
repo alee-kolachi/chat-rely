@@ -231,8 +231,8 @@ async def get_conversation_cost(
         out_t = int(er["output_tokens"] or 0)
         emb_t = int(er["embedding_tokens"] or 0)
         c_raw = er["cost_usd"]
-        billable = in_t > 0 or out_t > 0 or emb_t > 0
-        if c_raw is None and billable:
+        has_token_activity = in_t > 0 or out_t > 0 or emb_t > 0
+        if c_raw is None and has_token_activity:
             has_unknown_event_pricing = True
         c_val = float(c_raw) if c_raw is not None else 0.0
         events_total += c_val

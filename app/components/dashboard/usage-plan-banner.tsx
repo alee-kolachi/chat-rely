@@ -5,7 +5,7 @@ import { useMeContext } from "@/components/layout/me-context-provider";
 
 type UsageSnapshot = {
   included_conversations: number;
-  billable_conversations: number;
+  conversations_used: number;
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
@@ -25,7 +25,7 @@ export function UsagePlanBanner() {
     return null;
   }
 
-  const overIncluded = snap.billable_conversations > snap.included_conversations;
+  const overIncluded = snap.conversations_used > snap.included_conversations;
   const notNormal = snap.throttle_tier !== "normal";
   if (!overIncluded && !notNormal) {
     return null;
@@ -47,7 +47,7 @@ export function UsagePlanBanner() {
     >
       <p className="font-semibold">Plan usage ({ctx?.plan.name ?? "Current plan"})</p>
       <p className="text-ds-on-surface-variant mt-1 leading-relaxed">
-        {snap.billable_conversations.toLocaleString()} billable conversations this period
+        {snap.conversations_used.toLocaleString()} conversations used this period
         {` · `}
         {snap.included_conversations.toLocaleString()} included
         {snap.overage_conversations > 0

@@ -14,7 +14,7 @@ async def refresh_plan_usage_snapshot(db: AsyncSession, user_id: UUID) -> str | 
     Refresh the usage snapshot for the user's current subscription period.
 
     Returns ``throttle_tier`` as text (``normal`` | ``strong``), or ``None`` if there is no active subscription.
-    ``strong`` means billable conversations exceed the plan's included amount for the period.
+    ``strong`` means conversations used exceed the plan's included amount for the period.
     """
     sub = (
         await db.execute(

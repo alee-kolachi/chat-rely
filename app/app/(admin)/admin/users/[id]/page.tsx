@@ -196,10 +196,10 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
       render: (row) => row.included_conversations.toLocaleString(),
     },
     {
-      key: "billable",
-      label: "Billable",
+      key: "conversations_used",
+      label: "Used",
       align: "right",
-      render: (row) => row.billable_conversations.toLocaleString(),
+      render: (row) => row.conversations_used.toLocaleString(),
     },
     {
       key: "overage",

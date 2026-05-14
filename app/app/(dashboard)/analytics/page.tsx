@@ -95,6 +95,7 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [includePlaygroundFeedback, setIncludePlaygroundFeedback] = useState(false);
+  const [feedbackSectionBusy, setFeedbackSectionBusy] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const accessDeniedByPlan =
@@ -119,7 +120,23 @@ export default function AnalyticsPage() {
     } else {
       q.set("range_key", preset);
     }
-    if (includePlaygroundFeedback && messageFeedbackEnabledForPlanSlug(meData?.plan.slug)) {
+    return `${base}?${q.toString()}`;
+  }, [selectedAgentId, preset, customFrom, customTo]);
+
+  const messageFeedbackAnalyticsUrl = useMemo(() => {
+    if (!selectedAgentId || !messageFeedbackEnabledForPlanSlug(meData?.plan.slug)) return null;
+    const base = `/api/v1/agents/${selectedAgentId}/analytics/message-feedback`;
+    const q = new URLSearchParams();
+    if (preset === "custom") {
+      if (!customFrom || !customTo) return null;
+      const fromIso = new Date(`${customFrom}T00:00:00.000Z`).toISOString();
+      const toIso = new Date(`${customTo}T23:59:59.999Z`).toISOString();
+      q.set("from", fromIso);
+      q.set("to", toIso);
+    } else {
+      q.set("range_key", preset);
+    }
+    if (includePlaygroundFeedback) {
       q.set("include_playground", "true");
     }
     return `${base}?${q.toString()}`;
@@ -155,6 +172,37 @@ export default function AnalyticsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!messageFeedbackAnalyticsUrl || loading) return;
+    let cancelled = false;
+    setFeedbackSectionBusy(true);
+    void (async () => {
+      try {
+        const mf = await backendFetch<MessageFeedbackPayload>(messageFeedbackAnalyticsUrl);
+        if (cancelled) return;
+        setData((prev) => (prev ? { ...prev, message_feedback: mf } : null));
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setFeedbackSectionBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      setFeedbackSectionBusy(false);
+    };
+  }, [messageFeedbackAnalyticsUrl, loading]);
+
+  const refreshMessageFeedback = useCallback(async () => {
+    if (!messageFeedbackAnalyticsUrl) return;
+    try {
+      const mf = await backendFetch<MessageFeedbackPayload>(messageFeedbackAnalyticsUrl);
+      setData((prev) => (prev ? { ...prev, message_feedback: mf } : null));
+    } catch {
+      /* ignore */
+    }
+  }, [messageFeedbackAnalyticsUrl]);
 
   const analyticsPayloadBusy = Boolean(
     selectedAgentId && analyticsUrl && error === null && (loading || data === null)
@@ -248,14 +296,14 @@ export default function AnalyticsPage() {
             body: JSON.stringify({ message_id: messageId, resolved: true }),
           }
         );
-        await load();
+        await refreshMessageFeedback();
       } catch {
         /* ignore */
       } finally {
         setResolvingId(null);
       }
     },
-    [selectedAgentId, load]
+    [selectedAgentId, refreshMessageFeedback]
   );
 
   if (accessDeniedByPlan) {
@@ -609,7 +657,13 @@ export default function AnalyticsPage() {
         </section>
 
         {data?.message_feedback && messageFeedbackEnabledForPlanSlug(meData?.plan.slug) ? (
-          <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+          <section
+            className={cn(
+              "border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm transition-opacity",
+              feedbackSectionBusy && "pointer-events-none opacity-60"
+            )}
+            aria-busy={feedbackSectionBusy}
+          >
             <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="ds-app-section-title">Visitor message feedback</h2>

@@ -697,7 +697,7 @@ export default function KnowledgeWebsitePage() {
           ) : null}
         </section>
 
-        <section className="space-y-4">
+        <section className="space-y-4 pb-8 lg:pb-10">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="ds-app-section-title text-base">Link sources</h2>
             <KnowledgeSearchInput

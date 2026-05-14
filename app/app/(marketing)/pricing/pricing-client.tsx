@@ -8,14 +8,16 @@ import { useSessionPresent } from "@/hooks/use-session-present";
 
 const faqs = [
   {
-    question: "What counts as a billable conversation?",
+    question: "What counts toward my conversation allowance?",
     answer:
-      "We count conversations that meet a minimum quality bar (for example, at least one visitor message and two assistant replies) and are no longer open. Idle sessions close after 30 minutes of inactivity. See your dashboard for the exact rules applied to your workspace.",
+      "When a chat is no longer open, we count it if there was any visitor message, assistant reply, or tool call—even a single assistant turn or tool-heavy flow counts. Idle sessions close after about 30 minutes of inactivity. Your dashboard compares sessions started in a range with those counted toward your plan.",
+    open: true,
   },
   {
     question: "What happens if I go over my included conversations?",
     answer:
-      "We do not charge for extra conversations at this time. After you pass your plan’s included billable conversations for the period, the assistant automatically switches to a lower-cost model until the cycle resets or you move to a higher plan.",
+      "We do not charge for extra conversations at this time. After you pass your plan’s included conversations for the period, the assistant automatically switches to a lower-cost model until the cycle resets or you move to a higher plan.",
+    open: false,
   },
   {
     question: "When does my usage reset?",
@@ -42,8 +44,8 @@ export function MarketingPricingClient() {
             Predictable pricing, scalable plans
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-5 sm:max-w-2xl sm:text-xl">
-            Plans, prices, and every included capability in one table. Hover the info icons only where we added extra
-            context.
+            Simple conversation limits—not opaque message credits. Compare plans below; on the home page, compact cards
+            use info icons for extra detail on dense rows.
           </p>
         </div>
 

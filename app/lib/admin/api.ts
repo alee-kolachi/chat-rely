@@ -137,7 +137,7 @@ export type AdminUsageSnapshotSummary = {
   period_start: string;
   period_end: string;
   included_conversations: number;
-  billable_conversations: number;
+  conversations_used: number;
   overage_conversations: number;
   estimated_overage_cents: number;
   projected_conversations: number;
@@ -687,7 +687,7 @@ export type AdminUsageSnapshotRow = {
   period_start: string;
   period_end: string;
   included_conversations: number;
-  billable_conversations: number;
+  conversations_used: number;
   overage_conversations: number;
   estimated_overage_cents: number;
   projected_conversations: number;

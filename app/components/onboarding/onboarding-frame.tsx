@@ -7,9 +7,8 @@ export const onboardingMenuItems = [
   "Agent Name",
   "Knowledge Base",
   "Connection",
-  "Appearance & Tone",
   "Agent Preview",
-  "Installation",
+  "Appearance & Tone",
 ] as const;
 
 type OnboardingMenuItem = (typeof onboardingMenuItems)[number];
@@ -20,7 +19,6 @@ const onboardingItemRoutes: Record<OnboardingMenuItem, string> = {
   Connection: "/onboarding/connection",
   "Appearance & Tone": "/onboarding/appearance-tone",
   "Agent Preview": "/onboarding/agent-preview",
-  Installation: "/onboarding/installation",
 };
 
 function onboardingNavHref(route: string, linkAgentId: string | null | undefined) {
@@ -58,7 +56,7 @@ export function OnboardingFrame({
 
         <div className="px-3 pt-5 pb-3">
           <div className="mb-1 text-sm font-semibold tracking-tight">Agent Setup</div>
-          <p className="text-ds-on-surface-variant text-[11px] font-medium tracking-widest uppercase">6 Steps</p>
+          <p className="text-ds-on-surface-variant text-[11px] font-medium tracking-widest uppercase">5 Steps</p>
         </div>
 
         <nav className="flex-1 px-2 pb-3">

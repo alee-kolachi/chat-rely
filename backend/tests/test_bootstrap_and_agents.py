@@ -100,7 +100,12 @@ def test_bootstrap_idempotency(client: TestClient, monkeypatch: pytest.MonkeyPat
 
     async def _bootstrap(*_: Any, **__: Any) -> BootstrapResponse:
         state["count"] += 1
-        return BootstrapResponse(profile=_make_profile(), subscription=_make_subscription(), plan=_make_plan())
+        return BootstrapResponse(
+            profile=_make_profile(),
+            subscription=_make_subscription(),
+            plan=_make_plan(),
+            onboarding_completed=True,
+        )
 
     monkeypatch.setattr("app.api.routes.bootstrap.bootstrap_me", _bootstrap)
     first = client.post("/api/v1/bootstrap/me", headers=_auth_header())
@@ -109,6 +114,18 @@ def test_bootstrap_idempotency(client: TestClient, monkeypatch: pytest.MonkeyPat
     assert second.status_code == 200
     assert first.json() == second.json()
     assert state["count"] == 2
+
+
+def test_me_onboarding_gate(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_auth(monkeypatch)
+
+    async def _gate(*_: Any, **__: Any) -> bool:
+        return False
+
+    monkeypatch.setattr("app.api.routes.bootstrap.user_dashboard_onboarding_completed", _gate)
+    response = client.get("/api/v1/me/onboarding-gate", headers=_auth_header())
+    assert response.status_code == 200
+    assert response.json() == {"onboarding_completed": False}
 
 
 def test_me_context_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,6 +137,7 @@ def test_me_context_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch
             subscription=_make_subscription(),
             plan=_make_plan(),
             usage_snapshot=None,
+            onboarding_completed=True,
         )
 
     monkeypatch.setattr("app.api.routes.bootstrap.fetch_me_context", _context)

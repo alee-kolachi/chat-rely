@@ -31,7 +31,7 @@ type DashboardPayload = {
   range_from: string;
   range_to: string;
   conversations_started: number;
-  billable_conversations: number;
+  active_conversations: number;
   resolved_by_agent_pct: number | null;
   needs_human_pct: number | null;
   open_escalations: number;
@@ -125,7 +125,7 @@ export default function DashboardPage() {
   const started = data?.conversations_started ?? 0;
   const hasConversationData = Boolean(data && data.conversations_started > 0);
 
-  const billable = data?.billable_conversations ?? 0;
+  const activeNow = data?.active_conversations ?? 0;
   /** Dashboard HTTP payload not ready yet (valid agent URL + fetch pending or refetch). */
   const dashboardPayloadBusy = Boolean(
     selectedAgentId && dashboardUrl && error === null && (loading || data === null)
@@ -138,14 +138,14 @@ export default function DashboardPage() {
 
   const primaryMetrics = [
     {
-      label: "Conversations started",
+      label: "Conversations",
       value: data ? String(started) : "—",
-      hint: "Sessions that began in this range, including very short or abandoned chats.",
+      hint: "New sessions that began in this date range for this agent.",
     },
     {
-      label: "Billable conversations",
-      value: data ? String(billable) : "—",
-      hint: "Sessions that count toward your plan after idle-close and quality checks.",
+      label: "Active chats",
+      value: data ? String(activeNow) : "—",
+      hint: "Conversations still open right now—visitors may be mid-chat or waiting for a reply.",
     },
     {
       label: "Resolved by agent",

@@ -121,7 +121,7 @@ async def list_admin_usage_snapshots(
         select
           ups.id, ups.user_id, coalesce(u.email, '') as user_email,
           ups.period_start, ups.period_end,
-          ups.included_conversations, ups.billable_conversations, ups.overage_conversations,
+          ups.included_conversations, ups.conversations_used, ups.overage_conversations,
           ups.estimated_overage_cents, ups.projected_conversations,
           ups.throttle_tier::text as throttle_tier, ups.last_computed_at
         from public.usage_period_snapshots ups

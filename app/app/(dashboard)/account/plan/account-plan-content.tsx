@@ -306,14 +306,13 @@ export function AccountPlanContent() {
                   </div>
                   <div className="border-ds-outline flex flex-col gap-2 rounded-ds-lg border bg-ds-sidebar/50 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-ds-on-surface text-sm font-semibold">Billable conversations (this cycle)</p>
+                      <p className="text-ds-on-surface text-sm font-semibold">Conversations (this cycle)</p>
                       <p className="text-ds-on-surface-variant text-xs">
-                        Up to {ctx.plan.included_conversations.toLocaleString()} billable conversations included per
-                        cycle
+                        Up to {ctx.plan.included_conversations.toLocaleString()} conversations included per cycle
                       </p>
                     </div>
                     <p className="text-ds-on-surface text-sm font-semibold tabular-nums">
-                      {(ctx.usage_snapshot?.billable_conversations ?? 0).toLocaleString()} /{" "}
+                      {(ctx.usage_snapshot?.conversations_used ?? 0).toLocaleString()} /{" "}
                       {ctx.plan.included_conversations.toLocaleString()}
                     </p>
                   </div>
@@ -323,10 +322,9 @@ export function AccountPlanContent() {
                       <span className="font-semibold text-ds-on-surface">{ctx.usage_snapshot.throttle_tier}</span>
                       {ctx.usage_snapshot.throttle_tier === "strong" ? (
                         <span className="block pt-1">
-                          You have passed your included billable conversations for this cycle. You are only charged
-                          your monthly subscription—there is no extra fee for additional conversations. The assistant
-                          temporarily uses a lower-cost model (configured on the server) until the cycle resets or you
-                          upgrade.
+                          You have passed your included conversations for this cycle. You are only charged your monthly
+                          subscription—there is no extra fee for additional conversations. The assistant temporarily uses
+                          a lower-cost model (configured on the server) until the cycle resets or you upgrade.
                         </span>
                       ) : null}
                     </div>

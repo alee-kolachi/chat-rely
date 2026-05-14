@@ -330,30 +330,32 @@ input[type="reset"]:disabled {
 
 .cr-msg-feedback {
   display: flex;
-  gap: 6px;
+  gap: 2px;
   align-items: center;
-  padding-left: 2px;
+  padding: 2px 0 0 2px;
 }
 
 .cr-feedback-btn {
-  border: 1px solid var(--cr-border);
-  background: var(--cr-surface);
-  border-radius: 8px;
-  width: 32px;
-  height: 28px;
-  font-size: 14px;
-  line-height: 1;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  color: color-mix(in srgb, var(--cr-text, #111) 45%, transparent);
 }
 
 .cr-feedback-btn:hover {
-  border-color: var(--cr-accent);
+  color: color-mix(in srgb, var(--cr-text, #111) 75%, transparent);
+  background: color-mix(in srgb, var(--cr-text, #111) 6%, transparent);
 }
 
-.cr-feedback-btn[aria-pressed="true"] {
-  border-color: var(--cr-accent);
-  background: color-mix(in srgb, var(--cr-accent) 12%, var(--cr-surface));
+.cr-feedback-ico {
+  width: 14px;
+  height: 14px;
+  display: block;
 }

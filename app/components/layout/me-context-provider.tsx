@@ -8,7 +8,7 @@ type UsageSnapshot = {
   period_start: string;
   period_end: string;
   included_conversations: number;
-  billable_conversations: number;
+  conversations_used: number;
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
@@ -42,6 +42,7 @@ export type MeContextPayload = {
     };
   };
   usage_snapshot: UsageSnapshot | null;
+  onboarding_completed: boolean;
 };
 
 type MeContextValue = {
@@ -63,16 +64,18 @@ export function MeContextProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const [, meContext] = await Promise.all([
-        backendFetch("/api/v1/bootstrap/me", { method: "POST" }),
-        backendFetch<MeContextPayload>("/api/v1/me/context"),
-      ]);
+      const meContext = await backendFetch<MeContextPayload>("/api/v1/me/context");
       setData(meContext);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load account context");
       setData(null);
     } finally {
       setLoading(false);
+    }
+    try {
+      await backendFetch("/api/v1/bootstrap/me", { method: "POST" });
+    } catch {
+      // Idempotent workspace setup; must not discard a successful `/me/context` payload.
     }
   }, []);
 

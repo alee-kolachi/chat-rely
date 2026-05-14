@@ -6,6 +6,8 @@ import {
   CHATRELY_AUTH_SHORT_LIVED_COOKIE,
   CHATRELY_REMEMBER_ME_MAX_AGE_SEC,
 } from "@/lib/auth-session-preference";
+import { postBootstrapMeServer } from "@/lib/server-bootstrap-me";
+import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 
 export type LoginFormState = { error?: string } | undefined;
@@ -55,8 +57,9 @@ export async function loginWithEmailPassword(
     });
   }
 
-  const destination =
-    rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
+  const nextDefault = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
+  const { onboarding_completed } = await postBootstrapMeServer(session.access_token);
+  const destination = resolvePostAuthDestination(nextDefault, onboarding_completed);
 
   redirect(destination);
 }

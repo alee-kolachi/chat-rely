@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,7 @@ export function DashboardCreateAgentModal({
   refreshAgents,
   setSelectedAgentId,
 }: DashboardCreateAgentModalProps) {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export function DashboardCreateAgentModal({
       await refreshAgents();
       setSelectedAgentId(created.id);
       onClose();
+      router.push(`/knowledge/website?agent=${encodeURIComponent(created.id)}`);
     } catch (e) {
       if (e instanceof BackendApiError && e.status === 409 && e.code === "agent.slug_conflict") {
         const retrySlug = `${slugFromName(trimmed) || "agent"}-${Date.now().toString(36)}`.slice(0, 120);
@@ -69,6 +72,7 @@ export function DashboardCreateAgentModal({
           await refreshAgents();
           setSelectedAgentId(created.id);
           onClose();
+          router.push(`/knowledge/website?agent=${encodeURIComponent(created.id)}`);
           return;
         } catch (e2) {
           setError(e2 instanceof Error ? e2.message : "Could not create agent");

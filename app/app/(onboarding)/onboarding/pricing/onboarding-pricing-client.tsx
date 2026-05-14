@@ -1,35 +1,62 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { PricingCards } from "@/components/marketing/pricing-sections";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import { OnboardingStickyFooter } from "@/components/onboarding/onboarding-ui";
 
 export function OnboardingPricingClient() {
+  const router = useRouter();
   const agentId = useResolvedOnboardingAgentId();
+  const [continueBusy, setContinueBusy] = useState(false);
+  const [continueError, setContinueError] = useState<string | null>(null);
 
   const backHref = useMemo(
-    () => (agentId ? `/onboarding/agent-preview?agentId=${encodeURIComponent(agentId)}` : "/onboarding/agent-preview"),
+    () =>
+      agentId ? `/onboarding/appearance-tone?agentId=${encodeURIComponent(agentId)}` : "/onboarding/appearance-tone",
     [agentId],
   );
-  const installHref = useMemo(
-    () => (agentId ? `/onboarding/installation?agentId=${encodeURIComponent(agentId)}` : "/onboarding/installation"),
-    [agentId],
-  );
+
+  const playgroundHref = useMemo(() => {
+    if (!agentId) return "/playground";
+    return `/playground?agentId=${encodeURIComponent(agentId)}`;
+  }, [agentId]);
+
+  const onContinue = useCallback(async () => {
+    if (!agentId || continueBusy) return;
+    setContinueError(null);
+    setContinueBusy(true);
+    try {
+      await backendFetch("/api/v1/onboarding/finish", {
+        method: "POST",
+        body: JSON.stringify({ agent_id: agentId }),
+      });
+      router.push(playgroundHref);
+    } catch (e) {
+      setContinueError(e instanceof BackendApiError ? e.message : "Could not complete setup.");
+    } finally {
+      setContinueBusy(false);
+    }
+  }, [agentId, continueBusy, playgroundHref, router]);
 
   return (
     <OnboardingFrame
-      activeItem="Agent Preview"
-      completedItems={["Agent Name", "Knowledge Base", "Connection", "Appearance & Tone", "Agent Preview"]}
+      activeItem="Appearance & Tone"
+      completedItems={["Agent Name", "Knowledge Base", "Connection", "Agent Preview", "Appearance & Tone"]}
       stepLabel="Plans & billing"
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
           backHref={backHref}
           backLabel="Back"
-          primaryHref={installHref}
+          primaryAsButton
+          onPrimaryClick={() => void onContinue()}
+          primaryPending={continueBusy}
+          primaryDisabled={!agentId}
           primaryLabel="Continue"
           tertiary={
             <span className="text-ds-on-surface-variant block max-w-full text-center text-[10px] leading-snug sm:max-w-md sm:text-left sm:text-[11px]">
@@ -39,6 +66,11 @@ export function OnboardingPricingClient() {
         />
       }
     >
+      {continueError ? (
+        <p className="border-ds-outline bg-ds-surface/95 mx-auto mt-2 max-w-3xl rounded-ds-md border px-3 py-2 text-center text-xs text-rose-600 sm:px-4">
+          {continueError}
+        </p>
+      ) : null}
       <div className="relative flex w-full min-w-0 flex-col overflow-x-hidden max-lg:min-h-min max-lg:flex-none lg:min-h-0 lg:flex-1">
         <div
           className="pointer-events-none absolute inset-0 -z-10"

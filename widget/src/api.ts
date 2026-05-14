@@ -88,7 +88,9 @@ export async function* streamChat(
 export async function postWidgetMessageFeedback(
   apiBase: string,
   agentKey: string,
-  body: { message_id: string; visitor_id: string; value: 1 | -1 }
+  body:
+    | { message_id: string; visitor_id: string; value: 1 | -1 }
+    | { message_id: string; visitor_id: string; remove: true }
 ): Promise<void> {
   const url = `${apiBase}/api/v1/public/widget/message-feedback`;
   const res = await fetch(url, {
