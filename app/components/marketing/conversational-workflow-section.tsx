@@ -62,7 +62,7 @@ export function ConversationalWorkflowSection() {
       <div className="mx-auto grid max-w-[1200px] gap-12 lg:grid-cols-2 lg:items-center">
         <div>
           <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-            Support conversations that actually finish the job
+          Smarter Shopify support with live actions and escalation
           </h2>
           <p className="mt-4 text-base leading-7 text-ds-on-surface-variant sm:mt-6">
             Connect once to your live Shopify store. ChatRely answers with current data, runs the right actions, and

@@ -57,12 +57,12 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
   },
 ];
 
-/** Short bullets for home / onboarding only. Full breakdown is on `/pricing`. */
+/** Short bullets for onboarding plan cards. Home teaser uses the feature row list. */
 export const PRICING_TEASER_BULLETS: Record<PricingTierSlug, readonly string[]> = {
-  free: ["30 conversations / month", "1 agent · starter models", "No card required"],
-  hobby: ["200 conversations / month", "Shopify + AI actions", "Advanced models"],
-  standard: ["1,000 conversations / month", "2 agents · automations", "Popular for teams"],
-  pro: ["5,000 conversations / month", "5 agents", "Visitor thumbs & feedback insights"],
+  free: ["1 agent · starter models", "Website & doc knowledge", "30 conversations / mo · no card"],
+  hobby: ["Shopify + AI actions", "Advanced models", "200 conversations / mo"],
+  standard: ["2 agents · automations & analytics", "Source suggestions", "1,000 conversations / mo"],
+  pro: ["5 agents · white-label touches", "Visitor thumbs & feedback insights", "5,000 conversations / mo"],
 };
 
 export type PricingDetailSection = {
@@ -74,24 +74,6 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
   {
     title: "Usage",
     rows: [
-      {
-        label: "Conversations / month",
-        cells: {
-          free: { kind: "text", value: "30" },
-          hobby: { kind: "text", value: "200" },
-          standard: { kind: "text", value: "1,000" },
-          pro: { kind: "text", value: "5,000" },
-        },
-      },
-      {
-        label: "Cost per conversation (estimate)",
-        cells: {
-          free: { kind: "text", value: "$0.000" },
-          hobby: { kind: "text", value: "$0.145" },
-          standard: { kind: "text", value: "$0.099" },
-          pro: { kind: "text", value: "$0.080" },
-        },
-      },
       {
         label: "Agents",
         cells: {
@@ -162,6 +144,24 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
           hobby: { kind: "comingSoon" },
           standard: { kind: "comingSoon" },
           pro: { kind: "comingSoon" },
+        },
+      },
+      {
+        label: "Conversations / month",
+        cells: {
+          free: { kind: "text", value: "30" },
+          hobby: { kind: "text", value: "200" },
+          standard: { kind: "text", value: "1,000" },
+          pro: { kind: "text", value: "5,000" },
+        },
+      },
+      {
+        label: "Cost per conversation (estimate)",
+        cells: {
+          free: { kind: "text", value: "$0.000" },
+          hobby: { kind: "text", value: "$0.145" },
+          standard: { kind: "text", value: "$0.099" },
+          pro: { kind: "text", value: "$0.080" },
         },
       },
     ],
@@ -357,6 +357,8 @@ export const LANDING_COMPACT_LABELS: Record<string, string> = {
 /** Hover tooltips only where the row benefits from extra context (paired with the info icon). */
 export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
   "Agents": "How many separate AI agents you can run on this plan.",
+  "Conversations / month":
+    "One billable metric among many. Plans also differ by agents, automations, analytics, channels, and model access—compare the full list for your tier.",
   "Cost per conversation (estimate)":
     "Estimate for comparison. You pay the monthly subscription only—we do not charge per extra conversation today.",
   "AI actions per agent": "Automations / integrations each agent can enable at once.",
@@ -370,6 +372,8 @@ export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
   "Basic analytics": "Core conversation and performance metrics.",
   "Advanced analytics":
     "Intents, geography, sentiment, and quality metrics. Included on Standard and Pro (Hobby has core KPIs and trends only).",
+  "Visitor thumbs & feedback summaries (widget)":
+    "Let visitors rate replies in the widget; Pro aggregates thumbs and feedback themes on the dashboard.",
   "Shopify": "Connect a Shopify store for product and order-aware replies.",
   "Limited models (GPT-5.4 Mini, GPT-4o Mini)": _footnoteBlock("Limited models"),
   "Advanced OpenAI models": _footnoteBlock("Advanced OpenAI models"),
@@ -391,27 +395,14 @@ function _compactLabel(sourceLabel: string): string {
 }
 
 /**
- * Rows shown inside each tier card on the home landing (and onboarding): full coverage, compact text,
- * optional tooltips for dense rows.
+ * Capability rows for the marketing home, `/pricing`, and any shared teaser: one column per tier,
+ * optional tooltips (info icon) only where `LANDING_ROW_TOOLTIPS` has copy. Conversation limits are listed last.
  */
 export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierFeatureRow[] {
   const card = PRICING_TIER_CARDS.find((c) => c.slug === slug);
   if (!card) return [];
 
-  const rows: LandingTierFeatureRow[] = [
-    {
-      key: "conversations",
-      displayLabel: "Conversations / mo",
-      value: card.includedConversations.toLocaleString(),
-      tooltip: LANDING_ROW_TOOLTIPS["Conversations / month"],
-    },
-    {
-      key: "cost_conv",
-      displayLabel: "Cost / conv (est.)",
-      value: card.displayCostPerConversation,
-      tooltip: LANDING_ROW_TOOLTIPS["Cost per conversation (estimate)"],
-    },
-  ];
+  const rows: LandingTierFeatureRow[] = [];
 
   for (const section of PRICING_DETAIL_SECTIONS) {
     if (section.title === "Usage") {
@@ -457,6 +448,21 @@ export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierF
       });
     }
   }
+
+  rows.push(
+    {
+      key: "conversations",
+      displayLabel: "Conversations / mo",
+      value: card.includedConversations.toLocaleString(),
+      tooltip: LANDING_ROW_TOOLTIPS["Conversations / month"],
+    },
+    {
+      key: "cost_conv",
+      displayLabel: "Cost / conv (est.)",
+      value: card.displayCostPerConversation,
+      tooltip: LANDING_ROW_TOOLTIPS["Cost per conversation (estimate)"],
+    },
+  );
 
   return rows;
 }

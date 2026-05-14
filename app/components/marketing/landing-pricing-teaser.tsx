@@ -18,7 +18,7 @@ export function LandingPricingTeaser() {
           Compare all plans &amp; features
         </Link>
         <p className="text-ds-on-surface-variant max-w-md text-xs leading-relaxed">
-          Limits, model lists, and the full feature matrix live on the pricing page.
+          The full plan table with prices and CTAs is on the pricing page—hover the info icons for extra context.
         </p>
       </div>
     </>

@@ -32,7 +32,11 @@
   --color-ds-on-danger: var(--ds-on-danger);
   --color-ds-info: var(--ds-info);
   --color-ds-on-info: var(--ds-on-info);
-  --font-sans: var(--font-inter), "Inter Fallback", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-sans:
+    var(--font-dm-sans), "DM Sans", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+  --font-heading: var(--font-sora), "Sora", ui-sans-serif, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
   --radius-ds-sm: var(--ds-radius-sm);
   --radius-ds-md: var(--ds-radius-md);
   --radius-ds-lg: var(--ds-radius-lg);
@@ -204,6 +208,7 @@
   }
 
   .ds-app-kicker {
+    font-family: var(--ds-app-font-heading);
     font-size: var(--ds-app-kicker-size);
     font-weight: var(--ds-app-kicker-weight);
     letter-spacing: var(--ds-app-kicker-tracking);
@@ -443,7 +448,7 @@ html {
 body {
   background: var(--ds-surface);
   color: var(--ds-on-surface);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 @layer base {
@@ -494,12 +499,51 @@ body {
   h5,
   h6 {
     font-style: normal;
-    font-weight: 600;
     color: var(--ds-on-surface);
+    font-family: var(--font-heading);
   }
 
+  /* Display / hero — Sora ExtraBold */
   h1 {
+    font-weight: 800;
     font-size: 28px;
     line-height: 36px;
+  }
+
+  /* Section heading — Sora Bold */
+  h2 {
+    font-weight: 700;
+  }
+
+  /* Subsection / card title — Sora SemiBold */
+  h3,
+  h4 {
+    font-weight: 600;
+  }
+
+  h5,
+  h6 {
+    font-weight: 600;
+  }
+
+  b,
+  strong {
+    font-weight: 500;
+  }
+
+  /* CTA / buttons — DM Sans SemiBold (utilities can override) */
+  button,
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"] {
+    font-family: inherit;
+    font-weight: 600;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
   }
 }
