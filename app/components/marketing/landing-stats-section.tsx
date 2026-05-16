@@ -10,9 +10,9 @@ type LandingStat = {
 };
 
 const STATS: LandingStat[] = [
-  { value: 2_450_000, label: "Pages crawled", suffix: "+" },
-  { value: 198_000, label: "Knowledge documents indexed", suffix: "+" },
-  { value: 67_000, label: "AI conversations resolved", suffix: "+" },
+  { value: 60_000, label: "Pages crawled", suffix: "+" },
+  { value: 13_000, label: "Knowledge documents indexed", suffix: "+" },
+  { value: 8_500, label: "AI conversations resolved", suffix: "+" },
   { value: 98.7, label: "Average assistant accuracy", suffix: "%", prefix: "" },
 ];
 

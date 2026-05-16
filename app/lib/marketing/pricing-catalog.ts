@@ -84,6 +84,15 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
+        label: "Conversations / month",
+        cells: {
+          free: { kind: "text", value: "30 · $0.000" },
+          hobby: { kind: "text", value: "200 · $0.145" },
+          standard: { kind: "text", value: "1,000 · $0.099" },
+          pro: { kind: "text", value: "5,000 · $0.080" },
+        },
+      },
+      {
         label: "AI actions per agent",
         cells: {
           free: { kind: "text", value: "0" },
@@ -137,33 +146,6 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
           pro: { kind: "tick" },
         },
       },
-      {
-        label: "Tickets as a source",
-        cells: {
-          free: { kind: "comingSoon" },
-          hobby: { kind: "comingSoon" },
-          standard: { kind: "comingSoon" },
-          pro: { kind: "comingSoon" },
-        },
-      },
-      {
-        label: "Conversations / month",
-        cells: {
-          free: { kind: "text", value: "30" },
-          hobby: { kind: "text", value: "200" },
-          standard: { kind: "text", value: "1,000" },
-          pro: { kind: "text", value: "5,000" },
-        },
-      },
-      {
-        label: "Cost per conversation (estimate)",
-        cells: {
-          free: { kind: "text", value: "$0.000" },
-          hobby: { kind: "text", value: "$0.145" },
-          standard: { kind: "text", value: "$0.099" },
-          pro: { kind: "text", value: "$0.080" },
-        },
-      },
     ],
   },
   {
@@ -208,33 +190,6 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
           hobby: { kind: "tick" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
-        },
-      },
-      {
-        label: "WhatsApp",
-        cells: {
-          free: { kind: "comingSoon" },
-          hobby: { kind: "comingSoon" },
-          standard: { kind: "comingSoon" },
-          pro: { kind: "comingSoon" },
-        },
-      },
-      {
-        label: "Messenger",
-        cells: {
-          free: { kind: "comingSoon" },
-          hobby: { kind: "comingSoon" },
-          standard: { kind: "comingSoon" },
-          pro: { kind: "comingSoon" },
-        },
-      },
-      {
-        label: "Instagram",
-        cells: {
-          free: { kind: "comingSoon" },
-          hobby: { kind: "comingSoon" },
-          standard: { kind: "comingSoon" },
-          pro: { kind: "comingSoon" },
         },
       },
     ],
@@ -339,12 +294,6 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
   }
 }
 
-function _footnoteBlock(title: string): string {
-  const block = PRICING_MODEL_FOOTNOTES.find((b) => b.title === title);
-  if (!block) return "";
-  return `${block.title}:\n${block.lines.join("\n")}`;
-}
-
 /** Shorter row labels on the home landing teaser cards. */
 export const LANDING_COMPACT_LABELS: Record<string, string> = {
   "Limited models (GPT-5.4 Mini, GPT-4o Mini)": "Limited models",
@@ -358,28 +307,24 @@ export const LANDING_COMPACT_LABELS: Record<string, string> = {
 export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
   "Agents": "How many separate AI agents you can run on this plan.",
   "Conversations / month":
-    "One billable metric among many. Plans also differ by agents, automations, analytics, channels, and model access—compare the full list for your tier.",
-  "Cost per conversation (estimate)":
-    "Estimate for comparison. You pay the monthly subscription only—we do not charge per extra conversation today.",
-  "AI actions per agent": "Automations / integrations each agent can enable at once.",
-  "Training content size": "Total size of sources used to train the agent for this tier.",
+    "Monthly conversation cap. The dollar figure is an estimate to compare plans—you pay the subscription, not per chat.",
+  "AI actions per agent": "Automations (e.g. Shopify actions) each agent can have enabled at the same time.",
+  "Training content size": "Total size of files and pages used to train agents on this plan.",
   "Attachments (roadmap)":
-    "Not enforced in the product yet. Free: none. Hobby: PDF with readable text only. Standard & Pro: PDF, PNG, JPG, JPEG.",
+    "Still rolling out. Hobby: text-based PDFs. Standard & Pro: PDF plus common image types.",
   "Auto retrain agents": "Automatically refresh the agent when your knowledge sources change.",
   "Sources suggestions":
-    "After closures, we surface topics where grounded answers were weak—Standard & Pro on the dashboard. Add pages, snippets, or Q&A in Knowledge.",
-  "Tickets as a source": "Use support tickets as training context. Coming soon on all tiers.",
+    "After chats close, Standard and Pro can suggest weak topics on the dashboard so you can add knowledge.",
   "Basic analytics": "Core conversation and performance metrics.",
-  "Advanced analytics":
-    "Intents, geography, sentiment, and quality metrics. Included on Standard and Pro (Hobby has core KPIs and trends only).",
+  "Advanced analytics": "Deeper metrics (intents, sentiment, quality). Standard and Pro; Hobby keeps core KPIs.",
   "Visitor thumbs & feedback summaries (widget)":
-    "Let visitors rate replies in the widget; Pro aggregates thumbs and feedback themes on the dashboard.",
-  "Shopify": "Connect a Shopify store for product and order-aware replies.",
-  "Limited models (GPT-5.4 Mini, GPT-4o Mini)": _footnoteBlock("Limited models"),
-  "Advanced OpenAI models": _footnoteBlock("Advanced OpenAI models"),
-  "Advanced Google models": _footnoteBlock("Advanced Google models"),
+    "Visitors can rate replies in the widget; Pro summarizes thumbs and themes on the dashboard.",
+  "Shopify": "Connect Shopify for product- and order-aware replies.",
+  "Limited models (GPT-5.4 Mini, GPT-4o Mini)": "Starter OpenAI models (e.g. GPT-4o Mini, GPT-5.4 Mini).",
+  "Advanced OpenAI models": "Full OpenAI lineup (GPT-5 family, GPT-4o, o-series, and more).",
+  "Advanced Google models": "Gemini 2.5+ and 3.x Flash / Pro models.",
   "Remove Powered by ChatRely":
-    "Pro (and legacy Scale) omit “Powered by ChatRely” in the storefront widget. Other plans show it only until the visitor sends their first message.",
+    "Pro hides “Powered by ChatRely” in the widget. Other plans may show it until the visitor sends a message.",
 };
 
 export type LandingTierFeatureRow = {
@@ -388,81 +333,140 @@ export type LandingTierFeatureRow = {
   displayLabel: string;
   value: string;
   tooltip?: string;
+  /** Shown in muted type beside `value` (e.g. cost estimate next to conversation count). */
+  mutedSuffix?: string;
+  /** Full-width summary line (e.g. “Everything in Free plan”). */
+  rowKind?: "inherit";
+};
+
+/** Landing home teaser cards: info icons only on a few high-signal rows. */
+export const LANDING_TEASER_TOOLTIP_KEYS = new Set<string>([
+  "usage:Conversations / month",
+  "usage:AI actions per agent",
+  "usage:Training content size",
+  "usage:Attachments (roadmap)",
+]);
+
+const _PREVIOUS_TIER: Record<PricingTierSlug, PricingTierSlug | null> = {
+  free: null,
+  hobby: "free",
+  standard: "hobby",
+  pro: "standard",
+};
+
+const _TIER_SHORT_NAME: Record<PricingTierSlug, string> = {
+  free: "Free",
+  hobby: "Hobby",
+  standard: "Standard",
+  pro: "Pro",
 };
 
 function _compactLabel(sourceLabel: string): string {
   return LANDING_COMPACT_LABELS[sourceLabel] ?? sourceLabel;
 }
 
+function _excludedTeaserValue(v: string): boolean {
+  return v === "\u2014" || v === "Soon";
+}
+
+type _TeaserMatrixRow = {
+  key: string;
+  matrixLabel: string;
+  cells: Record<PricingTierSlug, DetailCell>;
+};
+
+function _iterTeaserMatrixRows(): _TeaserMatrixRow[] {
+  const rows: _TeaserMatrixRow[] = [];
+  for (const section of PRICING_DETAIL_SECTIONS) {
+    if (section.title === "Usage") {
+      for (const row of section.rows) {
+        if (row.label === "Conversations / month") continue;
+        rows.push({ key: `usage:${row.label}`, matrixLabel: row.label, cells: row.cells });
+      }
+      continue;
+    }
+    if (section.title === "Channels") {
+      const shopify = section.rows.find((r) => r.label === "Shopify");
+      if (shopify) {
+        rows.push({ key: "Channels:Shopify", matrixLabel: "Shopify", cells: shopify.cells });
+      }
+      continue;
+    }
+    for (const row of section.rows) {
+      rows.push({ key: `${section.title}:${row.label}`, matrixLabel: row.label, cells: row.cells });
+    }
+  }
+  return rows;
+}
+
+function _insertConversationsAfterAgentOrInherit(
+  base: LandingTierFeatureRow[],
+  conv: LandingTierFeatureRow,
+): LandingTierFeatureRow[] {
+  const agentIdx = base.findIndex((r) => r.key === "usage:Agents");
+  if (agentIdx !== -1) {
+    return [...base.slice(0, agentIdx + 1), conv, ...base.slice(agentIdx + 1)];
+  }
+  const inheritIdx = base.findIndex((r) => r.rowKind === "inherit");
+  if (inheritIdx !== -1) {
+    return [...base.slice(0, inheritIdx + 1), conv, ...base.slice(inheritIdx + 1)];
+  }
+  return [conv, ...base];
+}
+
 /**
- * Capability rows for the marketing home, `/pricing`, and any shared teaser: one column per tier,
- * optional tooltips (info icon) only where `LANDING_ROW_TOOLTIPS` has copy. Conversation limits are listed last.
+ * Compact capability rows for the marketing home teaser: omits unavailable (“—”) and roadmap rows,
+ * stacks paid tiers on “Everything in … plan”, shows only upgrades vs the previous tier, and places
+ * conversations (with cost estimate) after the Agents row when present.
  */
 export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierFeatureRow[] {
   const card = PRICING_TIER_CARDS.find((c) => c.slug === slug);
   if (!card) return [];
 
-  const rows: LandingTierFeatureRow[] = [];
+  const prev = _PREVIOUS_TIER[slug];
+  const matrixRows = _iterTeaserMatrixRows();
 
-  for (const section of PRICING_DETAIL_SECTIONS) {
-    if (section.title === "Usage") {
-      for (const row of section.rows) {
-        if (row.label === "Conversations / month" || row.label === "Cost per conversation (estimate)") {
-          continue;
-        }
-        rows.push({
-          key: `usage:${row.label}`,
-          displayLabel: _compactLabel(row.label),
-          value: detailCellToShortDisplay(row.cells[slug]),
-          tooltip: LANDING_ROW_TOOLTIPS[row.label],
-        });
-      }
-      continue;
-    }
+  const body: LandingTierFeatureRow[] = [];
 
-    if (section.title === "Channels") {
-      const shopify = section.rows.find((r) => r.label === "Shopify");
-      if (shopify && slug !== "free") {
-        rows.push({
-          key: "channel:shopify",
-          displayLabel: "Shopify",
-          value: detailCellToShortDisplay(shopify.cells[slug]),
-          tooltip: LANDING_ROW_TOOLTIPS["Shopify"],
-        });
-      }
-      rows.push({
-        key: "channel:more",
-        displayLabel: "WhatsApp · Messenger · Instagram",
-        value: "Soon",
-        tooltip: "Additional messaging channels on our roadmap; coming soon on all plans.",
-      });
-      continue;
-    }
-
-    for (const row of section.rows) {
-      rows.push({
-        key: `${section.title}:${row.label}`,
-        displayLabel: _compactLabel(row.label),
-        value: detailCellToShortDisplay(row.cells[slug]),
-        tooltip: LANDING_ROW_TOOLTIPS[row.label],
-      });
-    }
+  if (prev) {
+    body.push({
+      key: "_inherit",
+      rowKind: "inherit",
+      displayLabel: `Everything in ${_TIER_SHORT_NAME[prev]} plan`,
+      value: "",
+    });
   }
 
-  rows.push(
-    {
-      key: "conversations",
-      displayLabel: "Conversations / mo",
-      value: card.includedConversations.toLocaleString(),
-      tooltip: LANDING_ROW_TOOLTIPS["Conversations / month"],
-    },
-    {
-      key: "cost_conv",
-      displayLabel: "Cost / conv (est.)",
-      value: card.displayCostPerConversation,
-      tooltip: LANDING_ROW_TOOLTIPS["Cost per conversation (estimate)"],
-    },
-  );
+  for (const ref of matrixRows) {
+    const v = detailCellToShortDisplay(ref.cells[slug]);
+    if (_excludedTeaserValue(v)) continue;
 
-  return rows;
+    if (prev) {
+      const pv = detailCellToShortDisplay(ref.cells[prev]);
+      if (!_excludedTeaserValue(pv) && pv === v) continue;
+    }
+
+    const tip = LANDING_ROW_TOOLTIPS[ref.matrixLabel];
+    const tooltip = tip && LANDING_TEASER_TOOLTIP_KEYS.has(ref.key) ? tip : undefined;
+
+    body.push({
+      key: ref.key,
+      displayLabel: _compactLabel(ref.matrixLabel),
+      value: v,
+      tooltip,
+    });
+  }
+
+  const convRow: LandingTierFeatureRow = {
+    key: "usage:Conversations / month",
+    displayLabel: _compactLabel("Conversations / month"),
+    value: card.includedConversations.toLocaleString(),
+    mutedSuffix: card.displayCostPerConversation,
+    tooltip:
+      LANDING_TEASER_TOOLTIP_KEYS.has("usage:Conversations / month") && LANDING_ROW_TOOLTIPS["Conversations / month"]
+        ? LANDING_ROW_TOOLTIPS["Conversations / month"]
+        : undefined,
+  };
+
+  return _insertConversationsAfterAgentOrInherit(body, convRow);
 }

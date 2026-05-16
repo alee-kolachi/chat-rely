@@ -33,10 +33,10 @@
   --color-ds-info: var(--ds-info);
   --color-ds-on-info: var(--ds-on-info);
   --font-sans:
-    var(--font-dm-sans), "DM Sans", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
-    "Segoe UI Symbol", "Noto Color Emoji";
-  --font-heading: var(--font-sora), "Sora", ui-sans-serif, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
+    var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
+  --font-heading: var(--font-geist-sans), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --radius-ds-sm: var(--ds-radius-sm);
   --radius-ds-md: var(--ds-radius-md);
   --radius-ds-lg: var(--ds-radius-lg);
@@ -44,6 +44,7 @@
 }
 
 @layer utilities {
+
   /*
    * Composite controls — all colors come from design-system.css tokens.
    * Prefer these (or ds-* Tailwind utilities) instead of one-off zinc/slate classes.
@@ -268,6 +269,18 @@
   .chat-turn2-bot {
     animation: phase-2-bot 11s ease-in-out infinite;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+
+    .chat-turn1-user,
+    .chat-turn1-bot,
+    .chat-turn2-user,
+    .chat-turn2-bot {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 @keyframes ds-blink {
@@ -350,6 +363,7 @@
     opacity: 0;
     transform: translateY(16px) scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -361,6 +375,7 @@
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+
   to {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
@@ -376,6 +391,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .ds-notification-toast-enter,
   .ds-notification-toast-exit {
     animation: none;
@@ -383,11 +399,13 @@
 }
 
 @keyframes phase-1-user {
+
   0%,
   10% {
     opacity: 0;
     transform: translateY(6px);
   }
+
   14%,
   100% {
     opacity: 1;
@@ -396,11 +414,13 @@
 }
 
 @keyframes phase-1-bot {
+
   0%,
   30% {
     opacity: 0;
     transform: translateY(6px);
   }
+
   36%,
   100% {
     opacity: 1;
@@ -409,11 +429,13 @@
 }
 
 @keyframes phase-2-user {
+
   0%,
   46% {
     opacity: 0;
     transform: translateY(6px);
   }
+
   54%,
   100% {
     opacity: 1;
@@ -422,11 +444,13 @@
 }
 
 @keyframes phase-2-bot {
+
   0%,
   66% {
     opacity: 0;
     transform: translateY(6px);
   }
+
   74%,
   100% {
     opacity: 1;
@@ -503,22 +527,26 @@ body {
     font-family: var(--font-heading);
   }
 
-  /* Display / hero — Sora ExtraBold */
+  /* Display / hero — Geist Bold */
   h1 {
-    font-weight: 800;
+    font-weight: 700;
     font-size: 28px;
     line-height: 36px;
   }
 
-  /* Section heading — Sora Bold */
+  /* Section heading — Geist SemiBold */
   h2 {
-    font-weight: 700;
+    font-weight: 600;
   }
 
-  /* Subsection / card title — Sora SemiBold */
-  h3,
-  h4 {
+  /* Subsection / card title — Geist SemiBold */
+  h3 {
     font-weight: 600;
+  }
+
+  /* Label heading — Geist Medium */
+  h4 {
+    font-weight: 500;
   }
 
   h5,
@@ -531,13 +559,13 @@ body {
     font-weight: 500;
   }
 
-  /* CTA / buttons — DM Sans SemiBold (utilities can override) */
+  /* CTA / buttons — Geist Medium (utilities can override) */
   button,
   input[type="button"],
   input[type="submit"],
   input[type="reset"] {
     font-family: inherit;
-    font-weight: 600;
+    font-weight: 500;
   }
 
   code,
@@ -545,5 +573,6 @@ body {
   samp,
   pre {
     font-family: var(--font-mono);
+    font-weight: 400;
   }
 }

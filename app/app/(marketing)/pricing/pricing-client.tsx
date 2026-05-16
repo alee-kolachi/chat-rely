@@ -44,8 +44,8 @@ export function MarketingPricingClient() {
             Predictable pricing, scalable plans
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-5 sm:max-w-2xl sm:text-xl">
-            Simple conversation limits—not opaque message credits. Compare plans below; on the home page, compact cards
-            use info icons for extra detail on dense rows.
+            Simple conversation limits—not opaque message credits. Compare plans below; the home page shows a compact
+            summary of each tier.
           </p>
         </div>
 

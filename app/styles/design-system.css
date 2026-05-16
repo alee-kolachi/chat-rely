@@ -79,26 +79,26 @@
    --ds-radius-xl: 1rem;
 
    /* -------------------------------------------------------------------------
-     7) Typography — DM Sans (body), Sora (headings), JetBrains Mono (code)
-       loaded in app/layout.tsx via next/font
+     7) Typography — Geist Sans (UI + headings), Geist Mono (code)
+       loaded in app/layout.tsx via `geist` package (next/font/local)
      ------------------------------------------------------------------------- */
-   --ds-app-font-heading: var(--font-sora), "Sora", ui-sans-serif, sans-serif;
+   --ds-app-font-heading: var(--font-geist-sans), ui-sans-serif, sans-serif;
    --ds-app-page-title-size: 1.75rem;
    --ds-app-page-title-size-md: 2rem;
-   --ds-app-page-title-weight: 800;
+   --ds-app-page-title-weight: 700;
    --ds-app-page-title-tracking: -0.025em;
    --ds-app-page-title-leading: 1.2;
    --ds-app-page-description-size: 0.875rem;
    --ds-app-page-description-size-md: 1rem;
    --ds-app-section-title-size: 1.125rem;
-   --ds-app-section-title-weight: 700;
+   --ds-app-section-title-weight: 600;
    --ds-app-card-title-size: 0.875rem;
    --ds-app-card-title-weight: 600;
    --ds-app-metric-value-size: 1.875rem;
    --ds-app-metric-value-size-lg: 2.25rem;
    --ds-app-metric-value-weight: 600;
    --ds-app-kicker-size: 0.6875rem;
-   --ds-app-kicker-weight: 600;
+   --ds-app-kicker-weight: 400;
    --ds-app-kicker-tracking: 0.14em;
 
    /* -------------------------------------------------------------------------

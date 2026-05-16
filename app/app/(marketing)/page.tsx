@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CHAT_RELY_LOGO_PATH, ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { ConversationalWorkflowSection } from "@/components/marketing/conversational-workflow-section";
+import { LandingHeroChatPreview } from "@/components/marketing/landing-hero-chat-preview";
 import { LandingStatsSection } from "@/components/marketing/landing-stats-section";
 import { PlatformDiscoverySection } from "@/components/marketing/platform-discovery-section";
 import { LandingPricingTeaser } from "@/components/marketing/landing-pricing-teaser";
@@ -62,11 +63,7 @@ export default function LandingPage() {
       <section className="bg-ds-surface px-6 pb-14 pt-10 sm:pb-16 sm:pt-14 lg:pb-20">
         <div className="mx-auto grid max-w-[1200px] gap-16 lg:grid-cols-2 lg:items-center">
           <div className="max-w-xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-ds-outline bg-ds-surface px-3 py-1 text-xs">
-              <span className="font-semibold uppercase tracking-wider text-ds-tertiary">New Feature</span>
-              <span className="text-ds-on-surface-variant">Custom AI workflows are here</span>
-            </div>
-            <h1 className="mt-6 text-5xl font-semibold leading-tight tracking-tight sm:text-6xl">
+            <h1 className="text-5xl font-semibold leading-tight tracking-tight sm:text-6xl">
               AI agents for magical customer experiences
             </h1>
             <p className="mt-5 text-lg leading-8 text-ds-on-surface-variant">
@@ -88,51 +85,11 @@ export default function LandingPage() {
               </Link>
             </div>
             <p className="mt-10 text-sm text-ds-on-surface-variant">
-              <span className="font-semibold text-ds-on-surface">5,000+ businesses</span> building with ChatRely
+              <span className="font-semibold text-ds-on-surface">120+ businesses</span> building with ChatRely
             </p>
           </div>
 
-          <div className="relative">
-            <div className="rounded-[30px] bg-gradient-to-br from-ds-tertiary/55 via-ds-accent-pink/45 to-violet-500/45 p-3 sm:p-4">
-              <div className="mx-auto max-w-[540px] overflow-hidden rounded-[22px] border border-ds-outline bg-ds-surface shadow-2xl shadow-zinc-300/35 scale-[0.92] sm:scale-[0.95]">
-                <div className="flex items-center justify-between border-b border-ds-outline bg-white p-3.5 sm:p-4">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- static SVG from /public */}
-                    <img
-                      src={CHAT_RELY_LOGO_PATH}
-                      alt=""
-                      className="h-7 w-auto shrink-0 object-contain"
-                      width={4931}
-                      height={3503}
-                    />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold">ChatRely Support Agent</p>
-                      <p className="text-xs text-green-600">Online</p>
-                    </div>
-                  </div>
-                  <span className="shrink-0 text-xs text-ds-on-surface-variant">Preview</span>
-                </div>
-                <div className="space-y-3.5 bg-ds-surface p-4 sm:p-5">
-                  <div className="max-w-[82%] rounded-2xl rounded-tl-sm border border-ds-outline bg-white p-3 text-sm">
-                    Hi! How can I help you build your custom AI agent today?
-                  </div>
-                  <div className="ml-auto max-w-[82%] rounded-2xl rounded-tr-sm bg-ds-primary p-3 text-sm text-ds-on-primary">
-                    How do I upload PDF documents for training?
-                  </div>
-                  <div className="max-w-[82%] rounded-2xl rounded-tl-sm border border-ds-outline bg-white p-3 text-sm">
-                    Head to the Sources tab, click Files, and drop your PDFs there. I will learn from them instantly.
-                  </div>
-                </div>
-                <div className="border-t border-ds-outline bg-white p-3.5 sm:p-4">
-                  <div className="rounded-ds-md bg-ds-surface px-4 py-3 text-sm text-ds-on-surface-variant">
-                    Ask anything...
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="absolute -right-6 -top-6 -z-10 h-28 w-28 rounded-full bg-ds-tertiary/20 blur-3xl" />
-            <div className="absolute -bottom-8 -left-8 -z-10 h-36 w-36 rounded-full bg-ds-primary/10 blur-3xl" />
-          </div>
+          <LandingHeroChatPreview />
         </div>
       </section>
 
