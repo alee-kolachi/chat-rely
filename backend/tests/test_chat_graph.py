@@ -15,6 +15,7 @@ from app.agent.graph import (
     append_escalation_tool_prompt,
     build_chat_graph,
 )
+from app.agent.knowledge_tools import SEARCH_KNOWLEDGE_BASE_TOOL_NAME, build_search_knowledge_base_tool
 from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME, build_escalate_to_human_tool
 
 
@@ -53,6 +54,27 @@ def test_route_to_escalation_when_requested() -> None:
     assert _route_after_model(state) == "escalation"
 
 
+def test_route_to_tools_when_knowledge_search_bound() -> None:
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": "tc_kb",
+                "name": SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
+                "args": {"query": "girls frocks"},
+            }
+        ],
+    )
+    kb_tool = build_search_knowledge_base_tool(agent_id=uuid4(), min_similarity=0.2)
+    state = {
+        "messages": [ai],
+        "escalation_enabled": False,
+        "bound_tools": [kb_tool],
+        "shopify_tool_names": set(),
+    }
+    assert _route_after_model(state) == "shopify_tools"
+
+
 def test_route_to_shopify_tools_when_bound() -> None:
     ai = AIMessage(
         content="",
@@ -64,9 +86,11 @@ def test_route_to_shopify_tools_when_bound() -> None:
             }
         ],
     )
+    shop_tool = _shopify_tool("shopify_product_search")
     state = {
         "messages": [ai],
         "escalation_enabled": False,
+        "bound_tools": [shop_tool],
         "shopify_tool_names": {"shopify_product_search"},
     }
     assert _route_after_model(state) == "shopify_tools"
@@ -158,3 +182,70 @@ async def test_stream_chat_graph_emits_done() -> None:
 def test_build_chat_graph_compiles() -> None:
     graph = build_chat_graph()
     assert graph is not None
+
+
+def test_select_chunks_lexical_grounded_when_threshold_too_high() -> None:
+    from app.domains.runtime.service import _rerank_chunks_for_query, _select_chunks_for_prompt
+
+    merged = [
+        {
+            "id": "a",
+            "content": "MEN-SALE – Breakout | https://breakout.com.pk/collections/men-sale",
+            "similarity": 0.36,
+        },
+        {
+            "id": "b",
+            "content": (
+                "Section: Everything New For Boys & Girls > Girls Collection > Fancy frocks\n\n"
+                "Dressing up little girls in a fancy frock is a fun thing. "
+                "Floral, fancy, glittery frocks and more."
+            ),
+            "similarity": 0.35,
+        },
+    ]
+    chunks, mode, _, passed = _select_chunks_for_prompt(
+        merged,
+        user_message="do you sell frocks?",
+        min_similarity=0.72,
+    )
+    assert passed == 0
+    assert mode == "lexical_grounded_below_threshold"
+    assert len(chunks) == 1
+    assert chunks[0]["id"] == "b"
+
+    ranked = _rerank_chunks_for_query(merged, "do you sell frocks?")
+    assert ranked[0]["id"] == "b"
+
+
+def test_extract_chunk_excerpt_finds_section_not_page_header() -> None:
+    from app.domains.runtime.service import _build_context_block, _extract_query_terms
+
+    chunk = {
+        "content": (
+            "Everything New For Boys & Girls – Breakout | https://example.com/blog\n\n"
+            "### A well-curated wardrobe is all about versatility and timeless style.\n\n"
+            + ("Intro filler paragraph. " * 80)
+            + "\n\n## Girls Collection\n\n"
+            "### Fancy frocks\n\n"
+            "Dressing up little girls in a fancy frock is a fun thing. "
+            "Designs such as floral, fancy, glittery, animated, pearl embellished, and embroidered."
+        ),
+    }
+    excerpt = _build_context_block([chunk], user_message="what type of frocks?")
+    assert "floral" in excerpt
+    assert "versatility and timeless style" not in excerpt
+
+
+def test_select_chunks_no_match_without_query_terms_in_candidates() -> None:
+    from app.domains.runtime.service import _select_chunks_for_prompt
+
+    merged = [
+        {"id": "a", "content": "unrelated men sale collection", "similarity": 0.33},
+    ]
+    chunks, mode, _, _ = _select_chunks_for_prompt(
+        merged,
+        user_message="do you sell frocks?",
+        min_similarity=0.72,
+    )
+    assert chunks == []
+    assert mode == "no_match"

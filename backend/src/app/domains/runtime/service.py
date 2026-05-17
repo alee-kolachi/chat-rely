@@ -73,6 +73,11 @@ RAG_MERGED_CHUNK_CAP = 20
 RAG_PROMPT_CHUNK_COUNT = 4
 RAG_PROMPT_EXCERPT_MAX_CHARS = 700
 RAG_PROMPT_CONTEXT_MAX_CHARS = 2400
+# Vector search returns top-k by distance only (no SQL similarity cutoff).
+# With text-embedding-3-small, short queries vs long page chunks (title + URL + body) often
+# score ~0.28–0.42 even for strong semantic matches; merchant defaults like 0.72 filter everything.
+RAG_VECTOR_SEARCH_MIN_SCORE = 0.0
+RAG_CHUNK_NOISE_FLOOR = 0.25
 RAG_EMBED_CACHE_TTL_SECONDS = 900
 RAG_EMBED_CACHE_MAX_ITEMS = 512
 
@@ -283,14 +288,23 @@ def _apply_usage_limit_model_downgrade(
     return out
 
 
-def _build_open_chat_system_prompt(system_prompt: str) -> str:
+def _build_open_chat_system_prompt(
+    system_prompt: str,
+    *,
+    human_escalation_enabled: bool = False,
+) -> str:
     base = (system_prompt or "").strip()
+    escalation_hint = (
+        " or offer to connect them with a human agent if that is available"
+        if human_escalation_enabled
+        else ". Do not mention human escalation or handoff"
+    )
     guidance = (
         "You are a customer-support chatbot for this brand. No indexed excerpts were retrieved for this question, "
         "so do not invent catalog details, prices, or policies. "
         "Respond helpfully to greetings and small talk; for product or policy questions, keep answers short, "
         "acknowledge you don’t have their knowledge base context for this turn, and suggest what the customer could "
-        "ask next or where on the site they might look (without making up URLs). "
+        f"ask next or where on the site they might look (without making up URLs){escalation_hint}. "
         "Use earlier messages in this thread for follow-ups when the user refers to something already discussed."
     )
     return f"{base}\n\n{guidance}".strip() if base else guidance
@@ -589,11 +603,14 @@ async def _retrieve_merged_chunks_for_message(
     meta_timing: dict[str, float] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
-    Embed each distinct query string once, merge vector matches at `min_similarity` only.
-    No ANN/lexical fallback below the configured similarity — avoids irrelevant chunks in the prompt.
+    Embed each distinct query string once, merge vector matches, and return prompt chunks.
 
-    Returns ``(chunks, rag_billing)`` where ``rag_billing`` has optional keys
-    ``rag_embedding_raw_tokens`` / ``rag_embedding_expanded_tokens`` (API tokens, ``None`` if cache hit).
+    Vector search ranks by cosine distance with no SQL score cutoff. Chunks above
+    ``min_similarity`` are preferred. If none pass (common when the merchant threshold is
+    ~0.72), chunks that contain query terms and clear the noise floor are used instead.
+
+    Returns ``(chunks, rag_billing)`` where ``rag_billing`` may include
+    ``rag_embedding_*_tokens``, ``rag_fallback_mode``, and retrieval counts.
     """
     billing: dict[str, Any] = {
         "rag_embedding_raw_tokens": None,
@@ -632,17 +649,19 @@ async def _retrieve_merged_chunks_for_message(
         return _merge_chunks_by_best_similarity(parts)[:RAG_MERGED_CHUNK_CAP]
 
     t_db = time.perf_counter()
-    merged = await merged_at(min_similarity)
+    merged = await merged_at(float(RAG_VECTOR_SEARCH_MIN_SCORE))
     if meta_timing is not None:
         meta_timing["retrieve_db_ms"] = (time.perf_counter() - t_db) * 1000.0
 
-    filtered = [
-        r
-        for r in merged
-        if float(r.get("similarity") or 0.0) >= float(min_similarity)
-    ]
-    reranked = _rerank_chunks_for_query(filtered, msg)
-    return reranked[:RAG_MERGED_CHUNK_CAP], billing
+    chunks, rag_fallback_mode, retrieved_count, passed_n = _select_chunks_for_prompt(
+        merged,
+        user_message=msg,
+        min_similarity=float(min_similarity),
+    )
+    billing["rag_fallback_mode"] = rag_fallback_mode
+    billing["retrieved_count"] = retrieved_count
+    billing["passed_threshold_count"] = passed_n
+    return chunks, billing
 
 
 def _merge_chunks_by_best_similarity(chunks_lists: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -659,16 +678,98 @@ def _merge_chunks_by_best_similarity(chunks_lists: list[list[dict[str, Any]]]) -
     return sorted(by_id.values(), key=lambda r: float(r.get("similarity") or 0), reverse=True)
 
 
-def _build_context_block(chunks: list[dict[str, Any]]) -> str:
+def _extract_chunk_excerpt(
+    text: str,
+    query_terms: set[str],
+    max_chars: int,
+) -> str:
+    """
+    Pull the most query-relevant window from a page chunk.
+
+    Indexed website chunks often start with title, URL, and a generic intro; the
+    first ``max_chars`` bytes rarely contain the section the customer asked about.
+    """
+    cleaned = text.strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    terms = query_terms or set()
+    if not terms:
+        head = cleaned[:max_chars].rstrip()
+        return f"{head}..." if len(cleaned) > max_chars else head
+
+    lines = cleaned.splitlines()
+
+    def window_score(window: str) -> int:
+        low = window.casefold()
+        return sum(low.count(term) for term in terms)
+
+    best = cleaned[:max_chars]
+    best_score = window_score(best)
+
+    for i, line in enumerate(lines):
+        low = line.strip().casefold()
+        if not any(term in low for term in terms):
+            continue
+        if not (
+            low.startswith(("### ", "## ", "section:", "# "))
+            or window_score(line) >= 2
+        ):
+            continue
+        for span in (18, 28, 40):
+            end = min(len(lines), i + span)
+            window = "\n".join(lines[i:end])
+            if len(window) > max_chars:
+                lower = window.casefold()
+                hit = min((lower.find(t) for t in terms if lower.find(t) >= 0), default=0)
+                start = max(0, hit - max_chars // 5)
+                window = window[start : start + max_chars]
+            score = window_score(window)
+            if score > best_score:
+                best_score = score
+                best = window
+
+    lower_full = cleaned.casefold()
+    for term in sorted(terms, key=len, reverse=True):
+        pos = lower_full.find(term)
+        if pos < 0:
+            continue
+        start = max(0, pos - max_chars // 5)
+        window = cleaned[start : start + max_chars]
+        score = window_score(window)
+        if score > best_score:
+            best_score = score
+            best = window
+
+    step = max(64, max_chars // 6)
+    for start in range(0, len(cleaned), step):
+        window = cleaned[start : start + max_chars]
+        score = window_score(window)
+        if score > best_score:
+            best_score = score
+            best = window
+
+    out = best.strip()
+    prefix = "..." if cleaned.find(out[: min(48, len(out))]) > 48 else ""
+    suffix = "..." if len(out) >= max_chars - 3 else ""
+    return f"{prefix}{out}{suffix}"
+
+
+def _build_context_block(
+    chunks: list[dict[str, Any]],
+    *,
+    user_message: str = "",
+) -> str:
+    query_terms = _extract_query_terms(user_message)
     lines: list[str] = []
     total = 0
     for idx, chunk in enumerate(chunks):
         text = str(chunk.get("content") or "").strip()
         if not text:
             continue
-        excerpt = text[:RAG_PROMPT_EXCERPT_MAX_CHARS]
-        if len(text) > RAG_PROMPT_EXCERPT_MAX_CHARS:
-            excerpt = excerpt.rstrip() + "..."
+        excerpt = _extract_chunk_excerpt(text, query_terms, RAG_PROMPT_EXCERPT_MAX_CHARS)
         block = f"[Excerpt {idx + 1}]\n{excerpt}"
         if total + len(block) > RAG_PROMPT_CONTEXT_MAX_CHARS:
             break
@@ -688,6 +789,8 @@ def _log_retrieval_trace(
     prompt_chunks: list[dict[str, Any]],
     kb_retrieval_skipped: bool,
     rag_fallback_mode: str,
+    retrieved_count: int | None = None,
+    passed_threshold_count: int | None = None,
 ) -> None:
     preview: list[dict[str, Any]] = []
     for idx, chunk in enumerate(prompt_chunks[:5], start=1):
@@ -703,19 +806,23 @@ def _log_retrieval_trace(
                 "snippet": str(chunk.get("content") or "").replace("\n", " ")[:220],
             }
         )
-    passed_n = sum(1 for c in chunks if float(c.get("similarity") or 0.0) >= float(min_similarity))
+    passed_n = (
+        int(passed_threshold_count)
+        if passed_threshold_count is not None
+        else sum(1 for c in chunks if float(c.get("similarity") or 0.0) >= float(min_similarity))
+    )
     log.info(
         "runtime.retrieval_trace",
         conversation_id=str(conversation_id),
         agent_id=str(agent_id),
         effective_min_similarity=min_similarity,
         min_similarity=min_similarity,
+        retrieved_count=retrieved_count if retrieved_count is not None else len(chunks),
         passed_threshold_count=passed_n,
         kb_retrieval_skipped=kb_retrieval_skipped,
         rag_fallback_mode=rag_fallback_mode,
         user_query=user_message,
         expanded_query=expanded_query,
-        retrieved_count=len(chunks),
         prompt_chunk_count=len(prompt_chunks),
         chunks=preview,
     )
@@ -827,6 +934,58 @@ def _extract_query_terms(query_text: str) -> set[str]:
     return {t for t in re.findall(r"[a-zA-Z0-9]{4,}", (query_text or "").casefold())}
 
 
+def _chunk_matches_query_terms(chunk: dict[str, Any], query_terms: set[str]) -> bool:
+    if not query_terms:
+        return True
+    text = str(chunk.get("content") or "").casefold()
+    return any(term in text for term in query_terms)
+
+
+def _select_chunks_for_prompt(
+    merged: list[dict[str, Any]],
+    *,
+    user_message: str,
+    min_similarity: float,
+) -> tuple[list[dict[str, Any]], str, int, int]:
+    """
+    Choose prompt chunks from ANN candidates.
+
+    Prefer scores >= ``min_similarity``. When the merchant threshold is too high for this
+    index (typical with page-sized chunks), fall back to chunks that contain query terms
+    and are above ``RAG_CHUNK_NOISE_FLOOR`` — never inject unrelated top-k hits.
+    """
+    retrieved_count = len(merged)
+    passed_threshold_count = sum(
+        1 for r in merged if float(r.get("similarity") or 0.0) >= float(min_similarity)
+    )
+    candidates = [
+        r for r in merged if float(r.get("similarity") or 0.0) >= float(RAG_CHUNK_NOISE_FLOOR)
+    ]
+    strict = [
+        r for r in candidates if float(r.get("similarity") or 0.0) >= float(min_similarity)
+    ]
+    if strict:
+        return (
+            _rerank_chunks_for_query(strict, user_message)[:RAG_PROMPT_CHUNK_COUNT],
+            "threshold",
+            retrieved_count,
+            passed_threshold_count,
+        )
+
+    query_terms = _extract_query_terms(user_message)
+    if query_terms:
+        grounded = [r for r in candidates if _chunk_matches_query_terms(r, query_terms)]
+        if grounded:
+            return (
+                _rerank_chunks_for_query(grounded, user_message)[:RAG_PROMPT_CHUNK_COUNT],
+                "lexical_grounded_below_threshold",
+                retrieved_count,
+                passed_threshold_count,
+            )
+
+    return [], "no_match", retrieved_count, passed_threshold_count
+
+
 def _rerank_chunks_for_query(chunks: list[dict[str, Any]], query_text: str) -> list[dict[str, Any]]:
     if not chunks:
         return chunks
@@ -839,7 +998,23 @@ def _rerank_chunks_for_query(chunks: list[dict[str, Any]], query_text: str) -> l
         lex = float(row.get("lexical_score") or 0.0)
         text = str(row.get("content") or "").casefold()
         coverage = sum(1 for term in query_terms if term in text) / max(1, len(query_terms))
-        return (sim + (coverage * 0.20) + (lex * 0.25), sim)
+        occurrences = sum(text.count(term) for term in query_terms)
+        repeat_bonus = min(0.06, 0.02 * max(0, occurrences - 1))
+        heading_bonus = 0.0
+        section_bonus = 0.0
+        for line in text.splitlines():
+            stripped = line.strip()
+            low = stripped.casefold()
+            if low.startswith("### ") and any(term in low for term in query_terms):
+                heading_bonus = max(heading_bonus, 0.32)
+            elif low.startswith("## ") and any(term in low for term in query_terms):
+                heading_bonus = max(heading_bonus, 0.14)
+            elif low.startswith("section:") and any(term in low for term in query_terms):
+                section_bonus = max(section_bonus, 0.10)
+        return (
+            sim + (coverage * 0.22) + heading_bonus + section_bonus + repeat_bonus + (lex * 0.25),
+            sim,
+        )
 
     return sorted(chunks, key=score, reverse=True)
 

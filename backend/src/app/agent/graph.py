@@ -24,6 +24,10 @@ from app.agent.escalation import (
 )
 from app.agent.llm import make_chat_model
 from app.agent.messages import text_delta_from_stream_chunk, text_from_model_message, usage_tokens_from_model_message
+from app.agent.knowledge_tools import (
+    is_knowledge_tool_name,
+    knowledge_tool_status_message,
+)
 from app.agent.shopify_tools import (
     MAX_SHOPIFY_TOOL_ROUNDS,
     invoke_shopify_tool_with_timeout,
@@ -76,6 +80,14 @@ def _collect_bound_tools(state: ChatGraphState) -> list[StructuredTool]:
     return tools
 
 
+def _bound_tool_name_set(state: ChatGraphState) -> set[str]:
+    return {
+        str(getattr(t, "name", "") or "")
+        for t in (state.get("bound_tools") or [])
+        if getattr(t, "name", None)
+    }
+
+
 def _route_after_model(state: ChatGraphState) -> Literal["escalation", "shopify_tools", "__end__"]:
     ai = _last_ai_message(state.get("messages") or [])
     if ai is None or not (ai.tool_calls or []):
@@ -85,8 +97,7 @@ def _route_after_model(state: ChatGraphState) -> Literal["escalation", "shopify_
     if state.get("escalation_enabled") and ESCALATE_TO_HUMAN_TOOL_NAME in names:
         return "escalation"
 
-    shopify_names = _bound_tool_names(state)
-    if names & shopify_names:
+    if names & _bound_tool_name_set(state):
         return "shopify_tools"
     return "__end__"
 
@@ -238,9 +249,16 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
 
     for tc in ai.tool_calls or []:
         name, args, tc_id = tool_call_parts(tc)
-        if name not in shopify_names or name not in by_name:
+        if name not in by_name:
             continue
-        writer({"type": "status", "text": shopify_tool_status_message(name)})
+        if is_shopify_tool_name(name):
+            if name not in shopify_names:
+                continue
+            writer({"type": "status", "text": shopify_tool_status_message(name)})
+        elif is_knowledge_tool_name(name):
+            writer({"type": "status", "text": knowledge_tool_status_message(name)})
+        else:
+            continue
         out = await invoke_shopify_tool_with_timeout(
             bound,
             args,

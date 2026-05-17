@@ -22,8 +22,13 @@ from app.agent.escalation import (
 )
 from app.agent.graph import append_escalation_tool_prompt, stream_chat_graph
 from app.agent.messages import build_turn_messages, slice_history_for_current_turn
-from app.agent.model_routing import apply_throttle_delay, resolve_turn_model, thread_summary_from_history
-from app.agent.shopify_tools import thread_had_shopify_tools
+from app.agent.model_routing import (
+    apply_throttle_delay,
+    is_likely_greeting_or_small_talk,
+    resolve_turn_model,
+    thread_summary_from_history,
+)
+from app.agent.shopify_tools import is_shopify_tool_name, thread_had_shopify_tools
 from app.agent.streaming import format_sse, stream_llm_sse
 from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME
 from app.core.errors import AppError
@@ -55,6 +60,7 @@ from app.domains.conversations.schemas import ConversationMessageCreateRequest
 from app.domains.runtime.prompts import build_grounded_user_prompt
 from app.domains.runtime.prompts.system import (
     build_agent_system_prompt_for_tools,
+    build_system_prompt,
     resolve_agent_type_prompt,
     resolve_tone_instruction,
 )
@@ -66,7 +72,9 @@ from app.domains.runtime.service import (
     _build_open_chat_system_prompt,
     _load_agent_runtime_config,
     _load_shopify_tools_fast,
+    _log_retrieval_trace,
     _log_runtime_turn_timing,
+    RAG_PROMPT_CHUNK_COUNT,
     _record_embedding_rag_events,
     _resolve_or_create_conversation,
     _resolve_runtime_model,
@@ -93,11 +101,12 @@ async def _maybe_retrieve_chunks(
     user_message: str,
     min_similarity: float,
     budget_seconds: float,
+    meta_timing: dict[str, float] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
     if budget_seconds <= 0:
         return [], {}, "rag_budget_zero"
 
-    timing: dict[str, float] = {}
+    timing: dict[str, float] = meta_timing if meta_timing is not None else {}
 
     async def _run(db):
         return await _retrieve_merged_chunks_for_message(
@@ -202,10 +211,13 @@ async def stream_chat(
 
     operator_engaged = bool((conv.get("metadata") or {}).get(OPERATOR_ENGAGED_META_KEY))
     escalated_thread = conv.get("status") == "escalated"
+    has_indexed_kb = bool(config.get("has_indexed_knowledge"))
+    chitchat_turn = is_likely_greeting_or_small_talk(payload.message)
     skip_rag = (
-        not config.get("has_indexed_knowledge")
+        not has_indexed_kb
         or operator_engaged
         or escalated_thread
+        or chitchat_turn
     )
 
     if (
@@ -223,6 +235,19 @@ async def stream_chat(
                 skip_conversation_check=True,
             )
         )
+    retrieval_count = 0
+    retrieval_preview: list[dict[str, Any]] = []
+    rag_billing: dict[str, Any] = {}
+    if not has_indexed_kb:
+        kb_skip_reason = "no_indexed_knowledge"
+    elif chitchat_turn:
+        kb_skip_reason = "greeting_skip"
+    else:
+        kb_skip_reason = "thread_state"
+    retrieve_timing: dict[str, float] = {}
+    retrieve_wall_ms = 0.0
+    chunks: list[dict[str, Any]] = []
+
     rag_task: asyncio.Task[tuple[list[dict[str, Any]], dict[str, Any], str]] | None = None
     if not skip_rag:
         rag_task = asyncio.create_task(
@@ -231,30 +256,9 @@ async def stream_chat(
                 user_message=payload.message,
                 min_similarity=float(config["min_retrieval_similarity"]),
                 budget_seconds=max(rag_budget, 8.0),
+                meta_timing=retrieve_timing,
             )
         )
-
-    retrieval_count = 0
-    retrieval_preview: list[dict[str, Any]] = []
-    rag_billing: dict[str, Any] = {}
-    kb_skip_reason = "no_indexed_knowledge" if not config.get("has_indexed_knowledge") else "thread_state"
-    retrieve_timing: dict[str, float] = {}
-
-    chunks: list[dict[str, Any]] = []
-    if rag_task is not None:
-        if rag_task.done():
-            chunks, rag_billing, kb_skip_reason = rag_task.result()
-        else:
-            kb_skip_reason = "rag_not_ready"
-        retrieval_count = len(chunks)
-        retrieval_preview = [
-            {
-                "knowledge_source_id": c.get("knowledge_source_id"),
-                "similarity": c.get("similarity"),
-                "snippet": str(c.get("content") or "")[:240],
-            }
-            for c in chunks[:5]
-        ]
 
     t_pre_llm = time.perf_counter()
     prep_ms = (t_prep - t_turn) * 1000.0
@@ -322,18 +326,57 @@ async def stream_chat(
     shopify_load_ms = float(shopify_setup_timings.get("load_connection_ms", 0.0)) + float(
         shopify_setup_timings.get("list_actions_ms", 0.0)
     ) + float(shopify_setup_timings.get("build_tools_ms", 0.0))
-    has_shopify_tools = bool(tool_list)
+    has_shopify_tools = any(
+        is_shopify_tool_name(str(getattr(t, "name", "") or "")) for t in tool_list
+    )
+    if rag_task is not None:
+        t_rag = time.perf_counter()
+        chunks, rag_billing, kb_skip_reason = await rag_task
+        retrieve_wall_ms = (time.perf_counter() - t_rag) * 1000.0
+        retrieval_count = len(chunks)
+        retrieval_preview = [
+            {
+                "knowledge_source_id": c.get("knowledge_source_id"),
+                "similarity": c.get("similarity"),
+                "snippet": str(c.get("content") or "")[:240],
+            }
+            for c in chunks[:5]
+        ]
+        _log_retrieval_trace(
+            conversation_id=conversation_id,
+            agent_id=payload.agent_id,
+            user_message=payload.message,
+            expanded_query=payload.message,
+            min_similarity=float(config["min_retrieval_similarity"]),
+            chunks=chunks,
+            prompt_chunks=chunks[:RAG_PROMPT_CHUNK_COUNT],
+            kb_retrieval_skipped=False,
+            rag_fallback_mode=str(rag_billing.get("rag_fallback_mode") or "threshold"),
+            retrieved_count=int(rag_billing.get("retrieved_count") or len(chunks)),
+            passed_threshold_count=int(rag_billing.get("passed_threshold_count") or 0),
+        )
     thread_had_shopify = thread_had_shopify_tools(history_rows)
     tools_bound_count = len(tool_list) + (1 if human_on else 0)
     escalation_enabled = human_on
+
+    context_block = ""
+    if chunks:
+        context_block = _build_context_block(chunks, user_message=payload.message)
 
     if has_shopify_tools:
         system_prompt = build_agent_system_prompt_for_tools(
             system_prompt,
             has_knowledge_tool=False,
             has_shopify_tools=True,
+            human_escalation_enabled=escalation_enabled,
         )
         system_prompt = f"{system_prompt}{_SHOPIFY_TOOLS_RUNTIME_BLOCK}".strip()
+    elif has_indexed_kb and context_block:
+        system_prompt = build_system_prompt(
+            system_prompt,
+            shopify_tools_enabled=False,
+            human_escalation_enabled=escalation_enabled,
+        )
     system_prompt = append_escalation_tool_prompt(
         system_prompt,
         tools_enabled=escalation_enabled,
@@ -341,18 +384,24 @@ async def stream_chat(
     fallback_message = str(config["fallback_message"])
 
     grounded_user_content = payload.message
-    if chunks:
-        context_block = _build_context_block(chunks)
-        if context_block:
-            grounded_user_content = build_grounded_user_prompt(
-                context_block,
-                fallback_message,
-                payload.message,
-            )
-        else:
-            system_prompt = _build_open_chat_system_prompt(system_prompt)
-    elif config.get("has_indexed_knowledge") and kb_skip_reason == "rag_budget_exceeded":
-        system_prompt = _build_open_chat_system_prompt(system_prompt)
+    if context_block:
+        grounded_user_content = build_grounded_user_prompt(
+            context_block,
+            fallback_message,
+            payload.message,
+            shopify_tools_enabled=has_shopify_tools,
+            escalation_enabled=escalation_enabled,
+        )
+    elif (
+        has_indexed_kb
+        and not context_block
+        and kb_skip_reason in {"rag_budget_exceeded", "thread_state", "ok"}
+        and not chitchat_turn
+    ):
+        system_prompt = _build_open_chat_system_prompt(
+            system_prompt,
+            human_escalation_enabled=escalation_enabled,
+        )
 
     escalation_info = build_escalation_info(
         human_enabled=human_on,
@@ -578,7 +627,7 @@ async def stream_chat(
     _log_runtime_turn_timing(
         conversation_id=conversation_id,
         shopify_load_ms=shopify_load_ms,
-        retrieve_wall_ms=0.0,
+        retrieve_wall_ms=retrieve_wall_ms,
         retrieve_timing=retrieve_timing,
         kb_skip_reason=kb_skip_reason,
         thread_had_shopify=thread_had_shopify,
