@@ -109,7 +109,7 @@ export function AdminMessageBubble({
         <div className="flex flex-col gap-2 pt-1">
           {hasToolCallPayload && (
             <details className="border-ds-outline/60 rounded-md border bg-white/60">
-              <summary className="text-ds-on-surface-variant cursor-pointer px-2 py-1 text-xs font-medium">
+              <summary className="ds-app-body-muted cursor-pointer px-2 py-1 font-medium">
                 tool_call_payload
               </summary>
               <pre className="text-ds-on-surface max-h-80 overflow-auto px-3 py-2 text-[11px] leading-snug">
@@ -119,7 +119,7 @@ export function AdminMessageBubble({
           )}
           {hasToolResultPayload && (
             <details className="border-ds-outline/60 rounded-md border bg-white/60">
-              <summary className="text-ds-on-surface-variant cursor-pointer px-2 py-1 text-xs font-medium">
+              <summary className="ds-app-body-muted cursor-pointer px-2 py-1 font-medium">
                 tool_result_payload
               </summary>
               <pre className="text-ds-on-surface max-h-80 overflow-auto px-3 py-2 text-[11px] leading-snug">

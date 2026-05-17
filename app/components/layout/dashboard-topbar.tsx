@@ -85,7 +85,7 @@ export function DashboardTopbar() {
         />
         <aside className="border-ds-outline bg-ds-sidebar relative z-[1] h-full w-[min(84vw,320px)] overflow-y-auto border-r p-3 shadow-xl touch-manipulation">
           <div className="border-ds-outline mb-3 flex items-center justify-between border-b pb-3">
-            <span className="text-ds-on-surface text-sm font-semibold">Navigation</span>
+            <span className="ds-app-card-title">Navigation</span>
             <button
               type="button"
               onClick={() => setIsMenuOpen(false)}
@@ -144,7 +144,7 @@ export function DashboardTopbar() {
                             href={child.href}
                             onClick={() => setIsMenuOpen(false)}
                             className={cn(
-                              "text-ds-on-surface-variant hover:text-ds-on-surface touch-manipulation flex min-h-10 items-center rounded-md border border-transparent px-2 py-1.5 text-xs transition-colors",
+                              "ds-app-body-muted hover:text-ds-on-surface touch-manipulation flex min-h-10 items-center rounded-md border border-transparent px-2 py-1.5 transition-colors",
                               childActive && "border-zinc-300 bg-white text-ds-on-surface font-semibold"
                             )}
                           >

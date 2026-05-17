@@ -67,7 +67,7 @@ export function AccountBillingClient() {
           <>
             {subscriptionSummary ? (
               <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-                <h2 className="ds-app-section-title text-base">Current subscription</h2>
+                <h2 className="ds-app-section-title">Current subscription</h2>
                 <dl className="mt-4 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
                     <dt className="text-ds-on-surface-variant">Plan</dt>
@@ -91,7 +91,7 @@ export function AccountBillingClient() {
             ) : null}
 
             <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-              <h2 className="ds-app-section-title text-base">Stripe billing portal</h2>
+              <h2 className="ds-app-section-title">Stripe billing portal</h2>
               <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
                 View invoices, update payment methods, and manage subscription cancellation in Stripe&apos;s customer
                 portal. If you haven&apos;t subscribed yet, the portal may only show limited billing options until you
@@ -121,7 +121,7 @@ export function AccountBillingClient() {
               </div>
             </section>
 
-            <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+            <p className="ds-app-body-muted">
               Need to change your plan? Go to{" "}
               <Link href="/account/plan" className="text-ds-primary font-semibold hover:underline">
                 Plan &amp; usage

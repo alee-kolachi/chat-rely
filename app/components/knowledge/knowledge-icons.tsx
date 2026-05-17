@@ -6,7 +6,6 @@ import {
   FileText,
   Globe,
   HelpCircle,
-  Info,
   MoreHorizontal,
   MoreVertical,
   Quote,
@@ -23,7 +22,6 @@ export const IconMoreVertical = MoreVertical;
 export const IconLanguage = Globe;
 export const IconFile = FileText;
 export const IconCloudUpload = CloudUpload;
-export const IconInfo = Info;
 export const IconTrash = Trash2;
 export const IconRefresh = RefreshCw;
 export const IconQuestion = HelpCircle;

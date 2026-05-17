@@ -562,7 +562,8 @@ async def test_dashboard_fetch_planned_urls_passes_remaining_budget(monkeypatch:
         return pages, 0, None, b_used, "no_more_links"
 
     monkeypatch.setattr(svc, "_fetch_pages_for_urls", fake_fetch)
-    monkeypatch.setattr(svc, "_dashboard_flush_crawl_pages", AsyncMock())
+    monkeypatch.setattr(svc, "_dashboard_update_crawl_job_progress", AsyncMock())
+    monkeypatch.setattr(svc, "_dashboard_persist_crawl_pages", AsyncMock())
     monkeypatch.setattr(svc, "_exclude_remaining_queued_pages_for_run", AsyncMock())
 
     uid = uuid4()
@@ -601,7 +602,7 @@ async def test_dashboard_fetch_planned_urls_passes_remaining_budget(monkeypatch:
         crawl_budget_bytes=500,
     )
 
-    assert budgets_seen == [500, 500 - 16]
+    assert budgets_seen == [500]
 
 
 @pytest.mark.asyncio

@@ -12,45 +12,45 @@ type DiscoveryTab = {
 const tabs: DiscoveryTab[] = [
   {
     name: "Playground",
-    title: "Prompt and response testing",
-    subtitle: "Run side-by-side prompt experiments and validate agent quality before deployment.",
+    title: "Test before you deploy",
+    subtitle: "Same routing as production: tone, knowledge, and Shopify actions.",
     bars: [45, 70, 55, 85, 60],
   },
   {
     name: "Analytics",
-    title: "Resolution and trend insights",
-    subtitle: "Monitor containment, escalation patterns, and top intents to guide optimization.",
+    title: "See what shoppers ask",
+    subtitle: "Conversation volume, intents, and quality signals on Standard and Pro. Hobby includes core KPIs.",
     bars: [35, 50, 78, 68, 90],
   },
   {
-    name: "Activity",
-    title: "Conversation event timeline",
-    subtitle: "Trace end-to-end user events, actions, and handoffs with full audit visibility.",
+    name: "Conversations",
+    title: "Full thread history",
+    subtitle: "Visitor chats, escalations, and full transcripts in ChatRely.",
     bars: [30, 65, 58, 72, 84],
   },
   {
-    name: "Sources",
-    title: "Knowledge source management",
-    subtitle: "Organize URLs, files, and docs powering your assistant's retrieval quality.",
+    name: "Knowledge",
+    title: "Train from your sources",
+    subtitle: "Crawl your site, upload files, and add snippets or Q&A that power retrieval for every reply.",
     bars: [52, 60, 66, 80, 74],
   },
   {
     name: "Actions",
-    title: "Automations and integrations",
-    subtitle: "Configure workflows and external actions your assistant can execute safely.",
+    title: "Shopify + escalation",
+    subtitle: "Enable Shopify read actions per agent and human handoff when the bot should not guess.",
     bars: [40, 57, 64, 76, 88],
   },
 ];
 
 export function PlatformDiscoverySection() {
-  const [activeTab, setActiveTab] = useState("Sources");
+  const [activeTab, setActiveTab] = useState("Knowledge");
   const active = useMemo(() => tabs.find((tab) => tab.name === activeTab) ?? tabs[3], [activeTab]);
 
   return (
     <section className="bg-[#0a0a0a] px-6 py-20 text-white sm:py-24 lg:py-28">
       <div className="mx-auto max-w-[1200px] text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">Explore</p>
-        <h2 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">Discover the ChatRely platform</h2>
+        <h2 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">Inside the ChatRely dashboard</h2>
 
         <div className="mx-auto mt-10 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-3 border-b border-white/15 pb-6 text-sm">
           {tabs.map((tab) => (

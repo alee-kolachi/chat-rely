@@ -72,7 +72,7 @@ type AnalyticsPayload = {
 };
 
 function formatAvgResponse(ms: number | null | undefined): string {
-  if (ms == null || Number.isNaN(ms)) return "—";
+  if (ms == null || Number.isNaN(ms)) return "-";
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.round(ms)}ms`;
 }
@@ -257,26 +257,26 @@ export default function AnalyticsPage() {
     return [
       {
         label: "Total chats",
-        value: data ? formatKpiNumber(started) : "—",
-        delta: "—",
+        value: data ? formatKpiNumber(started) : "-",
+        delta: "-",
         positive: true,
       },
       {
         label: "Resolved by AI",
-        value: resolved != null ? `${resolved}%` : data ? "—" : "—",
-        delta: "—",
+        value: resolved != null ? `${resolved}%` : data ? "-" : "-",
+        delta: "-",
         positive: true,
       },
       {
         label: "Escalations",
-        value: esc != null ? `${esc}%` : data ? "—" : "—",
-        delta: "—",
+        value: esc != null ? `${esc}%` : data ? "-" : "-",
+        delta: "-",
         positive: true,
       },
       {
         label: "Avg response time",
         value: formatAvgResponse(avgMs ?? null),
-        delta: "—",
+        delta: "-",
         positive: true,
       },
     ];
@@ -352,7 +352,7 @@ export default function AnalyticsPage() {
                   <span
                     className={cn(
                       "shrink-0 rounded-ds-md px-2 py-1 text-xs font-semibold",
-                      kpi.delta === "—"
+                      kpi.delta === "-"
                         ? "bg-ds-sidebar text-ds-on-surface-variant"
                         : kpi.positive
                           ? "bg-emerald-100 text-emerald-800"
@@ -371,7 +371,7 @@ export default function AnalyticsPage() {
           <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
               <h2 className="ds-app-section-title">Conversation trend</h2>
-              <span className="text-ds-on-surface-variant text-xs">Daily volume (conversations started)</span>
+              <span className="ds-app-body-muted">Daily volume (conversations started)</span>
             </div>
             <div className="text-ds-on-surface-variant relative mx-auto aspect-[5/2] w-full min-h-[200px] max-h-[280px] text-[var(--ds-chart-grid)]">
               {showPanelSkeleton ? (
@@ -494,7 +494,7 @@ export default function AnalyticsPage() {
             ) : (data?.top_intents ?? []).length === 0 ? (
               <div className="bg-ds-sidebar px-4 py-6 text-center">
                 <p className="text-ds-on-surface text-sm font-medium">No intents for this range</p>
-                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                <p className="ds-app-body-muted mt-1">
                   Intent labels appear after conversations close and outcomes are analyzed.
                 </p>
               </div>
@@ -506,12 +506,12 @@ export default function AnalyticsPage() {
                     className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-sidebar/60 px-4 py-3"
                   >
                     <div>
-                      <p className="text-ds-on-surface text-sm font-semibold">{intent.label}</p>
-                      <p className="text-ds-on-surface-variant text-xs">
+                      <p className="ds-app-card-title">{intent.label}</p>
+                      <p className="ds-app-body-muted">
                         {formatKpiNumber(intent.count)} conversations
                       </p>
                     </div>
-                    <span className="text-ds-on-surface-variant text-xs font-semibold">—</span>
+                    <span className="ds-app-body-muted font-semibold">-</span>
                   </div>
                 ))}
               </div>
@@ -525,7 +525,7 @@ export default function AnalyticsPage() {
             ) : (data?.countries ?? []).length === 0 ? (
               <div className="bg-ds-sidebar px-4 py-6 text-center">
                 <p className="text-ds-on-surface text-sm font-medium">No country data for this range</p>
-                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                <p className="ds-app-body-muted mt-1">
                   Volume by country appears when chats include a reported country code.
                 </p>
               </div>
@@ -535,7 +535,7 @@ export default function AnalyticsPage() {
                   const pct = Math.round((100 * country.count) / countryMax);
                   return (
                     <div key={country.key} className="flex items-center gap-4">
-                      <span className="text-ds-on-surface-variant w-12 shrink-0 text-xs font-semibold">
+                      <span className="ds-app-body-muted w-12 shrink-0 font-semibold">
                         {country.label}
                       </span>
                       <div className="bg-ds-outline/60 h-2.5 min-w-0 flex-1 overflow-hidden rounded-full">
@@ -552,9 +552,8 @@ export default function AnalyticsPage() {
                 })}
               </div>
             )}
-            <p className="text-ds-on-surface-variant mt-4 text-xs leading-relaxed">
-              From <code className="text-ds-on-surface">country_code</code> sent with the chat widget or API. Unknown
-              means the client did not report a country.
+            <p className="ds-app-body-muted mt-4">
+              Country reported by the chat widget when available. Unknown means it was not sent.
             </p>
           </article>
         </section>
@@ -567,7 +566,7 @@ export default function AnalyticsPage() {
             ) : sentimentDonut.total === 0 ? (
               <div className="bg-ds-sidebar px-4 py-6 text-center">
                 <p className="text-ds-on-surface text-sm font-medium">No sentiment data for this range</p>
-                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                <p className="ds-app-body-muted mt-1">
                   Sentiment is inferred from assistant replies after each turn.
                 </p>
               </div>
@@ -618,7 +617,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
             )}
-            <p className="text-ds-on-surface-variant mt-4 text-xs leading-relaxed">
+            <p className="ds-app-body-muted mt-4">
               Based on the last assistant-classified tone per conversation (frustrated counts as negative).
             </p>
           </article>
@@ -630,7 +629,7 @@ export default function AnalyticsPage() {
             ) : (data?.quality ?? []).length === 0 ? (
               <div className="bg-ds-sidebar px-4 py-6 text-center">
                 <p className="text-ds-on-surface text-sm font-medium">No quality metrics for this range</p>
-                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                <p className="ds-app-body-muted mt-1">
                   Quality signals appear when outcomes and per-turn data are available.
                 </p>
               </div>
@@ -642,16 +641,16 @@ export default function AnalyticsPage() {
                     className="border-ds-outline flex flex-col gap-1 rounded-ds-lg border bg-ds-sidebar/60 px-4 py-3"
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-ds-on-surface text-sm font-semibold">{row.label}</p>
+                      <p className="ds-app-card-title">{row.label}</p>
                       <p className="text-ds-on-surface shrink-0 text-sm font-semibold tabular-nums">{row.value}</p>
                     </div>
-                    <p className="text-ds-on-surface-variant text-xs">{row.hint}</p>
+                    <p className="ds-app-body-muted">{row.hint}</p>
                   </div>
                 ))}
               </div>
             )}
-            <p className="text-ds-on-surface-variant mt-4 text-xs leading-relaxed">
-              Derived from stored outcomes and per-turn signals—no separate post-chat survey.
+            <p className="ds-app-body-muted mt-4">
+              From stored outcomes and per-turn signals. No separate survey.
             </p>
           </article>
         </section>
@@ -667,41 +666,37 @@ export default function AnalyticsPage() {
             <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="ds-app-section-title">Visitor message feedback</h2>
-                <p className="text-ds-on-surface-variant mt-1 max-w-3xl text-xs leading-relaxed">
-                  Thumbs are shown on assistant replies in the embed widget (Pro). Use{" "}
-                  <span className="text-ds-on-surface font-semibold">Mark resolved</span> when you have fixed the
-                  underlying issue (for example you now stock a product shoppers asked about). Resolved threads drop
-                  out of the <strong>active</strong> list and are excluded from the next AI summary. Summaries refresh in
-                  batches (first when there is at least one open thumbs-down in this date range, then after each
-                  additional group of five open downvotes); clearing summaries after resolve keeps themes accurate.
+                <p className="ds-app-body-muted mt-1 max-w-3xl">
+                  Thumbs appear on assistant replies in the widget (Pro). Use{" "}
+                  <span className="text-ds-on-surface font-semibold">Mark resolved</span> after you fix the issue. Resolved
+                  threads leave the active list and stop affecting the summary.
                 </p>
               </div>
             </div>
-            <label className="text-ds-on-surface-variant mb-4 flex cursor-pointer items-center gap-2 text-xs">
+            <label className="ds-app-body-muted mb-4 flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 className="accent-ds-primary"
                 checked={includePlaygroundFeedback}
                 onChange={(e) => setIncludePlaygroundFeedback(e.target.checked)}
               />
-              Include playground / test chats in counts and summaries (off by default so preview traffic does not skew
-              storefront metrics).
+              Include playground test chats (off by default).
             </label>
             <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
-                <p className="text-ds-on-surface-variant text-xs font-medium">Thumbs up</p>
+                <p className="ds-app-body-muted font-medium">Thumbs up</p>
                 <p className="ds-app-metric-value mt-1 text-xl">
                   {formatKpiNumber(data.message_feedback.thumbs_up_count)}
                 </p>
               </div>
               <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
-                <p className="text-ds-on-surface-variant text-xs font-medium">Open thumbs down</p>
+                <p className="ds-app-body-muted font-medium">Open thumbs down</p>
                 <p className="ds-app-metric-value mt-1 text-xl">
                   {formatKpiNumber(data.message_feedback.thumbs_down_unresolved_count)}
                 </p>
               </div>
               <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
-                <p className="text-ds-on-surface-variant text-xs font-medium">Resolved thumbs down</p>
+                <p className="ds-app-body-muted font-medium">Resolved thumbs down</p>
                 <p className="ds-app-metric-value mt-1 text-xl">
                   {formatKpiNumber(data.message_feedback.thumbs_down_resolved_count)}
                 </p>
@@ -709,12 +704,12 @@ export default function AnalyticsPage() {
             </div>
             {data.message_feedback.summary ? (
               <div className="border-ds-outline mb-6 rounded-ds-lg border bg-ds-sidebar/40 px-4 py-3">
-                <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
+                <p className="ds-app-body-muted font-semibold uppercase tracking-wide">
                   Summary of open issues
                 </p>
                 <p className="text-ds-on-surface mt-2 text-sm leading-relaxed">{data.message_feedback.summary}</p>
                 {(data.message_feedback.topics ?? []).length > 0 ? (
-                  <ul className="text-ds-on-surface-variant mt-3 flex flex-wrap gap-2 text-xs">
+                  <ul className="ds-app-body-muted mt-3 flex flex-wrap gap-2">
                     {data.message_feedback.topics.map((t) => (
                       <li
                         key={t}
@@ -798,7 +793,7 @@ function LegendItem({ color, label, value }: { color: string; label: string; val
     <div className="flex items-center gap-3">
       <span className={cn("size-3 shrink-0 rounded-full", color)} />
       <span className="text-ds-on-surface flex-1 text-sm font-medium">{label}</span>
-      <span className="text-ds-on-surface text-sm font-semibold">{value}</span>
+      <span className="ds-app-card-title">{value}</span>
     </div>
   );
 }

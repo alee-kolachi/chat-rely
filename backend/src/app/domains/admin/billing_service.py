@@ -123,7 +123,10 @@ async def list_admin_usage_snapshots(
           ups.period_start, ups.period_end,
           ups.included_conversations, ups.conversations_used, ups.overage_conversations,
           ups.estimated_overage_cents, ups.projected_conversations,
-          ups.throttle_tier::text as throttle_tier, ups.last_computed_at
+          ups.throttle_tier::text as throttle_tier,
+          coalesce(ups.included_premium_turns, 0) as included_premium_turns,
+          coalesce(ups.premium_turns_used, 0) as premium_turns_used,
+          ups.last_computed_at
         from public.usage_period_snapshots ups
         join auth.users u on u.id = ups.user_id
         {where_sql}

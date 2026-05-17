@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Bot,
   ChevronRight,
   History,
-  Info,
   List,
   RefreshCw,
   Send,
@@ -16,9 +14,12 @@ import {
   ThumbsUp,
   UserRound,
 } from "lucide-react";
-import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
-import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
-import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
+import {
+  StreamingAssistantMessage,
+  type AssistantStreamPhase,
+} from "@/components/chat/StreamingAssistantMessage";
+import { chatSseStream } from "@/lib/chat-sse";
+import { applyChatSseEvent } from "@/lib/chat-stream-handlers";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
@@ -30,14 +31,43 @@ import {
   PlaygroundShopifyActionsSkeleton,
 } from "@/components/playground/playground-page-skeleton";
 import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
-import { BackendApiError, backendFetch, backendNdjsonStream } from "@/lib/backend-api";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
 import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
-import { planHidesPoweredByChatrely, messageFeedbackEnabledForPlanSlug } from "@/lib/widget-branding";
+import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
+import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
+import { InfoHint } from "@/components/ui/info-hint";
 import { cn } from "@/lib/utils";
+import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+
+const PLAYGROUND_CREATIVITY_HINT =
+  "How varied replies are. Conservative stays close to your knowledge; Creative allows more flexible wording.";
 
 /** Uses global `.ds-app-field` (design-system tokens + focus ring). */
 const fieldControlClass = cn("ds-app-field");
+
+const PLAYGROUND_COMPOSER_MAX_LINES = 3;
+
+/** Grow/shrink playground composer between 1 and 3 lines, then scroll. */
+function resizePlaygroundComposer(textarea: HTMLTextAreaElement) {
+  const style = getComputedStyle(textarea);
+  const lineHeight = Number.parseFloat(style.lineHeight) || 22;
+  const padY = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+  const borderY = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
+  const oneLineHeight = lineHeight + padY + borderY;
+  const maxHeight = lineHeight * PLAYGROUND_COMPOSER_MAX_LINES + padY + borderY;
+
+  textarea.style.height = "0px";
+  const contentHeight = textarea.scrollHeight;
+  const nextHeight = Math.min(Math.max(contentHeight, oneLineHeight), maxHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+}
+
+const playgroundComposerClass = cn(fieldControlClass, "playground-composer-input min-w-0 flex-1");
+
+/** Matches agent-settings form labels (not uppercase kickers). */
+const settingsFieldLabelClass = "ds-app-label mb-1.5 block";
 const fieldControlPointerClass = cn(fieldControlClass, "cursor-pointer");
 
 function actionsConfigDirty(
@@ -57,6 +87,8 @@ type PlaygroundPreviewMessage = {
   text: string;
   assistantMessageId?: string | null;
   feedbackVote?: 1 | -1 | null;
+  streamPhase?: AssistantStreamPhase;
+  errorMessage?: string | null;
 };
 
 type PlaygroundThreadCacheEntry = {
@@ -128,6 +160,21 @@ function newPlaygroundVisitorId(): string {
     return `playground-${crypto.randomUUID()}`;
   }
   return `playground-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function isStalePlaygroundConversationError(e: unknown): boolean {
+  return (
+    e instanceof BackendApiError &&
+    (e.code === "conversation.not_found" || e.code === "conversation.forbidden")
+  );
+}
+
+/** Do not replace local transcript when the server poll is behind the optimistic UI. */
+function shouldApplyServerPlaygroundTranscript(
+  local: PlaygroundPreviewMessage[],
+  server: PlaygroundPreviewMessage[]
+): boolean {
+  return server.length >= local.length;
 }
 
 function readPlaygroundChatFromStorage(agentId: string): {
@@ -220,12 +267,12 @@ function PlaygroundPreviewConversation({
   toneDescriptionRaw,
   greetingMessageRaw,
   languageRaw,
-  model,
   agentType,
   systemPrompt,
   creativity,
   saveError,
   websiteLogoUrl,
+  websiteLogoPending,
 }: {
   agentId: string | null;
   agentName: string | null;
@@ -234,14 +281,15 @@ function PlaygroundPreviewConversation({
   toneDescriptionRaw: string | null;
   greetingMessageRaw: string | null;
   languageRaw: string | null;
-  model: string;
   agentType: string;
   systemPrompt: string;
   creativity: number;
   saveError: string | null;
   websiteLogoUrl: string | null;
+  websiteLogoPending: boolean;
 }) {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const [messageInput, setMessageInput] = useState("");
   const [previewMessages, setPreviewMessages] = useState<PlaygroundPreviewMessage[]>(() => {
     if (!agentId) return [];
@@ -263,6 +311,7 @@ function PlaygroundPreviewConversation({
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyThreadLoading, setHistoryThreadLoading] = useState(false);
   const [, setThreadCacheState] = useState<Record<string, PlaygroundThreadCacheEntry>>({});
+  const chatAbortRef = useRef<AbortController | null>(null);
   const blockThreadSyncRef = useRef(false);
   const threadCacheRef = useRef<Record<string, PlaygroundThreadCacheEntry>>({});
   const threadRequestsRef = useRef(new Map<string, Promise<PlaygroundThreadCacheEntry>>());
@@ -275,6 +324,17 @@ function PlaygroundPreviewConversation({
   useLayoutEffect(() => {
     blockThreadSyncRef.current = isSending || historyThreadLoading;
   }, [isSending, historyThreadLoading]);
+
+  useEffect(() => {
+    return () => {
+      chatAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+  }, [agentId]);
 
   const clearFeedbackSyncState = useCallback(() => {
     for (const t of feedbackDebounceRef.current.values()) clearTimeout(t);
@@ -378,6 +438,22 @@ function PlaygroundPreviewConversation({
 
   useEffect(() => {
     if (!agentId || !conversationId) return;
+    const aid = agentId;
+    const cid = conversationId;
+    let cancelled = false;
+    void backendFetch(`/api/v1/conversations/${encodeURIComponent(cid)}`).catch((e) => {
+      if (cancelled || !isStalePlaygroundConversationError(e)) return;
+      setConversationId(null);
+      writePlaygroundChatToStorage(aid, previewMessages, null, visitorId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, conversationId, previewMessages, visitorId]);
+
+  useEffect(() => {
+    if (!agentId || !conversationId) return;
+    const aid = agentId;
     const cid = conversationId;
     let cancelled = false;
     async function syncFromServer() {
@@ -395,10 +471,18 @@ function PlaygroundPreviewConversation({
           const row = mapApiMessageToPlaygroundPreview(m);
           if (row) mapped.push(row);
         }
-        cacheThread(cid, { visitorId, messages: mapped });
-        setPreviewMessages(mapped);
-      } catch {
-        /* ignore — offline or transient */
+        setPreviewMessages((current) => {
+          if (!shouldApplyServerPlaygroundTranscript(current, mapped)) {
+            return current;
+          }
+          cacheThread(cid, { visitorId, messages: mapped });
+          return mapped;
+        });
+      } catch (e) {
+        if (isStalePlaygroundConversationError(e)) {
+          setConversationId(null);
+          writePlaygroundChatToStorage(aid, previewMessages, null, visitorId);
+        }
       }
     }
     void syncFromServer();
@@ -461,6 +545,54 @@ function PlaygroundPreviewConversation({
     if (el) el.scrollTop = 0;
   }, [historyOpen]);
 
+  async function streamPlaygroundReply(
+    userMessage: string,
+    thread: { conversationId: string | null; visitorId: string },
+    ac: AbortController
+  ) {
+    for await (const ev of chatSseStream("/api/chat/stream", {
+      method: "POST",
+      signal: ac.signal,
+      body: JSON.stringify({
+        agent_id: agentId,
+        message: userMessage,
+        conversation_id: thread.conversationId,
+        agent_type_override: agentType,
+        system_prompt_override: agentType === "custom" ? systemPrompt : null,
+        creativity_override: creativity,
+        visitor_id: thread.visitorId,
+      }),
+    })) {
+      if (ac.signal.aborted) break;
+      if (ev.type === "done" && ev.conversation_id) {
+        setConversationId(ev.conversation_id);
+      }
+      setPreviewMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        if (last.from !== "assistant") return prev;
+        const patch = applyChatSseEvent(ev, {
+          text: last.text,
+          streamPhase: last.streamPhase ?? "thinking",
+        });
+        if (!patch) return prev;
+        const next = [...prev];
+        next[next.length - 1] = {
+          ...last,
+          ...patch,
+          from: "assistant",
+          ...(patch.assistantMessageId
+            ? { assistantMessageId: patch.assistantMessageId }
+            : {}),
+        };
+        return next;
+      });
+      if (ev.type === "error") {
+        throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
+      }
+    }
+  }
+
   async function handleSendMessage() {
     if (!agentId || !messageInput.trim() || isSending || historyThreadLoading) return;
     stickToBottomRef.current = true;
@@ -472,72 +604,55 @@ function PlaygroundPreviewConversation({
     setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
     setIsSending(true);
     setChatError(null);
-    setPreviewMessages((prev) => [...prev, { from: "assistant", text: "" }]);
+    chatAbortRef.current?.abort();
+    const ac = new AbortController();
+    chatAbortRef.current = ac;
+    setPreviewMessages((prev) => [
+      ...prev,
+      {
+        from: "assistant",
+        text: "",
+        streamPhase: "thinking",
+      },
+    ]);
+    let thread = { conversationId, visitorId };
     try {
-      for await (const ev of backendNdjsonStream("/api/v1/runtime/chat/stream", {
-        method: "POST",
-        body: JSON.stringify({
-          agent_id: agentId,
-          message: userMessage,
-          conversation_id: conversationId,
-          model_override: model,
-          agent_type_override: agentType,
-          system_prompt_override: agentType === "custom" ? systemPrompt : null,
-          creativity_override: creativity,
-          visitor_id: visitorId,
-        }),
-      })) {
-        if (ev.type === "start") {
-          setConversationId(ev.conversation_id);
-        } else if (ev.type === "token") {
-          setPreviewMessages((prev) => {
-            if (prev.length === 0) return prev;
-            const last = prev[prev.length - 1];
-            if (last.from !== "assistant") return prev;
-            const next = [...prev];
-            next[next.length - 1] = { from: "assistant", text: last.text + ev.text };
-            return next;
-          });
-        } else if (ev.type === "done") {
-          setConversationId(ev.conversation_id);
-          const reply = typeof ev.response === "string" ? ev.response : "";
-          const rawId = (ev as Record<string, unknown>).assistant_message_id;
-          const assistantMessageId =
-            typeof rawId === "string" && rawId.length > 0
-              ? rawId
-              : rawId != null
-                ? String(rawId)
-                : null;
-          setPreviewMessages((prev) => {
-            if (prev.length === 0) return prev;
-            const last = prev[prev.length - 1];
-            if (last.from !== "assistant") return prev;
-            const merged = reply.trim().length > 0 ? reply : last.text;
-            if (!merged.trim()) {
-              return prev.slice(0, -1);
-            }
-            const next = [...prev];
-            next[next.length - 1] = {
-              from: "assistant",
-              text: merged,
-              assistantMessageId: assistantMessageId ?? last.assistantMessageId ?? undefined,
-            };
-            return next;
-          });
-        } else if (ev.type === "error") {
-          throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
-        }
+      try {
+        await streamPlaygroundReply(userMessage, thread, ac);
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        if (!isStalePlaygroundConversationError(e)) throw e;
+        const freshVisitorId = newPlaygroundVisitorId();
+        thread = { conversationId: null, visitorId: freshVisitorId };
+        setConversationId(null);
+        setVisitorId(freshVisitorId);
+        setPreviewMessages((prev) => {
+          const next = [...prev];
+          if (next[next.length - 1]?.from === "assistant") {
+            next[next.length - 1] = { from: "assistant", text: "", streamPhase: "thinking" };
+          }
+          return next;
+        });
+        await streamPlaygroundReply(userMessage, thread, ac);
       }
     } catch (e) {
-      setChatError(e instanceof Error ? e.message : "Failed to send message");
+      if (ac.signal.aborted) return;
+      const errMsg = e instanceof Error ? e.message : "Failed to send message";
+      setChatError(errMsg);
       setPreviewMessages((prev) => {
+        if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        if (last?.from === "assistant" && !(last.text ?? "").trim()) {
-          return prev.slice(0, -1);
-        }
-        return prev;
+        if (last?.from !== "assistant") return prev;
+        const next = [...prev];
+        next[next.length - 1] = {
+          ...last,
+          streamPhase: "error",
+          errorMessage: errMsg,
+        };
+        return next;
       });
     } finally {
+      if (chatAbortRef.current === ac) chatAbortRef.current = null;
       setIsSending(false);
     }
   }
@@ -592,7 +707,7 @@ function PlaygroundPreviewConversation({
   const { data: meData, loading: meLoading } = useMeContext();
   const hidePoweredByPlan = useMemo(
     () => !meLoading && planHidesPoweredByChatrely(meData?.plan.slug),
-    [meLoading, meData?.plan]
+    [meLoading, meData?.plan.slug]
   );
   const messageFeedbackEnabled = useMemo(
     () => messageFeedbackEnabledForPlanSlug(meData?.plan.slug),
@@ -676,12 +791,13 @@ function PlaygroundPreviewConversation({
     [agentId, visitorId]
   );
 
-  const showPoweredByEphemeral = useMemo(
-    () => !previewMessages.some((m) => m.from === "user"),
-    [previewMessages]
-  );
-
   const hasBrand = Boolean(brandColorHex);
+
+  useLayoutEffect(() => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    resizePlaygroundComposer(el);
+  }, [messageInput]);
   const chrome = useMemo(
     () => (brandColorHex ? brandChromeClasses(brandColorHex) : null),
     [brandColorHex]
@@ -724,40 +840,13 @@ function PlaygroundPreviewConversation({
         style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <div className="relative shrink-0">
-            {websiteLogoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element -- remote logo/fallback asset
-              <img
-                src={websiteLogoUrl}
-                alt=""
-                className="block max-h-9 w-auto max-w-[10rem] object-contain"
-                width={160}
-                height={36}
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/10",
-                  hasBrand && chrome
-                    ? chrome.lightBg
-                      ? "bg-black/[0.06] text-ds-on-surface"
-                      : "bg-white/20 text-white"
-                    : "bg-ds-primary text-ds-on-primary"
-                )}
-              >
-                <IconBot className="size-4" />
-              </div>
-            )}
-            {!websiteLogoUrl ? (
-              <div
-                className={cn(
-                  "border-ds-surface absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2",
-                  hasBrand && chrome ? chrome.dotClass : "bg-emerald-500"
-                )}
-              />
-            ) : null}
-          </div>
+          <WidgetBrandAvatar
+            logoUrl={websiteLogoUrl}
+            logoPending={websiteLogoPending}
+            hasBrand={hasBrand}
+            chrome={chrome}
+            size="header"
+          />
           <div className="min-w-0">
             <h3
               className={cn(
@@ -774,7 +863,7 @@ function PlaygroundPreviewConversation({
             type="button"
             className={headerToolbarIconBtnClass}
             aria-label="Reset conversation and start a new chat thread"
-            title="Reset — clears preview and starts a new server thread (old messages no longer influence replies)"
+            title="Reset preview and start a new thread"
             onClick={handleResetPreviewChat}
             disabled={!agentId}
           >
@@ -808,7 +897,7 @@ function PlaygroundPreviewConversation({
             <button
               type="button"
               className={cn(
-                "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/40 -mx-1 mb-4 flex w-fit cursor-pointer items-center gap-2 rounded-ds-md px-2 py-1.5 text-xs font-semibold tracking-wide uppercase transition-colors",
+                "ds-app-body-muted hover:text-ds-on-surface hover:bg-ds-outline/40 -mx-1 mb-4 flex w-fit cursor-pointer items-center gap-2 rounded-ds-md px-2 py-1.5 font-semibold tracking-wide uppercase transition-colors",
                 historyThreadLoading && "pointer-events-none opacity-45"
               )}
               onClick={() => setHistoryOpen(false)}
@@ -818,7 +907,7 @@ function PlaygroundPreviewConversation({
             </button>
             <div className="mb-5 border-b border-ds-outline pb-4">
               <h4 className="text-ds-on-surface text-sm font-semibold tracking-tight">Conversations</h4>
-              <p className="text-ds-on-surface-variant mt-1 text-[11px] leading-relaxed">
+              <p className="ds-app-body-muted mt-1">
                 Same threads as in Conversations. Tap one to load it here.
               </p>
             </div>
@@ -852,16 +941,16 @@ function PlaygroundPreviewConversation({
                         )}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="text-ds-on-surface font-mono text-[11px] font-semibold tracking-tight">
+                          <span className="ds-app-caption text-ds-on-surface font-mono font-semibold tracking-tight">
                             {row.id.slice(0, 8)}…
                           </span>
-                          <span className="text-ds-on-surface-variant shrink-0 text-[10px] tabular-nums">{when}</span>
+                          <span className="ds-app-caption shrink-0 tabular-nums">{when}</span>
                         </div>
-                        <p className="text-ds-on-surface-variant mt-2 line-clamp-2 text-[13px] leading-snug">
+                        <p className="ds-app-body-muted mt-2 line-clamp-2">
                           {row.latest_message_preview?.trim() ? row.latest_message_preview : "No messages yet"}
                         </p>
                         {isActive ? (
-                          <p className="text-ds-primary mt-2 text-[10px] font-semibold uppercase tracking-wide">
+                          <p className="ds-app-kicker text-ds-primary mt-2 font-semibold">
                             Open in preview
                           </p>
                         ) : null}
@@ -883,56 +972,47 @@ function PlaygroundPreviewConversation({
                   {emptyAssistantLine}
                 </p>
                 {toneDescription || languageLabel ? (
-                  <p className={cn(onboardingType.hint, "text-ds-on-surface-variant text-xs")}>
+                  <p className={cn(onboardingType.hint, "ds-app-body-muted")}>
                     {toneDescription ? `Tone guidance: ${toneDescription}` : null}
                     {toneDescription && languageLabel ? " \u00b7 " : null}
                     {languageLabel ? `Reply language: ${languageLabel}` : null}
                   </p>
                 ) : null}
-                <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>Send a message to test this agent.</p>
               </div>
             ) : null}
             {previewMessages.map((msg, index) => {
-              const isStreamingAssistant =
-                msg.from === "assistant" &&
-                isSending &&
-                index === previewMessages.length - 1 &&
-                !msg.text.trim();
+              const isLastAssistant =
+                msg.from === "assistant" && index === previewMessages.length - 1;
+              const phase: AssistantStreamPhase =
+                msg.streamPhase ??
+                (isLastAssistant && isSending
+                  ? "thinking"
+                  : msg.text.trim()
+                    ? "done"
+                    : "thinking");
               return (
                 <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
                   {msg.from === "assistant" ? (
                     <div className="flex max-w-[90%] gap-3">
-                      <div className="border-ds-outline flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm">
-                        {websiteLogoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element -- remote store logo / favicon
-                          <img
-                            src={websiteLogoUrl}
-                            alt=""
-                            className="size-full object-contain p-0.5"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <IconBot className="text-ds-on-surface-variant size-3.5" />
-                        )}
-                      </div>
+                      <WidgetBrandAvatar
+                        logoUrl={websiteLogoUrl}
+                        logoPending={websiteLogoPending}
+                        hasBrand={hasBrand}
+                        chrome={chrome}
+                        size="bubble"
+                      />
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <div
-                          className={cn(
-                            "border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white text-sm shadow-sm",
-                            isStreamingAssistant
-                              ? "flex items-center leading-none px-3 py-2 sm:px-3.5 sm:py-2"
-                              : "leading-relaxed px-4 py-3 sm:px-5"
-                          )}
-                        >
-                          {isStreamingAssistant ? (
-                            <AssistantThinkingDots brandColorHex={brandColorHex} />
-                          ) : (
-                            <AssistantMarkdown>{msg.text}</AssistantMarkdown>
-                          )}
+                        <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-4 py-3 text-sm shadow-sm sm:px-5">
+                          <StreamingAssistantMessage
+                            text={msg.text}
+                            phase={phase}
+                            errorMessage={msg.errorMessage}
+                            brandColorHex={brandColorHex}
+                          />
                         </div>
                         {messageFeedbackEnabled &&
                         msg.assistantMessageId &&
-                        !isStreamingAssistant &&
+                        phase === "done" &&
                         msg.text.trim() ? (
                           <div className="flex items-center gap-0.5 pl-0.5">
                             {(msg.feedbackVote ?? null) !== -1 ? (
@@ -980,7 +1060,7 @@ function PlaygroundPreviewConversation({
       <div className="border-ds-outline shrink-0 border-t bg-ds-surface p-4 sm:p-5">
         {historyOpen ? (
           <>
-            <p className="text-ds-on-surface-variant text-center text-[11px] leading-relaxed">
+            <p className="ds-app-body-muted text-center">
               Choose a conversation above to load it, or use <span className="font-semibold">Back to chat</span>.
             </p>
             {footerError ? (
@@ -988,18 +1068,20 @@ function PlaygroundPreviewConversation({
             ) : null}
           </>
         ) : (
-          <>
-            {!hidePoweredByPlan && showPoweredByEphemeral ? (
-              <PoweredByChatRely compact className="mb-3 border-b border-ds-outline/70 pb-2" />
-            ) : null}
-            <div className="flex items-center gap-2 sm:gap-3">
-              <input
-                className={cn(fieldControlClass, "min-w-0 flex-1 sm:px-5")}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-end gap-2 sm:gap-3">
+              <textarea
+                ref={messageInputRef}
+                rows={1}
+                className={playgroundComposerClass}
                 placeholder={languageLabel ? `Test your agent (${languageLabel})…` : "Test your agent…"}
                 value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
+                onChange={(e) => {
+                  setMessageInput(e.target.value);
+                  resizePlaygroundComposer(e.target);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                  if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
                   e.preventDefault();
                   void handleSendMessage();
                 }}
@@ -1007,7 +1089,7 @@ function PlaygroundPreviewConversation({
               <button
                 type="button"
                 className={cn(
-                  "cursor-pointer shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
+                  "mb-0.5 cursor-pointer shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
                   hasBrand && chrome
                     ? cn(chrome.fabIconClass, "hover:opacity-90")
                     : "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
@@ -1020,8 +1102,11 @@ function PlaygroundPreviewConversation({
                 <IconSend className="size-4.5" />
               </button>
             </div>
-            {footerError ? <p className="text-rose-600 mt-2 text-sm">{footerError}</p> : null}
-          </>
+            {!hidePoweredByPlan ? (
+              <PoweredByChatRely compact className="bg-transparent px-0 py-0.5" />
+            ) : null}
+            {footerError ? <p className="text-rose-600 text-sm">{footerError}</p> : null}
+          </div>
         )}
       </div>
     </div>
@@ -1029,7 +1114,6 @@ function PlaygroundPreviewConversation({
 }
 
 type PlaygroundFormBaseline = {
-  model: string;
   systemPrompt: string;
   creativity: number;
   agentType: string;
@@ -1059,7 +1143,6 @@ export default function PlaygroundPage() {
   } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
   const shopifyConnected = Boolean(shopifyConnection?.connected);
   const setTopbarExtras = useSetDashboardTopbarExtras();
-  const [model, setModel] = useState("gpt-4o-mini");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [creativity, setCreativity] = useState<number>(0.5);
   const [agentType, setAgentType] = useState<string>("brand_support");
@@ -1069,6 +1152,7 @@ export default function PlaygroundPage() {
   const [shopifyActionsOpen, setShopifyActionsOpen] = useState(true);
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const websiteLogoPending = Boolean(selectedAgentId && integrationsLoading);
   const websiteLogoUrl = useMemo(() => {
     if (!selectedAgentId || integrationsLoading) return null;
     const raw = integrationsWebsitePreview?.source_url?.trim();
@@ -1085,7 +1169,6 @@ export default function PlaygroundPage() {
       hydratedAgentIdRef.current = null;
       queueMicrotask(() => {
         setBaseline(null);
-        setModel("gpt-4o-mini");
         setSystemPrompt("");
         setCreativity(0.5);
         setAgentType("brand_support");
@@ -1110,14 +1193,12 @@ export default function PlaygroundPage() {
       PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
         ? atRaw
         : "brand_support";
-    const m = match.model || "gpt-4o-mini";
     const sp = match.system_prompt || "";
     queueMicrotask(() => {
-      setModel(m);
       setSystemPrompt(sp);
       setCreativity(cr);
       setAgentType(at);
-      setBaseline({ model: m, systemPrompt: sp, creativity: cr, agentType: at });
+      setBaseline({ systemPrompt: sp, creativity: cr, agentType: at });
       setSaveError(null);
       setActionDraft({});
       setActionBaseline(null);
@@ -1193,11 +1274,17 @@ export default function PlaygroundPage() {
     [actionsCatalog]
   );
 
+  const availableShopifyActions = useMemo(
+    () => shopifyCatalogEntries.filter((e) => e.status === "live" && e.scopes_satisfied),
+    [shopifyCatalogEntries]
+  );
+
+  const humanEscalationLive = humanEscalationEntry?.status === "live";
+
   const formFieldsDirty = Boolean(
     baseline &&
       selectedAgentId &&
-      (model !== baseline.model ||
-        systemPrompt !== baseline.systemPrompt ||
+      (systemPrompt !== baseline.systemPrompt ||
         creativity !== baseline.creativity ||
         agentType !== baseline.agentType)
   );
@@ -1221,12 +1308,11 @@ export default function PlaygroundPage() {
         agent_type: agentType,
       };
       const updated = await backendFetch<{
-        model: string;
         system_prompt: string;
         behavior_settings: Record<string, unknown>;
       }>(`/api/v1/agents/${selectedAgentId}`, {
         method: "PATCH",
-        body: JSON.stringify({ model, system_prompt: systemPrompt, behavior_settings }),
+        body: JSON.stringify({ system_prompt: systemPrompt, behavior_settings }),
       });
       await refreshAgents();
 
@@ -1259,12 +1345,10 @@ export default function PlaygroundPage() {
         PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
           ? atRaw
           : agentType;
-      setModel(updated.model);
       setSystemPrompt(updated.system_prompt);
       setCreativity(cr);
       setAgentType(at);
       setBaseline({
-        model: updated.model,
         systemPrompt: updated.system_prompt,
         creativity: cr,
         agentType: at,
@@ -1281,7 +1365,6 @@ export default function PlaygroundPage() {
     selectedAgentId,
     isSaving,
     baseline,
-    model,
     systemPrompt,
     creativity,
     agentType,
@@ -1305,13 +1388,13 @@ export default function PlaygroundPage() {
           <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
             <div className="flex items-center gap-2">
               <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-ds-on-surface-variant text-[11px] font-semibold tracking-wide uppercase">
+              <span className="ds-app-kicker font-semibold">
                 Unsaved
               </span>
             </div>
             <button
               type="button"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-sm font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
               onClick={() => void handleSaveRef.current()}
               disabled={!selectedAgentId || isSaving}
             >
@@ -1331,7 +1414,7 @@ export default function PlaygroundPage() {
           type="button"
           onClick={() => setMobileTab("settings")}
           className={cn(
-            "cursor-pointer rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
+            "cursor-pointer rounded-ds-md px-3 py-2 text-sm font-semibold transition-colors",
             mobileTab === "settings"
               ? "border-ds-primary/40 text-ds-primary border bg-white shadow-sm"
               : "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-white/70"
@@ -1343,7 +1426,7 @@ export default function PlaygroundPage() {
           type="button"
           onClick={() => setMobileTab("preview")}
           className={cn(
-            "cursor-pointer rounded-ds-md px-3 py-2 text-xs font-semibold transition-colors",
+            "cursor-pointer rounded-ds-md px-3 py-2 text-sm font-semibold transition-colors",
             mobileTab === "preview"
               ? "border-ds-primary/40 text-ds-primary border bg-white shadow-sm"
               : "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-white/70"
@@ -1362,7 +1445,7 @@ export default function PlaygroundPage() {
           )}
         >
           <div className="border-ds-outline bg-ds-sidebar/90 shrink-0 border-b px-5 py-4 backdrop-blur-sm sm:px-6">
-            <h2 className="text-ds-on-surface flex items-center gap-2 text-sm font-semibold tracking-tight">
+            <h2 className="ds-app-card-title flex items-center gap-2">
               <IconTune className="text-ds-primary size-4 shrink-0" aria-hidden />
               Playground settings
             </h2>
@@ -1375,32 +1458,13 @@ export default function PlaygroundPage() {
               <PlaygroundSettingsColumnSkeleton />
             ) : (
               <div className="space-y-10">
-            <div className="space-y-2">
-              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
-                AI model
-              </label>
-              <select
-                className={fieldControlPointerClass}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                <option value="gpt-4o-mini">GPT-4o mini</option>
-                <option value="gpt-4o">GPT-4o</option>
-              </select>
-            </div>
 
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <label className={cn(onboardingType.label, "text-ds-on-surface-variant mb-0 text-[11px] uppercase tracking-[0.14em]")}>
+                <label className={cn(settingsFieldLabelClass, "mb-0")}>
                   Creativity
                 </label>
-                <button
-                  type="button"
-                  className="text-ds-on-surface-variant hover:text-ds-interactive-hover cursor-pointer rounded-ds-md p-1 transition-colors"
-                  aria-label="About creativity"
-                >
-                  <IconInfo className="size-4" />
-                </button>
+                <InfoHint text={PLAYGROUND_CREATIVITY_HINT} labelFor="Creativity" className="ml-0" />
               </div>
               <input
                 className="accent-ds-primary w-full cursor-pointer"
@@ -1411,7 +1475,7 @@ export default function PlaygroundPage() {
                 value={creativity}
                 onChange={(e) => setCreativity(Number.parseFloat(e.target.value))}
               />
-              <div className="text-ds-on-surface-variant flex justify-between text-[11px] font-medium tracking-wide">
+              <div className="ds-app-kicker flex justify-between font-medium">
                 <span>Conservative</span>
                 <span className="text-ds-on-surface font-semibold">{creativityBandLabel(creativity)}</span>
                 <span>Creative</span>
@@ -1419,7 +1483,7 @@ export default function PlaygroundPage() {
             </div>
 
             <div className="space-y-4">
-              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
+              <label className={settingsFieldLabelClass}>
                 Enabled actions
               </label>
               <div className="border-ds-outline overflow-hidden rounded-ds-lg border bg-ds-surface shadow-sm">
@@ -1431,7 +1495,7 @@ export default function PlaygroundPage() {
                 >
                   <div className="flex items-center gap-3">
                     <IconBag className="text-ds-primary size-4 shrink-0" aria-hidden />
-                    <span className="text-ds-on-surface text-sm font-semibold">Shopify actions</span>
+                    <span className="ds-app-card-title">Shopify actions</span>
                   </div>
                   <IconChevron
                     className={cn(
@@ -1447,7 +1511,7 @@ export default function PlaygroundPage() {
                       <PlaygroundShopifyActionsSkeleton rows={4} />
                     ) : !shopifyConnected ? (
                       <div className="space-y-3">
-                        <p className={cn(onboardingType.hint, "text-[13px]")}>
+                        <p className={cn(onboardingType.hint)}>
                           Connect your Shopify store under Actions &amp; integrations to enable product, order, and
                           customer tools for this agent.
                         </p>
@@ -1458,65 +1522,57 @@ export default function PlaygroundPage() {
                           Connect Shopify
                         </Link>
                       </div>
-                    ) : shopifyCatalogEntries.length === 0 ? (
+                    ) : availableShopifyActions.length === 0 ? (
                       <p className="text-ds-on-surface-variant text-sm">
-                        No Shopify actions are available yet. Open Actions &amp; integrations to connect your store and
-                        enable tools.
+                        No Shopify tools are available with your current store connection.
                       </p>
                     ) : (
                       <div className="space-y-4">
-                        {shopifyCatalogEntries.map((e) => {
-                          const off = e.status !== "live" || !e.scopes_satisfied;
-                          return (
-                            <div
-                              key={e.action_key}
-                              className={cn("flex items-center justify-between", off && "opacity-50")}
-                            >
-                              <div>
-                                <p className="text-ds-on-surface text-sm font-medium">{e.label}</p>
-                                <p className={cn(onboardingType.hint, "mt-0.5 text-[13px]")}>
-                                  {e.description}
-                                </p>
-                              </div>
-                              <ToggleSwitch
-                                checked={Boolean(actionDraft[e.action_key])}
-                                disabled={off}
-                                onCheckedChange={
-                                  off
-                                    ? undefined
-                                    : (next) =>
-                                        setActionDraft((prev) => ({ ...prev, [e.action_key]: next }))
-                                }
-                              />
+                        {availableShopifyActions.map((e) => (
+                          <div key={e.action_key} className="flex items-center justify-between">
+                            <div>
+                              <p className="text-ds-on-surface text-sm font-medium">{e.label}</p>
+                              <p className={cn(onboardingType.hint, "mt-0.5")}>{e.description}</p>
                             </div>
-                          );
-                        })}
+                            <ToggleSwitch
+                              checked={Boolean(actionDraft[e.action_key])}
+                              onCheckedChange={(next) =>
+                                setActionDraft((prev) => ({ ...prev, [e.action_key]: next }))
+                              }
+                            />
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
                 ) : null}
               </div>
 
-              <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-surface p-4 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <IconPersonPin className="text-ds-primary size-4 shrink-0" aria-hidden />
-                  <span className="text-ds-on-surface text-sm font-semibold">Escalate to human</span>
+              {humanEscalationLive ? (
+                <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-surface p-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <IconPersonPin className="text-ds-primary size-4 shrink-0" aria-hidden />
+                    <span className="ds-app-card-title">Escalate to human</span>
+                  </div>
+                  <ToggleSwitch
+                    checked={Boolean(actionDraft["human.escalate"])}
+                    onCheckedChange={(next) =>
+                      setActionDraft((prev) => ({ ...prev, "human.escalate": next }))
+                    }
+                  />
                 </div>
-                <ToggleSwitch
-                  checked={Boolean(actionDraft["human.escalate"])}
-                  disabled={humanEscalationEntry?.status !== "live"}
-                  onCheckedChange={
-                    humanEscalationEntry?.status !== "live"
-                      ? undefined
-                      : (next) =>
-                          setActionDraft((prev) => ({ ...prev, "human.escalate": next }))
-                  }
-                />
-              </div>
+              ) : humanEscalationEntry?.status === "blocked_by_plan" ? (
+                <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>
+                  Human escalation requires a paid plan with actions.{" "}
+                  <Link href="/account/plan" className="text-ds-primary font-semibold hover:underline">
+                    Upgrade plan
+                  </Link>
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-2">
-              <label className={cn(onboardingType.label, "text-ds-on-surface-variant text-[11px] uppercase tracking-[0.14em]")}>
+              <label className={settingsFieldLabelClass}>
                 Agent type
               </label>
               <select
@@ -1530,50 +1586,52 @@ export default function PlaygroundPage() {
                   </option>
                 ))}
               </select>
-              <p className={onboardingType.hint}>
-                Custom Prompt unlocks manual system prompt editing.
-              </p>
             </div>
 
-            {agentType === "custom" ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label className={cn(onboardingType.label, "text-ds-on-surface-variant mb-0 text-[11px] uppercase tracking-[0.14em]")}>
-                    System prompt
-                  </label>
+            <div
+              className={cn(
+                "space-y-2",
+                agentType !== "custom" && "opacity-55"
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <label className={cn(settingsFieldLabelClass, "mb-0")}>System prompt</label>
+                {agentType === "custom" ? (
                   <button
                     type="button"
-                    className="text-ds-on-surface-variant hover:text-ds-interactive-hover inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-[11px] font-semibold tracking-wide uppercase transition-colors disabled:pointer-events-none disabled:opacity-40"
+                    className="text-ds-on-surface-variant hover:text-ds-interactive-hover ds-app-kicker inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
                     disabled={!baseline || systemPrompt === baseline.systemPrompt}
                     onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
                   >
                     <IconHistory className="size-3.5" aria-hidden />
                     Reset
                   </button>
-                </div>
-                <textarea
-                  className={cn(fieldControlClass, "leading-relaxed")}
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                />
+                ) : null}
               </div>
-            ) : null}
-
-            <p className={cn(onboardingType.hint, "pb-4 text-center lg:pb-8")}>
-              Save your changes for them to take effect in the live agent.
-            </p>
+              <textarea
+                className={cn(fieldControlClass, "leading-relaxed")}
+                value={systemPrompt}
+                disabled={agentType !== "custom"}
+                placeholder={
+                  agentType === "custom"
+                    ? "Instructions for this agent…"
+                    : "Select Custom Prompt above to edit."
+                }
+                onChange={(e) => setSystemPrompt(e.target.value)}
+              />
+            </div>
 
             {isDirty ? (
               <div className="border-ds-outline bg-ds-surface/95 sticky bottom-0 -mx-5 flex shrink-0 items-center justify-between gap-3 border-t p-4 backdrop-blur-sm sm:-mx-8 lg:hidden">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-                  <span className="text-ds-on-surface-variant truncate text-[11px] font-semibold uppercase tracking-wide">
+                  <span className="ds-app-kicker truncate font-semibold">
                     Unsaved
                   </span>
                 </div>
                 <button
                   type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex shrink-0 cursor-pointer items-center justify-center rounded-ds-md px-4 py-2.5 text-xs font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex shrink-0 cursor-pointer items-center justify-center rounded-ds-md px-4 py-2.5 text-sm font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
                   onClick={() => void handleSave()}
                   disabled={!selectedAgentId || isSaving}
                 >
@@ -1619,12 +1677,12 @@ export default function PlaygroundPage() {
                   ? selectedAgent.behavior_settings.language
                   : null
               }
-              model={model}
               agentType={agentType}
               systemPrompt={systemPrompt}
               creativity={creativity}
               saveError={saveError?.agentId === selectedAgentId ? saveError.message : null}
               websiteLogoUrl={websiteLogoUrl}
+              websiteLogoPending={websiteLogoPending}
             />
           </div>
         </section>
@@ -1670,10 +1728,6 @@ function IconTune({ className }: { className?: string }) {
   return <Settings2 className={className} strokeWidth={1.8} aria-hidden />;
 }
 
-function IconInfo({ className }: { className?: string }) {
-  return <Info className={className} strokeWidth={1.8} aria-hidden />;
-}
-
 function IconBag({ className }: { className?: string }) {
   return <ShoppingBag className={className} strokeWidth={1.8} aria-hidden />;
 }
@@ -1688,10 +1742,6 @@ function IconPersonPin({ className }: { className?: string }) {
 
 function IconHistory({ className }: { className?: string }) {
   return <History className={className} strokeWidth={1.8} aria-hidden />;
-}
-
-function IconBot({ className }: { className?: string }) {
-  return <Bot className={className} strokeWidth={1.8} aria-hidden />;
 }
 
 function IconListChats({ className }: { className?: string }) {

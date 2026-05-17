@@ -21,7 +21,11 @@ __all__ = ["admin_client"]
 
 
 def _make_plan(
-    slug: str, *, is_active: bool = True, subs: int = 0
+    slug: str,
+    *,
+    is_active: bool = True,
+    subs: int = 0,
+    public_on_pricing_page: bool = True,
 ) -> AdminPlanRow:
     return AdminPlanRow(
         id=uuid4(),
@@ -34,6 +38,8 @@ def _make_plan(
         features={"human_escalation_enabled": True},
         throttle_policy={"soft_threshold_pct": 80},
         is_active=is_active,
+        public_on_pricing_page=public_on_pricing_page,
+        sort_order=10,
         subscriptions_count=subs,
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -47,7 +53,8 @@ def test_list_plans_returns_inactive_plans_and_counts(
             items=[
                 _make_plan("free", is_active=True, subs=20),
                 _make_plan("standard", is_active=True, subs=5),
-                _make_plan("legacy_starter", is_active=False, subs=2),
+                _make_plan("legacy_starter", is_active=False, subs=2, public_on_pricing_page=False),
+                _make_plan("scale", is_active=True, subs=1, public_on_pricing_page=False),
             ]
         )
 
@@ -64,6 +71,10 @@ def test_list_plans_returns_inactive_plans_and_counts(
     standard = next(item for item in body["items"] if item["slug"] == "standard")
     assert standard["features"] == {"human_escalation_enabled": True}
     assert standard["throttle_policy"] == {"soft_threshold_pct": 80}
+    assert standard["public_on_pricing_page"] is True
+    assert standard["sort_order"] == 10
+    scale = next(item for item in body["items"] if item["slug"] == "scale")
+    assert scale["public_on_pricing_page"] is False
 
 
 def test_list_plans_non_admin_returns_404(admin_client: TestClient) -> None:

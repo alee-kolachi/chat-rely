@@ -71,11 +71,10 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getSession();
 
   if (!session?.access_token) {
-    const login = new URL("/login", request.url);
-    login.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
-    const loginRedirect = NextResponse.redirect(login);
-    copyCookies(supabaseResponse, loginRedirect);
-    return loginRedirect;
+    const landing = new URL("/", request.url);
+    const landingRedirect = NextResponse.redirect(landing);
+    copyCookies(supabaseResponse, landingRedirect);
+    return landingRedirect;
   }
 
   let onboardingCompleted = true;

@@ -52,7 +52,7 @@ export function CollapsibleSection({
           {headerContent ? (
             headerContent
           ) : hideTitle ? null : (
-            <h2 className="ds-app-section-title text-base">{title}</h2>
+            <h2 className="ds-app-section-title">{title}</h2>
           )}
         </div>
         <IconChevron
@@ -223,7 +223,7 @@ export function MultiSelectToolbar({
         className
       )}
     >
-      <span className="text-ds-on-surface text-sm font-semibold">
+      <span className="ds-app-card-title">
         {selectedCount} of {totalCount} {itemLabel}
         {totalCount === 1 ? "" : "s"} selected
       </span>

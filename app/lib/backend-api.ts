@@ -12,13 +12,44 @@ export class BackendApiError extends Error {
   status: number;
   code?: string;
   details?: unknown;
+  retryAfterSeconds?: number;
 
-  constructor(message: string, status: number, code?: string, details?: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: unknown,
+    retryAfterSeconds?: number
+  ) {
     super(message);
     this.status = status;
     this.code = code;
     this.details = details;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+export function parseRetryAfterSeconds(response: Response, details?: unknown): number | undefined {
+  const header = response.headers.get("Retry-After");
+  if (header) {
+    const n = Number(header);
+    if (Number.isFinite(n) && n > 0) return Math.ceil(n);
+  }
+  if (details && typeof details === "object" && details !== null) {
+    const raw = (details as { retry_after_seconds?: unknown }).retry_after_seconds;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.ceil(n);
+  }
+  return undefined;
+}
+
+export function isRateLimited(err: unknown): err is BackendApiError {
+  return err instanceof BackendApiError && (err.status === 429 || err.code === "rate_limit.exceeded");
+}
+
+export function formatRateLimitMessage(err: BackendApiError, fallback = "Too many requests. Please try again shortly."): string {
+  if (err.message && err.message.trim()) return err.message;
+  return fallback;
 }
 
 /**
@@ -159,11 +190,13 @@ export async function backendFetch<T>(path: string, init: BackendFetchOptions = 
     }
 
     const asRecord = payload as { error?: { code?: string; message?: string; details?: unknown } } | null;
+    const details = asRecord?.error?.details;
     throw new BackendApiError(
       asRecord?.error?.message ?? `Backend request failed (${response.status})`,
       response.status,
       asRecord?.error?.code,
-      asRecord?.error?.details
+      details,
+      parseRetryAfterSeconds(response, details)
     );
   }
 
@@ -178,6 +211,9 @@ export async function backendFetch<T>(path: string, init: BackendFetchOptions = 
 export type RuntimeChatNdjsonEvent =
   | { type: "start"; conversation_id: string }
   | { type: "token"; text: string }
+  | { type: "phase"; phase: string; message: string }
+  | { type: "tool_status"; message: string; tool_name?: string | null }
+  | { type: "tool_status_end" }
   | ({
       type: "done";
       conversation_id: string;

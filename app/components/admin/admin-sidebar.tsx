@@ -29,7 +29,7 @@ export function AdminSidebar() {
           iconClassName="h-5 w-auto"
           textClassName="text-lg font-semibold text-ds-on-surface"
         />
-        <span className="text-ds-on-surface-variant text-xs font-medium tracking-wide uppercase">Admin</span>
+        <span className="ds-app-body-muted font-medium tracking-wide uppercase">Admin</span>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain p-2">

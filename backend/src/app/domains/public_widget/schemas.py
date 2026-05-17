@@ -1,7 +1,7 @@
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PublicWidgetAgentContext(BaseModel):
@@ -28,7 +28,7 @@ class PublicWidgetConfigResponse(BaseModel):
     human_escalation_available: bool = False
     """Optional logo URL for header (e.g. favicon from primary website knowledge source)."""
     avatar_url: str | None = None
-    """When True, widget may show an attachment affordance (Hobby+); Free hides it. Upload not implemented yet."""
+    """When True, widget may show a visitor attachment affordance. Disabled until uploads ship (marketing: Coming soon)."""
     attachments_ui_enabled: bool = False
     hide_powered_by_chatrely: bool = Field(
         default=False,
@@ -48,7 +48,7 @@ class PublicWidgetChatRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    message: str = Field(min_length=1)
+    message: str = Field(min_length=1, max_length=8000)
     conversation_id: UUID | None = None
     visitor_id: str = Field(min_length=1, max_length=255)
     visitor_email: str | None = None
@@ -62,4 +62,13 @@ class PublicWidgetMessageFeedbackRequest(BaseModel):
 
     message_id: UUID
     visitor_id: str = Field(min_length=1, max_length=255)
-    value: Literal[-1, 1]
+    remove: bool = False
+    value: Literal[-1, 1] | None = None
+
+    @model_validator(mode="after")
+    def _value_or_remove(self) -> Self:
+        if self.remove:
+            return self
+        if self.value is None:
+            raise ValueError("value is required when remove is false")
+        return self

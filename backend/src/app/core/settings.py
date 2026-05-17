@@ -45,24 +45,49 @@ class Settings(BaseSettings):
     """When conversations used exceed the plan included amount, visitor chat uses this model (subscription is unchanged; no per-conversation overage). Override via env."""
     runtime_usage_limit_exceeded_model: str = "gpt-4o-mini"
     runtime_enable_turn_signals: bool = False
-    runtime_enable_shopify_route_classifier: bool = True
-    # Accuracy-first mode: always run Shopify route classifier (slower, but less regex bias).
-    runtime_force_shopify_route_classifier_for_accuracy: bool = False
-    # When regex misses commerce intent, reuse Shopify router output or run one cheap LLM classifier.
-    runtime_intent_llm_fallback_enabled: bool = True
     # Cap prior DB messages sent to the LLM per turn (smaller prompts → faster first token).
-    runtime_max_history_messages: int = 8
+    runtime_max_history_messages: int = 6
     # Cache enabled Shopify actions list per agent (avoids repeated subscription + agent_actions work).
     runtime_shopify_actions_cache_ttl_seconds: float = 120.0
+    # Skip repeated DB lookups when an agent has no connected Shopify store.
+    runtime_shopify_disconnected_cache_ttl_seconds: float = 300.0
+    # Do not block the LLM while waiting for usage snapshot refresh (0 = cache-only).
+    runtime_usage_refresh_wait_seconds: float = 0.0
+    # Reserved for optional RAG wait policies; chat does not block on RAG (see stream_chat).
+    runtime_rag_prep_budget_seconds: float = 0.0
+    runtime_usage_tier_cache_ttl_seconds: float = 120.0
+    runtime_agent_config_cache_ttl_seconds: float = 120.0
     # After boot, preload Shopify connection + actions caches for connected stores (first chat avoids cold miss).
     runtime_shopify_cache_warm_on_startup: bool = True
     runtime_shopify_cache_warm_max_agents: int = 20
+    # TTL for cached "agent has indexed knowledge_chunks" probe (structural RAG skip).
+    runtime_agent_kb_index_cache_ttl_seconds: float = 600.0
+    # Default chat model when agent row has empty/legacy slow label (latency).
+    runtime_default_chat_model: str = "gpt-4o-mini"
+    runtime_premium_chat_model: str = "gpt-4o"
+    runtime_model_routing_enabled: bool = True
+    runtime_max_premium_turns_per_conversation: int = 2
+    runtime_prefer_fast_chat_model: bool = True
+    # SQLAlchemy pool: recycle connections (seconds); use Supabase pooler :6543 in DATABASE_URL.
+    database_pool_recycle_seconds: int = 300
     # Hard timeout for each Shopify Admin tool invocation (GraphQL); avoids hung streams.
-    shopify_tool_timeout_seconds: float = 25.0
+    shopify_tool_timeout_seconds: float = 12.0
     # Log `runtime.turn_timing` when wall-clock assistant turn exceeds this (milliseconds).
-    runtime_turn_latency_warn_ms: int = 20000
+    runtime_turn_latency_warn_ms: int = 3000
     dev_auth_bypass_enabled: bool = False
     dev_auth_bypass_user_id: str = "00000000-0000-0000-0000-000000000001"
+    # In development, run the indexing worker inside the API process so website crawls continue after onboarding.
+    indexing_worker_embedded_in_dev: bool = True
+
+    # HTTP rate limiting (in-process; use a shared store when running multiple API replicas).
+    rate_limit_enabled: bool = True
+    rate_limit_default_per_minute: int = 120
+    rate_limit_chat_per_minute: int = 30
+    rate_limit_knowledge_per_minute: int = 10
+    rate_limit_knowledge_read_per_minute: int = 120
+    rate_limit_admin_per_minute: int = 60
+    rate_limit_webhook_per_minute: int = 300
+    rate_limit_public_per_minute: int = 60
 
     # Shopify Partner app + OAuth (https://shopify.dev/docs/apps/auth/oauth)
     shopify_api_key: str | None = None

@@ -85,7 +85,7 @@ function ToneForm() {
   return (
     <div className="space-y-6">
       <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-        <h2 className="ds-app-section-title mb-1 text-base">Tone</h2>
+        <h2 className="ds-app-section-title mb-1">Tone</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
           Sets the default phrasing style. Replies are nudged toward this voice in the system prompt.
         </p>
@@ -122,8 +122,8 @@ function ToneForm() {
             <label htmlFor="tone-description" className="text-ds-on-surface mb-1 block text-sm font-semibold">
               Custom guidance <span className="text-ds-on-surface-variant font-normal">(optional)</span>
             </label>
-            <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
-              Add specific style notes the agent should follow — e.g. &ldquo;use British English, never use emojis,
+            <p className="ds-app-body-muted mb-2">
+              Style notes for the agent, e.g. &ldquo;use British English, never use emojis,
               keep sentences under 20 words&rdquo;.
             </p>
             <textarea

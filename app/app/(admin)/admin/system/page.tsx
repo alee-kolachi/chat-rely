@@ -175,7 +175,7 @@ function PricingCard({ health }: { health: AdminSystemHealth }) {
         <h2 className="text-ds-on-surface text-sm font-semibold uppercase tracking-wide">
           Pricing configuration
         </h2>
-        <p className="text-ds-on-surface-variant text-xs">
+        <p className="ds-app-body-muted">
           Models loaded from env vars. The <span className="font-mono">unknown</span> list shows
           model names observed in messages but missing from pricing config.
         </p>
@@ -198,7 +198,7 @@ function PricingCard({ health }: { health: AdminSystemHealth }) {
           Unknown models in messages
         </h3>
         {p.unknown_models_in_messages.length === 0 ? (
-          <p className="text-ds-on-surface-variant mt-1 text-xs">
+          <p className="ds-app-body-muted mt-1">
             None — every observed model has prices configured.
           </p>
         ) : (
@@ -237,7 +237,7 @@ function ModelGroup({
         <h3 className="text-ds-on-surface-variant text-[11px] font-semibold uppercase tracking-wide">
           {label}
         </h3>
-        <span className="text-ds-on-surface-variant text-xs">{count}</span>
+        <span className="ds-app-body-muted">{count}</span>
       </div>
       {activeModel !== undefined && (
         <div className="text-[12px]">
@@ -251,7 +251,7 @@ function ModelGroup({
         </div>
       )}
       {models.length === 0 ? (
-        <p className="text-ds-on-surface-variant text-xs">No models configured.</p>
+        <p className="ds-app-body-muted">No models configured.</p>
       ) : (
         <ul className="flex flex-wrap gap-1">
           {models.map((m) => (
@@ -299,7 +299,7 @@ function WorkerRow({
           {stale ? "Stale" : "OK"}
         </span>
       </div>
-      <div className="text-ds-on-surface-variant ml-[1.125rem] text-xs">{subtitle}</div>
+      <div className="ds-app-body-muted ml-[1.125rem]">{subtitle}</div>
       {extra && (
         <div className="text-ds-on-surface-variant ml-[1.125rem] flex items-center gap-2 text-[11px]">
           {extra}
@@ -312,7 +312,7 @@ function WorkerRow({
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-ds-on-surface-variant text-xs">{label}</span>
+      <span className="ds-app-body-muted">{label}</span>
       <div className="text-right text-sm">{children}</div>
     </div>
   );

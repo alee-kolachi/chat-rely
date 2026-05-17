@@ -42,6 +42,15 @@ type ConversationMessage = {
   tool_call_payload?: Record<string, unknown> | null;
 };
 
+type ConversationSummaryState = {
+  summary: string | null;
+  key_points: string[];
+  computed_at: string | null;
+  message_count: number;
+  stale: boolean;
+  model: string;
+};
+
 function ConversationMessagesSkeleton() {
   return (
     <div className="space-y-3" aria-label="Loading conversation messages">
@@ -68,6 +77,14 @@ function ConversationsPageContent() {
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [summaryByConversation, setSummaryByConversation] = useState<
+    Record<string, ConversationSummaryState>
+  >({});
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [showSummaryPanel, setShowSummaryPanel] = useState(false);
+  const [showFullTranscript, setShowFullTranscript] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
@@ -95,6 +112,20 @@ function ConversationsPageContent() {
     [conversations, selectedConversationId]
   );
 
+  const selectedStatus = selectedConversation?.status ?? null;
+  const canResolve =
+    Boolean(selectedConversationId) &&
+    (selectedStatus === "open" || selectedStatus === "escalated");
+  const canReopen =
+    Boolean(selectedConversationId) &&
+    (selectedStatus === "resolved" ||
+      selectedStatus === "idle_closed" ||
+      selectedStatus === "escalated");
+
+  const selectedSummary = selectedConversationId
+    ? (summaryByConversation[selectedConversationId] ?? null)
+    : null;
+
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (statusFilter) n += 1;
@@ -108,7 +139,7 @@ function ConversationsPageContent() {
     queueMicrotask(() => setTrainingTopicFilter((trainingTopicFromUrl ?? "").trim()));
   }, [trainingTopicFromUrl]);
 
-  const loadConversations = useCallback(async (opts?: { silent?: boolean }) => {
+  const loadConversations = useCallback(async (opts?: { silent?: boolean; detailId?: string | null }) => {
     const silent = Boolean(opts?.silent);
     if (!silent) {
       setLoading(true);
@@ -129,8 +160,13 @@ function ConversationsPageContent() {
       }
       const topic = trainingTopicFilter.trim();
       if (topic) qs.set("training_topic", topic);
-      const detailId = (conversationFromUrl ?? "").trim();
-      if (!silent && detailId) {
+      const detailId =
+        opts?.detailId !== undefined
+          ? (opts.detailId ?? "").trim()
+          : (conversationFromUrl ?? "").trim() ||
+            selectedConversationIdRef.current ||
+            "";
+      if (detailId) {
         qs.set("detail_conversation_id", detailId);
       }
       const path = `/api/v1/conversations/workspace?${qs.toString()}`;
@@ -195,6 +231,93 @@ function ConversationsPageContent() {
     router.replace(q ? `${pathname}?${q}` : pathname);
   }
 
+  const fetchSummaryState = useCallback(async (conversationId: string, opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (!silent) setSummaryLoading(true);
+    try {
+      const data = await backendFetch<{
+        conversation_id: string;
+        summary: string | null;
+        key_points: string[];
+        computed_at: string | null;
+        message_count: number;
+        stale: boolean;
+        model: string;
+      }>(`/api/v1/conversations/${conversationId}/summary`);
+      setSummaryByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {
+          summary: data.summary,
+          key_points: data.key_points ?? [],
+          computed_at: data.computed_at,
+          message_count: data.message_count,
+          stale: data.stale,
+          model: data.model,
+        },
+      }));
+    } catch (e) {
+      if (!silent) {
+        setError(e instanceof Error ? e.message : "Failed to load summary");
+      }
+    } finally {
+      if (!silent) setSummaryLoading(false);
+    }
+  }, []);
+
+  async function generateSummary(regenerate: boolean) {
+    if (!selectedConversationId || summaryGenerating) return;
+    setSummaryGenerating(true);
+    setError(null);
+    const conversationId = selectedConversationId;
+    try {
+      const data = await backendFetch<{
+        conversation_id: string;
+        summary: string;
+        key_points: string[];
+        computed_at: string;
+        message_count: number;
+        stale: boolean;
+        model: string;
+      }>(`/api/v1/conversations/${conversationId}/summary`, {
+        method: "POST",
+        body: JSON.stringify({ regenerate }),
+      });
+      setSummaryByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {
+          summary: data.summary,
+          key_points: data.key_points ?? [],
+          computed_at: data.computed_at,
+          message_count: data.message_count,
+          stale: data.stale,
+          model: data.model,
+        },
+      }));
+      setShowSummaryPanel(true);
+      setShowFullTranscript(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to generate summary");
+    } finally {
+      setSummaryGenerating(false);
+    }
+  }
+
+  function handleSummaryButtonClick() {
+    if (!selectedConversationId) return;
+    const state = selectedSummary;
+    if (state?.summary && showSummaryPanel && !state.stale) {
+      setShowSummaryPanel(false);
+      setShowFullTranscript(true);
+      return;
+    }
+    if (state?.summary && !showSummaryPanel) {
+      setShowSummaryPanel(true);
+      setShowFullTranscript(false);
+      return;
+    }
+    void generateSummary(Boolean(state?.summary && state.stale));
+  }
+
   function selectConversation(conversationId: string) {
     if (conversationId === selectedConversationIdRef.current) return;
     const cached = messagesByConversationRef.current[conversationId];
@@ -205,7 +328,10 @@ function ConversationsPageContent() {
       setMessages([]);
       setMessagesLoading(true);
     }
+    setShowSummaryPanel(false);
+    setShowFullTranscript(true);
     setSelectedConversationId(conversationId);
+    void fetchSummaryState(conversationId, { silent: true });
   }
 
   useEffect(() => {
@@ -244,6 +370,15 @@ function ConversationsPageContent() {
     },
     [cacheMessages]
   );
+
+  useEffect(() => {
+    if (!selectedConversationId) {
+      return;
+    }
+    if (!summaryByConversation[selectedConversationId]) {
+      void fetchSummaryState(selectedConversationId, { silent: true });
+    }
+  }, [selectedConversationId, summaryByConversation, fetchSummaryState]);
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -384,6 +519,7 @@ function ConversationsPageContent() {
       const visible = detail.messages.filter(isRenderableTranscriptMessage);
       cacheMessages(selectedConversationId, visible);
       setMessages(visible);
+      void fetchSummaryState(selectedConversationId, { silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send reply");
     } finally {
@@ -392,16 +528,35 @@ function ConversationsPageContent() {
   }
 
   async function updateStatus(status: "open" | "resolved") {
-    if (!selectedConversationId) return;
+    if (!selectedConversationId || statusUpdating) return;
+    setStatusUpdating(true);
     setError(null);
+    const conversationId = selectedConversationId;
     try {
-      await backendFetch(`/api/v1/conversations/${selectedConversationId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      await loadConversations();
+      const data = await backendFetch<{ conversation: Conversation }>(
+        `/api/v1/conversations/${conversationId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        }
+      );
+      setConversations((prev) =>
+        prev.map((item) =>
+          item.id === data.conversation.id
+            ? {
+                ...item,
+                status: data.conversation.status,
+                updated_at: data.conversation.updated_at,
+                last_activity_at: data.conversation.last_activity_at ?? item.last_activity_at,
+              }
+            : item
+        )
+      );
+      await loadConversations({ silent: true, detailId: conversationId });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update status");
+    } finally {
+      setStatusUpdating(false);
     }
   }
 
@@ -422,7 +577,7 @@ function ConversationsPageContent() {
               <h2 className="ds-app-kicker text-ds-on-surface font-semibold">Live queue</h2>
               <button
                 type="button"
-                className="text-ds-primary flex items-center gap-1.5 text-xs font-semibold hover:underline"
+                className="text-ds-primary flex items-center gap-1.5 text-sm font-semibold hover:underline"
                 aria-expanded={filtersOpen}
                 onClick={() => setFiltersOpen((o) => !o)}
               >
@@ -496,7 +651,7 @@ function ConversationsPageContent() {
                 </label>
                 <button
                   type="button"
-                  className="border-ds-outline text-ds-on-surface-variant hover:bg-ds-sidebar hover:text-ds-on-surface rounded-ds-md border bg-white px-3 py-2 text-xs font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
+                  className="border-ds-outline ds-app-body-muted hover:bg-ds-sidebar hover:text-ds-on-surface rounded-ds-md border bg-white px-3 py-2 font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
                   onClick={() => clearFilters()}
                   disabled={activeFilterCount === 0}
                 >
@@ -522,12 +677,12 @@ function ConversationsPageContent() {
                   onClick={() => selectConversation(item.id)}
                 >
                   <div className="mb-1 flex items-start justify-between gap-2">
-                    <p className="text-ds-on-surface text-sm font-semibold">{item.id.slice(0, 8)}</p>
-                    <span className="text-ds-on-surface-variant shrink-0 text-[11px]">
+                    <p className="ds-app-card-title">{item.id.slice(0, 8)}</p>
+                    <span className="ds-app-caption shrink-0">
                       {new Date(item.last_activity_at || item.updated_at).toLocaleTimeString()}
                     </span>
                   </div>
-                  <p className="text-ds-on-surface-variant line-clamp-1 text-xs">
+                  <p className="ds-app-body-muted line-clamp-1">
                     {item.latest_message_preview ?? "No messages yet"}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
@@ -555,26 +710,110 @@ function ConversationsPageContent() {
                 <h3 className="text-ds-on-surface truncate text-sm font-semibold">
                   {selectedConversation ? selectedConversation.id : "No conversation selected"}
                 </h3>
-                <p className="text-ds-on-surface-variant text-xs">Live transcript</p>
+                <p className="ds-app-body-muted">Live transcript</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
-                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-3 py-1.5 text-xs font-semibold transition-colors"
-                  onClick={() => void updateStatus("open")}
+                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-3 py-1.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                  onClick={() => handleSummaryButtonClick()}
+                  disabled={!selectedConversationId || summaryGenerating || summaryLoading}
                 >
-                  Reopen
+                  {summaryGenerating
+                    ? "Generating…"
+                    : selectedSummary?.summary && showSummaryPanel && !selectedSummary.stale
+                      ? "Hide summary"
+                      : selectedSummary?.summary && !selectedSummary.stale
+                        ? "View summary"
+                        : selectedSummary?.stale
+                          ? "Update summary"
+                          : "Generate summary"}
                 </button>
-                <button
-                  type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
-                  onClick={() => void updateStatus("resolved")}
-                >
-                  Resolve
-                </button>
+                {canReopen ? (
+                  <button
+                    type="button"
+                    className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-3 py-1.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                    onClick={() => void updateStatus("open")}
+                    disabled={statusUpdating}
+                  >
+                    {statusUpdating ? "Updating…" : "Reopen"}
+                  </button>
+                ) : null}
+                {canResolve ? (
+                  <button
+                    type="button"
+                    className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-3 py-1.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                    onClick={() => void updateStatus("resolved")}
+                    disabled={statusUpdating}
+                  >
+                    {statusUpdating ? "Updating…" : "Resolve"}
+                  </button>
+                ) : null}
               </div>
             </div>
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
+            {showSummaryPanel && selectedConversationId ? (
+              <div className="border-ds-outline bg-ds-sidebar/50 shrink-0 border-b px-5 py-4 sm:px-6">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-ds-on-surface text-sm font-semibold">Conversation summary</h4>
+                  {selectedSummary?.computed_at ? (
+                    <span className="text-ds-on-surface-variant text-[11px]">
+                      Generated {new Date(selectedSummary.computed_at).toLocaleString()}
+                      {selectedSummary.stale ? " · thread updated" : ""}
+                    </span>
+                  ) : null}
+                </div>
+                {summaryLoading || summaryGenerating ? (
+                  <div className="space-y-2" aria-busy="true">
+                    <div className="bg-ds-sidebar h-4 w-full animate-pulse rounded" />
+                    <div className="bg-ds-sidebar h-4 w-5/6 animate-pulse rounded" />
+                    <div className="bg-ds-sidebar h-4 w-2/3 animate-pulse rounded" />
+                  </div>
+                ) : selectedSummary?.summary ? (
+                  <div className="space-y-3">
+                    <p className="text-ds-on-surface text-sm leading-relaxed">{selectedSummary.summary}</p>
+                    {selectedSummary.key_points.length > 0 ? (
+                      <ul className="text-ds-on-surface-variant list-disc space-y-1 pl-5 text-sm">
+                        {selectedSummary.key_points.map((point) => (
+                          <li key={point}>{point}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {selectedSummary.stale ? (
+                      <p className="text-amber-800 text-xs font-medium">
+                        New messages since this summary. Click Update summary to refresh.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-ds-on-surface-variant text-sm">
+                    No summary yet. Click Generate summary to create a quick read of this thread.
+                  </p>
+                )}
+                {!showFullTranscript ? (
+                  <button
+                    type="button"
+                    className="text-ds-primary mt-3 text-sm font-semibold hover:underline"
+                    onClick={() => setShowFullTranscript(true)}
+                  >
+                    Read full transcript
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-ds-primary mt-3 text-sm font-semibold hover:underline"
+                    onClick={() => setShowFullTranscript(false)}
+                  >
+                    Hide transcript
+                  </button>
+                )}
+              </div>
+            ) : null}
+            <div
+              className={cn(
+                "min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6",
+                showSummaryPanel && !showFullTranscript && "hidden"
+              )}
+            >
               {messagesLoading ? (
                 <ConversationMessagesSkeleton />
               ) : (

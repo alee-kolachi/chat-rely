@@ -53,7 +53,7 @@ export default async function AdminKnowledgeSourceDetailPage({
     <div className="flex flex-col gap-6 p-6">
       <Link
         href="/admin/knowledge?tab=sources"
-        className="text-ds-on-surface-variant hover:text-ds-on-surface w-fit text-xs"
+        className="ds-app-body-muted hover:text-ds-on-surface w-fit"
       >
         ← Back to knowledge sources
       </Link>
@@ -63,7 +63,7 @@ export default async function AdminKnowledgeSourceDetailPage({
           <h1 className="text-ds-on-surface text-2xl font-semibold">{src.title}</h1>
           <AdminStatusBadge status={src.status} />
         </div>
-        <p className="text-ds-on-surface-variant text-xs">
+        <p className="ds-app-body-muted">
           Owner{" "}
           <Link
             href={`/admin/users/${src.user_id}`}
@@ -155,7 +155,7 @@ function RecentJobsSection({ jobs }: { jobs: AdminIndexingJobRow[] }) {
             {row.error_message}
           </span>
         ) : (
-          <span className="text-ds-on-surface-variant text-xs">—</span>
+          <span className="ds-app-body-muted">—</span>
         ),
     },
   ];
@@ -177,7 +177,7 @@ function SampleChunksSection({ chunks }: { chunks: AdminKnowledgeChunkPreview[] 
     return (
       <section className="flex flex-col gap-3">
         <h2 className="text-ds-on-surface text-lg font-semibold">Sample chunks</h2>
-        <p className="text-ds-on-surface-variant text-xs italic">
+        <p className="ds-app-body-muted italic">
           No chunks indexed yet.
         </p>
       </section>

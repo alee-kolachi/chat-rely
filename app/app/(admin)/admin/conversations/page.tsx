@@ -177,7 +177,7 @@ export default async function AdminConversationsPage({
       key: "preview",
       label: "Preview",
       render: (row) => (
-        <span className="text-ds-on-surface-variant block max-w-md truncate text-xs">
+        <span className="ds-app-body-muted block max-w-md truncate">
           {row.latest_message_preview ?? "—"}
         </span>
       ),

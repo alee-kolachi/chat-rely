@@ -1,39 +1,148 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
-import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
-import { BackendApiError, backendNdjsonStream } from "@/lib/backend-api";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { StreamingAssistantMessage, type AssistantStreamPhase } from "@/components/chat/StreamingAssistantMessage";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { chatSseStream } from "@/lib/chat-sse";
+import { applyChatSseEvent } from "@/lib/chat-stream-handlers";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import { cn } from "@/lib/utils";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingMainColumn,
   onboardingSplitBody,
-  onboardingSplitCard,
+  onboardingSplitCardFilled,
   onboardingSplitGrid,
+  onboardingSplitLeftSection,
+  onboardingSplitPreviewShell,
+  onboardingSplitPreviewWrap,
+  onboardingSplitRightSection,
   onboardingSplitRoot,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
+import type { ShopifyConnectionApi } from "@/components/integrations/use-shopify-connection";
 
-const checklistItems = [
-  { label: "Knowledge sources connected", done: true },
-  { label: "Agent tone and appearance set", done: false },
-  { label: "Shopify connection started", done: true },
-  { label: "Try at least one real question", done: false },
-];
+type PreviewMessage = {
+  from: "user" | "assistant";
+  text: string;
+  streamPhase?: AssistantStreamPhase;
+  errorMessage?: string | null;
+  statusLine?: string | null;
+};
+
+type OnboardingStatusPayload = {
+  website_url: string | null;
+  website_title: string | null;
+  indexing_job: Record<string, unknown> | null;
+  checklist: Array<{ key: string; status: string }>;
+};
+
+function faviconUrl(siteUrl: string | null | undefined): string {
+  if (!siteUrl) return "";
+  try {
+    const host = new URL(siteUrl).hostname;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
+  } catch {
+    return "";
+  }
+}
+
+function siteDisplayName(status: OnboardingStatusPayload | null): string {
+  const title = status?.website_title?.trim();
+  if (title) return title;
+  const url = status?.website_url;
+  if (!url) return "your website";
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return "your website";
+  }
+}
+
+function checklistDone(checklist: OnboardingStatusPayload["checklist"], key: string): boolean {
+  const row = checklist.find((c) => c.key === key);
+  return row?.status === "done";
+}
+
+function indexingState(job: Record<string, unknown> | null | undefined): {
+  running: boolean;
+  label: string;
+  pct: number;
+} {
+  if (!job) return { running: false, label: "", pct: 0 };
+  const status = String(job.status ?? "").toLowerCase();
+  const running = status === "queued" || status === "running";
+  const total = Number(job.pages_total) || 0;
+  const processed = Number(job.pages_processed) || 0;
+  const pct =
+    total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : running ? 15 : status === "succeeded" ? 100 : 0;
+  const label = running
+    ? total > 0
+      ? `Reading your site (${processed} of ${total} pages so far)`
+      : "Reading your site in the background"
+    : status === "failed"
+      ? "Website import had an issue. You can still test with partial knowledge"
+      : "";
+  return { running, label, pct };
+}
+
+function newPreviewVisitorId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `onboarding-preview-${crypto.randomUUID()}`;
+  }
+  return `onboarding-preview-${Date.now()}`;
+}
 
 export default function AgentPreviewOnboardingPage() {
   const agentId = useResolvedOnboardingAgentId();
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const visitorIdRef = useRef(newPreviewVisitorId());
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Array<{ from: "user" | "assistant"; text: string }>>([
-    { from: "assistant", text: "Hello! I can use your connected knowledge sources. Ask me a question." },
-  ]);
-  const [retrievalSummary, setRetrievalSummary] = useState<string>("No retrieval yet");
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
 
-  const canSend = Boolean(agentId && input.trim() && !isSending);
+  const [agentName, setAgentName] = useState("Your agent");
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatusPayload | null>(null);
+  const [shopify, setShopify] = useState<ShopifyConnectionApi | null>(null);
+  const [askedRealQuestion, setAskedRealQuestion] = useState(false);
+  const siteName = siteDisplayName(onboardingStatus);
+  const siteUrl = onboardingStatus?.website_url ?? null;
+  const siteIcon = faviconUrl(siteUrl);
+  const indexing = indexingState(onboardingStatus?.indexing_job);
+
+  const welcomeMessage = useMemo(() => {
+    const who = agentName.trim() || "your support agent";
+    if (indexing.running) {
+      return `Hi! I'm ${who}. I'm still learning from ${siteName}. Try a question and see how I do.`;
+    }
+    return `Hi! I'm ${who}. Ask me something your customers would. I'll use what we know about ${siteName}.`;
+  }, [agentName, siteName, indexing.running]);
+
+  const [messages, setMessages] = useState<PreviewMessage[]>([]);
+
+  useEffect(() => {
+    setMessages([{ from: "assistant", text: welcomeMessage, streamPhase: "done" }]);
+  }, [welcomeMessage]);
+
+  const checklist = useMemo(() => {
+    const cl = onboardingStatus?.checklist ?? [];
+    const knowledgeDone =
+      checklistDone(cl, "website_connected") ||
+      checklistDone(cl, "pages_indexed") ||
+      Boolean(siteUrl);
+    const shopifyDone = Boolean(shopify?.connected);
+    const appearanceDone = checklistDone(cl, "appearance_configured");
+    return [
+      { label: "Knowledge sources connected", done: knowledgeDone },
+      { label: "Shopify connection started", done: shopifyDone },
+      { label: "Agent tone and appearance set", done: appearanceDone },
+      { label: "Try at least one real question", done: askedRealQuestion },
+    ];
+  }, [onboardingStatus, siteUrl, shopify?.connected, askedRealQuestion]);
+
   const appearanceToneHref = useMemo(() => {
     if (!agentId) return "/onboarding/appearance-tone";
     return `/onboarding/appearance-tone?agentId=${encodeURIComponent(agentId)}`;
@@ -44,73 +153,136 @@ export default function AgentPreviewOnboardingPage() {
     return `/onboarding/connection?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
 
+  const refreshStatus = useCallback(async () => {
+    if (!agentId) return;
+    try {
+      const [status, agentsRes, bootstrap] = await Promise.all([
+        backendFetch<OnboardingStatusPayload>(
+          `/api/v1/onboarding/status?agent_id=${encodeURIComponent(agentId)}`
+        ),
+        backendFetch<{ agents: Array<{ id: string; name: string }> }>("/api/v1/agents"),
+        backendFetch<{ shopify: ShopifyConnectionApi }>(
+          `/api/v1/agents/${encodeURIComponent(agentId)}/integrations/bootstrap?include_website_preview=false`
+        ),
+      ]);
+      setOnboardingStatus(status);
+      setShopify(bootstrap.shopify);
+      const agent = agentsRes.agents.find((a) => a.id === agentId);
+      if (agent?.name) setAgentName(agent.name);
+    } catch {
+      /* keep last snapshot */
+    }
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!agentId) return;
+    void refreshStatus();
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refreshStatus();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [agentId, refreshStatus]);
+
+  useEffect(() => {
+    return () => {
+      chatAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+  }, [agentId]);
+
+  const onMessagesScroll = useCallback(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
+    stickToBottomRef.current = nearBottom;
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, isSending]);
+
+  const canSend = Boolean(agentId && input.trim() && !isSending);
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
     if (!canSend || !agentId) return;
     const message = input.trim();
     setInput("");
     setError(null);
+    stickToBottomRef.current = true;
     setMessages((prev) => [...prev, { from: "user", text: message }]);
-    setMessages((prev) => [...prev, { from: "assistant", text: "" }]);
+    setMessages((prev) => [
+      ...prev,
+      { from: "assistant", text: "", streamPhase: "thinking", statusLine: null },
+    ]);
     setIsSending(true);
+    chatAbortRef.current?.abort();
+    const ac = new AbortController();
+    chatAbortRef.current = ac;
     try {
-      for await (const ev of backendNdjsonStream("/api/v1/runtime/chat/stream", {
+      for await (const ev of chatSseStream("/api/chat/stream", {
         method: "POST",
+        signal: ac.signal,
         body: JSON.stringify({
           agent_id: agentId,
           message,
           conversation_id: conversationId,
-          visitor_id: "onboarding-preview",
+          visitor_id: visitorIdRef.current,
         }),
       })) {
-        if (ev.type === "start") {
+        if (ac.signal.aborted) break;
+        if (ev.type === "done" && ev.conversation_id) {
           setConversationId(ev.conversation_id);
-        } else if (ev.type === "token") {
-          setMessages((prev) => {
-            if (prev.length === 0) return prev;
-            const last = prev[prev.length - 1];
-            if (last.from !== "assistant") return prev;
-            const next = [...prev];
-            next[next.length - 1] = { from: "assistant", text: last.text + ev.text };
-            return next;
+        }
+        setMessages((prev) => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last.from !== "assistant") return prev;
+          const patch = applyChatSseEvent(ev, {
+            text: last.text,
+            streamPhase: last.streamPhase ?? "thinking",
           });
-        } else if (ev.type === "done") {
-          setConversationId(ev.conversation_id);
-          const reply = typeof ev.response === "string" ? ev.response : "";
-          setMessages((prev) => {
-            if (prev.length === 0) return prev;
-            const last = prev[prev.length - 1];
-            if (last.from !== "assistant") return prev;
-            const merged = reply.trim().length > 0 ? reply : last.text;
-            if (!merged.trim()) {
-              return prev.slice(0, -1);
-            }
-            const next = [...prev];
-            next[next.length - 1] = { from: "assistant", text: merged };
-            return next;
-          });
-          const fb = Boolean(ev.fallback_used);
-          const rc =
-            typeof ev.retrieval_count === "number" && Number.isFinite(ev.retrieval_count)
-              ? ev.retrieval_count
-              : 0;
-          setRetrievalSummary(
-            fb ? "Fallback answer used (low confidence retrieval)." : `Retrieved ${rc} chunk(s).`
-          );
+          if (!patch) return prev;
+          const next = [...prev];
+          next[next.length - 1] = {
+            ...last,
+            ...patch,
+            from: "assistant",
+          };
+          return next;
+        });
+        if (ev.type === "done") {
+          const reply = typeof ev.response === "string" ? ev.response.trim() : "";
+          if (reply.length >= 8) setAskedRealQuestion(true);
         } else if (ev.type === "error") {
           throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send preview message");
+      if (ac.signal.aborted) return;
+      const errMsg = e instanceof Error ? e.message : "Failed to send message";
+      setError(errMsg);
       setMessages((prev) => {
+        if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        if (last?.from === "assistant" && !(last.text ?? "").trim()) {
-          return prev.slice(0, -1);
-        }
-        return prev;
+        if (last?.from !== "assistant") return prev;
+        const next = [...prev];
+        next[next.length - 1] = {
+          ...last,
+          streamPhase: "error",
+          errorMessage: errMsg,
+        };
+        return next;
       });
     } finally {
+      if (chatAbortRef.current === ac) chatAbortRef.current = null;
       setIsSending(false);
     }
   }
@@ -141,9 +313,9 @@ export default function AgentPreviewOnboardingPage() {
             aria-hidden
           />
 
-          <div className={onboardingSplitCard}>
+          <div className={onboardingSplitCardFilled}>
             <div className={onboardingSplitGrid}>
-              <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
+              <section className={onboardingSplitLeftSection}>
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                     Step 4
@@ -152,24 +324,36 @@ export default function AgentPreviewOnboardingPage() {
                     Test your <span className="text-ds-primary font-bold">agent</span> before go-live
                   </h1>
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                    Ask questions your customers actually ask. Good answers here mean fewer surprises after you ship.
+                    Ask questions your customers actually ask. This uses the same AI setup as the playground and live
+                    widget.
                   </p>
 
-                  <div className="mt-6 flex items-center gap-2">
-                    <span className="size-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
-                    <p className="text-ds-on-surface-variant text-[11px] font-semibold uppercase tracking-wider">
-                      Live test · uses connected knowledge where available
-                    </p>
-                  </div>
+                  {indexing.running ? (
+                    <div className="border-ds-primary/25 bg-ds-primary/10 mt-5 rounded-ds-lg border px-4 py-3">
+                      <p className="text-ds-on-surface text-sm font-medium">{indexing.label}</p>
+                      <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                        Answers may be incomplete until import finishes. You can keep going; import continues in the
+                        background.
+                      </p>
+                      {indexing.pct > 0 ? (
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ds-outline/70">
+                          <div
+                            className="bg-ds-primary h-full rounded-full transition-all"
+                            style={{ width: `${indexing.pct}%` }}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
                       <p className="text-ds-on-surface mb-4 text-sm font-semibold">Launch checklist</p>
                       <ul className="space-y-3">
-                        {checklistItems.map((item) => (
+                        {checklist.map((item) => (
                           <li key={item.label} className="flex items-start gap-3">
                             {item.done ? (
-                              <span className="bg-ds-primary text-ds-on-primary mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
+                              <span className="bg-ds-primary/15 text-ds-primary mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
                                 ✓
                               </span>
                             ) : (
@@ -191,41 +375,16 @@ export default function AgentPreviewOnboardingPage() {
                         ))}
                       </ul>
                     </div>
-
-                    <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 p-4 sm:p-5 opacity-90">
-                      <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold uppercase tracking-wider">
-                        After go-live
-                      </p>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="border-ds-outline flex gap-3 rounded-ds-md border bg-white p-3">
-                          <div className="text-ds-on-surface-variant flex size-9 shrink-0 items-center justify-center rounded-ds-md bg-ds-sidebar text-[10px] font-bold">
-                            {"</>"}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-ds-on-surface">Embed on site</p>
-                            <p className="text-ds-on-surface-variant mt-0.5 text-[11px] leading-relaxed">
-                              Snippet for any platform
-                            </p>
-                          </div>
-                        </div>
-                        <div className="border-ds-outline flex gap-3 rounded-ds-md border bg-white p-3">
-                          <div className="text-ds-on-surface-variant flex size-9 shrink-0 items-center justify-center rounded-ds-md bg-ds-sidebar text-xs font-bold">
-                            S
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-ds-on-surface">Shopify app</p>
-                            <p className="text-ds-on-surface-variant mt-0.5 text-[11px] leading-relaxed">
-                              One-click theme install
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col border-t p-4 sm:p-6 max-lg:min-h-min lg:min-h-0 lg:h-full lg:border-t-0 lg:border-l lg:p-8">
+              <section
+                className={cn(
+                  onboardingSplitRightSection,
+                  "items-center justify-center p-4 sm:p-6 lg:items-stretch lg:justify-center lg:p-8"
+                )}
+              >
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -235,53 +394,73 @@ export default function AgentPreviewOnboardingPage() {
                   }}
                   aria-hidden
                 />
-                <div className="relative flex flex-col items-stretch max-lg:min-h-min lg:min-h-0 lg:flex-1">
-                  <div className="border-ds-outline flex w-full min-h-[22rem] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl max-lg:mx-auto max-lg:flex-none max-lg:max-h-none sm:min-h-[26rem] lg:min-h-[560px]">
-                    <div className="bg-ds-primary flex shrink-0 items-center gap-3 px-4 py-4 sm:px-5 sm:py-4">
-                      <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-ds-primary sm:size-11">
-                        AI
+                <div className={cn(onboardingSplitPreviewWrap, "max-h-full lg:flex-1")}>
+                  <div
+                    className={cn(
+                      onboardingSplitPreviewShell,
+                      "flex max-h-[min(520px,calc(100dvh-12rem))] min-h-[18rem] flex-col overflow-hidden bg-white sm:min-h-[24rem] lg:h-[520px] lg:max-h-[520px] lg:min-h-0"
+                    )}
+                  >
+                    <div className="bg-ds-primary flex shrink-0 items-center gap-3 px-4 py-3.5 sm:px-5">
+                      <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white p-1.5 sm:size-11">
+                        {siteIcon ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={siteIcon} alt="" className="size-full object-contain" width={32} height={32} />
+                        ) : (
+                          <span className="text-ds-primary text-xs font-bold">AI</span>
+                        )}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-base font-semibold text-ds-on-primary sm:text-[1.05rem]">Store assistant</p>
-                        <p className="text-ds-on-primary/85 mt-0.5 flex items-center gap-1.5 text-xs sm:text-[13px]">
-                          <span className="size-2 shrink-0 rounded-full bg-emerald-400" />
-                          Ready to test
+                        <p className="truncate text-base font-semibold text-ds-on-primary sm:text-[1.05rem]">
+                          {agentName}
+                        </p>
+                        <p className="text-ds-on-primary/85 mt-0.5 flex items-center gap-1.5 text-xs">
+                          <span
+                            className={`size-2 shrink-0 rounded-full ${indexing.running ? "bg-amber-300" : "bg-emerald-400"}`}
+                          />
+                          {indexing.running ? "Still learning your site" : "Ready to test"}
                         </p>
                       </div>
                     </div>
-                    <div className="border-ds-outline shrink-0 border-b bg-ds-sidebar px-4 py-2.5 sm:px-5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-ds-on-surface-variant">Shopify sync may still be running</span>
-                        <span className="font-semibold text-ds-on-surface">75%</span>
+
+                    {shopify?.connected ? (
+                      <div className="border-ds-outline shrink-0 border-b bg-ds-sidebar/60 px-4 py-2 text-xs text-ds-on-surface-variant">
+                        Shopify linked
+                        {shopify.shop_domain ? (
+                          <span className="text-ds-on-surface font-medium"> · {shopify.shop_domain}</span>
+                        ) : null}
                       </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ds-outline/80">
-                        <div className="preview-progress-bar bg-ds-primary h-full w-3/4 rounded-full" />
-                      </div>
-                    </div>
-                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-white p-4 text-sm leading-relaxed sm:p-5">
+                    ) : null}
+
+                    <div
+                      ref={messagesScrollRef}
+                      onScroll={onMessagesScroll}
+                      className="min-h-0 flex-1 basis-0 space-y-3 overflow-y-auto overscroll-contain bg-white p-4 sm:p-5"
+                    >
                       {messages.map((message, idx) => {
-                        const isStreamingAssistant =
-                          message.from === "assistant" &&
-                          isSending &&
-                          idx === messages.length - 1 &&
-                          !message.text.trim();
+                        const phase: AssistantStreamPhase =
+                          message.streamPhase ??
+                          (message.from === "assistant" && isSending && idx === messages.length - 1
+                            ? "thinking"
+                            : message.text.trim()
+                              ? "done"
+                              : "thinking");
                         return (
                           <div
                             key={`${message.from}-${idx}`}
                             className={
                               message.from === "user"
                                 ? "bg-ds-primary ml-auto max-w-[92%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-ds-on-primary sm:max-w-[88%]"
-                                : isStreamingAssistant
-                                  ? "border-ds-outline flex max-w-[92%] items-center leading-none rounded-2xl rounded-tl-sm border bg-ds-sidebar px-3 py-2 text-ds-on-surface sm:max-w-[88%]"
-                                  : "border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-4 py-2.5 text-ds-on-surface sm:max-w-[88%]"
+                                : "border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-4 py-2.5 sm:max-w-[88%]"
                             }
                           >
                             {message.from === "assistant" ? (
-                              isStreamingAssistant ? (
-                                <AssistantThinkingDots />
-                              ) : (
-                                <AssistantMarkdown>{message.text}</AssistantMarkdown>
-                              )
+                              <StreamingAssistantMessage
+                                text={message.text}
+                                phase={phase}
+                                statusLine={message.statusLine}
+                                errorMessage={message.errorMessage}
+                              />
                             ) : (
                               message.text
                             )}
@@ -289,25 +468,25 @@ export default function AgentPreviewOnboardingPage() {
                         );
                       })}
                     </div>
+
                     <div className="border-ds-outline shrink-0 border-t bg-white p-3 sm:p-4">
                       <form onSubmit={handleSend} className="flex items-center gap-2 sm:gap-3">
                         <input
                           value={input}
                           onChange={(e) => setInput(e.target.value)}
                           placeholder={agentId ? "Ask a question…" : "Complete previous steps first"}
-                          className="border-ds-outline focus:border-ds-primary min-h-11 min-w-0 flex-1 rounded-full border bg-ds-sidebar px-4 text-sm outline-none sm:min-h-12 sm:px-5"
+                          className="border-ds-outline focus:border-ds-primary min-h-11 min-w-0 flex-1 rounded-full border bg-ds-sidebar px-4 text-sm outline-none focus:ring-2 focus:ring-ds-primary/15 sm:min-h-12"
                           disabled={!agentId || isSending}
                         />
                         <button
                           type="submit"
                           disabled={!canSend}
-                          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover touch-manipulation min-h-11 shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40 sm:min-h-12 sm:px-5 sm:py-3 [-webkit-tap-highlight-color:transparent]"
+                          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover min-h-11 shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold disabled:opacity-40 sm:min-h-12"
                         >
                           Send
                         </button>
                       </form>
-                      <p className="text-ds-on-surface-variant mt-2 text-xs sm:text-[13px]">{retrievalSummary}</p>
-                      {error ? <p className="mt-1.5 text-xs text-rose-600 sm:text-sm">{error}</p> : null}
+                      {error ? <p className="mt-2 text-xs text-rose-600 sm:text-sm">{error}</p> : null}
                     </div>
                   </div>
                 </div>
@@ -316,21 +495,6 @@ export default function AgentPreviewOnboardingPage() {
           </div>
         </div>
       </OnboardingMainColumn>
-
-      <style jsx>{`
-        @keyframes preview-progress {
-          0%,
-          100% {
-            width: 68%;
-          }
-          50% {
-            width: 78%;
-          }
-        }
-        .preview-progress-bar {
-          animation: preview-progress 8s ease-in-out infinite;
-        }
-      `}</style>
     </OnboardingFrame>
   );
 }

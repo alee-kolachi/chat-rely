@@ -16,8 +16,21 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
+  async redirects() {
+    return [
+      { source: "/onboarding/welcome", destination: "/onboarding", permanent: false },
+      {
+        source: "/onboarding/knowledge-base/training",
+        destination: "/onboarding/knowledge-base",
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
-    return [{ source: "/api/v1/:path*", destination: `${apiProxyTarget}/api/v1/:path*` }];
+    return [
+      { source: "/api/v1/:path*", destination: `${apiProxyTarget}/api/v1/:path*` },
+      { source: "/api/chat/:path*", destination: `${apiProxyTarget}/api/chat/:path*` },
+    ];
   },
 };
 

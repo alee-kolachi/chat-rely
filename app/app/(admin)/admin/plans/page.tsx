@@ -6,6 +6,12 @@ import { AdminJsonCell } from "@/components/admin/admin-json-cell";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import { listAdminPlans, type AdminPlanRow } from "@/lib/admin/api";
 import { formatCostUsd } from "@/lib/admin/cost-format";
+import {
+  featureInt,
+  formatDisplayOverage,
+  formatSmartResolution,
+  formatTrainingStorageFromFeatures,
+} from "@/lib/admin/plan-feature-display";
 
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -37,7 +43,22 @@ export default async function AdminPlansPage() {
       key: "name",
       label: "Name",
       render: (row) => (
-        <span className="text-ds-on-surface font-medium">{row.name}</span>
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-ds-on-surface font-medium">{row.name}</span>
+          {(row.slug === "scale" || !row.public_on_pricing_page) && (
+            <AdminStatusBadge status="Legacy" tone="neutral" />
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "public_on_pricing_page",
+      label: "Pricing page",
+      render: (row) => (
+        <AdminStatusBadge
+          status={row.public_on_pricing_page ? "Visible" : "Hidden"}
+          tone={row.public_on_pricing_page ? "positive" : "neutral"}
+        />
       ),
     },
     {
@@ -58,13 +79,34 @@ export default async function AdminPlansPage() {
       render: (row) => row.included_conversations.toLocaleString(),
     },
     {
-      key: "overage_conversation_cents",
-      label: "Overage / conv",
+      key: "display_overage",
+      label: "Display overage",
       align: "right",
-      render: (row) =>
-        row.overage_conversation_cents === 0
-          ? "—"
-          : formatCostUsd(row.overage_conversation_cents / 100),
+      render: (row) => formatDisplayOverage(row.features),
+    },
+    {
+      key: "smart_resolution",
+      label: "Smart resolution / mo",
+      align: "right",
+      render: (row) => {
+        const included = featureInt(row.features, "included_premium_turns");
+        return formatSmartResolution(0, included);
+      },
+    },
+    {
+      key: "max_actions",
+      label: "AI actions / agent",
+      align: "right",
+      render: (row) => {
+        const n = featureInt(row.features, "max_enabled_actions_per_agent");
+        return n > 0 ? n.toLocaleString() : "—";
+      },
+    },
+    {
+      key: "training_storage",
+      label: "Training storage",
+      align: "right",
+      render: (row) => formatTrainingStorageFromFeatures(row.features),
     },
     {
       key: "max_agents",
@@ -119,7 +161,7 @@ export default async function AdminPlansPage() {
           Catalog of every plan defined in the system, including soft-deleted ones. Subscription
           counts reflect current customers on each plan.
         </p>
-        <div className="text-ds-on-surface-variant flex items-center gap-4 text-xs">
+        <div className="ds-app-body-muted flex items-center gap-4">
           <span>
             <span className="text-ds-on-surface font-semibold">{plans.length}</span> total plans
           </span>

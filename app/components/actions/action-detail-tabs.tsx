@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BackendApiError, backendFetch, backendNdjsonStream } from "@/lib/backend-api";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { chatSseStream } from "@/lib/chat-sse";
 import { cn } from "@/lib/utils";
 import { IconCheck, IconWarning, IconPlay, IconClock, IconShield } from "./action-icons";
 import type { ApiActionCatalogEntry } from "./action-catalog-types";
@@ -85,7 +86,7 @@ function SectionHeading({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="mb-4">
       <h3 className="ds-app-section-title text-sm md:text-base">{title}</h3>
-      {hint ? <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">{hint}</p> : null}
+      {hint ? <p className="ds-app-body-muted mt-1">{hint}</p> : null}
     </div>
   );
 }
@@ -127,7 +128,7 @@ function ConfigurationPanel({ action }: { action: ShopifyAction }) {
     <div className="space-y-6">
       <SectionHeading
         title="Configuration"
-        hint="Optional defaults only—turning the action on is enough for chat. Tune these when you want stricter limits or field preferences."
+        hint="Optional. Turning the action on is enough for chat."
       />
       <div className="grid grid-cols-1 gap-5">
         {action.configFields.map((field) => (
@@ -147,7 +148,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
         </label>
         <input type="text" defaultValue={field.defaultValue} className="ds-app-field rounded-ds-md" />
         {field.help && (
-          <p className="text-ds-on-surface-variant mt-1 text-xs">{field.help}</p>
+          <p className="ds-app-body-muted mt-1">{field.help}</p>
         )}
       </div>
     );
@@ -167,7 +168,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
           className="ds-app-field w-32 max-w-full rounded-ds-md"
         />
         {field.help && (
-          <p className="text-ds-on-surface-variant mt-1 text-xs">{field.help}</p>
+          <p className="ds-app-body-muted mt-1">{field.help}</p>
         )}
       </div>
     );
@@ -185,7 +186,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
           ))}
         </select>
         {field.help && (
-          <p className="text-ds-on-surface-variant mt-1 text-xs">{field.help}</p>
+          <p className="ds-app-body-muted mt-1">{field.help}</p>
         )}
       </div>
     );
@@ -217,7 +218,7 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
           })}
         </div>
         {field.help && (
-          <p className="text-ds-on-surface-variant mt-2 text-xs">{field.help}</p>
+          <p className="ds-app-body-muted mt-2">{field.help}</p>
         )}
       </div>
     );
@@ -226,9 +227,9 @@ function ConfigField({ field }: { field: ShopifyActionConfigField }) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
-        <p className="text-ds-on-surface text-sm font-semibold">{field.label}</p>
+        <p className="ds-app-card-title">{field.label}</p>
         {field.help && (
-          <p className="text-ds-on-surface-variant mt-1 text-xs">{field.help}</p>
+          <p className="ds-app-body-muted mt-1">{field.help}</p>
         )}
       </div>
       <ToggleStub defaultChecked={field.defaultValue} />
@@ -411,7 +412,7 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
         response: "",
         tools_invoked: [] as string[],
       };
-      for await (const ev of backendNdjsonStream("/api/v1/runtime/chat/stream", {
+      for await (const ev of chatSseStream("/api/chat/stream", {
         method: "POST",
         body: JSON.stringify({
           agent_id: selectedAgentId,
@@ -419,10 +420,8 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
           visitor_id: `action-test-${action.id}`,
         }),
       })) {
-        if (ev.type === "start") {
-          data.conversation_id = ev.conversation_id;
-        } else if (ev.type === "done") {
-          data.conversation_id = ev.conversation_id;
+        if (ev.type === "done") {
+          if (ev.conversation_id) data.conversation_id = ev.conversation_id;
           data.response = typeof ev.response === "string" ? ev.response : "";
           data.tools_invoked = Array.isArray(ev.tools_invoked) ? ev.tools_invoked : [];
         } else if (ev.type === "error") {

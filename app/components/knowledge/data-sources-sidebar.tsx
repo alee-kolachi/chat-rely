@@ -77,7 +77,7 @@ export function DataSourcesSidebar({
       parts.push(`${formatBytes(shownUsedBytes)} used`);
       return parts.join(" · ");
     }
-    return resolvedUsageLoading && resolvedAgentId ? "Loading…" : "— used";
+    return resolvedUsageLoading && resolvedAgentId ? "Loading…" : "- used";
   })();
 
   const used = shownUsedBytes;
@@ -99,7 +99,7 @@ export function DataSourcesSidebar({
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="ds-app-kicker text-ds-on-surface font-semibold">Data sources</p>
-            <div className="text-ds-on-surface-variant mt-0.5 flex items-center gap-2 text-xs">
+            <div className="ds-app-body-muted mt-0.5 flex items-center gap-2">
               <IconLanguage className="size-4 shrink-0" />
               <span className="truncate">{summaryLine}</span>
             </div>
@@ -107,14 +107,14 @@ export function DataSourcesSidebar({
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              className="border-ds-outline text-ds-on-surface cursor-pointer rounded-ds-md border bg-white px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors hover:bg-ds-sidebar"
+              className="border-ds-outline text-ds-on-surface cursor-pointer rounded-ds-md border bg-white px-3 py-1.5 text-sm font-semibold shadow-sm transition-colors hover:bg-ds-sidebar"
             >
               Retrain
             </button>
             {showUpgrade ? (
               <Link
                 href="/pricing"
-                className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex cursor-pointer rounded-ds-md px-3 py-1.5 text-xs font-semibold transition-colors"
+                className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex cursor-pointer rounded-ds-md px-3 py-1.5 text-sm font-semibold transition-colors"
               >
                 Upgrade
               </Link>
@@ -182,7 +182,7 @@ export function DataSourcesSidebar({
                   {formatBytes(used)} / {formatBytes(cap)}
                 </>
               ) : (
-                "—"
+                "-"
               )}
             </span>
           </div>
@@ -223,7 +223,7 @@ export function DataSourcesSidebar({
               >
                 <div className="flex items-center gap-2">
                   <IconArrowUp className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />
-                  <span className="text-ds-on-surface text-sm font-semibold">Upgrade for more data</span>
+                  <span className="ds-app-card-title">Upgrade for more data</span>
                 </div>
               </Link>
             ) : null}
@@ -253,11 +253,11 @@ function SourceTypeRow({
     <div className={cn("flex items-center gap-2 px-3 py-2.5", withDivider ? "border-t border-ds-outline/60" : "")}>
       {icon}
       <div className="min-w-0 flex-1">
-        <p className="text-ds-on-surface text-sm font-semibold">
+        <p className="ds-app-card-title">
           {loading ? "…" : `${count.toLocaleString()} ${label}`}
         </p>
       </div>
-      <span className="text-ds-on-surface-variant text-xs font-medium">{loading ? "…" : formatBytes(bytes)}</span>
+      <span className="ds-app-body-muted font-medium">{loading ? "…" : formatBytes(bytes)}</span>
       <button
         type="button"
         aria-label={`Retrain ${label.toLowerCase()}`}

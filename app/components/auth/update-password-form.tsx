@@ -42,7 +42,7 @@ export function UpdatePasswordForm() {
   return (
     <form className="space-y-4" action={formAction}>
       <div className="space-y-1.5">
-        <label htmlFor="new-password" className="text-ds-on-surface text-xs font-semibold">
+        <label htmlFor="new-password" className="ds-app-label">
           New password
         </label>
         <input
@@ -57,7 +57,7 @@ export function UpdatePasswordForm() {
         />
       </div>
       <div className="space-y-1.5">
-        <label htmlFor="confirm-password" className="text-ds-on-surface text-xs font-semibold">
+        <label htmlFor="confirm-password" className="ds-app-label">
           Confirm password
         </label>
         <input

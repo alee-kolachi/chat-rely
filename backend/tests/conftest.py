@@ -24,7 +24,12 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
     async def _noop_warmup(self: object) -> None:
         return None
 
+    async def _noop_db() -> None:
+        return None
+
     monkeypatch.setattr("app.core.security.TokenVerifier.warmup", _noop_warmup)
+    monkeypatch.setattr("app.main.check_db_ready", _noop_db)
+    monkeypatch.setattr("app.main.warm_all_runtime_caches", _noop_db)
     app = create_app()
     with TestClient(app) as test_client:
         yield test_client

@@ -56,6 +56,8 @@ def _make_usage_row(throttle: str = "normal") -> AdminUsageSnapshotRow:
         estimated_overage_cents=0,
         projected_conversations=120,
         throttle_tier=throttle,
+        included_premium_turns=250,
+        premium_turns_used=42,
         last_computed_at=datetime(2026, 5, 8, tzinfo=timezone.utc),
     )
 
@@ -116,6 +118,8 @@ def test_list_usage_snapshots_filters_throttle_tier(
     assert captured["throttle_tier"] == "strong"
     body = response.json()
     assert body["items"][0]["throttle_tier"] == "strong"
+    assert body["items"][0]["included_premium_turns"] == 250
+    assert body["items"][0]["premium_turns_used"] == 42
 
 
 def test_list_stripe_events_orders_newest_first(

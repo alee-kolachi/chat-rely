@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, computed_field
 
+from app.domains.plans.plan_limits import AdvancedResolutionBand, advanced_resolution_band
 from app.domains.plans.schemas import PlanLimitsDTO
 
 
@@ -60,6 +61,8 @@ class UsageSnapshotDTO(BaseModel):
     overage_conversations: int
     estimated_overage_cents: int
     throttle_tier: str
+    included_premium_turns: int = 0
+    premium_turns_used: int = 0
 
 
 class BootstrapResponse(BaseModel):
@@ -75,6 +78,18 @@ class MeContextResponse(BaseModel):
     plan: PlanDTO
     usage_snapshot: UsageSnapshotDTO | None
     onboarding_completed: bool
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def advanced_resolution_band(self) -> AdvancedResolutionBand:
+        snap = self.usage_snapshot
+        if snap is None:
+            return "standard_only"
+        return advanced_resolution_band(
+            plan_slug=self.plan.slug,
+            included_premium_turns=snap.included_premium_turns,
+            premium_turns_used=snap.premium_turns_used,
+        )
 
 
 class OnboardingGateResponse(BaseModel):

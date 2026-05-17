@@ -120,7 +120,7 @@ export function DashboardChartEmptyState({ message }: { message: string }) {
         </svg>
       </div>
       <p className="text-ds-on-surface text-sm font-medium">{message}</p>
-      <p className="text-ds-on-surface-variant max-w-xs text-xs leading-relaxed">
+      <p className="ds-app-body-muted max-w-xs">
         Try widening the date range or check back after new chats arrive.
       </p>
     </div>
@@ -145,10 +145,10 @@ export function DashboardRecentConversationsEmptyState() {
             </svg>
           </div>
           <p className="text-ds-on-surface text-sm font-medium">No recent conversations</p>
-          <p className="text-ds-on-surface-variant max-w-sm text-xs leading-relaxed">
+          <p className="ds-app-body-muted max-w-sm">
             Nothing in this window yet. Traffic will appear here once customers start chats.
           </p>
-          <Link href="/deploy" className="text-ds-primary mt-1 text-xs font-semibold hover:underline">
+          <Link href="/deploy" className="text-ds-primary mt-1 text-sm font-semibold hover:underline">
             Review deploy settings
           </Link>
         </div>
@@ -173,9 +173,8 @@ export function DashboardTrainingTopicsEmptyState() {
         </svg>
       </div>
       <p className="text-ds-on-surface text-sm font-medium">No source suggestions for this range</p>
-      <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-[18rem] text-xs leading-relaxed">
-        When resolved chats show missing coverage, suggested topics appear here so you can add snippets, Q&amp;A, or
-        pages in Knowledge.
+      <p className="ds-app-body-muted mx-auto mt-1 max-w-[18rem]">
+        When chats show missing coverage, suggested topics appear here. Add snippets, Q&amp;A, or pages in Knowledge.
       </p>
     </div>
   );
@@ -198,7 +197,7 @@ export function DashboardSourceSuggestionsPlanGate() {
         </svg>
       </div>
       <p className="text-ds-on-surface text-sm font-medium">Source suggestions</p>
-      <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-[19rem] text-xs leading-relaxed">
+      <p className="ds-app-body-muted mx-auto mt-1 max-w-[19rem]">
         AI highlights gaps in your knowledge sources after closures. Included on{" "}
         <span className="text-ds-on-surface font-medium">Standard</span> and{" "}
         <span className="text-ds-on-surface font-medium">Pro</span>.
@@ -206,11 +205,11 @@ export function DashboardSourceSuggestionsPlanGate() {
       <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
         <Link
           href="/account/plan"
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex rounded-ds-md px-4 py-2 text-xs font-semibold transition-colors"
+          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors"
         >
           View plans
         </Link>
-        <Link href="/pricing" className="text-ds-primary text-xs font-semibold hover:underline">
+        <Link href="/pricing" className="text-ds-primary text-sm font-semibold hover:underline">
           Compare features
         </Link>
       </div>

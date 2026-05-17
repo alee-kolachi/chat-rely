@@ -1,8 +1,9 @@
 import asyncio
+import logging
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,15 @@ from app.domains.conversations.schemas import (
     ConversationWorkspaceResponse,
     MessageDTO,
 )
+from app.domains.conversation_summaries.schemas import (
+    ConversationSummaryDTO,
+    ConversationSummaryGenerateRequest,
+    ConversationSummaryStateResponse,
+)
+from app.domains.conversation_summaries.service import (
+    generate_conversation_summary,
+    get_conversation_summary_state,
+)
 from app.domains.conversations.service import (
     append_message,
     get_conversation,
@@ -29,6 +39,19 @@ from app.domains.conversations.service import (
 from app.domains.integrations.mailjet.notify import maybe_send_ticket_email_reply
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+log = logging.getLogger(__name__)
+
+
+async def _analyze_outcome_in_background(user_id: UUID, conversation_id: UUID) -> None:
+    async with get_session_factory()() as db:
+        try:
+            await analyze_and_persist_outcome(db, user_id=user_id, conversation_id=conversation_id)
+        except Exception as exc:
+            log.warning(
+                "outcome.background_failed",
+                conversation_id=str(conversation_id),
+                error=str(exc),
+            )
 
 
 async def _conversation_workspace_response(
@@ -174,6 +197,30 @@ async def get_conversation_route(
     return ConversationDetailResponse(conversation=conversation, messages=messages)
 
 
+@router.get("/{conversation_id}/summary", response_model=ConversationSummaryStateResponse)
+async def get_conversation_summary_route(
+    conversation_id: UUID,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationSummaryStateResponse:
+    return await get_conversation_summary_state(db, user.user_id, conversation_id)
+
+
+@router.post("/{conversation_id}/summary", response_model=ConversationSummaryDTO)
+async def generate_conversation_summary_route(
+    conversation_id: UUID,
+    payload: ConversationSummaryGenerateRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationSummaryDTO:
+    return await generate_conversation_summary(
+        db,
+        user.user_id,
+        conversation_id,
+        regenerate=payload.regenerate,
+    )
+
+
 @router.post("/{conversation_id}/messages", response_model=MessageDTO)
 async def append_message_route(
     conversation_id: UUID,
@@ -197,12 +244,13 @@ async def append_message_route(
 async def update_conversation_route(
     conversation_id: UUID,
     payload: ConversationUpdateRequest,
+    background_tasks: BackgroundTasks,
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationDetailResponse:
     conversation = await update_conversation_status(db, user.user_id, conversation_id, payload)
     if payload.status in ("idle_closed", "resolved", "escalated"):
-        await analyze_and_persist_outcome(db, user_id=user.user_id, conversation_id=conversation_id)
+        background_tasks.add_task(_analyze_outcome_in_background, user.user_id, conversation_id)
     messages = await list_messages(db, user.user_id, conversation_id)
     return ConversationDetailResponse(conversation=conversation, messages=messages)
 

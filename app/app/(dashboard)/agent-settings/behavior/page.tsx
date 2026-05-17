@@ -148,7 +148,7 @@ function BehaviorForm() {
   return (
     <div className="space-y-6">
       <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-        <h2 className="ds-app-section-title mb-1 text-base">Conversation behavior</h2>
+        <h2 className="ds-app-section-title mb-1">Conversation behavior</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
           What the visitor sees first, the language to default to, and how the agent recovers when it&apos;s unsure.
           Tune the model, creativity, and system prompt in{" "}
@@ -163,7 +163,7 @@ function BehaviorForm() {
             <label htmlFor="greeting-message" className="text-ds-on-surface mb-1 block text-sm font-semibold">
               Greeting message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
             </label>
-            <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+            <p className="ds-app-body-muted mb-2">
               Shown as the first assistant bubble when a visitor opens the chat.
             </p>
             <textarea
@@ -183,7 +183,7 @@ function BehaviorForm() {
             <label htmlFor="language" className="text-ds-on-surface mb-1 block text-sm font-semibold">
               Default language
             </label>
-            <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+            <p className="ds-app-body-muted mb-2">
               Auto-detect uses the visitor&apos;s message language. Pick a specific one to force replies into it.
             </p>
             <select
@@ -203,7 +203,7 @@ function BehaviorForm() {
       </section>
 
       <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-        <h2 className="ds-app-section-title mb-1 text-base">Fallback &amp; escalation</h2>
+        <h2 className="ds-app-section-title mb-1">Fallback &amp; escalation</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
           What to say when the agent isn&apos;t confident, and when to consider handing over to a human.
         </p>
@@ -218,7 +218,7 @@ function BehaviorForm() {
               <label htmlFor="fallback-message" className="text-ds-on-surface mb-1 block text-sm font-semibold">
                 Fallback message
               </label>
-              <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+              <p className="ds-app-body-muted mb-2">
                 Used when the agent cannot answer confidently from your knowledge base.
               </p>
               <textarea
@@ -238,7 +238,7 @@ function BehaviorForm() {
                 <label htmlFor="inactivity" className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
                   Inactivity timeout (minutes)
                 </label>
-                <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+                <p className="ds-app-body-muted mb-2">
                   Idle conversations are auto-closed after this period (5–240 min).
                 </p>
                 <input
@@ -258,7 +258,7 @@ function BehaviorForm() {
                 <label htmlFor="max-unresolved" className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
                   Max unresolved turns before escalation
                 </label>
-                <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+                <p className="ds-app-body-muted mb-2">
                   After this many vague replies, the agent suggests a human handoff (≥ 1).
                 </p>
                 <input

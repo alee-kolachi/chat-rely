@@ -31,11 +31,7 @@ export function UsagePlanBanner() {
     return null;
   }
 
-  const overageMoney = (snap.estimated_overage_cents / 100).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const overageCharged = snap.estimated_overage_cents > 0;
+  const beyondIncluded = Math.max(0, snap.conversations_used - snap.included_conversations);
 
   return (
     <div
@@ -50,17 +46,20 @@ export function UsagePlanBanner() {
         {snap.conversations_used.toLocaleString()} conversations used this period
         {` · `}
         {snap.included_conversations.toLocaleString()} included
-        {snap.overage_conversations > 0
-          ? overageCharged
-            ? ` · ${snap.overage_conversations.toLocaleString()} paid overage (~$${overageMoney} est.)`
-            : ` · ${snap.overage_conversations.toLocaleString()} beyond included (no per-conversation charge; responses may use a lighter model)`
+        {beyondIncluded > 0
+          ? ` · ${beyondIncluded.toLocaleString()} above included. Chat stays on; replies may be slower`
           : ""}
       </p>
+      {snap.throttle_tier === "strong" ? (
+        <p className="ds-app-body-muted mt-1">
+          Heavy usage this period: we never turn off chat, but responses may take longer.
+        </p>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-        <Link href="/usage" className="text-ds-primary text-xs font-semibold hover:underline">
+        <Link href="/usage" className="text-ds-primary text-sm font-semibold hover:underline">
           View usage details
         </Link>
-        <Link href="/pricing" className="text-ds-primary text-xs font-semibold hover:underline">
+        <Link href="/pricing" className="text-ds-primary text-sm font-semibold hover:underline">
           Compare plans
         </Link>
       </div>

@@ -8,6 +8,7 @@ import structlog
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domains.bootstrap.service import ensure_user_profile
 from app.domains.notifications.schemas import NotificationDTO
 
 log = structlog.get_logger(__name__)
@@ -91,6 +92,7 @@ async def create_notification_best_effort(
     dedupe_key: str | None = None,
 ) -> None:
     try:
+        await ensure_user_profile(db, user_id)
         nid = await create_notification(
             db,
             user_id=user_id,

@@ -351,6 +351,11 @@ async function boot(): Promise<void> {
     messages.scrollTop = messages.scrollHeight;
   }
 
+  const greeting = (cfg.greeting_message || "").trim();
+  if (greeting) {
+    appendMessage("assistant", renderAssistantHtml(greeting), true);
+  }
+
   function setOpen(next: boolean): void {
     panel.hidden = !next;
     launcher.setAttribute("aria-expanded", next ? "true" : "false");
@@ -429,9 +434,17 @@ async function boot(): Promise<void> {
     wrap.className = "cr-msg-wrap";
     const assistantEl = document.createElement("div");
     assistantEl.className = "cr-msg cr-msg--assistant";
-    assistantEl.innerHTML = "";
+    const dotsEl = document.createElement("div");
+    dotsEl.className = "cr-thinking-dots";
+    dotsEl.innerHTML =
+      '<span class="cr-thinking-dot"></span><span class="cr-thinking-dot"></span><span class="cr-thinking-dot"></span>';
+    assistantEl.appendChild(dotsEl);
     wrap.appendChild(assistantEl);
     messages.appendChild(wrap);
+
+    const hideDots = (): void => {
+      dotsEl.hidden = true;
+    };
 
     try {
       for await (const ev of streamChat(apiBase, agentKey, {
@@ -440,27 +453,23 @@ async function boot(): Promise<void> {
         visitor_id: visitorId,
         locale: navigator.language,
       })) {
-        if (ev.type === "start") {
-          conversationId = ev.conversation_id;
-        } else if (ev.type === "token") {
-          const prev =
-            assistantEl.getAttribute("data-plain") ||
-            assistantEl.textContent ||
-            "";
+        if (ev.type === "token") {
+          hideDots();
+          const prev = assistantEl.getAttribute("data-plain") || "";
           const nextPlain = prev + ev.text;
           assistantEl.setAttribute("data-plain", nextPlain);
           assistantEl.innerHTML = renderAssistantHtml(nextPlain);
           messages.scrollTop = messages.scrollHeight;
         } else if (ev.type === "done") {
-          conversationId = ev.conversation_id;
-          if (typeof ev.response === "string" && ev.response) {
-            assistantEl.innerHTML = renderAssistantHtml(ev.response);
-            assistantEl.removeAttribute("data-plain");
+          if (ev.conversation_id) conversationId = ev.conversation_id;
+          hideDots();
+          const reply = typeof ev.response === "string" ? ev.response : "";
+          if (reply.trim()) {
+            assistantEl.setAttribute("data-plain", reply);
+            assistantEl.innerHTML = renderAssistantHtml(reply);
           }
           const mid =
-            typeof (ev as { assistant_message_id?: unknown }).assistant_message_id === "string"
-              ? (ev as { assistant_message_id: string }).assistant_message_id
-              : null;
+            typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
           if (cfg.message_feedback_enabled && mid) {
             mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
           }
@@ -473,6 +482,7 @@ async function boot(): Promise<void> {
       wrap.remove();
       appendMessage("err", e instanceof Error ? e.message : "Network error.");
     } finally {
+      hideDots();
       sending = false;
       send.disabled = false;
     }

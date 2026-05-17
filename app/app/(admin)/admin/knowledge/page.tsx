@@ -177,7 +177,7 @@ async function SourcesTab({
             {row.error_message}
           </span>
         ) : (
-          <span className="text-ds-on-surface-variant text-xs">—</span>
+          <span className="ds-app-body-muted">—</span>
         ),
     },
   ];
@@ -366,7 +366,7 @@ async function IndexingJobsTab({
             {row.error_message}
           </span>
         ) : (
-          <span className="text-ds-on-surface-variant text-xs">—</span>
+          <span className="ds-app-body-muted">—</span>
         ),
     },
   ];

@@ -49,7 +49,7 @@ export default function KnowledgePage() {
               <h2 className="text-ds-on-surface group-hover:text-ds-interactive-hover text-base font-semibold transition-colors">
                 {area.title}
               </h2>
-              <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">{area.description}</p>
+              <p className="ds-app-body-muted mt-1">{area.description}</p>
               <span className="text-ds-primary mt-3 inline-flex items-center text-sm font-medium">
                 Open
                 <span className="ml-0.5 transition-transform group-hover:translate-x-0.5" aria-hidden>

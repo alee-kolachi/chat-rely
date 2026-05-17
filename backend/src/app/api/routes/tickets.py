@@ -13,13 +13,21 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 @router.get("", response_model=TicketListResponse)
 async def list_tickets_route(
     agent_id: UUID | None = Query(default=None),
+    status: str | None = Query(
+        default=None, description="open|pending_customer|resolved"
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> TicketListResponse:
     items, total = await list_tickets(
-        db, user_id=user.user_id, agent_id=agent_id, limit=limit, offset=offset
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        status=status,
+        limit=limit,
+        offset=offset,
     )
     return TicketListResponse(tickets=items, total=total)
 

@@ -37,7 +37,7 @@ export default async function AdminTicketDetailPage({ params }: { params: Params
     <div className="flex flex-col gap-6 p-6">
       <Link
         href="/admin/tickets"
-        className="text-ds-on-surface-variant hover:text-ds-on-surface w-fit text-xs"
+        className="ds-app-body-muted hover:text-ds-on-surface w-fit"
       >
         ← Back to tickets
       </Link>
@@ -59,7 +59,7 @@ export default async function AdminTicketDetailPage({ params }: { params: Params
             }
           />
         </div>
-        <p className="text-ds-on-surface-variant text-xs">
+        <p className="ds-app-body-muted">
           Owner{" "}
           <Link
             href={`/admin/users/${ticket.user_id}`}
@@ -136,7 +136,7 @@ export default async function AdminTicketDetailPage({ params }: { params: Params
           </div>
         </div>
         {ticket.conversation.latest_message_preview && (
-          <p className="text-ds-on-surface-variant text-xs italic">
+          <p className="ds-app-body-muted italic">
             Latest message preview: "{ticket.conversation.latest_message_preview}"
           </p>
         )}

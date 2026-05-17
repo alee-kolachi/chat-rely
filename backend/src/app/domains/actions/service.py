@@ -88,13 +88,16 @@ def _effective_status(
     *,
     shopify_plan_ok: bool,
     human_escalation_plan_ok: bool,
+    max_enabled_actions_per_agent: int,
     granted: frozenset[str],
     definition: StaticActionDefinition,
 ) -> str:
     if not definition.requires_shopify_connection:
         if not definition.code_ready:
             return "coming_soon"
-        if definition.action_key == HUMAN_ACTION_KEY and not human_escalation_plan_ok:
+        if definition.action_key == HUMAN_ACTION_KEY and (
+            not human_escalation_plan_ok or max_enabled_actions_per_agent <= 0
+        ):
             return "blocked_by_plan"
         return "live"
     if not shopify_plan_ok:
@@ -158,6 +161,12 @@ async def build_catalog(
     features = plan.features or {}
     shopify_plan_ok = bool(features.get("shopify_enabled", False))
     human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
+    limits = plan_limits_dto_from_row(
+        included_conversations=plan.included_conversations,
+        max_agents=plan.max_agents,
+        features=features,
+    )
+    max_actions = limits.max_enabled_actions_per_agent
 
     conn = shopify_connection or await get_connection_status(db, user_id=user_id, agent_id=agent_id)
     granted_set = frozenset((s or "").lower() for s in (conn.scopes or []))
@@ -169,6 +178,7 @@ async def build_catalog(
         status = _effective_status(
             shopify_plan_ok=shopify_plan_ok,
             human_escalation_plan_ok=human_escalation_plan_ok,
+            max_enabled_actions_per_agent=max_actions,
             granted=granted_set,
             definition=d,
         )
@@ -222,6 +232,7 @@ async def patch_agent_action(
     status = _effective_status(
         shopify_plan_ok=shopify_plan_ok,
         human_escalation_plan_ok=human_escalation_plan_ok,
+        max_enabled_actions_per_agent=max_enabled,
         granted=granted_set,
         definition=definition,
     )
@@ -287,7 +298,9 @@ async def patch_agent_action(
                         details={"max_enabled_actions_per_agent": max_enabled},
                     )
         else:
-            if definition.action_key == HUMAN_ACTION_KEY and not human_escalation_plan_ok:
+            if definition.action_key == HUMAN_ACTION_KEY and (
+                not human_escalation_plan_ok or max_enabled <= 0
+            ):
                 raise AppError(
                     code="plan.human_escalation_disabled",
                     message="Human escalation is not enabled for your plan",
@@ -337,6 +350,7 @@ async def patch_agent_action(
     status_after = _effective_status(
         shopify_plan_ok=shopify_plan_ok,
         human_escalation_plan_ok=human_escalation_plan_ok,
+        max_enabled_actions_per_agent=max_enabled,
         granted=granted_set,
         definition=definition,
     )
@@ -418,6 +432,7 @@ async def list_enabled_shopify_actions_for_runtime(
         st = _effective_status(
             shopify_plan_ok=True,
             human_escalation_plan_ok=True,
+            max_enabled_actions_per_agent=max_n,
             granted=granted_set,
             definition=definition,
         )
@@ -460,6 +475,13 @@ async def get_human_escalation_for_runtime(
     if not bool(features.get("human_escalation_enabled", True)):
         return False, {}
     human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
+    limits = plan_limits_dto_from_row(
+        included_conversations=plan.included_conversations,
+        max_agents=plan.max_agents,
+        features=features,
+    )
+    if limits.max_enabled_actions_per_agent <= 0:
+        return False, {}
     conn = await get_connection_status(db, user_id=user_id, agent_id=agent_id)
     granted_set = frozenset((s or "").lower() for s in (conn.scopes or []))
     rows = await _load_agent_action_map(db, agent_id)
@@ -473,6 +495,7 @@ async def get_human_escalation_for_runtime(
     st = _effective_status(
         shopify_plan_ok=shopify_plan_ok,
         human_escalation_plan_ok=human_escalation_plan_ok,
+        max_enabled_actions_per_agent=limits.max_enabled_actions_per_agent,
         granted=granted_set,
         definition=definition,
     )

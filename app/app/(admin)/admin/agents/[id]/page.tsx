@@ -53,7 +53,7 @@ export default async function AdminAgentDetailPage({ params }: { params: Params 
     <div className="flex flex-col gap-6 p-6">
       <Link
         href="/admin/agents"
-        className="text-ds-on-surface-variant hover:text-ds-on-surface w-fit text-xs"
+        className="ds-app-body-muted hover:text-ds-on-surface w-fit"
       >
         ← Back to agents
       </Link>
@@ -62,7 +62,7 @@ export default async function AdminAgentDetailPage({ params }: { params: Params 
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
             <h1 className="text-ds-on-surface text-2xl font-semibold">{agent.name}</h1>
-            <p className="text-ds-on-surface-variant text-xs">
+            <p className="ds-app-body-muted">
               Owner{" "}
               <Link
                 href={`/admin/users/${agent.user_id}`}
@@ -93,7 +93,7 @@ export default async function AdminAgentDetailPage({ params }: { params: Params 
             value={agent.actions_enabled_count.toLocaleString()}
           />
         </div>
-        <p className="text-ds-on-surface-variant text-xs">
+        <p className="ds-app-body-muted">
           Created {formatDate(agent.created_at)}
           {agent.archived_at && ` · archived ${formatDate(agent.archived_at)}`}
         </p>

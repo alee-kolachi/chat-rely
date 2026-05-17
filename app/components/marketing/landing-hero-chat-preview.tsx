@@ -115,7 +115,7 @@ export function LandingHeroChatPreview() {
 
                       <div className="flex">
                         <div className="text-ds-on-surface chat-turn2-bot border-ds-outline relative max-w-[95%] rounded-xl rounded-tl-sm border bg-white px-2 py-1.5 pb-3 text-[11px] leading-snug shadow-sm">
-                          Yes — connect once; I use live products, orders, and policies.
+                          Yes. Connect once and I use live products, orders, and policies.
                           <span className="text-ds-on-surface-variant/40 absolute bottom-0.5 right-1.5 text-[7px]">
                             Now
                           </span>

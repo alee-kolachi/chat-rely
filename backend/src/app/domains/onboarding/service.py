@@ -9,7 +9,7 @@ from app.core.errors import AppError
 from app.domains.agents.schemas import AgentCreateRequest, AgentUpdateRequest
 from app.domains.agents.service import create_agent, update_agent
 from app.domains.knowledge.schemas import KnowledgeSourceCreateRequest
-from app.domains.knowledge.service import enqueue_index_website_source, get_latest_job, process_indexing_job
+from app.domains.knowledge.service import enqueue_index_website_source_queued, get_latest_job
 from app.domains.onboarding.schemas import (
     OnboardingCrawledPageDTO,
     OnboardingFinishRequest,
@@ -114,29 +114,10 @@ async def submit_website(
     db: AsyncSession, user_id: UUID, payload: OnboardingWebsiteRequest
 ) -> OnboardingWebsiteResponse:
     source = await create_source_website(db, user_id, payload)
-    _, job = await enqueue_index_website_source(db, source.id, user_id)
-    preview_image_url = await process_indexing_job(db, job.id, user_id)
+    _, job = await enqueue_index_website_source_queued(db, source.id, user_id)
     final_job = await get_latest_job(db, source.id, user_id)
     job_status = str(final_job.status) if final_job else str(job.status)
-
-    pages_rows = (
-        await db.execute(
-            text(
-                """
-                select url, status::text as status
-                from public.knowledge_source_pages
-                where knowledge_source_id = :sid and user_id = :uid
-                order by depth asc, url asc
-                limit 20
-                """
-            ),
-            {"sid": str(source.id), "uid": str(user_id)},
-        )
-    ).mappings().all()
-    pages = [
-        OnboardingCrawledPageDTO(url=str(row["url"]), path=_page_display_path(str(row["url"])), status=str(row["status"]))
-        for row in pages_rows
-    ]
+    pages: list[OnboardingCrawledPageDTO] = []
 
     await _ensure_session(db, user_id, payload.agent_id, current_step=2)
     await _set_checklist_status(
@@ -147,8 +128,8 @@ async def submit_website(
         user_id,
         payload.agent_id,
         "pages_indexed",
-        "done",
-        {"page_count": len(pages), "urls": [p.url for p in pages]},
+        "in_progress",
+        {"job_id": str(job.id), "source_id": str(source.id)},
     )
 
     await db.execute(
@@ -175,12 +156,14 @@ async def submit_website(
         status=job_status,
         website_url=payload.website_url,
         pages=pages,
-        preview_image_url=preview_image_url,
+        preview_image_url=None,
     )
 
 
 async def create_source_website(db: AsyncSession, user_id: UUID, payload: OnboardingWebsiteRequest):
     from app.domains.knowledge.service import create_source
+
+    from app.domains.knowledge.service import MAX_DASHBOARD_WEBSITE_PAGES
 
     return await create_source(
         db,
@@ -190,7 +173,13 @@ async def create_source_website(db: AsyncSession, user_id: UUID, payload: Onboar
             type="website",
             title=payload.title,
             source_url=payload.website_url,
-            metadata={"origin": "onboarding"},
+            metadata={
+                "origin": "onboarding",
+                "website_mode": "crawl",
+                "max_pages": MAX_DASHBOARD_WEBSITE_PAGES,
+                "include_rules": [],
+                "exclude_rules": [],
+            },
         ),
     )
 

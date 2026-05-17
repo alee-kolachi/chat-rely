@@ -4,16 +4,6 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useMeContext } from "@/components/layout/me-context-provider";
 
-type UsageSnapshot = {
-  period_start: string;
-  period_end: string;
-  included_conversations: number;
-  conversations_used: number;
-  overage_conversations: number;
-  estimated_overage_cents: number;
-  throttle_tier: string;
-};
-
 function formatPeriod(s: string, e: string): string {
   try {
     const a = new Date(s);
@@ -24,30 +14,24 @@ function formatPeriod(s: string, e: string): string {
   }
 }
 
+function formatThrottleTier(tier: string): string {
+  return tier.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function UsagePage() {
   const { data: ctx, error, loading } = useMeContext();
 
   const snap = ctx?.usage_snapshot;
   const included = snap?.included_conversations ?? ctx?.plan.included_conversations ?? 0;
   const used = snap?.conversations_used ?? 0;
-  const paidOver = snap?.overage_conversations ?? 0;
-  const overageUsd = ((snap?.estimated_overage_cents ?? 0) / 100).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const beyondIncluded = Math.max(0, used - included);
 
-  const segments = useMemo(() => {
-    if (!included && !used) {
-      return { includedPct: 0, overPct: 0 };
-    }
-    const denom = Math.max(included, used, 1);
-    const usedIncluded = Math.min(used, included);
-    const usedOver = Math.max(0, used - included);
-    return {
-      includedPct: Math.min(100, (usedIncluded / denom) * 100),
-      overPct: Math.min(100, (usedOver / denom) * 100),
-    };
+  const usagePct = useMemo(() => {
+    if (!included) return 0;
+    return Math.min(100, (used / included) * 100);
   }, [used, included]);
+
+  const throttleTier = snap?.throttle_tier ?? null;
 
   return (
     <div className="ds-app-shell px-6 pt-6 pb-16 md:px-8 md:pt-8 md:pb-20">
@@ -78,10 +62,9 @@ export default function UsagePage() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
             <h2 className="ds-app-section-title">Conversations</h2>
-            <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-              Included conversations are covered by your subscription. Counts include closed chats with any visitor
-              message, assistant reply, or tool activity. We do not charge per extra conversation today; usage beyond
-              included may switch responses to a lighter model.
+            <p className="ds-app-body-muted mt-1">
+              Counts include closed chats with any visitor message, assistant reply, or tool activity. Chat stays on when
+              you pass your included allowance; replies may use a lighter model until the cycle resets or you upgrade.
             </p>
 
             <div className="mt-6">
@@ -100,73 +83,62 @@ export default function UsagePage() {
                   </>
                 )}
               </div>
-              <div className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-ds-sidebar ring-1 ring-ds-outline">
+              <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-ds-sidebar ring-1 ring-ds-outline">
                 <div
-                  className="h-full bg-ds-primary transition-[width]"
-                  style={{ width: loading ? "0%" : `${segments.includedPct}%` }}
-                  title="Included band usage"
+                  className={`h-full transition-[width] ${beyondIncluded > 0 ? "bg-amber-500" : "bg-ds-primary"}`}
+                  style={{ width: loading ? "0%" : `${usagePct}%` }}
+                  title="Included allowance used"
                 />
-                <div
-                  className="h-full bg-rose-500 transition-[width]"
-                  style={{ width: loading ? "0%" : `${segments.overPct}%` }}
-                  title="Beyond included (not charged per conversation today)"
-                />
-              </div>
-              <div className="text-ds-on-surface-variant mt-2 flex flex-wrap gap-4 text-[11px] font-medium">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="bg-ds-primary inline-block size-2.5 rounded-full" aria-hidden />
-                  Included
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-block size-2.5 rounded-full bg-rose-500" aria-hidden />
-                  Beyond included
-                </span>
               </div>
             </div>
 
-            <dl className="border-ds-outline mt-8 grid gap-3 border-t pt-6 text-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-ds-on-surface-variant">Throttle tier</dt>
-                <dd className="font-medium capitalize">
-                  {loading ? <span className="bg-ds-sidebar inline-block h-4 w-24 animate-pulse rounded-md" /> : (snap?.throttle_tier ?? "—")}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-ds-on-surface-variant">Beyond included (count)</dt>
-                <dd className="font-medium tabular-nums">
-                  {loading ? <span className="bg-ds-sidebar inline-block h-4 w-14 animate-pulse rounded-md" /> : paidOver.toLocaleString()}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-ds-on-surface-variant">Est. overage this period</dt>
-                <dd className="font-medium tabular-nums">
-                  {loading ? <span className="bg-ds-sidebar inline-block h-4 w-20 animate-pulse rounded-md" /> : `$${overageUsd}`}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-ds-on-surface-variant">Overage rate</dt>
-                <dd className="font-medium">
-                  {loading ? (
-                    <span className="bg-ds-sidebar inline-block h-4 w-32 animate-pulse rounded-md" />
-                  ) : ctx?.plan.overage_conversation_cents ? (
-                    `$${(ctx.plan.overage_conversation_cents / 100).toFixed(2)} / conversation`
-                  ) : (
-                    "—"
-                  )}
-                </dd>
-              </div>
-            </dl>
+            {snap ? (
+              <dl className="border-ds-outline mt-8 grid gap-3 border-t pt-6 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-ds-on-surface-variant">Throttle tier</dt>
+                  <dd className="font-medium tabular-nums">
+                    {loading ? (
+                      <span className="bg-ds-sidebar inline-block h-4 w-24 animate-pulse rounded-md" />
+                    ) : throttleTier ? (
+                      formatThrottleTier(throttleTier)
+                    ) : (
+                      "-"
+                    )}
+                  </dd>
+                </div>
+                {beyondIncluded > 0 ? (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-ds-on-surface-variant">Above included allowance</dt>
+                    <dd className="font-medium tabular-nums">{beyondIncluded.toLocaleString()}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : null}
+
+            {throttleTier === "strong" ? (
+              <p className="ds-app-body-muted mt-4 text-sm leading-relaxed">
+                Heavy usage this period: we never turn off chat, but responses may take longer until your cycle resets or
+                you upgrade.
+              </p>
+            ) : null}
           </section>
 
           <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm md:p-8">
             <h2 className="ds-app-section-title">Workspace</h2>
-            <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-              Per-agent analytics (volume over time and team queue) live on the agent <Link href="/dashboard">Dashboard</Link>.
+            <p className="ds-app-body-muted mt-1">
+              Per-agent analytics (volume over time and team queue) live on the agent{" "}
+              <Link href="/dashboard" className="text-ds-primary font-semibold hover:underline">
+                Dashboard
+              </Link>
+              .
             </p>
             <div className="border-ds-outline mt-6 rounded-ds-lg border bg-ds-sidebar/50 p-4">
-              <p className="text-ds-on-surface-variant text-xs leading-relaxed">
-                Usage totals refresh when you open this page. The bar reflects conversations used toward your included
-                allowance for the current subscription period.
+              <p className="ds-app-body-muted">
+                Totals refresh when you open this page. For plan limits and upgrades, see{" "}
+                <Link href="/account/plan" className="text-ds-primary font-semibold hover:underline">
+                  Plan
+                </Link>
+                .
               </p>
             </div>
           </section>

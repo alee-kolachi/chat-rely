@@ -17,52 +17,51 @@ export function ActionCard({ action, badgeStatus, enabled, toggleDisabled, onTog
   const isComingSoon = badgeStatus === "coming-soon";
 
   return (
-    <div
+    <article
       className={cn(
-        "border-ds-outline rounded-ds-xl flex flex-col border bg-ds-surface p-5 shadow-sm transition-shadow",
+        "border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm transition-shadow",
         !isComingSoon && "hover:shadow-md",
         isComingSoon && "opacity-90"
       )}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
+      <div className="p-5">
+        <div className="flex gap-3">
           <div className="border-ds-outline bg-ds-sidebar text-ds-on-surface flex size-10 shrink-0 items-center justify-center rounded-ds-md border">
             <IconAction iconKey={action.icon} className="size-5" />
           </div>
-          <div className="min-w-0">
-            <h3 className="text-ds-on-surface truncate text-sm font-semibold">
-              {action.label}
-            </h3>
-            <p className="text-ds-on-surface-variant mt-0.5 line-clamp-2 text-xs leading-relaxed">
-              {action.description}
-            </p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="ds-app-card-title min-w-0 pr-1">{action.label}</h3>
+              <ActionToggle
+                checked={enabled}
+                onChange={onToggle}
+                disabled={toggleDisabled}
+                label={`Enable ${action.label}`}
+                className="mt-0.5"
+              />
+            </div>
+            <p className="ds-app-body-muted mt-1.5 text-sm leading-relaxed">{action.description}</p>
           </div>
         </div>
-        <ActionToggle
-          checked={enabled}
-          onChange={onToggle}
-          disabled={toggleDisabled}
-          label={`Enable ${action.label}`}
-        />
+
+        <div className="border-ds-outline/60 mt-4 border-t pt-4">
+          <p className="ds-app-kicker">Trigger example</p>
+          <p className="text-ds-on-surface mt-1 text-sm italic leading-relaxed">
+            &ldquo;{action.triggerExamples[0]}&rdquo;
+          </p>
+        </div>
       </div>
 
-      <div className="border-ds-outline/60 mt-5 border-t pt-4">
-        <p className="ds-app-kicker">Trigger example</p>
-        <p className="text-ds-on-surface mt-1.5 line-clamp-1 text-xs italic">
-          &ldquo;{action.triggerExamples[0]}&rdquo;
-        </p>
-      </div>
-
-      <div className="mt-5 flex items-center justify-between">
+      <div className="border-ds-outline/60 bg-ds-sidebar/30 flex items-center justify-between gap-3 border-t px-5 py-3">
         <StatusBadge status={badgeStatus} />
         <Link
           href={`/actions/${action.id}`}
-          className="text-ds-on-surface hover:text-ds-interactive-hover inline-flex items-center gap-1 text-xs font-semibold transition-colors"
+          className="text-ds-on-surface hover:text-ds-interactive-hover inline-flex shrink-0 items-center gap-1 text-sm font-semibold transition-colors"
         >
           Configure
           <IconChevronRight className="size-3.5" />
         </Link>
       </div>
-    </div>
+    </article>
   );
 }

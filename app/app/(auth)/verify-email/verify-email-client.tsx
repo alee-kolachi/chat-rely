@@ -57,7 +57,7 @@ export function VerifyEmailClient() {
         <p className="text-ds-on-surface-variant mt-3 text-sm leading-relaxed">
           We sent you a verification link. Open it to confirm your account and finish setup.
         </p>
-        <label className="text-ds-on-surface-variant mt-6 block text-xs font-semibold uppercase tracking-wide">
+        <label className="ds-app-body-muted mt-6 block font-semibold uppercase tracking-wide">
           Email
         </label>
         <input

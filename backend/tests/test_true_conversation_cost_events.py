@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
-from langchain_core.messages import AIMessage
 
 from app.core.settings import get_settings
 from app.domains.admin import costing_service
@@ -21,7 +20,6 @@ from app.domains.billing.cost_events import (
     record_cost_event,
 )
 from app.domains.knowledge.service import _post_one_embedding_batch
-from app.domains.runtime.service import _invoke_chat_with_tools
 
 
 def _head_result(conv_id: UUID) -> MagicMock:
@@ -52,85 +50,6 @@ def _events_result(rows: list[dict[str, Any]]) -> MagicMock:
     out = MagicMock()
     out.mappings.return_value = m
     return out
-
-
-@pytest.mark.asyncio
-async def test_invoke_chat_with_tools_meta_out_is_last_round_only(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Final assistant row must not sum all tool-loop rounds (fixes conversation total double-count)."""
-    monkeypatch.setenv("SHOPIFY_TOOL_TIMEOUT_SECONDS", "30")
-    get_settings.cache_clear()
-
-    round0 = AIMessage(
-        content="",
-        tool_calls=[{"name": "shopify_product_search", "args": {"query": "x"}, "id": "tc1"}],
-        usage_metadata={"input_tokens": 100, "output_tokens": 40, "total_tokens": 140},
-    )
-    round1 = AIMessage(
-        content="Here is the answer.",
-        tool_calls=[],
-        usage_metadata={"input_tokens": 30, "output_tokens": 20, "total_tokens": 50},
-    )
-    seq = iter([round0, round1])
-
-    class _Bound:
-        def bind_tools(self, _tools: Any, tool_choice: str | None = None) -> _Bound:
-            return self
-
-        async def ainvoke(self, _msgs: Any) -> AIMessage:
-            return next(seq)
-
-    monkeypatch.setattr(
-        "app.domains.runtime.service.make_chat_model",
-        lambda _model, *, temperature=0.0: _Bound(),
-    )
-    monkeypatch.setattr("app.domains.runtime.service.append_message", AsyncMock())
-    recorded: list[dict[str, Any]] = []
-
-    async def _capture_record(_db: Any, **kwargs: Any) -> None:
-        recorded.append(dict(kwargs))
-
-    monkeypatch.setattr("app.domains.runtime.service.record_cost_event", _capture_record)
-
-    db = MagicMock()
-    db.execute = AsyncMock()
-    db.commit = AsyncMock()
-
-    uid = uuid4()
-    cid = uuid4()
-    aid = uuid4()
-    tid = uuid4()
-    meta: dict[str, Any] = {}
-    answer, fallback_used, invoked = await _invoke_chat_with_tools(
-        db,
-        user_id=uid,
-        conversation_id=cid,
-        agent_id=aid,
-        lc_messages=[SimpleNamespace(content="sys"), SimpleNamespace(content="user hi")],
-        model="gpt-4o-mini",
-        tools=[SimpleNamespace(name="shopify_product_search", ainvoke=AsyncMock(return_value="{}"))],
-        fallback_message="fallback",
-        temperature=0.0,
-        force_first_round_tool_choice=False,
-        meta_out=meta,
-        turn_user_message_id=tid,
-    )
-
-    assert answer == "Here is the answer."
-    assert fallback_used is False
-    assert "shopify_product_search" in invoked
-    assert meta["usage_input_tokens"] == 30
-    assert meta["usage_output_tokens"] == 20
-
-    llm_events = [r for r in recorded if r.get("kind") == COST_KIND_LLM_MAIN]
-    assert len(llm_events) == 2
-    assert llm_events[0]["input_tokens"] == 100 and llm_events[0]["output_tokens"] == 40
-    assert llm_events[1]["input_tokens"] == 30 and llm_events[1]["output_tokens"] == 20
-    tool_events = [r for r in recorded if r.get("kind") == COST_KIND_TOOL_SHOPIFY]
-    assert len(tool_events) == 1
-
-    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

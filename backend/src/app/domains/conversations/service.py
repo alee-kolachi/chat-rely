@@ -127,13 +127,60 @@ async def list_messages(db: AsyncSession, user_id: UUID, conversation_id: UUID) 
     return [MessageDTO.model_validate(row) for row in result.mappings().all()]
 
 
+async def list_messages_recent(
+    db: AsyncSession,
+    user_id: UUID,
+    conversation_id: UUID,
+    *,
+    limit: int = 24,
+    skip_conversation_check: bool = False,
+) -> list[MessageDTO]:
+    """Last N messages (chronological). Avoids loading entire threads on every chat turn."""
+    if not skip_conversation_check:
+        await get_conversation(db, user_id, conversation_id)
+    lim = max(2, min(int(limit), 80))
+    result = await db.execute(
+        text(
+            """
+            select
+              id, conversation_id, agent_id, user_id, role, content, tool_name, tool_call_id,
+              tool_call_payload, tool_result_payload, model, input_tokens, output_tokens,
+              latency_ms, metadata, created_at
+            from public.messages
+            where conversation_id = :conversation_id and user_id = :user_id
+            order by created_at desc
+            limit :lim
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "lim": lim,
+        },
+    )
+    rows = list(result.mappings().all())
+    rows.reverse()
+    return [MessageDTO.model_validate(row) for row in rows]
+
+
 async def append_message(
     db: AsyncSession,
     user_id: UUID,
     conversation_id: UUID,
     payload: ConversationMessageCreateRequest,
+    *,
+    agent_id: UUID | None = None,
 ) -> MessageDTO:
     conversation = await get_conversation(db, user_id, conversation_id)
+    resolved_agent_id = agent_id or conversation.agent_id
+    if agent_id is not None and conversation.agent_id != agent_id:
+        from app.core.errors import AppError
+
+        raise AppError(
+            code="conversation.agent_mismatch",
+            message="Conversation does not belong to this agent",
+            status_code=403,
+        )
     result = await db.execute(
         text(
             """
@@ -153,7 +200,7 @@ async def append_message(
         ),
         {
             "conversation_id": str(conversation_id),
-            "agent_id": str(conversation.agent_id),
+            "agent_id": str(resolved_agent_id),
             "user_id": str(user_id),
             "role": payload.role,
             "content": payload.content,

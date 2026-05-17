@@ -20,6 +20,7 @@ import {
   marginBadgeTone,
   marginToneClass,
 } from "@/lib/admin/cost-format";
+import { formatSmartResolution } from "@/lib/admin/plan-feature-display";
 
 type RouteParams = Promise<{ id: string }>;
 
@@ -77,7 +78,7 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
       render: (row) => (
         <div className="flex flex-col">
           <span className="text-ds-on-surface font-medium">{row.plan_name}</span>
-          <span className="text-ds-on-surface-variant text-xs">
+          <span className="ds-app-body-muted">
             {row.plan_slug} · {formatCents(row.monthly_price_cents)}/mo
           </span>
         </div>
@@ -93,7 +94,7 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
       key: "period",
       label: "Current period",
       render: (row) => (
-        <span className="text-ds-on-surface-variant text-xs">
+        <span className="ds-app-body-muted">
           {formatDate(row.current_period_start)} – {formatDate(row.current_period_end)}
         </span>
       ),
@@ -105,7 +106,7 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
         row.cancel_at_period_end ? (
           <AdminStatusBadge status="cancel scheduled" tone="warning" />
         ) : (
-          <span className="text-ds-on-surface-variant text-xs">no</span>
+          <span className="ds-app-body-muted">no</span>
         ),
     },
   ];
@@ -176,7 +177,7 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
       key: "preview",
       label: "Preview",
       render: (row) => (
-        <span className="text-ds-on-surface-variant block max-w-md truncate text-xs">
+        <span className="ds-app-body-muted block max-w-md truncate">
           {row.latest_message_preview ?? "—"}
         </span>
       ),
@@ -200,6 +201,13 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
       label: "Used",
       align: "right",
       render: (row) => row.conversations_used.toLocaleString(),
+    },
+    {
+      key: "smart_resolution",
+      label: "Smart resolution",
+      align: "right",
+      render: (row) =>
+        formatSmartResolution(row.premium_turns_used, row.included_premium_turns),
     },
     {
       key: "overage",
@@ -249,7 +257,7 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
               {user.full_name ?? user.email}
             </h1>
             <span className="text-ds-on-surface-variant text-sm">{user.email}</span>
-            <span className="text-ds-on-surface-variant text-xs">
+            <span className="ds-app-body-muted">
               Signed up {formatDateTime(user.signed_up_at)} · {user.timezone}
             </span>
           </div>
@@ -305,7 +313,7 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
           <Stat label="Total sources" value={user.knowledge_summary.total_sources.toLocaleString()} />
           <Stat label="Total chunks" value={user.knowledge_summary.total_chunks.toLocaleString()} />
           <div className="flex flex-col gap-1">
-            <span className="text-ds-on-surface-variant text-xs uppercase tracking-wide">
+            <span className="ds-app-body-muted uppercase tracking-wide">
               By kind
             </span>
             {knowledgeKinds.length === 0 ? (
@@ -351,7 +359,7 @@ function Section({
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-ds-on-surface text-base font-semibold">{title}</h2>
         {subtitle && (
-          <span className="text-ds-on-surface-variant text-xs">{subtitle}</span>
+          <span className="ds-app-body-muted">{subtitle}</span>
         )}
       </div>
       {children}
@@ -362,7 +370,7 @@ function Section({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-ds-on-surface-variant text-xs uppercase tracking-wide">
+      <span className="ds-app-body-muted uppercase tracking-wide">
         {label}
       </span>
       <span className="text-ds-on-surface text-2xl font-semibold">{value}</span>
@@ -432,7 +440,7 @@ function CostingCard({
         <Stat label="LLM cost" value={formatCostUsd(user.llm_cost_mtd_usd)} />
         <Stat label="Embed cost" value={formatCostUsd(user.embedding_cost_mtd_usd)} />
         <div className="flex flex-col gap-1">
-          <span className="text-ds-on-surface-variant text-xs uppercase tracking-wide">
+          <span className="ds-app-body-muted uppercase tracking-wide">
             Margin
           </span>
           <span
@@ -446,7 +454,7 @@ function CostingCard({
       </div>
 
       <div className="flex flex-col gap-2">
-        <h3 className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
+        <h3 className="ds-app-body-muted font-semibold uppercase tracking-wide">
           Per-agent breakdown
         </h3>
         <AdminDataTable

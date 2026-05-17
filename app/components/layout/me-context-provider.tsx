@@ -12,7 +12,11 @@ type UsageSnapshot = {
   overage_conversations: number;
   estimated_overage_cents: number;
   throttle_tier: string;
+  included_premium_turns?: number;
+  premium_turns_used?: number;
 };
+
+export type AdvancedResolutionBand = "comfortable" | "limited" | "standard_only";
 
 export type MeContextPayload = {
   profile: { id: string; full_name: string | null };
@@ -43,6 +47,7 @@ export type MeContextPayload = {
   };
   usage_snapshot: UsageSnapshot | null;
   onboarding_completed: boolean;
+  advanced_resolution_band?: AdvancedResolutionBand;
 };
 
 type MeContextValue = {
@@ -64,6 +69,11 @@ export function MeContextProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
+      await backendFetch("/api/v1/bootstrap/me", { method: "POST" });
+    } catch {
+      // Idempotent workspace setup; continue so `/me/context` can still surface errors.
+    }
+    try {
       const meContext = await backendFetch<MeContextPayload>("/api/v1/me/context");
       setData(meContext);
     } catch (e) {
@@ -71,11 +81,6 @@ export function MeContextProvider({ children }: { children: ReactNode }) {
       setData(null);
     } finally {
       setLoading(false);
-    }
-    try {
-      await backendFetch("/api/v1/bootstrap/me", { method: "POST" });
-    } catch {
-      // Idempotent workspace setup; must not discard a successful `/me/context` payload.
     }
   }, []);
 

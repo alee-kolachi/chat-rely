@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+RuntimeChannel = Literal["api", "widget"]
+
 from app.domains.conversation_outcomes.schemas import TurnSignalsDTO
 
 
@@ -21,10 +23,10 @@ class RuntimeChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
-    message: str = Field(min_length=1)
+    message: str = Field(min_length=1, max_length=8000)
     conversation_id: UUID | None = None
     visitor_id: str = Field(default="preview-user", min_length=1, max_length=255)
-    model_override: str | None = None
+    channel: RuntimeChannel = "api"
     system_prompt_override: str | None = None
     agent_type_override: str | None = None
     #: 0–1 — playground preview; when set, overrides agent `behavior_settings.creativity`.

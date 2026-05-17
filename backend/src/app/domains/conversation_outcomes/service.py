@@ -20,7 +20,7 @@ from app.domains.conversation_outcomes.schemas import (
 )
 from app.domains.conversations.schemas import MessageDTO
 from app.domains.conversations.service import get_conversation, list_messages
-from app.domains.runtime.chat_graph import usage_tokens_from_model_message
+from app.agent.messages import usage_tokens_from_model_message
 
 log = structlog.get_logger("conversation_outcomes")
 
@@ -279,9 +279,17 @@ async def compute_turn_signals(
 
 
 def _fallback_payload(conversation_status: str) -> ConversationOutcomePayload:
-    reason: OutcomeEndReason = "escalated_to_human" if conversation_status == "escalated" else "other"
+    if conversation_status == "escalated":
+        reason: OutcomeEndReason = "escalated_to_human"
+        resolved = False
+    elif conversation_status in ("resolved", "idle_closed"):
+        reason = "other"
+        resolved = True
+    else:
+        reason = "other"
+        resolved = False
     return ConversationOutcomePayload(
-        resolved_by_agent=False,
+        resolved_by_agent=resolved,
         resolution_confidence=0.0,
         end_reason=reason,
         evidence="Outcome analysis unavailable (LLM not configured or failed).",

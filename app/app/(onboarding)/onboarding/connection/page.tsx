@@ -3,42 +3,67 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Check, ExternalLink } from "lucide-react";
 import { IconShopifyBag } from "@/components/actions/action-icons";
 import { useShopifyConnection } from "@/components/integrations/use-shopify-connection";
+import type { MeContextPayload } from "@/components/layout/me-context-provider";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingMainColumn,
   onboardingSplitBody,
-  onboardingSplitCard,
+  onboardingSplitCardFilled,
   onboardingSplitGrid,
+  onboardingSplitLeftSection,
+  onboardingSplitPreviewShell,
+  onboardingSplitPreviewWrap,
+  onboardingSplitRightSectionCentered,
   onboardingSplitRoot,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import { cn } from "@/lib/utils";
 
-function formatDisplayShopName(shopDomain: string | null | undefined): string {
-  if (!shopDomain) return "Your store";
-  const sub = shopDomain.replace(/\.myshopify\.com$/i, "").trim();
-  if (!sub) return shopDomain;
-  return sub
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
+type RowState = "done" | "active" | "pending";
+
+type OnboardingStatusPayload = {
+  website_url: string | null;
+  website_title: string | null;
+};
+
+function hostnameFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return null;
+  }
+}
+
+function resolveSiteDisplayName(status: OnboardingStatusPayload | null): string {
+  const title = status?.website_title?.trim();
+  if (title) return title;
+  const host = hostnameFromUrl(status?.website_url);
+  if (host) return host;
+  return "your website";
 }
 
 function formatSynced(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   try {
     const d = new Date(iso);
     return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   } catch {
-    return "—";
+    return "-";
   }
 }
 
-type RowState = "done" | "active" | "pending";
+function progressPercent(connected: boolean, connectBusy: boolean, hasShopDraft: boolean): number {
+  if (connected) return 100;
+  if (connectBusy) return 55;
+  if (hasShopDraft) return 20;
+  return 0;
+}
 
 export default function ConnectionOnboardingPage() {
   const searchParams = useSearchParams();
@@ -47,7 +72,12 @@ export default function ConnectionOnboardingPage() {
 
   const [shopDraft, setShopDraft] = useState("");
   const [connectBusy, setConnectBusy] = useState(false);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [siteStatus, setSiteStatus] = useState<OnboardingStatusPayload | null>(null);
+  const [planSlug, setPlanSlug] = useState("free");
+
+  const isFreePlan = planSlug === "free";
+  const siteName = resolveSiteDisplayName(siteStatus);
 
   const agentPreviewHref = useMemo(() => {
     const path = "/onboarding/agent-preview";
@@ -55,14 +85,50 @@ export default function ConnectionOnboardingPage() {
     return `${path}?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
 
+  const knowledgeBackHref = useMemo(() => {
+    if (!agentId) return "/onboarding/knowledge-base";
+    return `/onboarding/knowledge-base?agentId=${encodeURIComponent(agentId)}`;
+  }, [agentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void backendFetch<MeContextPayload>("/api/v1/me/context")
+      .then((ctx) => {
+        if (!cancelled) setPlanSlug((ctx.plan.slug ?? "free").toLowerCase());
+      })
+      .catch(() => {
+        if (!cancelled) setPlanSlug("free");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+    void backendFetch<OnboardingStatusPayload>(
+      `/api/v1/onboarding/status?agent_id=${encodeURIComponent(agentId)}`
+    )
+      .then((res) => {
+        if (!cancelled) setSiteStatus(res);
+      })
+      .catch(() => {
+        if (!cancelled) setSiteStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
   useEffect(() => {
     const q = searchParams.get("shopify");
     if (q === "connected") {
-      setBanner("Shopify connected successfully.");
+      setBanner({ kind: "success", text: "Shopify is linked to your agent." });
       void refresh();
     }
     if (q === "error") {
-      setBanner(searchParams.get("message") ?? "Authorization failed.");
+      setBanner({ kind: "error", text: searchParams.get("message") ?? "Could not link Shopify. Try again." });
     }
   }, [searchParams, refresh]);
 
@@ -87,47 +153,30 @@ export default function ConnectionOnboardingPage() {
       window.location.href = res.authorization_url;
     } catch (e) {
       const msg =
-        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not start OAuth";
-      setBanner(msg);
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not open Shopify sign-in";
+      setBanner({ kind: "error", text: msg });
       setConnectBusy(false);
     }
   }, [agentId, shopDraft]);
 
   const connected = Boolean(data?.connected);
-  const progressPct = connected ? 100 : 0;
-  const shopLabel = formatDisplayShopName(data?.shop_domain);
-  const domainLine = data?.shop_domain ?? "—";
+  const hasScopes = Boolean(data?.scopes?.length);
+  const progressPct = progressPercent(connected, connectBusy, Boolean(shopDraft.trim()));
 
   const syncRows: Array<{ label: string; state: RowState }> = useMemo(() => {
     if (!connected) {
       return [
-        { label: "Secure OAuth link", state: "pending" },
-        { label: "Catalog & policy API access", state: "pending" },
-        { label: "Ready for conversations", state: "pending" },
+        { label: "Open Shopify sign-in", state: connectBusy ? "active" : shopDraft.trim() ? "pending" : "pending" },
+        { label: "Approve store access", state: "pending" },
+        { label: "Finish setup", state: "pending" },
       ];
     }
     return [
-      { label: "Secure OAuth link", state: "done" },
-      { label: "Scopes granted", state: "done" },
-      { label: "Ready for conversations", state: "done" },
+      { label: "Open Shopify sign-in", state: "done" },
+      { label: "Approve store access", state: hasScopes ? "done" : "active" },
+      { label: "Finish setup", state: hasScopes ? "done" : "pending" },
     ];
-  }, [connected]);
-
-  const statusBadge = loading ? (
-    <span className="text-ds-on-surface-variant border-ds-outline rounded-full border bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide">
-      …
-    </span>
-  ) : connected ? (
-    <span className="border-emerald-200 bg-emerald-50 text-emerald-800 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide">
-      Linked
-    </span>
-  ) : (
-    <span className="text-ds-on-surface-variant border-ds-outline rounded-full border border-dashed bg-ds-sidebar/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide">
-      Not linked
-    </span>
-  );
-
-  const panelSubtitle = loading ? "Loading status…" : connected ? "Live connection" : "Not connected yet";
+  }, [connected, connectBusy, hasScopes, shopDraft]);
 
   return (
     <OnboardingFrame
@@ -137,11 +186,7 @@ export default function ConnectionOnboardingPage() {
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
-          backHref={
-            agentId
-              ? `/onboarding/knowledge-base/training?agentId=${encodeURIComponent(agentId)}`
-              : "/onboarding/knowledge-base/training"
-          }
+          backHref={knowledgeBackHref}
           backLabel="Back"
           primaryHref={agentPreviewHref}
           primaryLabel="Continue"
@@ -159,114 +204,122 @@ export default function ConnectionOnboardingPage() {
             aria-hidden
           />
 
-          <div className={onboardingSplitCard}>
+          <div className={onboardingSplitCardFilled}>
             <div className={onboardingSplitGrid}>
-              <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
-                <div>
+              <section className={onboardingSplitLeftSection}>
+                <div className="max-w-lg">
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
-                    Step 3
+                    Step 3 · Optional
                   </p>
                   <h1 className="text-ds-on-surface text-2xl font-semibold tracking-tight sm:text-3xl lg:text-[2rem]">
-                    Connect your <span className="text-ds-primary font-bold">commerce store</span> for live data
+                    Link your <span className="text-ds-primary font-bold">Shopify</span> store
                   </h1>
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                    OAuth keeps access scoped and revocable. We use your granted Admin API scopes so the agent can read
-                    products, orders, and policies—without sharing passwords.
+                    You added <span className="text-ds-on-surface font-medium">{siteName}</span>. Connect Shopify for live
+                    products and orders, or skip and do this
+                    later.
                   </p>
 
                   {banner ? (
-                    <div className="border-ds-outline mt-5 rounded-ds-lg border bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm">
-                      {banner}
+                    <div
+                      role="status"
+                      className={`mt-5 flex items-start gap-3 rounded-ds-lg border px-4 py-3 text-sm shadow-sm ${
+                        banner.kind === "success"
+                          ? "border-ds-primary/25 bg-ds-primary/10 text-ds-on-surface"
+                          : "border-rose-200 bg-rose-50 text-rose-900"
+                      }`}
+                    >
+                      {banner.kind === "success" ? (
+                        <span className="bg-ds-primary text-ds-on-primary flex size-8 shrink-0 items-center justify-center rounded-full">
+                          <Check className="size-4" aria-hidden />
+                        </span>
+                      ) : null}
+                      <p className="leading-relaxed font-medium">{banner.text}</p>
                     </div>
                   ) : null}
 
-                  <div className="mt-8 space-y-5 sm:mt-10">
+                  <div className="mt-8 space-y-4 sm:mt-10">
                     {!agentId ? (
-                      <p className="text-amber-900 border-amber-200 rounded-ds-lg border bg-amber-50/90 px-4 py-3 text-sm leading-relaxed">
-                        Finish step 1 first so we know which agent this store belongs to, or open this page from your
-                        onboarding flow with <span className="font-mono text-xs">?agentId=…</span> in the URL.
+                      <p className="rounded-ds-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900">
+                        Finish step 1 first so we know which agent this store belongs to.
                       </p>
                     ) : null}
 
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div className="border-ds-outline flex size-11 shrink-0 items-center justify-center rounded-xl border bg-emerald-50 text-emerald-800">
-                            <IconShopifyBag className="size-6" aria-hidden />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-ds-on-surface text-sm font-semibold">Shopify</p>
-                            <p className="text-ds-on-surface-variant text-xs">Recommended for product catalogs</p>
-                          </div>
+                      <div className="mb-4 flex items-center gap-3">
+                        <div className="border-ds-outline flex size-11 shrink-0 items-center justify-center rounded-xl border bg-emerald-50 text-emerald-800">
+                          <IconShopifyBag className="size-6" aria-hidden />
                         </div>
-                        {!connected ? (
-                          <Link
-                            href={agentPreviewHref}
-                            className="text-ds-on-surface-variant hover:text-ds-on-surface touch-manipulation min-h-11 shrink-0 rounded-ds-md px-2 text-[11px] font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent]"
-                          >
-                            Connect later
-                          </Link>
-                        ) : null}
+                        <div className="min-w-0">
+                          <p className="text-ds-on-surface text-sm font-semibold">Shopify</p>
+                          <p className="text-ds-on-surface-variant text-sm">Sign in with Shopify. No password shared here.</p>
+                        </div>
                       </div>
 
                       {connected ? (
                         <div className="space-y-3">
-                          <p className="text-ds-on-surface-variant text-sm">
-                            <span className="text-ds-on-surface font-semibold">{data?.shop_domain ?? "—"}</span> is
-                            linked. You can tune tone and preview next, or disconnect from Actions later.
+                          <p className="text-ds-on-surface-variant text-sm leading-relaxed">
+                            <span className="text-ds-on-surface font-semibold">{data?.shop_domain}</span> is linked.
                           </p>
                           <button
                             type="button"
                             onClick={() => void startOAuth()}
                             disabled={connectBusy || !shopDraft.trim()}
-                            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar w-full touch-manipulation min-h-12 rounded-ds-md border bg-white py-3 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent]"
+                            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar w-full min-h-11 rounded-ds-md border bg-white py-2.5 text-sm font-semibold transition-colors disabled:opacity-45"
                           >
-                            Reconnect store
+                            Link a different store
                           </button>
                         </div>
                       ) : (
                         <>
-                          <label className="text-ds-on-surface-variant mb-1.5 block text-[11px] font-semibold uppercase tracking-wide">
-                            Store subdomain
+                          <label
+                            htmlFor="shop-subdomain"
+                            className="text-ds-on-surface mb-1.5 block text-sm font-medium"
+                          >
+                            Shopify store name
                           </label>
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
                             <input
+                              id="shop-subdomain"
                               type="text"
                               value={shopDraft}
                               onChange={(e) => setShopDraft(e.target.value)}
                               placeholder="your-store"
                               disabled={connectBusy || !agentId}
-                              className="border-ds-outline text-ds-on-surface focus:border-ds-primary focus:ring-ds-primary/15 min-h-12 flex-1 rounded-ds-md border bg-white px-3 py-2.5 text-sm shadow-sm outline-none focus:ring-2 disabled:opacity-45"
+                              className="border-ds-outline text-ds-on-surface focus:border-ds-primary focus:ring-ds-primary/15 min-h-11 flex-1 rounded-ds-md border bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 disabled:opacity-45"
                             />
                             <button
                               type="button"
                               onClick={() => void startOAuth()}
                               disabled={connectBusy || !agentId || !shopDraft.trim()}
-                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover touch-manipulation min-h-12 shrink-0 rounded-ds-md px-5 py-3 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent] sm:min-w-[10rem]"
+                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover min-h-11 shrink-0 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:opacity-45 sm:min-w-[9.5rem]"
                             >
-                              {connectBusy ? "Redirecting…" : "Connect Shopify"}
+                              {connectBusy ? "Opening Shopify…" : "Link Shopify"}
                             </button>
                           </div>
-                          <p className="text-ds-on-surface-variant mt-2 text-[11px] leading-relaxed">
-                            For <span className="font-medium">store.myshopify.com</span>, enter{" "}
-                            <span className="font-medium">store</span>.
+                          <p className="text-ds-on-surface-variant mt-2 text-xs leading-relaxed">
+                            For <span className="font-medium">your-store.myshopify.com</span>, type{" "}
+                            <span className="font-medium">your-store</span>.
                           </p>
                         </>
                       )}
 
-                      <p className="text-ds-on-surface-variant mt-4 text-center text-[11px] font-medium uppercase tracking-wider">
-                        Secure OAuth · no password sharing
-                      </p>
+                      {!connected ? (
+                        <div className="mt-4 flex justify-end">
+                          <Link
+                            href={agentPreviewHref}
+                            className="text-ds-on-surface-variant hover:text-ds-on-surface text-sm font-semibold underline underline-offset-2"
+                          >
+                            Skip for now
+                          </Link>
+                        </div>
+                      ) : null}
                     </div>
-
-                    <p className="text-ds-on-surface-variant text-sm leading-relaxed">
-                      Other channels (email, helpdesk) can be linked later from Settings.
-                    </p>
                   </div>
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col items-center justify-center border-t p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:border-t-0 lg:border-l lg:p-10">
+              <section className={onboardingSplitRightSectionCentered}>
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -276,81 +329,98 @@ export default function ConnectionOnboardingPage() {
                   }}
                   aria-hidden
                 />
-                <div className="relative mx-auto w-full max-w-[400px]">
-                  <div className="border-ds-outline flex min-h-[18rem] w-full flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl sm:min-h-[24rem] lg:min-h-[520px]">
+                <div className={onboardingSplitPreviewWrap}>
+                  <div className={cn(onboardingSplitPreviewShell, "h-full min-h-0 flex-1")}>
                     <div className="border-ds-outline flex items-center justify-between border-b bg-white px-4 py-3">
                       <div className="min-w-0">
-                        <h3 className="text-ds-on-surface truncate text-sm font-semibold">Store connection</h3>
-                        <p className="text-ds-secondary text-[11px]">{panelSubtitle}</p>
+                        <h3 className="text-ds-on-surface truncate text-sm font-semibold">Shopify link</h3>
+                        <p className="text-ds-secondary truncate text-[11px]">{siteName}</p>
                       </div>
-                      <span className="text-ds-on-surface-variant shrink-0 text-sm" aria-hidden>
-                        ⋮
-                      </span>
+                      {data?.shop_domain ? (
+                        <a
+                          href={`https://${data.shop_domain}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-ds-on-surface-variant hover:text-ds-primary inline-flex size-9 items-center justify-center rounded-md"
+                          aria-label="Open Shopify admin"
+                        >
+                          <ExternalLink className="size-4" aria-hidden />
+                        </a>
+                      ) : null}
                     </div>
 
-                    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+                    <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
                       {error ? (
-                        <div className="border-ds-outline rounded-ds-lg border border-rose-200 bg-rose-50/80 p-4 text-sm text-rose-900">
+                        <div className="rounded-ds-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
                           {error}
                         </div>
                       ) : null}
 
                       <div className="border-ds-outline rounded-ds-lg border bg-white p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-ds-on-surface truncate text-sm font-semibold">{shopLabel}</p>
-                            <p className="text-ds-on-surface-variant truncate text-xs">{domainLine}</p>
-                          </div>
-                          {statusBadge}
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-ds-on-surface text-sm font-semibold">
+                            {loading ? "Checking…" : connected ? "Store linked" : "Not linked yet"}
+                          </p>
+                          {connected ? (
+                            <span className="bg-ds-primary/15 text-ds-primary rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                              Linked
+                            </span>
+                          ) : null}
                         </div>
-                        <p className="text-ds-on-surface-variant mt-3 text-xs leading-relaxed">
-                          {connected
-                            ? "Products, orders, and policy pages can be read on demand when shoppers ask."
-                            : "Connect OAuth to link your Shopify Admin access for this agent."}
-                        </p>
-                        {connected ? (
+                        {connected && data?.shop_domain ? (
+                          <p className="text-ds-on-surface-variant mt-1 truncate text-xs">{data.shop_domain}</p>
+                        ) : (
+                          <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                            Link Shopify to answer with live catalog and order info.
+                          </p>
+                        )}
+                        {connected && data?.last_synced_at ? (
                           <p className="text-ds-on-surface-variant mt-2 text-[11px]">
-                            Last updated {formatSynced(data?.last_synced_at)}
+                            Updated {formatSynced(data.last_synced_at)}
                           </p>
                         ) : null}
                       </div>
 
-                      <div className="border-ds-outline flex min-h-0 flex-1 flex-col overflow-hidden rounded-ds-lg border bg-white p-3 sm:p-4">
-                        <p className="text-ds-on-surface text-xs font-semibold">Setup progress</p>
-                        <p className="text-ds-on-surface-variant mt-1 text-[11px] leading-relaxed">
-                          {connected
-                            ? "Connection is complete. You can keep configuring your agent while shoppers chat."
-                            : "Complete OAuth to unlock catalog and order-aware answers for this agent."}
-                        </p>
-                        <div className="mt-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-ds-on-surface">
-                          <span>Progress</span>
-                          <span>{loading ? "…" : `${progressPct}%`}</span>
+                      <div className="border-ds-outline flex min-h-0 flex-1 flex-col rounded-ds-lg border bg-white p-4">
+                        <div className="flex items-center justify-between text-xs font-semibold">
+                          <span className="text-ds-on-surface">Setup progress</span>
+                          <span className="text-ds-on-surface-variant">{loading ? "…" : `${progressPct}%`}</span>
                         </div>
-                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-ds-outline/80">
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ds-outline/70">
                           <div
-                            className="bg-ds-primary h-full rounded-full transition-all"
-                            style={{ width: loading ? "8%" : `${progressPct}%` }}
+                            className="bg-ds-primary h-full rounded-full transition-all duration-300"
+                            style={{ width: loading ? "6%" : `${progressPct}%` }}
                           />
                         </div>
-                        <ul className="mt-3 space-y-1.5">
+                        <ul className="mt-3 space-y-2">
                           {syncRows.map((item) => (
                             <li
                               key={item.label}
-                              className={`flex items-center justify-between rounded-ds-md border px-2.5 py-2 text-[11px] ${
-                                item.state === "active"
-                                  ? "border-ds-primary bg-white ring-1 ring-ds-primary/15"
-                                  : item.state === "pending"
-                                    ? "border-dashed border-ds-outline bg-ds-sidebar/60 text-ds-on-surface-variant"
-                                    : "border-ds-outline bg-white"
+                              className={`flex items-center justify-between rounded-ds-md border px-3 py-2.5 text-xs ${
+                                item.state === "done"
+                                  ? "border-ds-primary/30 bg-ds-primary/12"
+                                  : item.state === "active"
+                                    ? "border-ds-primary bg-white ring-1 ring-ds-primary/20"
+                                    : "border-dashed border-ds-outline/80 bg-ds-sidebar/40 text-ds-on-surface-variant"
                               }`}
                             >
-                              <span className="font-medium text-ds-on-surface">{item.label}</span>
-                              <span className="text-[9px] font-semibold uppercase tracking-wide text-ds-on-surface-variant">
+                              <span
+                                className={
+                                  item.state === "done" ? "font-medium text-ds-on-surface" : "font-medium"
+                                }
+                              >
+                                {item.label}
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold uppercase tracking-wide ${
+                                  item.state === "done" ? "text-ds-primary" : "text-ds-on-surface-variant"
+                                }`}
+                              >
                                 {item.state === "done"
                                   ? "Done"
                                   : item.state === "active"
-                                    ? "In progress"
-                                    : "Pending"}
+                                    ? "Now"
+                                    : "Waiting"}
                               </span>
                             </li>
                           ))}
@@ -358,13 +428,19 @@ export default function ConnectionOnboardingPage() {
                       </div>
 
                       <div className="border-ds-outline rounded-ds-md border bg-white p-3">
-                        <p className="text-ds-on-surface text-xs font-semibold">Scope</p>
-                        <p className="text-ds-on-surface-variant mt-1 text-[11px] leading-relaxed">
-                          {data?.scopes?.length
-                            ? `Granted: ${data.scopes.slice(0, 6).join(", ")}${data.scopes.length > 6 ? "…" : ""}`
-                            : connected
-                              ? "Scopes are stored on the server for this connection."
-                              : "Read products, orders, inventory, and storefront policies. No payment capture by default."}
+                        <p className="text-ds-on-surface text-xs font-semibold">What you get</p>
+                        <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                          {isFreePlan ? (
+                            <>
+                              <span className="text-ds-on-surface font-medium">Free plan:</span> you can link Shopify
+                              here. Live product and order answers in chat need{" "}
+                              <span className="text-ds-on-surface font-medium">Hobby</span> or higher.
+                            </>
+                          ) : connected && hasScopes ? (
+                            "Your agent can read products, orders, and policies when shoppers ask. Read-only, no charges."
+                          ) : (
+                            "After you approve access, your agent can use live store data when shoppers ask questions."
+                          )}
                         </p>
                       </div>
                     </div>

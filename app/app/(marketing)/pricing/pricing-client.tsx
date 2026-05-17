@@ -1,22 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState } from "react";
-import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useId, useState } from "react";
+import { MarketingSiteFooter } from "@/components/marketing/marketing-site-footer";
 import { PricingFeatureMatrix } from "@/components/marketing/pricing-sections";
 import { useSessionPresent } from "@/hooks/use-session-present";
+import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import type { PricingTierSlug } from "@/lib/marketing/pricing-catalog";
 
 const faqs = [
   {
     question: "What counts toward my conversation allowance?",
     answer:
-      "When a chat is no longer open, we count it if there was any visitor message, assistant reply, or tool call—even a single assistant turn or tool-heavy flow counts. Idle sessions close after about 30 minutes of inactivity. Your dashboard compares sessions started in a range with those counted toward your plan.",
+      "We count a chat when it closes if there was any visitor message, assistant reply, or tool use. Idle sessions close after about 30 minutes.",
     open: true,
   },
   {
     question: "What happens if I go over my included conversations?",
     answer:
-      "We do not charge for extra conversations at this time. After you pass your plan’s included conversations for the period, the assistant automatically switches to a lower-cost model until the cycle resets or you move to a higher plan.",
+      "No extra charge for overage right now. After you pass your included conversations, chat stays on but replies may be slower until the cycle resets or you upgrade.",
     open: false,
   },
   {
@@ -32,9 +35,59 @@ const faqs = [
 ] as const;
 
 export function MarketingPricingClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { ready: sessionReady, hasSession } = useSessionPresent();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [checkoutBusySlug, setCheckoutBusySlug] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [checkoutBanner, setCheckoutBanner] = useState<string | null>(null);
   const faqIdPrefix = useId();
+
+  const showDashboard = sessionReady && hasSession;
+
+  useEffect(() => {
+    const q = searchParams.get("checkout");
+    if (q === "success") {
+      setCheckoutBanner("Payment received. Your plan updates shortly. Open the dashboard to confirm.");
+    } else if (q === "cancel") {
+      setCheckoutBanner("Checkout canceled. Pick a plan below when you are ready.");
+    } else {
+      setCheckoutBanner(null);
+    }
+  }, [searchParams]);
+
+  const onPlanCheckout = useCallback(
+    async (slug: PricingTierSlug) => {
+      if (!showDashboard) {
+        router.push("/signup");
+        return;
+      }
+      if (slug === "free") {
+        router.push("/dashboard");
+        return;
+      }
+      if (checkoutBusySlug) return;
+      setCheckoutBusySlug(slug);
+      setCheckoutError(null);
+      try {
+        const res = await backendFetch<{ url: string }>("/api/v1/billing/checkout", {
+          method: "POST",
+          body: JSON.stringify({
+            plan_slug: slug,
+            interval: "month",
+            return_context: "marketing",
+          }),
+        });
+        window.location.href = res.url;
+      } catch (e) {
+        const msg = e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Checkout failed";
+        setCheckoutError(msg);
+        setCheckoutBusySlug(null);
+      }
+    },
+    [checkoutBusySlug, router, showDashboard],
+  );
 
   return (
     <main className="flex-1 bg-ds-surface text-ds-on-surface">
@@ -44,13 +97,27 @@ export function MarketingPricingClient() {
             Predictable pricing, scalable plans
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-5 sm:max-w-2xl sm:text-xl">
-            Simple conversation limits—not opaque message credits. Compare plans below; the home page shows a compact
-            summary of each tier.
+            Simple conversation limits, not message credits. Compare plans below.
           </p>
         </div>
 
+        {checkoutBanner ? (
+          <p className="border-ds-outline bg-ds-surface/95 text-ds-on-surface mx-auto mb-4 max-w-3xl rounded-ds-md border px-4 py-2 text-center text-sm">
+            {checkoutBanner}
+          </p>
+        ) : null}
+        {checkoutError ? (
+          <p className="border-ds-outline bg-ds-surface/95 mx-auto mb-6 max-w-3xl rounded-ds-md border px-4 py-2 text-center text-sm text-rose-600">
+            {checkoutError}
+          </p>
+        ) : null}
+
         <div className="mb-20 sm:mb-24">
-          <PricingFeatureMatrix isAuthenticated={sessionReady && hasSession} />
+          <PricingFeatureMatrix
+            isAuthenticated={showDashboard}
+            onPlanCheckout={showDashboard ? onPlanCheckout : undefined}
+            checkoutBusySlug={checkoutBusySlug}
+          />
         </div>
 
         <section className="mx-auto mb-32 max-w-3xl font-sans">
@@ -123,10 +190,10 @@ export function MarketingPricingClient() {
                 Join teams building the future of automated support with ChatRely.
               </p>
               <Link
-                href={sessionReady && hasSession ? "/dashboard" : "/signup"}
+                href={showDashboard ? "/dashboard" : "/signup"}
                 className="hover:bg-ds-muted focus-visible:ring-offset-ds-primary inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-8 py-3.5 text-sm font-semibold text-ds-primary shadow-md transition-colors hover:text-ds-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
               >
-                {sessionReady && hasSession ? "Open dashboard" : "Get started"}
+                {showDashboard ? "Open dashboard" : "Get started"}
               </Link>
             </div>
           </article>
@@ -138,41 +205,17 @@ export function MarketingPricingClient() {
             <p className="text-ds-on-surface-variant mb-6 max-w-[16rem] text-sm leading-relaxed">
               Need a custom plan? Our experts are here to help.
             </p>
-            <Link
-              href="/login"
+            <a
+              href="mailto:support@chatrely.com"
               className="text-ds-primary hover:text-ds-primary-hover text-sm font-semibold underline underline-offset-4 transition-colors"
             >
-              Talk to sales
-            </Link>
+              Contact us
+            </a>
           </article>
         </section>
       </section>
 
-      <footer className="border-t border-zinc-200 bg-zinc-50 px-6 py-12">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-8 md:flex-row">
-          <ChatRelyWordmark
-            iconClassName="h-7 w-auto"
-            textClassName="text-2xl font-black text-ds-primary"
-          />
-          <nav className="flex flex-wrap items-center gap-7">
-            {[
-              { label: "Privacy", href: "/privacy" },
-              { label: "Terms", href: "/terms" },
-              { label: "Security", href: "/terms#security" },
-              { label: "Contact", href: "mailto:support@chatrely.com" },
-            ].map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="text-xs font-semibold tracking-widest text-zinc-500 uppercase transition hover:text-zinc-900"
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-          <p className="text-xs text-zinc-500">© 2026 ChatRely Platform. Built with precision.</p>
-        </div>
-      </footer>
+      <MarketingSiteFooter />
     </main>
   );
 }

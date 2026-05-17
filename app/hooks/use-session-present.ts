@@ -16,22 +16,39 @@ export function useSessionPresent(): { ready: boolean; hasSession: boolean } {
     const supabase = createBrowserSupabaseClient();
     let cancelled = false;
 
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled) {
-        setHasSession(!!data.session);
-        setReady(true);
-      }
-    });
+    const refresh = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      setHasSession(!!data.session);
+      setReady(true);
+    };
+
+    void refresh();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
       setHasSession(!!session);
+      setReady(true);
     });
+
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) void refresh();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
       subscription.unsubscribe();
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

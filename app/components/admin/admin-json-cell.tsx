@@ -33,7 +33,7 @@ export function AdminJsonCell({
 }: AdminJsonCellProps) {
   if (isEmpty(value)) {
     return (
-      <span className="text-ds-on-surface-variant text-xs">{emptyPlaceholder}</span>
+      <span className="ds-app-body-muted">{emptyPlaceholder}</span>
     );
   }
   let serialized: string;

@@ -1,6 +1,6 @@
 /**
  * Onboarding journey map — single source for step order, routes, and UX goals.
- * Sidebar shows 5 primary steps; intermediate routes (training, pricing) sit between steps.
+ * Sidebar shows 5 primary steps; pricing sits after appearance & tone.
  */
 export const onboardingSteps = [
   {
@@ -39,12 +39,6 @@ export const onboardingSteps = [
     goal: "Configure model, tone, and brand color.",
   },
 ] as const;
-
-/** Optional entry — framing before step 1 (not a sidebar step). */
-export const welcomeRoute = "/onboarding/welcome";
-
-/** Between step 2 and 3 — async indexing; user can continue without blocking. */
-export const trainingRoute = "/onboarding/knowledge-base/training";
 
 /** After appearance & tone — plan selection before install. */
 export const pricingRoute = "/onboarding/pricing";

@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { SignupTypingPreview } from "@/components/auth/signup-typing-preview";
 import { CHAT_RELY_LOGO_PATH, ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { MarketingAuthHeader } from "@/components/marketing/marketing-auth-header";
+import { MarketingSiteFooter } from "@/components/marketing/marketing-site-footer";
+import { clearChatrelyClientAccountCaches } from "@/lib/clear-client-account-caches";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
 function IconClose({ className }: { className?: string }) {
@@ -87,39 +90,13 @@ export function ChatRelySignupScreen() {
       return;
     }
 
+    clearChatrelyClientAccountCaches();
     router.push(`/verify-email?email=${encodeURIComponent(email)}`);
   }
 
   return (
     <div className="bg-ds-surface text-ds-on-surface flex min-h-screen flex-col">
-      <header className="z-10 flex w-full shrink-0 items-center justify-between px-6 py-4 md:px-8">
-        <ChatRelyWordmark
-          href="/"
-          className="text-ds-primary gap-2 text-2xl font-bold tracking-tight"
-          iconClassName="h-7 w-auto"
-          textClassName="text-2xl font-bold text-ds-primary"
-        />
-        <nav className="hidden items-center gap-8 md:flex">
-          <Link
-            href="/"
-            className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-sm font-medium transition-colors"
-          >
-            Platform
-          </Link>
-          <Link
-            href="/"
-            className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-sm font-medium transition-colors"
-          >
-            Showcase
-          </Link>
-          <Link
-            href="/"
-            className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-sm font-medium transition-colors"
-          >
-            Back to Website
-          </Link>
-        </nav>
-      </header>
+      <MarketingAuthHeader />
 
       <main className="flex flex-1 items-center justify-center p-4 md:p-6">
         <div className="border-ds-outline flex h-auto w-full max-w-6xl overflow-hidden rounded-ds-xl border bg-ds-surface shadow-md lg:min-h-[700px]">
@@ -150,7 +127,7 @@ export function ChatRelySignupScreen() {
 
               <div className="text-ds-on-surface-variant relative mb-6 flex items-center">
                 <div className="border-ds-outline flex-grow border-t" />
-                <span className="mx-4 shrink text-[10px] font-bold uppercase tracking-widest">
+                <span className="ds-app-kicker mx-4 shrink font-bold">
                   Or continue with email
                 </span>
                 <div className="border-ds-outline flex-grow border-t" />
@@ -158,7 +135,7 @@ export function ChatRelySignupScreen() {
 
               <form className="space-y-4" method="post" onSubmit={handleSubmit}>
                 <div className="space-y-1.5">
-                  <label htmlFor="signup-name" className="text-ds-on-surface text-xs font-semibold">
+                  <label htmlFor="signup-name" className="ds-app-label">
                     Full name
                   </label>
                   <input
@@ -172,7 +149,7 @@ export function ChatRelySignupScreen() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="signup-email" className="text-ds-on-surface text-xs font-semibold">
+                  <label htmlFor="signup-email" className="ds-app-label">
                     Work email
                   </label>
                   <input
@@ -186,7 +163,7 @@ export function ChatRelySignupScreen() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="signup-password" className="text-ds-on-surface text-xs font-semibold">
+                  <label htmlFor="signup-password" className="ds-app-label">
                     Password
                   </label>
                   <input
@@ -219,7 +196,7 @@ export function ChatRelySignupScreen() {
                   Log in
                 </Link>
               </p>
-              <p className="text-ds-on-surface-variant mt-8 px-4 text-center text-[10px] leading-relaxed tracking-wider uppercase">
+              <p className="ds-app-kicker mt-8 px-4 text-center">
                 By signing up you agree to our{" "}
                 <Link href="/terms" className="underline">
                   Terms
@@ -240,7 +217,7 @@ export function ChatRelySignupScreen() {
                   <span className="size-2.5 rounded-full bg-zinc-200" />
                   <span className="size-2.5 rounded-full bg-zinc-200" />
                 </div>
-                <div className="text-ds-on-surface-variant border-ds-outline mx-auto rounded border bg-ds-surface px-12 py-1 text-[10px]">
+                <div className="ds-app-kicker border-ds-outline mx-auto rounded border bg-ds-surface px-12 py-1">
                   mystore.shopify.com
                 </div>
               </div>
@@ -265,7 +242,7 @@ export function ChatRelySignupScreen() {
                       <img src={CHAT_RELY_LOGO_PATH} alt="" className="h-4 w-auto object-contain" />
                     </div>
                     <div>
-                      <div className="text-ds-primary text-[11px] font-bold">ChatRely Assistant</div>
+                      <div className="ds-app-card-title text-ds-primary">ChatRely Assistant</div>
                       <div className="flex items-center gap-1">
                         <span className="size-1 rounded-full bg-green-500" />
                         <span className="text-ds-on-surface-variant text-[9px] font-medium">
@@ -280,12 +257,12 @@ export function ChatRelySignupScreen() {
                 <div className="flex flex-grow flex-col space-y-4 bg-ds-surface p-4">
                   <div className="flex items-start gap-2">
                     <div className="mt-0.5 size-5 shrink-0 rounded-full bg-zinc-100" />
-                    <div className="text-ds-on-surface-variant rounded-2xl rounded-tl-none bg-zinc-100 px-3 py-2 text-[11px] leading-normal">
+                    <div className="ds-app-body-muted rounded-2xl rounded-tl-none bg-zinc-100 px-3 py-2">
                       Hi there! 👋 How can I help you with your order today?
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
-                    <div className="bg-ds-primary flex min-h-[34px] items-center rounded-2xl rounded-br-none px-4 py-2.5 text-[11px] font-medium text-ds-on-primary shadow-sm">
+                    <div className="bg-ds-primary flex min-h-[34px] items-center rounded-2xl rounded-br-none px-4 py-2.5 text-sm font-medium text-ds-on-primary shadow-sm">
                       <SignupTypingPreview />
                     </div>
                     <span className="text-ds-on-surface-variant mr-1 text-[8px] font-bold tracking-widest uppercase">
@@ -297,7 +274,7 @@ export function ChatRelySignupScreen() {
             </div>
 
             <div className="absolute bottom-8 text-center">
-              <p className="text-ds-on-surface-variant text-[10px] font-bold tracking-[0.2em] opacity-60 uppercase">
+              <p className="ds-app-kicker font-bold opacity-60">
                 24/7 AI-powered automation
               </p>
             </div>
@@ -305,33 +282,7 @@ export function ChatRelySignupScreen() {
         </div>
       </main>
 
-      <footer className="w-full shrink-0 border-t border-zinc-200/50 bg-transparent py-4 md:py-5">
-        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-8 md:flex-row">
-          <div className="text-ds-on-surface-variant text-[11px] font-bold tracking-widest uppercase">
-            © 2026 ChatRely
-          </div>
-          <div className="flex flex-wrap justify-center gap-6 md:gap-8">
-            <Link
-              href="/privacy"
-              className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-[11px] font-bold tracking-widest transition-colors uppercase"
-            >
-              Privacy Policy
-            </Link>
-            <Link
-              href="/terms"
-              className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-[11px] font-bold tracking-widest transition-colors uppercase"
-            >
-              Terms of Service
-            </Link>
-            <a
-              href="mailto:support@chatrely.com"
-              className="text-ds-on-surface-variant hover:text-ds-interactive-hover text-[11px] font-bold tracking-widest transition-colors uppercase"
-            >
-              Help Center
-            </a>
-          </div>
-        </div>
-      </footer>
+      <MarketingSiteFooter variant="auth" />
     </div>
   );
 }

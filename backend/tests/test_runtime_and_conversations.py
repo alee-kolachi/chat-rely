@@ -92,7 +92,7 @@ def test_runtime_chat_success(client: TestClient, monkeypatch: pytest.MonkeyPatc
             }
         )
 
-    monkeypatch.setattr("app.api.routes.runtime.run_chat", _run_chat)
+    monkeypatch.setattr("app.api.routes.runtime.agent_run_chat", _run_chat)
     response = client.post(
         "/api/v1/runtime/chat",
         headers=_auth_header(),
@@ -123,7 +123,7 @@ def test_runtime_chat_fallback_used(client: TestClient, monkeypatch: pytest.Monk
             }
         )
 
-    monkeypatch.setattr("app.api.routes.runtime.run_chat", _run_chat)
+    monkeypatch.setattr("app.api.routes.runtime.agent_run_chat", _run_chat)
     response = client.post(
         "/api/v1/runtime/chat",
         headers=_auth_header(),
@@ -137,53 +137,6 @@ def test_runtime_chat_fallback_used(client: TestClient, monkeypatch: pytest.Monk
     assert response.json()["retrieval_count"] == 0
 
 
-def test_runtime_chat_stream_ndjson(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_auth(monkeypatch)
-    cid = str(uuid4())
-    aid = str(uuid4())
-
-    async def _stream(*_: Any, **__: Any):
-        yield {"type": "start", "conversation_id": cid}
-        yield {"type": "token", "text": "Hello"}
-        yield {
-            "type": "done",
-            **RuntimeChatResponse.model_validate(
-                {
-                    "conversation_id": cid,
-                    "assistant_message_id": aid,
-                    "response": "Hello",
-                    "model": "gpt-4o-mini",
-                    "fallback_used": False,
-                    "retrieval_count": 2,
-                    "min_similarity": 0.72,
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "retrieval_preview": [],
-                }
-            ).model_dump(mode="json"),
-        }
-
-    monkeypatch.setattr("app.api.routes.runtime.run_chat_stream", _stream)
-    response = client.post(
-        "/api/v1/runtime/chat/stream",
-        headers=_auth_header(),
-        json={
-            "agent_id": "00000000-0000-0000-0000-000000000888",
-            "message": "Hi",
-        },
-    )
-    assert response.status_code == 200
-    assert response.headers.get("content-type", "").startswith("application/x-ndjson")
-    lines = [ln for ln in response.text.strip().split("\n") if ln.strip()]
-    assert len(lines) >= 3
-    ev0 = json.loads(lines[0])
-    ev1 = json.loads(lines[1])
-    ev_last = json.loads(lines[-1])
-    assert ev0["type"] == "start"
-    assert ev0["conversation_id"] == cid
-    assert ev1["type"] == "token"
-    assert ev1["text"] == "Hello"
-    assert ev_last["type"] == "done"
-    assert ev_last["response"] == "Hello"
 
 
 def test_list_conversations(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

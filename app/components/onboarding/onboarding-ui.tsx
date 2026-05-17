@@ -9,29 +9,27 @@ function OnboardingBackChevron({ className }: { className?: string }) {
 
 /** Shared typography + spacing for all onboarding main content */
 export const onboardingType = {
-  kicker: "text-ds-on-surface-variant text-[11px] font-semibold uppercase tracking-[0.18em]",
-  title: "text-ds-on-surface text-2xl font-semibold tracking-tight md:text-3xl",
-  subtitle: "text-ds-on-surface-variant mt-2 max-w-2xl text-sm leading-relaxed md:text-base",
-  sectionLabel: "text-ds-on-surface text-sm font-semibold",
-  body: "text-ds-on-surface-variant text-sm leading-relaxed md:text-base",
-  label: "text-ds-on-surface mb-1.5 block text-xs font-semibold",
-  hint: "text-ds-on-surface-variant mt-1.5 text-xs leading-relaxed",
+  kicker: "ds-app-kicker font-semibold",
+  title: "ds-app-page-title",
+  subtitle: "ds-app-page-description mt-2 max-w-2xl",
+  sectionLabel: "ds-app-card-title",
+  body: "ds-app-body-muted md:text-base md:leading-relaxed",
+  label: "ds-app-label mb-1.5 block",
+  hint: "ds-app-body-muted mt-1.5",
 } as const;
 
 /**
  * Two-column onboarding steps: `<main>` in OnboardingFrame must scroll on mobile.
  * `flex-1 min-h-0` + `overflow-hidden` below `lg` clips content instead of growing scroll height.
  */
+/** Split steps: equal-height two-column card on desktop. */
 export const onboardingSplitRoot = cn(
-  "max-w-6xl flex w-full flex-col max-lg:flex-none max-lg:min-h-min pt-2 md:pt-4",
-  "lg:items-center lg:justify-center"
-);
-
-/** Same as onboardingSplitRoot but `lg:items-stretch` (e.g. appearance + long forms). */
-export const onboardingSplitRootStretch = cn(
   "max-w-6xl flex w-full flex-col max-lg:flex-none max-lg:min-h-min pt-2 md:pt-4",
   "lg:items-stretch lg:justify-center"
 );
+
+/** @deprecated Use `onboardingSplitRoot` (stretch is default for equal column heights). */
+export const onboardingSplitRootStretch = onboardingSplitRoot;
 
 export const onboardingSplitBody = cn(
   "relative flex w-full min-w-0 flex-col max-lg:flex-none max-lg:min-h-min",
@@ -47,8 +45,34 @@ export const onboardingSplitCard = cn(
 
 export const onboardingSplitGrid = cn(
   "flex w-full min-w-0 flex-col max-lg:min-h-min",
-  "lg:grid lg:grid-cols-2"
+  "lg:grid lg:grid-cols-2 lg:min-h-0 lg:flex-1"
 );
+
+/** White card shell — stretches to fill main column on desktop. */
+export const onboardingSplitCardFilled = cn(
+  onboardingSplitCard,
+  "flex w-full flex-col max-lg:flex-none lg:min-h-0 lg:flex-1"
+);
+
+export const onboardingSplitLeftSection = cn(
+  "flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10"
+);
+
+export const onboardingSplitRightSection = cn(
+  "bg-ds-sidebar border-ds-outline relative flex min-h-0 flex-col border-t p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:border-t-0 lg:border-l lg:p-10"
+);
+
+export const onboardingSplitRightSectionCentered = cn(
+  onboardingSplitRightSection,
+  "items-center justify-center"
+);
+
+/** Right-column browser / chat preview — same height on every split step. */
+export const onboardingSplitPreviewShell = cn(
+  "border-ds-outline flex min-h-[18rem] w-full flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl sm:min-h-[24rem] lg:min-h-[520px]"
+);
+
+export const onboardingSplitPreviewWrap = "relative mx-auto flex h-full min-h-0 w-full max-w-[400px] flex-col";
 
 export function OnboardingPageHeader({
   kicker,
@@ -127,9 +151,9 @@ export function OnboardingStickyFooter({
   };
 
   const controlClass =
-    "touch-manipulation cursor-pointer inline-flex max-w-full min-h-11 min-w-[2.75rem] items-center justify-center rounded-ds-md px-4 py-2.5 text-[11px] font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:px-5 sm:py-2.5 sm:text-xs";
+    "touch-manipulation cursor-pointer inline-flex max-w-full min-h-11 min-w-[2.75rem] items-center justify-center rounded-ds-md px-4 py-2.5 text-sm font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:px-5 sm:py-2.5";
   const backClass =
-    "touch-manipulation text-ds-on-surface-variant hover:text-ds-on-surface inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-ds-md px-3 py-2 text-[11px] font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:gap-2 sm:px-3 sm:text-xs";
+    "touch-manipulation text-ds-on-surface-variant hover:text-ds-on-surface ds-app-kicker inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-ds-md px-3 py-2 font-semibold transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:gap-2 sm:px-3";
 
   return (
     <footer
@@ -250,8 +274,8 @@ export function OnboardingStatusBlock({
 
   return (
     <div className={cn("rounded-ds-md border p-4", styles)}>
-      <p className="text-ds-on-surface text-sm font-semibold">{title}</p>
-      {description ? <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">{description}</p> : null}
+      <p className="ds-app-card-title">{title}</p>
+      {description ? <p className="ds-app-body-muted mt-1">{description}</p> : null}
       {children}
     </div>
   );

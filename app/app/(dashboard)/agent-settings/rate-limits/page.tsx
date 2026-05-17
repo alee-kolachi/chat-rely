@@ -95,13 +95,13 @@ function RateLimitsForm() {
         className="rounded-ds-xl border border-amber-300 bg-amber-50/80 p-4 text-sm text-amber-900"
       >
         <p>
-          <strong>Saved values are stored on the agent.</strong> Runtime enforcement (throttling visitors above the
-          limit) is being wired up next. For now, plan-tier throttling still applies as configured in your subscription.
+          Limits apply per visitor in the widget and playground. Plan-tier throttling still applies separately when
+          your subscription usage is high.
         </p>
       </div>
 
       <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-        <h2 className="ds-app-section-title mb-1 text-base">Rate limits</h2>
+        <h2 className="ds-app-section-title mb-1">Rate limits</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
           Throttle how many user messages this agent accepts within a rolling time window before showing the limit
           message.
@@ -113,7 +113,7 @@ function RateLimitsForm() {
               <label htmlFor="rate-limit-messages" className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
                 Max messages
               </label>
-              <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+              <p className="ds-app-body-muted mb-2">
                 Allowed before the limit message is shown.
               </p>
               <input
@@ -129,7 +129,7 @@ function RateLimitsForm() {
               <label htmlFor="rate-limit-window" className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
                 Window (seconds)
               </label>
-              <p className="text-ds-on-surface-variant mb-2 text-xs leading-relaxed">
+              <p className="ds-app-body-muted mb-2">
                 Rolling period the count applies to.
               </p>
               <input

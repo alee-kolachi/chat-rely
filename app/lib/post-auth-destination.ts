@@ -10,5 +10,5 @@ export function resolvePostAuthDestination(nextPath: string, onboardingCompleted
   if (safe.startsWith("/onboarding")) {
     return safe;
   }
-  return "/onboarding/welcome";
+  return "/onboarding";
 }

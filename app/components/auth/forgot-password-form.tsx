@@ -20,7 +20,7 @@ export function ForgotPasswordForm() {
   return (
     <form className="space-y-4" action={formAction}>
       <div className="space-y-1.5">
-        <label htmlFor="forgot-email" className="text-ds-on-surface text-xs font-semibold">
+        <label htmlFor="forgot-email" className="ds-app-label">
           Email address
         </label>
         <input

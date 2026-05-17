@@ -29,15 +29,15 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
     monthlyPriceCents: 0,
     includedConversations: 30,
     displayCostPerConversation: "$0.000",
-    tagline: "Explore ChatRely on a small monthly conversation allowance.",
+    tagline: "Start free, always on",
   },
   {
     slug: "hobby",
     name: "Hobby",
     monthlyPriceCents: 2900,
-    includedConversations: 200,
+    includedConversations: 250,
     displayCostPerConversation: "$0.145",
-    tagline: "For solo operators getting real customer volume.",
+    tagline: "Solo stores, real volume",
   },
   {
     slug: "standard",
@@ -45,7 +45,7 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
     monthlyPriceCents: 9900,
     includedConversations: 1000,
     displayCostPerConversation: "$0.099",
-    tagline: "Growing teams that need automation and richer analytics.",
+    tagline: "Automation and analytics",
   },
   {
     slug: "pro",
@@ -53,16 +53,16 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
     monthlyPriceCents: 39900,
     includedConversations: 5000,
     displayCostPerConversation: "$0.080",
-    tagline: "Higher limits, visitor feedback, source suggestions, and white-label touches.",
+    tagline: "Scale and white-label",
   },
 ];
 
 /** Short bullets for onboarding plan cards. Home teaser uses the feature row list. */
 export const PRICING_TEASER_BULLETS: Record<PricingTierSlug, readonly string[]> = {
-  free: ["1 agent · starter models", "Website & doc knowledge", "30 conversations / mo · no card"],
-  hobby: ["Shopify + AI actions", "Advanced models", "200 conversations / mo"],
-  standard: ["2 agents · automations & analytics", "Source suggestions", "1,000 conversations / mo"],
-  pro: ["5 agents · white-label touches", "Visitor thumbs & feedback insights", "5,000 conversations / mo"],
+  free: ["1 agent · essential AI", "Website knowledge · Shopify connect", "30 conversations / mo · always on"],
+  hobby: ["Shopify + AI actions", "Essential AI", "250 conversations / mo · always on"],
+  standard: ["Smart resolution for complex issues", "2 agents · analytics", "1,000 conversations / mo"],
+  pro: ["Smart resolution · visitor feedback", "5 agents · white-label", "5,000 conversations / mo"],
 };
 
 export type PricingDetailSection = {
@@ -87,7 +87,7 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         label: "Conversations / month",
         cells: {
           free: { kind: "text", value: "30 · $0.000" },
-          hobby: { kind: "text", value: "200 · $0.145" },
+          hobby: { kind: "text", value: "250 · $0.145" },
           standard: { kind: "text", value: "1,000 · $0.099" },
           pro: { kind: "text", value: "5,000 · $0.080" },
         },
@@ -111,21 +111,12 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Attachments (roadmap)",
+        label: "Attachments",
         cells: {
           free: { kind: "dash" },
-          hobby: {
-            kind: "text",
-            value: "PDF with readable text only",
-          },
-          standard: {
-            kind: "text",
-            value: "PDF, PNG, JPG, JPEG",
-          },
-          pro: {
-            kind: "text",
-            value: "PDF, PNG, JPG, JPEG",
-          },
+          hobby: { kind: "comingSoon" },
+          standard: { kind: "comingSoon" },
+          pro: { kind: "comingSoon" },
         },
       },
       {
@@ -133,8 +124,8 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         cells: {
           free: { kind: "dash" },
           hobby: { kind: "dash" },
-          standard: { kind: "tick" },
-          pro: { kind: "tick" },
+          standard: { kind: "comingSoon" },
+          pro: { kind: "comingSoon" },
         },
       },
       {
@@ -186,7 +177,7 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
       {
         label: "Shopify",
         cells: {
-          free: { kind: "dash" },
+          free: { kind: "tick" },
           hobby: { kind: "tick" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
@@ -195,10 +186,10 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
     ],
   },
   {
-    title: "Models",
+    title: "AI",
     rows: [
       {
-        label: "Limited models (GPT-5.4 Mini, GPT-4o Mini)",
+        label: "Essential AI (always on)",
         cells: {
           free: { kind: "tick" },
           hobby: { kind: "tick" },
@@ -207,18 +198,27 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Advanced OpenAI models",
+        label: "Smart resolution for complex issues",
         cells: {
           free: { kind: "dash" },
-          hobby: { kind: "tick" },
+          hobby: { kind: "dash" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
         },
       },
       {
-        label: "Advanced Google models",
+        label: "Priority smart resolution (shared capacity)",
         cells: {
           free: { kind: "dash" },
+          hobby: { kind: "dash" },
+          standard: { kind: "dash" },
+          pro: { kind: "comingSoon" },
+        },
+      },
+      {
+        label: "Always on (may slow when busy)",
+        cells: {
+          free: { kind: "tick" },
           hobby: { kind: "tick" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
@@ -242,39 +242,15 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
   },
 ];
 
-/** Multi-line footnotes for model groups (shown under the detail table). */
-export const PRICING_MODEL_FOOTNOTES: { title: string; lines: string[] }[] = [
+/** Footnotes for the AI section (optional detail under the matrix). */
+export const PRICING_AI_FOOTNOTES: { title: string; lines: string[] }[] = [
   {
-    title: "Limited models",
-    lines: ["GPT-5.4 Mini", "GPT-4o Mini"],
-  },
-  {
-    title: "Advanced OpenAI models",
+    title: "How AI works on every plan",
     lines: [
-      "GPT-5",
-      "GPT-5.1",
-      "GPT-5.2",
-      "GPT-5.4",
-      "GPT-5.5",
-      "GPT-5.4 Mini",
-      "GPT-5.4 Nano",
-      "GPT-5 Mini",
-      "GPT-5 Nano",
-      "GPT-OSS-120B",
-      "GPT-OSS-20B",
-      "GPT-4o",
-      "GPT-4o Mini",
-      "o4 Mini",
-    ],
-  },
-  {
-    title: "Advanced Google models",
-    lines: [
-      "Gemini 2.5 Flash",
-      "Gemini 2.5 Pro",
-      "Gemini 3 Flash",
-      "Gemini 3.1 Flash Lite",
-      "Gemini 3.1 Pro",
+      "Essential AI handles most chats and is included in your monthly conversations.",
+      "Standard and Pro use smart resolution on harder questions within a shared monthly allowance.",
+      "Pro priority resolution is rolling out next. Until then, Pro uses the same smart resolution with a higher allowance.",
+      "Chat stays on when you are busy. Heavy periods may reply a bit slower.",
     ],
   },
 ];
@@ -284,7 +260,7 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
     case "tick":
       return "\u2713";
     case "dash":
-      return "\u2014";
+      return "-";
     case "comingSoon":
       return "Soon";
     case "text":
@@ -296,36 +272,61 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
 
 /** Shorter row labels on the home landing teaser cards. */
 export const LANDING_COMPACT_LABELS: Record<string, string> = {
-  "Limited models (GPT-5.4 Mini, GPT-4o Mini)": "Limited models",
-  "Advanced OpenAI models": "Advanced models (OpenAI)",
-  "Advanced Google models": "Advanced models (Google)",
-  "Attachments (roadmap)": "Attachments",
+  "Essential AI (always on)": "Essential AI",
+  "Smart resolution for complex issues": "Smart resolution",
+  "Priority smart resolution (shared capacity)": "Priority resolution",
+  "Always on (may slow when busy)": "Always on",
+  Attachments: "Attachments",
+  "Auto retrain agents": "Auto retrain",
   "Remove Powered by ChatRely": "Remove branding",
 };
 
 /** Hover tooltips only where the row benefits from extra context (paired with the info icon). */
 export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
-  "Agents": "How many separate AI agents you can run on this plan.",
   "Conversations / month":
-    "Monthly conversation cap. The dollar figure is an estimate to compare plans—you pay the subscription, not per chat.",
-  "AI actions per agent": "Automations (e.g. Shopify actions) each agent can have enabled at the same time.",
-  "Training content size": "Total size of files and pages used to train agents on this plan.",
-  "Attachments (roadmap)":
-    "Still rolling out. Hobby: text-based PDFs. Standard & Pro: PDF plus common image types.",
-  "Auto retrain agents": "Automatically refresh the agent when your knowledge sources change.",
-  "Sources suggestions":
-    "After chats close, Standard and Pro can suggest weak topics on the dashboard so you can add knowledge.",
-  "Basic analytics": "Core conversation and performance metrics.",
-  "Advanced analytics": "Deeper metrics (intents, sentiment, quality). Standard and Pro; Hobby keeps core KPIs.",
+    "Monthly cap. The dollar figure helps compare plans. You pay the subscription, not per chat.",
+  "AI actions per agent": "Shopify automations each agent can run at once.",
+  "Training content size": "Total size of files and pages used to train agents.",
+  Attachments: "Visitors send files in the widget. Rolling out soon on paid plans.",
+  "Auto retrain agents": "Refresh agents when knowledge changes. Coming soon on Standard and Pro.",
+  "Sources suggestions": "After chats close, Standard and Pro suggest topics to add in Knowledge.",
+  "Advanced analytics": "Deeper metrics on Standard and Pro. Hobby keeps core KPIs.",
   "Visitor thumbs & feedback summaries (widget)":
-    "Visitors can rate replies in the widget; Pro summarizes thumbs and themes on the dashboard.",
-  "Shopify": "Connect Shopify for product- and order-aware replies.",
-  "Limited models (GPT-5.4 Mini, GPT-4o Mini)": "Starter OpenAI models (e.g. GPT-4o Mini, GPT-5.4 Mini).",
-  "Advanced OpenAI models": "Full OpenAI lineup (GPT-5 family, GPT-4o, o-series, and more).",
-  "Advanced Google models": "Gemini 2.5+ and 3.x Flash / Pro models.",
+    "Visitors rate replies in the widget. Pro summarizes themes on the dashboard.",
+  "Essential AI (always on)": "Default AI on every plan. Fast and included in your conversations.",
+  "Smart resolution for complex issues":
+    "Harder questions use deeper reasoning on Standard and Pro (shared monthly capacity).",
+  "Priority smart resolution (shared capacity)":
+    "Larger pool on Pro, rolling out next. Smart resolution is on Standard and Pro today.",
+  "Always on (may slow when busy)": "Chat stays on. Busy periods may reply a bit slower.",
   "Remove Powered by ChatRely":
-    "Pro hides “Powered by ChatRely” in the widget. Other plans may show it until the visitor sends a message.",
+    "Pro hides “Powered by ChatRely” in the widget until the visitor sends a message on other plans.",
+  Shopify:
+    "Free links your store (OAuth). Hobby and above add live product and order tools in chat via AI actions.",
 };
+
+/** Pricing rows that show an info hint (skip self-explanatory labels like Agents). */
+export const PRICING_ROW_TOOLTIP_LABELS = new Set<string>([
+  "Shopify",
+  "Conversations / month",
+  "AI actions per agent",
+  "Training content size",
+  "Attachments",
+  "Auto retrain agents",
+  "Sources suggestions",
+  "Advanced analytics",
+  "Visitor thumbs & feedback summaries (widget)",
+  "Essential AI (always on)",
+  "Smart resolution for complex issues",
+  "Priority smart resolution (shared capacity)",
+  "Always on (may slow when busy)",
+  "Remove Powered by ChatRely",
+]);
+
+export function pricingRowTooltip(label: string): string | undefined {
+  if (!PRICING_ROW_TOOLTIP_LABELS.has(label)) return undefined;
+  return LANDING_ROW_TOOLTIPS[label];
+}
 
 export type LandingTierFeatureRow = {
   /** Stable id for React keys */
@@ -341,10 +342,20 @@ export type LandingTierFeatureRow = {
 
 /** Landing home teaser cards: info icons only on a few high-signal rows. */
 export const LANDING_TEASER_TOOLTIP_KEYS = new Set<string>([
+  "Channels:Shopify",
   "usage:Conversations / month",
   "usage:AI actions per agent",
   "usage:Training content size",
-  "usage:Attachments (roadmap)",
+  "usage:Attachments",
+  "usage:Auto retrain agents",
+  "AI:Priority smart resolution (shared capacity)",
+]);
+
+/** Show “Soon” on landing plan cards for these rows (still hidden in the full matrix when dash). */
+export const LANDING_TEASER_SOON_KEYS = new Set<string>([
+  "usage:Attachments",
+  "usage:Auto retrain agents",
+  "AI:Priority smart resolution (shared capacity)",
 ]);
 
 const _PREVIOUS_TIER: Record<PricingTierSlug, PricingTierSlug | null> = {
@@ -365,8 +376,9 @@ function _compactLabel(sourceLabel: string): string {
   return LANDING_COMPACT_LABELS[sourceLabel] ?? sourceLabel;
 }
 
-function _excludedTeaserValue(v: string): boolean {
-  return v === "\u2014" || v === "Soon";
+function _excludedTeaserValue(v: string, rowKey?: string): boolean {
+  if (v === "Soon" && rowKey && LANDING_TEASER_SOON_KEYS.has(rowKey)) return false;
+  return v === "-" || v === "Soon";
 }
 
 type _TeaserMatrixRow = {
@@ -439,14 +451,14 @@ export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierF
 
   for (const ref of matrixRows) {
     const v = detailCellToShortDisplay(ref.cells[slug]);
-    if (_excludedTeaserValue(v)) continue;
+    if (_excludedTeaserValue(v, ref.key)) continue;
 
     if (prev) {
       const pv = detailCellToShortDisplay(ref.cells[prev]);
-      if (!_excludedTeaserValue(pv) && pv === v) continue;
+      if (!_excludedTeaserValue(pv, ref.key) && pv === v) continue;
     }
 
-    const tip = LANDING_ROW_TOOLTIPS[ref.matrixLabel];
+    const tip = pricingRowTooltip(ref.matrixLabel);
     const tooltip = tip && LANDING_TEASER_TOOLTIP_KEYS.has(ref.key) ? tip : undefined;
 
     body.push({
@@ -463,8 +475,8 @@ export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierF
     value: card.includedConversations.toLocaleString(),
     mutedSuffix: card.displayCostPerConversation,
     tooltip:
-      LANDING_TEASER_TOOLTIP_KEYS.has("usage:Conversations / month") && LANDING_ROW_TOOLTIPS["Conversations / month"]
-        ? LANDING_ROW_TOOLTIPS["Conversations / month"]
+      LANDING_TEASER_TOOLTIP_KEYS.has("usage:Conversations / month")
+        ? pricingRowTooltip("Conversations / month")
         : undefined,
   };
 

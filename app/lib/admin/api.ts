@@ -142,6 +142,8 @@ export type AdminUsageSnapshotSummary = {
   estimated_overage_cents: number;
   projected_conversations: number;
   throttle_tier: string;
+  included_premium_turns: number;
+  premium_turns_used: number;
   last_computed_at: string | null;
 };
 
@@ -197,6 +199,8 @@ export type AdminConversationDetail = AdminConversationListItem & {
   metadata: Record<string, unknown>;
   messages: AdminMessageDTO[];
   truncated: boolean;
+  total_message_count: number;
+  transcript_message_cap: number;
 };
 
 export type AdminUserDetail = {
@@ -692,6 +696,8 @@ export type AdminUsageSnapshotRow = {
   estimated_overage_cents: number;
   projected_conversations: number;
   throttle_tier: string;
+  included_premium_turns: number;
+  premium_turns_used: number;
   last_computed_at: string | null;
 };
 
@@ -722,6 +728,8 @@ export type AdminPlanRow = {
   features: Record<string, unknown>;
   throttle_policy: Record<string, unknown>;
   is_active: boolean;
+  public_on_pricing_page: boolean;
+  sort_order: number;
   subscriptions_count: number;
   created_at: string;
 };

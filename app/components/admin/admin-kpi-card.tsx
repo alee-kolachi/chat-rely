@@ -48,7 +48,7 @@ export function AdminKpiCard({
         {display}
       </div>
       {helper && (
-        <p className="text-ds-on-surface-variant mt-1 text-xs">{helper}</p>
+        <p className="ds-app-body-muted mt-1">{helper}</p>
       )}
       {hint && (
         <p className="text-ds-on-surface-variant/80 mt-0.5 text-[11px]">{hint}</p>

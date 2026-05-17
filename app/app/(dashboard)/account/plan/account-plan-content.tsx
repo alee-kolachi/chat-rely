@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import type { MeContextPayload } from "@/components/layout/me-context-provider";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { buildPlanEntitlementSections } from "@/lib/plan-entitlements";
 
 /** Tier order used for upgrade vs downgrade (matches billing price map). */
 const PAID_ORDER = ["hobby", "standard", "pro"] as const;
@@ -32,9 +33,19 @@ function formatDate(iso: string): string {
   }
 }
 
+function formatThrottleTier(tier: string): string {
+  return tier.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const resourceMetricRowClass =
+  "border-ds-outline flex flex-col gap-2 rounded-ds-lg border bg-ds-sidebar/50 p-4 sm:flex-row sm:items-center sm:justify-between";
+
+const resourceMetricValueClass = "text-ds-on-surface text-sm font-semibold tabular-nums sm:text-right";
+
 export function AccountPlanContent() {
   const searchParams = useSearchParams();
   const { data: ctx, error, refresh } = useMeContext();
+  const { agents, agentsLoading } = useDashboardAgent();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [planChangeBanner, setPlanChangeBanner] = useState<string | null>(null);
@@ -184,6 +195,11 @@ export function AccountPlanContent() {
   const hasStripeSubscription = Boolean(ctx?.subscription.provider_subscription_id?.trim());
   const canChangePaidPlan = Boolean(ctx && catalogPaidTier && hasStripeSubscription);
 
+  const planFeatureSections = useMemo(
+    () => (ctx ? buildPlanEntitlementSections(ctx.plan, ctx.usage_snapshot) : []),
+    [ctx]
+  );
+
   useEffect(() => {
     const raw = searchParams.get("plan");
     if (!raw || !ctx) return;
@@ -252,8 +268,7 @@ export function AccountPlanContent() {
             <div>
               <h1 className="ds-app-page-title">Plan</h1>
               <p className="text-ds-on-surface-variant ds-app-page-description ds-app-page-description--wide mt-2">
-                Subscription, limits, and usage for this workspace. Billing is per workspace (Supabase user), not per
-                Shopify store.
+                Manage your subscription, included resources, and plan changes for this workspace.
               </p>
             </div>
             {ctx ? (
@@ -295,42 +310,80 @@ export function AccountPlanContent() {
         {ctx ? (
           <>
             <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm lg:col-span-2">
+              <div className="space-y-6 lg:col-span-2">
+              <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
                 <h2 className="ds-app-section-title mb-4">Included resources</h2>
                 <div className="space-y-3">
-                  <div className="border-ds-outline flex flex-col gap-2 rounded-ds-lg border bg-ds-sidebar/50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-ds-on-surface text-sm font-semibold">AI agents</p>
-                      <p className="text-ds-on-surface-variant text-xs">Up to {ctx.plan.max_agents} agents on this plan</p>
-                    </div>
+                  <div className={resourceMetricRowClass}>
+                    <p className="ds-app-card-title">AI agents</p>
+                    <p className={resourceMetricValueClass}>
+                      {agentsLoading ? "…" : agents.length.toLocaleString()} /{" "}
+                      {ctx.plan.max_agents.toLocaleString()}
+                    </p>
                   </div>
-                  <div className="border-ds-outline flex flex-col gap-2 rounded-ds-lg border bg-ds-sidebar/50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-ds-on-surface text-sm font-semibold">Conversations (this cycle)</p>
-                      <p className="text-ds-on-surface-variant text-xs">
-                        Up to {ctx.plan.included_conversations.toLocaleString()} conversations included per cycle
-                      </p>
-                    </div>
-                    <p className="text-ds-on-surface text-sm font-semibold tabular-nums">
+                  <div className={resourceMetricRowClass}>
+                    <p className="ds-app-card-title">Conversations (this cycle)</p>
+                    <p className={resourceMetricValueClass}>
                       {(ctx.usage_snapshot?.conversations_used ?? 0).toLocaleString()} /{" "}
                       {ctx.plan.included_conversations.toLocaleString()}
                     </p>
                   </div>
                   {ctx.usage_snapshot ? (
-                    <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 p-4 text-xs text-ds-on-surface-variant">
-                      Throttle tier:{" "}
-                      <span className="font-semibold text-ds-on-surface">{ctx.usage_snapshot.throttle_tier}</span>
+                    <div className={`${resourceMetricRowClass} flex-col`}>
+                      <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="ds-app-card-title">Throttle tier</p>
+                        <p className={resourceMetricValueClass}>
+                          {formatThrottleTier(ctx.usage_snapshot.throttle_tier)}
+                        </p>
+                      </div>
                       {ctx.usage_snapshot.throttle_tier === "strong" ? (
-                        <span className="block pt-1">
-                          You have passed your included conversations for this cycle. You are only charged your monthly
-                          subscription—there is no extra fee for additional conversations. The assistant temporarily uses
-                          a lower-cost model (configured on the server) until the cycle resets or you upgrade.
-                        </span>
+                        <p className="ds-app-body-muted w-full text-sm leading-relaxed">
+                          You have passed your included conversations for this cycle. Chat stays on, but replies may be
+                          slower until the cycle resets or you upgrade.
+                        </p>
                       ) : null}
                     </div>
                   ) : null}
                 </div>
               </section>
+
+              <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+                <h2 className="ds-app-section-title mb-1">Plan features</h2>
+                <p className="ds-app-body-muted mb-4 text-sm">
+                  What&apos;s included on {ctx.plan.name} and what unlocks on higher tiers.
+                </p>
+                <div className="space-y-6">
+                  {planFeatureSections.map((section) => (
+                    <div key={section.title}>
+                      <p className="ds-app-body-muted mb-2 text-xs font-semibold uppercase tracking-wide">
+                        {section.title}
+                      </p>
+                      <div className="space-y-3">
+                        {section.rows.map((row) => (
+                          <div key={row.label} className={resourceMetricRowClass}>
+                            <div>
+                              <p className="ds-app-card-title">{row.label}</p>
+                              {!row.included && row.upgradeNote ? (
+                                <p className="ds-app-body-muted mt-0.5 text-xs">Upgrade: {row.upgradeNote}</p>
+                              ) : null}
+                            </div>
+                            <p
+                              className={
+                                row.included
+                                  ? resourceMetricValueClass
+                                  : "text-ds-on-surface-variant text-sm font-medium sm:text-right"
+                              }
+                            >
+                              {row.value}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              </div>
 
               <aside
                 ref={planActionsRef}
@@ -343,12 +396,12 @@ export function AccountPlanContent() {
                 </p>
                 <div className="mt-5 space-y-3">
                   <div className="rounded-ds-lg bg-ds-sidebar/80 p-3 ring-1 ring-ds-outline/60">
-                    <p className="text-ds-on-surface-variant text-xs font-medium">Plan price</p>
+                    <p className="ds-app-body-muted font-medium">Plan price</p>
                     <p className="ds-app-metric-value mt-1 text-xl">{formatMoney(ctx.plan.monthly_price_cents)}/mo</p>
                   </div>
                   {ctx.usage_snapshot && ctx.usage_snapshot.estimated_overage_cents > 0 ? (
                     <div className="rounded-ds-lg bg-ds-sidebar/80 p-3 ring-1 ring-ds-outline/60">
-                      <p className="text-ds-on-surface-variant text-xs font-medium">Estimated conversation overage</p>
+                      <p className="ds-app-body-muted font-medium">Estimated conversation overage</p>
                       <p className="ds-app-metric-value mt-1 text-xl">
                         {formatMoney(ctx.usage_snapshot.estimated_overage_cents)}
                       </p>
@@ -358,7 +411,7 @@ export function AccountPlanContent() {
 
                 {ctx.plan.slug === "free" && subscribeTargets.length > 0 ? (
                   <div className="mt-5 space-y-2">
-                    <p className="text-ds-on-surface-variant text-xs font-medium uppercase tracking-wide">
+                    <p className="ds-app-body-muted font-medium uppercase tracking-wide">
                       Upgrade (checkout)
                     </p>
                     {subscribeTargets.map((slug) => (
@@ -378,11 +431,11 @@ export function AccountPlanContent() {
                 {canChangePaidPlan && (paidUpgradeSlugs.length > 0 || paidDowngradeSlugs.length > 0) ? (
                   <div className="mt-5 border-t border-ds-outline pt-5 space-y-4">
                     <div>
-                      <p className="text-ds-on-surface-variant mb-2 text-xs font-medium uppercase tracking-wide">
+                      <p className="ds-app-body-muted mb-2 font-medium uppercase tracking-wide">
                         Upgrade plan
                       </p>
                       {paidUpgradeSlugs.length === 0 ? (
-                        <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                        <p className="ds-app-body-muted">
                           You are already on the highest self-serve tier.
                         </p>
                       ) : (
@@ -403,11 +456,11 @@ export function AccountPlanContent() {
                     </div>
 
                     <div>
-                      <p className="text-ds-on-surface-variant mb-2 text-xs font-medium uppercase tracking-wide">
+                      <p className="ds-app-body-muted mb-2 font-medium uppercase tracking-wide">
                         Downgrade plan
                       </p>
                       {paidDowngradeSlugs.length === 0 ? (
-                        <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                        <p className="ds-app-body-muted">
                           You are already on the lowest paid tier. To move to Free, cancel in billing (below).
                         </p>
                       ) : (
@@ -435,7 +488,7 @@ export function AccountPlanContent() {
 
                 {ctx.plan.slug !== "free" && !catalogPaidTier ? (
                   <div className="mt-5 border-t border-ds-outline pt-5">
-                    <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                    <p className="ds-app-body-muted">
                       Self-serve upgrades and downgrades apply to Hobby–Pro. Legacy Scale or custom plans: use billing
                       or contact support.
                     </p>
@@ -452,7 +505,7 @@ export function AccountPlanContent() {
 
                 {catalogPaidTier && !hasStripeSubscription ? (
                   <div className="mt-5 border-t border-ds-outline pt-5">
-                    <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                    <p className="ds-app-body-muted">
                       We couldn&apos;t find an active Stripe subscription for this workspace. Use the portal to resolve
                       billing or sync your subscription.
                     </p>
@@ -469,10 +522,10 @@ export function AccountPlanContent() {
 
                 {canChangePaidPlan ? (
                   <div className="mt-5 border-t border-ds-outline pt-5">
-                    <p className="text-ds-on-surface-variant mb-2 text-xs font-medium uppercase tracking-wide">
+                    <p className="ds-app-body-muted mb-2 font-medium uppercase tracking-wide">
                       Cancel / switch to Free
                     </p>
-                    <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
+                    <p className="ds-app-body-muted mb-3">
                       Cancelling moves you to the Free plan after this billing period ends (manage in Stripe&apos;s
                       portal).
                     </p>
@@ -489,18 +542,6 @@ export function AccountPlanContent() {
               </aside>
             </div>
 
-            <section className="border-ds-outline mt-6 rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="ds-app-section-title text-base">Billing details</h2>
-                <Link href="/pricing" className="text-ds-primary text-sm font-semibold hover:underline">
-                  Compare all plans
-                </Link>
-              </div>
-              <p className="text-ds-on-surface-variant max-w-2xl text-sm leading-relaxed">
-                Stripe customer: {ctx.subscription.provider_customer_id ?? "—"} · Subscription:{" "}
-                {ctx.subscription.provider_subscription_id ?? "—"}
-              </p>
-            </section>
           </>
         ) : null}
       </div>

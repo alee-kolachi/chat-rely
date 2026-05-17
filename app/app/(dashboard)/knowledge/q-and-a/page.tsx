@@ -289,7 +289,7 @@ export default function KnowledgeQAndAPage() {
           <div className="mb-8">
             <h1 className="ds-app-page-title">Q&A</h1>
             <p className="ds-app-page-description ds-app-page-description--wide">
-              Canonical question and answer pairs—indexed for retrieval so your agent can ground replies in your wording.
+              Question and answer pairs your agent can use in chat.
             </p>
           </div>
 
@@ -355,7 +355,7 @@ export default function KnowledgeQAndAPage() {
 
           <section className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="ds-app-section-title text-base">Q&A library</h2>
+              <h2 className="ds-app-section-title">Q&A library</h2>
               <KnowledgeSearchInput
                 placeholder="Search Q&A…"
                 className="w-full sm:w-72"
@@ -377,7 +377,7 @@ export default function KnowledgeQAndAPage() {
               <div className="flex items-center gap-3">
                 {selected.size > 0 ? (
                   <>
-                    <span className="text-ds-on-surface-variant text-xs font-medium">{selected.size} selected</span>
+                    <span className="ds-app-body-muted font-medium">{selected.size} selected</span>
                     <button
                       type="button"
                       onClick={() => void bulkDelete()}
@@ -388,7 +388,7 @@ export default function KnowledgeQAndAPage() {
                     </button>
                   </>
                 ) : (
-                  <span className="text-ds-on-surface-variant text-xs font-medium">
+                  <span className="ds-app-body-muted font-medium">
                     {rows.length} pair{rows.length === 1 ? "" : "s"}
                   </span>
                 )}
@@ -419,7 +419,7 @@ export default function KnowledgeQAndAPage() {
                       <p className="text-ds-on-surface text-sm font-medium">
                         {searchQuery.trim() ? "No matching Q&A" : "No Q&A pairs yet"}
                       </p>
-                      <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                      <p className="ds-app-body-muted mx-auto mt-1 max-w-md">
                         {searchQuery.trim()
                           ? "Try another search."
                           : "Add a curated question and answer above for consistent replies."}
@@ -466,10 +466,10 @@ export default function KnowledgeQAndAPage() {
                             </span>
                           </button>
                         </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 text-xs">
+                        <td className="ds-app-body-muted px-4 py-4">
                           {item.character_count.toLocaleString()}
                         </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 text-xs">
+                        <td className="ds-app-body-muted px-4 py-4">
                           {formatUpdatedAt(item.last_indexed_at)}
                         </td>
                         <td className="px-5 py-4 text-right sm:px-6">
@@ -512,9 +512,9 @@ export default function KnowledgeQAndAPage() {
                               <KnowledgeExpandedBodySkeleton />
                             ) : (
                               <div className="space-y-1 pl-4">
-                                <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">Answer</p>
+                                <p className="ds-app-body-muted font-semibold uppercase tracking-wide">Answer</p>
                                 <p className="text-ds-on-surface text-sm leading-relaxed whitespace-pre-wrap">
-                                  {expandedAnswer || item.answer_preview || "—"}
+                                  {expandedAnswer || item.answer_preview || "-"}
                                 </p>
                               </div>
                             )}

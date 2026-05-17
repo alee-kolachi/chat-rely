@@ -59,7 +59,7 @@ export default function NotificationsPage() {
                           {notification.read_at == null ? "New" : "Read"}
                         </span>
                       </div>
-                      <span className="text-ds-on-surface-variant shrink-0 text-xs">
+                      <span className="ds-app-body-muted shrink-0">
                         {formatNotificationTime(notification.created_at)}
                       </span>
                     </div>

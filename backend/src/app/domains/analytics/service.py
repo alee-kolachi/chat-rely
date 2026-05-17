@@ -156,12 +156,12 @@ async def build_agent_analytics(
               (select ok from agent_ok) as agent_exists,
               (select count(*)::int from convo_range) as started_n,
               (select count(*)::int from convo_range where status = 'escalated') as escalated_n,
-              (select count(*)::int from outcomes) as outcome_total,
               (
                 select count(*)::int
-                from outcomes o
-                where (o.payload->>'resolved_by_agent')::boolean is true
-              ) as resolved_n,
+                from convo_range
+                where status in ('resolved', 'idle_closed')
+              ) as status_resolved_n,
+              (select count(*)::int from outcomes) as outcome_total,
               (
                 select count(*)::int
                 from outcomes o
@@ -234,8 +234,8 @@ async def build_agent_analytics(
         raise AppError(code="agent.not_found", message="Agent not found", status_code=404)
     conversations_started = int(crow["started_n"] or 0)
     escalated_n = int(crow["escalated_n"] or 0)
+    status_resolved_n = int(crow["status_resolved_n"] or 0)
     outcome_total = int(crow["outcome_total"] or 0)
-    resolved_n = int(crow["resolved_n"] or 0)
     resolved_not_escalated_n = int(crow["resolved_not_escalated_n"] or 0)
     avg_conf = crow["avg_conf"]
     avg_ms_raw = crow["avg_ms"]
@@ -246,8 +246,8 @@ async def build_agent_analytics(
         escalations_pct = round(100.0 * escalated_n / conversations_started, 1)
 
     resolved_by_agent_pct: float | None = None
-    if outcome_total > 0:
-        resolved_by_agent_pct = round(100.0 * resolved_n / outcome_total, 1)
+    if conversations_started > 0:
+        resolved_by_agent_pct = round(100.0 * status_resolved_n / conversations_started, 1)
 
     avg_response_time_ms: float | None = None
     if avg_ms_raw is not None:

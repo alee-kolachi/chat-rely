@@ -2,28 +2,63 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ExternalLink } from "lucide-react";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
-import { getOnboardingAgentId } from "@/lib/onboarding-state";
+import { getOnboardingAgentId, onboardingHref, saveOnboardingAgentId } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import {
+  buildWebsiteUrl,
+  displayPathFromUrl,
+  hostnameAccentColor,
+  stripUrlScheme,
+  type WebsiteScheme,
+} from "@/lib/website-url";
+import { cn } from "@/lib/utils";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
   OnboardingFieldRow,
   OnboardingMainColumn,
   onboardingSplitBody,
-  onboardingSplitCard,
+  onboardingSplitCardFilled,
   onboardingSplitGrid,
+  onboardingSplitLeftSection,
+  onboardingSplitPreviewShell,
+  onboardingSplitPreviewWrap,
+  onboardingSplitRightSectionCentered,
   onboardingSplitRoot,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
+
+type CrawlPage = { url: string; path: string; status: string };
 
 type OnboardingWebsiteResponse = {
   source_id: string;
   job_id: string;
   status: string;
   website_url: string;
-  pages: Array<{ url: string; path: string; status: string }>;
-  preview_image_url: string | null;
+  pages: CrawlPage[];
 };
+
+type WebsitePagesResponse = {
+  pages: Array<{ url: string; status: string }>;
+  total: number;
+};
+
+type OnboardingStatusPayload = {
+  website_url: string | null;
+  website_title: string | null;
+};
+
+type KnowledgeSourceRow = {
+  id: string;
+  type: string;
+  source_url: string | null;
+};
+
+const PAGE_REVEAL_MS = 450;
+/** ~3 list rows visible; additional pages scroll inside the list. */
+const VISIBLE_PAGE_ROWS = 3;
+const PAGE_ROW_REM = 1.75;
 
 function faviconServiceUrl(siteUrl: string): string {
   try {
@@ -61,6 +96,7 @@ function KnowledgeBaseOnboardingFallback() {
 function KnowledgeBaseOnboardingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [websiteScheme, setWebsiteScheme] = useState<WebsiteScheme>("https://");
   const [website, setWebsite] = useState("");
   const websiteSeededRef = useRef(false);
 
@@ -69,19 +105,50 @@ function KnowledgeBaseOnboardingPageInner() {
     websiteSeededRef.current = true;
     const fromUrl = searchParams.get("website");
     if (!fromUrl) return;
-    queueMicrotask(() => setWebsite(fromUrl));
+    queueMicrotask(() => {
+      const lower = fromUrl.toLowerCase();
+      if (lower.startsWith("http://")) {
+        setWebsiteScheme("http://");
+        setWebsite(fromUrl.slice(7));
+      } else if (lower.startsWith("https://")) {
+        setWebsiteScheme("https://");
+        setWebsite(fromUrl.slice(8));
+      } else {
+        setWebsite(fromUrl);
+      }
+    });
   }, [searchParams]);
 
   const [sourceId, setSourceId] = useState<string | null>(null);
-  const [crawlPhase, setCrawlPhase] = useState<"idle" | "working" | "done" | "error">("idle");
+  const [crawlPhase, setCrawlPhase] = useState<"idle" | "submitting" | "active" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [indexedUrl, setIndexedUrl] = useState<string | null>(null);
-  const [crawlPages, setCrawlPages] = useState<OnboardingWebsiteResponse["pages"]>([]);
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-  const [previewImageFailed, setPreviewImageFailed] = useState(false);
+  const [previewHostname, setPreviewHostname] = useState<string | null>(null);
+  const [crawlPages, setCrawlPages] = useState<CrawlPage[]>([]);
+  const [revealedCount, setRevealedCount] = useState(0);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pagesListRef = useRef<HTMLUListElement>(null);
+  const resumeHydratedRef = useRef(false);
   const agentId = useResolvedOnboardingAgentId();
 
-  const canContinue = useMemo(() => crawlPhase === "done" && !!sourceId, [crawlPhase, sourceId]);
+  const step1BackHref = useMemo(
+    () => onboardingHref("/onboarding", agentId),
+    [agentId]
+  );
+
+  const visiblePages = useMemo(() => crawlPages.slice(0, revealedCount), [crawlPages, revealedCount]);
+  const revealingMore = revealedCount < crawlPages.length;
+
+  const canContinue = Boolean(sourceId);
+
+  const parsedPreview = useMemo(() => {
+    if (indexedUrl && previewHostname) {
+      return { website_url: indexedUrl, hostname: previewHostname };
+    }
+    const built = buildWebsiteUrl(websiteScheme, website);
+    if (!built.ok) return null;
+    return { website_url: built.website_url, hostname: built.hostname };
+  }, [indexedUrl, previewHostname, website, websiteScheme]);
 
   function resolveAgentId(): string | null {
     return searchParams.get("agentId") ?? getOnboardingAgentId() ?? agentId;
@@ -91,79 +158,183 @@ function KnowledgeBaseOnboardingPageInner() {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
-  function normalizeWebsiteUrl(input: string): { website_url: string; title: string } {
-    const raw = input.trim().replace(/^https?:\/\//i, "");
-    const host = raw.split("/")[0] ?? "";
-    const website_url = `https://${raw}`;
-    const title = (host || "website").slice(0, 255) || "Website";
-    return { website_url, title };
-  }
-
-  const previewTargetUrl = useMemo(() => {
-    if (indexedUrl) return indexedUrl;
-    const t = website.trim();
-    if (!t) return null;
-    return normalizeWebsiteUrl(t).website_url;
-  }, [indexedUrl, website]);
-
-  async function handleStartCrawl() {
+  useEffect(() => {
     const id = resolveAgentId();
-    if (!website.trim() || crawlPhase === "working") return;
+    if (!id || !isValidUuid(id) || resumeHydratedRef.current) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const sourcesRes = await backendFetch<{ sources: KnowledgeSourceRow[] }>(
+          `/api/v1/knowledge/sources?agent_id=${encodeURIComponent(id)}`
+        );
+        let status: OnboardingStatusPayload | null = null;
+        try {
+          status = await backendFetch<OnboardingStatusPayload>(
+            `/api/v1/onboarding/status?agent_id=${encodeURIComponent(id)}`
+          );
+        } catch {
+          status = null;
+        }
+        if (cancelled) return;
+        resumeHydratedRef.current = true;
+        saveOnboardingAgentId(id);
+
+        const websiteSource = sourcesRes.sources.find((s) => s.type === "website");
+        const siteUrl = status?.website_url ?? websiteSource?.source_url ?? null;
+        if (!siteUrl) return;
+
+        const lower = siteUrl.toLowerCase();
+        const scheme: WebsiteScheme = lower.startsWith("http://") ? "http://" : "https://";
+        setWebsiteScheme(scheme);
+        setWebsite(stripUrlScheme(siteUrl));
+        setIndexedUrl(siteUrl);
+        const built = buildWebsiteUrl(scheme, stripUrlScheme(siteUrl));
+        if (built.ok) setPreviewHostname(built.hostname);
+        if (websiteSource?.id) {
+          setSourceId(websiteSource.id);
+          setCrawlPhase("active");
+        }
+      } catch {
+        if (!cancelled) resumeHydratedRef.current = true;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, searchParams]);
+
+  useEffect(() => {
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    if (revealedCount >= crawlPages.length) return;
+
+    revealTimerRef.current = setTimeout(() => {
+      setRevealedCount((c) => Math.min(c + 1, crawlPages.length));
+    }, PAGE_REVEAL_MS);
+
+    return () => {
+      if (revealTimerRef.current) {
+        clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    };
+  }, [crawlPages.length, revealedCount]);
+
+  useEffect(() => {
+    const el = pagesListRef.current;
+    if (!el || visiblePages.length <= VISIBLE_PAGE_ROWS) return;
+    el.scrollTop = el.scrollHeight;
+  }, [visiblePages.length]);
+
+  useEffect(() => {
+    if (!sourceId) return;
+    let cancelled = false;
+
+    const pollPages = async () => {
+      try {
+        const res = await backendFetch<WebsitePagesResponse>(
+          `/api/v1/knowledge/website/sources/${encodeURIComponent(sourceId)}/pages?limit=50`
+        );
+        if (cancelled) return;
+        setCrawlPages((prev) => {
+          const byUrl = new Map(prev.map((row) => [row.url, row]));
+          const ordered: CrawlPage[] = [...prev];
+          for (const p of res.pages) {
+            const next: CrawlPage = {
+              url: p.url,
+              path: displayPathFromUrl(p.url),
+              status: p.status,
+            };
+            if (byUrl.has(p.url)) {
+              const idx = ordered.findIndex((row) => row.url === p.url);
+              if (idx >= 0) ordered[idx] = next;
+            } else {
+              ordered.push(next);
+            }
+          }
+          return ordered;
+        });
+      } catch {
+        /* keep last list */
+      }
+    };
+
+    void pollPages();
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void pollPages();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [sourceId]);
+
+  async function handleAddWebsite() {
+    const id = resolveAgentId();
+    if (!website.trim() || crawlPhase === "submitting" || crawlPhase === "active") return;
     if (!id) {
-      setError("Missing agent id. Go back to step 1 or open this step from the setup link with ?agentId=…");
+      setError("Missing agent id. Go back to step 1 and try again.");
       return;
     }
     if (!isValidUuid(id)) {
-      setError(
-        "We do not have a valid agent id yet—step 1 must create your agent successfully. Go back, sign in if you are not logged in, then click Continue on step 1 again before starting the crawl."
-      );
+      setError("Go back to step 1, sign in if needed, then continue before adding your website.");
       return;
     }
-    setCrawlPhase("working");
-    setError(null);
-    setSourceId(null);
-    setIndexedUrl(null);
-    setCrawlPages([]);
-    setPreviewImageUrl(null);
-    setPreviewImageFailed(false);
 
-    const { website_url, title } = normalizeWebsiteUrl(website);
+    const built = buildWebsiteUrl(websiteScheme, website);
+    if (!built.ok) {
+      setError(built.error);
+      return;
+    }
+
+    setCrawlPhase("submitting");
+    setError(null);
+    setCrawlPages([]);
+    setRevealedCount(0);
 
     try {
       const res = await backendFetch<OnboardingWebsiteResponse>("/api/v1/onboarding/website", {
         method: "POST",
         body: JSON.stringify({
           agent_id: id,
-          website_url,
-          title,
+          website_url: built.website_url,
+          title: built.title,
         }),
       });
       setSourceId(res.source_id);
-      setIndexedUrl(res.website_url || website_url);
-      setCrawlPages(res.pages ?? []);
-      setPreviewImageUrl(res.preview_image_url ?? null);
-      setPreviewImageFailed(false);
-      setCrawlPhase("done");
+      setIndexedUrl(res.website_url || built.website_url);
+      setPreviewHostname(built.hostname);
+      setCrawlPhase("active");
     } catch (e) {
       const msg =
-        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not crawl and index site";
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not add your website";
       setError(msg);
       setCrawlPhase("error");
       setSourceId(null);
       setIndexedUrl(null);
+      setPreviewHostname(null);
       setCrawlPages([]);
-      setPreviewImageUrl(null);
-      setPreviewImageFailed(false);
+      setRevealedCount(0);
     }
   }
 
   function handleContinue() {
     const id = resolveAgentId();
     if (!id) return;
-    const params = new URLSearchParams({ agentId: id });
-    if (sourceId) params.set("sourceId", sourceId);
-    router.push(`/onboarding/knowledge-base/training?${params.toString()}`);
+    saveOnboardingAgentId(id);
+    router.push(`/onboarding/connection?agentId=${encodeURIComponent(id)}`);
   }
+
+  const previewUrl = parsedPreview?.website_url ?? null;
+  const previewHost = parsedPreview?.hostname ?? null;
+  const previewFavicon = previewUrl ? faviconServiceUrl(previewUrl) : "";
+  const previewAccent = previewHost ? hostnameAccentColor(previewHost) : undefined;
+
+  const addButtonLabel =
+    crawlPhase === "submitting" ? "Adding…" : crawlPhase === "active" ? "Website added" : "Add my website";
 
   return (
     <OnboardingFrame
@@ -173,7 +344,7 @@ function KnowledgeBaseOnboardingPageInner() {
       linkAgentId={agentId}
       footer={
         <OnboardingStickyFooter
-          backHref="/onboarding"
+          backHref={step1BackHref}
           backLabel="Back"
           primaryAsButton
           onPrimaryClick={handleContinue}
@@ -193,9 +364,9 @@ function KnowledgeBaseOnboardingPageInner() {
             aria-hidden
           />
 
-          <div className={onboardingSplitCard}>
+          <div className={onboardingSplitCardFilled}>
             <div className={onboardingSplitGrid}>
-              <section className="flex flex-col justify-center p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:p-10">
+              <section className={onboardingSplitLeftSection}>
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                     Step 2
@@ -204,8 +375,7 @@ function KnowledgeBaseOnboardingPageInner() {
                     Add knowledge sources for smarter answers
                   </h1>
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                    During onboarding, we only use your website. Documents and Google Sheets can be connected later
-                    from the dashboard.
+                    We start with your website. You can add files and sheets later from the dashboard.
                   </p>
 
                   <div className="mt-8 space-y-5 sm:mt-10">
@@ -216,18 +386,27 @@ function KnowledgeBaseOnboardingPageInner() {
                         labelClassName="mb-2 text-[14px] leading-[14px] font-medium"
                       >
                         <div className="border-ds-outline focus-within:border-ds-primary focus-within:ring-ds-primary/15 flex overflow-hidden rounded-ds-md border bg-white transition-[box-shadow,border-color] focus-within:ring-2">
-                          <span className="text-ds-on-surface-variant bg-ds-sidebar border-ds-outline inline-flex items-center border-r px-3 text-sm font-normal sm:px-4">
-                            https://
-                          </span>
+                          <select
+                            aria-label="Website protocol"
+                            value={websiteScheme}
+                            onChange={(e) => setWebsiteScheme(e.target.value as WebsiteScheme)}
+                            disabled={crawlPhase === "submitting" || crawlPhase === "active"}
+                            className="text-ds-on-surface-variant bg-ds-sidebar border-ds-outline max-w-[6.5rem] shrink-0 cursor-pointer border-r px-2 py-3.5 text-sm font-normal outline-none disabled:opacity-60 sm:max-w-none sm:px-3"
+                          >
+                            <option value="https://">https://</option>
+                            <option value="http://">http://</option>
+                          </select>
                           <input
                             id="website-url"
                             type="text"
                             value={website}
-                            onChange={(e) => setWebsite(e.target.value)}
-                            onInput={(e) => setWebsite((e.target as HTMLInputElement).value)}
+                            onChange={(e) => {
+                              setWebsite(e.target.value);
+                              if (error) setError(null);
+                            }}
                             placeholder="example.com"
                             inputMode="url"
-                            disabled={crawlPhase === "working" || crawlPhase === "done"}
+                            disabled={crawlPhase === "submitting" || crawlPhase === "active"}
                             className="placeholder:text-ds-on-surface-variant/70 text-ds-on-surface w-full border-none bg-transparent px-3 py-3.5 text-sm font-normal outline-none sm:px-4 disabled:opacity-60"
                           />
                         </div>
@@ -235,57 +414,61 @@ function KnowledgeBaseOnboardingPageInner() {
                       <div className="mt-3 flex justify-end">
                         <button
                           type="button"
-                          onClick={handleStartCrawl}
-                          disabled={!website.trim() || crawlPhase === "working" || crawlPhase === "done"}
+                          onClick={() => void handleAddWebsite()}
+                          disabled={!website.trim() || crawlPhase === "submitting" || crawlPhase === "active"}
                           className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 touch-manipulation min-h-11 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent]"
                         >
-                          {crawlPhase === "working"
-                            ? "Crawling & indexing…"
-                            : crawlPhase === "done"
-                              ? "Crawl complete"
-                              : "Start crawl"}
+                          {addButtonLabel}
                         </button>
                       </div>
                       {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
                     </div>
 
-                    {crawlPhase === "working" ? (
+                    {crawlPhase === "active" ? (
                       <div className="border-ds-outline rounded-ds-lg border bg-white p-4">
-                        <p className="text-ds-on-surface text-sm font-medium">Indexing your site</p>
-                        <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                          Fetching up to five pages on your domain, extracting text, chunking, and embedding for search.
-                          This usually takes under a minute.
+                        <p className="text-ds-on-surface text-sm font-medium">
+                          {visiblePages.length > 0 ? "Pages found so far" : "Reading your website"}
                         </p>
-                        <div className="mt-4 flex items-center gap-2 text-sm text-ds-on-surface-variant">
+                        {visiblePages.length > 0 ? (
+                          <ul
+                            ref={pagesListRef}
+                            className="mt-3 space-y-2 overflow-y-auto overscroll-contain pr-1 text-sm"
+                            style={{ maxHeight: `${VISIBLE_PAGE_ROWS * PAGE_ROW_REM}rem` }}
+                            aria-live="polite"
+                          >
+                            {visiblePages.map((p) => (
+                              <li
+                                key={p.url}
+                                className="text-ds-on-surface flex items-start gap-2 leading-snug"
+                              >
+                                <span className="text-emerald-600" aria-hidden>
+                                  ✓
+                                </span>
+                                <span className="min-w-0 break-all font-medium">{p.path || "/"}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-ds-on-surface-variant mt-2 text-sm">
+                            Pages will appear here one at a time as we find them.
+                          </p>
+                        )}
+                        <div className="text-ds-on-surface-variant mt-3 flex items-center gap-2 border-t border-ds-outline pt-3 text-sm">
                           <span
-                            className="border-ds-outline size-4 shrink-0 animate-spin rounded-full border-2 border-t-ds-primary"
+                            className="bg-ds-primary size-2 shrink-0 animate-pulse rounded-full"
                             aria-hidden
                           />
-                          Working…
+                          <span className="font-medium text-ds-on-surface">
+                            {revealingMore
+                              ? "Finding more pages…"
+                              : visiblePages.length > 0
+                                ? "Still crawling your site…"
+                                : "Crawling your site…"}
+                          </span>
                         </div>
-                      </div>
-                    ) : null}
-
-                    {crawlPhase === "done" && crawlPages.length > 0 ? (
-                      <div className="border-ds-outline rounded-ds-lg border bg-white p-4">
-                        <p className="text-ds-on-surface text-sm font-semibold">Pages indexed</p>
-                        <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
-                          {crawlPages.map((p) => (
-                            <li key={p.url} className="text-ds-on-surface flex items-start gap-2 leading-snug">
-                              <span className="text-emerald-600" aria-hidden>
-                                ✓
-                              </span>
-                              <span className="min-w-0 break-all">
-                                <span className="font-medium">{p.path || "/"}</span>
-                                {p.status !== "parsed" ? (
-                                  <span className="text-ds-on-surface-variant ml-1 text-xs">({p.status})</span>
-                                ) : null}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                        <p className="text-ds-on-surface-variant border-ds-outline mt-3 border-t pt-3 text-xs leading-relaxed">
-                          You can continue—training and the playground use this knowledge next.
+                        <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
+                          This keeps running in the background. Continue setup and we&apos;ll keep learning from your
+                          site.
                         </p>
                       </div>
                     ) : null}
@@ -293,7 +476,7 @@ function KnowledgeBaseOnboardingPageInner() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col items-center justify-center border-t p-6 sm:p-8 max-lg:min-h-min lg:min-h-0 lg:h-full lg:border-t-0 lg:border-l lg:p-10">
+              <section className={onboardingSplitRightSectionCentered}>
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -303,114 +486,57 @@ function KnowledgeBaseOnboardingPageInner() {
                   }}
                   aria-hidden
                 />
-                <div className="relative mx-auto w-full max-w-[400px]">
-                  <div className="border-ds-outline flex min-h-[18rem] w-full flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl sm:min-h-[24rem] lg:min-h-[520px]">
+                <div className={onboardingSplitPreviewWrap}>
+                  <div className={cn(onboardingSplitPreviewShell, "h-full min-h-0 flex-1")}>
                     <div className="border-ds-outline flex items-center justify-between border-b bg-white px-4 py-3">
-                      <div>
-                        <h3 className="text-ds-on-surface text-sm font-semibold">Website preview</h3>
-                        <p className="text-ds-secondary text-[11px]">
-                          Social preview image when available — live iframes are usually blocked
-                        </p>
-                      </div>
-                      {previewTargetUrl ? (
+                      <h3 className="ds-app-card-title">Website preview</h3>
+                      {previewUrl ? (
                         <a
-                          href={previewTargetUrl}
+                          href={previewUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-ds-primary shrink-0 text-xs font-semibold hover:underline"
+                          className="text-ds-on-surface-variant hover:text-ds-primary inline-flex size-9 shrink-0 items-center justify-center rounded-md transition-colors"
+                          aria-label="Open website in a new tab"
                         >
-                          Open
+                          <ExternalLink className="size-4" aria-hidden />
                         </a>
-                      ) : (
-                        <span className="text-ds-on-surface-variant text-sm" aria-hidden>
-                          ⋮
-                        </span>
-                      )}
+                      ) : null}
                     </div>
-                    <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+                    <div className="flex min-h-0 flex-1 flex-col p-4">
                       <div className="border-ds-outline flex min-h-0 flex-1 flex-col overflow-hidden rounded-ds-md border bg-white">
                         <div className="border-ds-outline flex items-center gap-2 border-b px-3 py-2">
                           <span className="h-2 w-2 rounded-full bg-rose-400" />
                           <span className="h-2 w-2 rounded-full bg-amber-400" />
                           <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                          <p className="text-ds-on-surface-variant ml-1 truncate text-[11px]" title={previewTargetUrl ?? undefined}>
-                            {previewTargetUrl ?? "Enter a URL and start crawl"}
+                          <p
+                            className="text-ds-on-surface-variant ml-1 truncate text-[11px]"
+                            title={previewUrl ?? undefined}
+                          >
+                            {previewUrl ?? "Enter your website address"}
                           </p>
                         </div>
-                        <div className="relative min-h-0 flex-1 bg-zinc-100">
-                          {previewTargetUrl && (crawlPhase === "working" || crawlPhase === "done") ? (
+                        <div
+                          className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center"
+                          style={{ background: previewAccent ?? "var(--ds-sidebar)" }}
+                        >
+                          {previewUrl && previewHost ? (
                             <>
-                              {crawlPhase === "done" &&
-                              previewImageUrl &&
-                              !previewImageFailed ? (
-                                // eslint-disable-next-line @next/next/no-img-element -- remote og:image from crawled site
+                              {previewFavicon ? (
+                                // eslint-disable-next-line @next/next/no-img-element
                                 <img
-                                  src={previewImageUrl}
+                                  src={previewFavicon}
                                   alt=""
-                                  className="size-full max-h-[min(420px,55vh)] min-h-[200px] border-0 object-cover object-top sm:min-h-[280px]"
-                                  referrerPolicy="no-referrer"
-                                  onError={() => setPreviewImageFailed(true)}
+                                  className="size-16 rounded-2xl border border-black/5 bg-white p-2 shadow-sm"
+                                  width={64}
+                                  height={64}
                                 />
-                              ) : (
-                                <div className="text-ds-on-surface flex size-full min-h-[200px] flex-col items-center justify-center gap-3 p-6 text-center sm:min-h-[280px]">
-                                  {faviconServiceUrl(previewTargetUrl) ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={faviconServiceUrl(previewTargetUrl)}
-                                      alt=""
-                                      className="size-16 rounded-xl border border-black/5 bg-white shadow-sm"
-                                      width={64}
-                                      height={64}
-                                    />
-                                  ) : null}
-                                  <p className="max-w-[280px] text-sm leading-snug">
-                                    {crawlPhase === "working"
-                                      ? "Crawling and indexing on the server…"
-                                      : previewImageUrl && previewImageFailed
-                                        ? "Could not load the preview image (hotlink or CORS)."
-                                        : "No og:image / Twitter card image on the first page. Your pages were still indexed."}
-                                  </p>
-                                </div>
-                              )}
-                              {crawlPhase === "working" ? (
-                                <div className="bg-ds-surface/90 absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-sm text-ds-on-surface">
-                                  <span
-                                    className="border-ds-outline size-8 animate-spin rounded-full border-2 border-t-ds-primary"
-                                    aria-hidden
-                                  />
-                                  Crawling and embedding…
-                                </div>
                               ) : null}
+                              <p className="text-ds-on-surface text-lg font-semibold tracking-tight">{previewHost}</p>
                             </>
                           ) : (
-                            <div
-                              className="text-ds-on-surface-variant flex size-full min-h-[200px] flex-col items-center justify-center gap-2 p-6 text-center text-sm sm:min-h-[280px]"
-                              role="status"
-                            >
-                              <p>Your preview will appear here after you start a crawl.</p>
-                            </div>
+                            <p className="text-ds-on-surface-variant text-sm">Your site preview appears here.</p>
                           )}
                         </div>
-                      </div>
-                      <div className="border-ds-outline rounded-ds-md border bg-white p-3">
-                        <p className="text-ds-on-surface text-sm font-semibold">Crawl status</p>
-                        <p className="text-ds-on-surface-variant mt-1 text-xs">
-                          {crawlPhase === "idle"
-                            ? "Not started"
-                            : crawlPhase === "working"
-                              ? "Crawling up to 5 pages, then chunking and embedding"
-                              : crawlPhase === "error"
-                                ? "Failed—see message on the left"
-                                : crawlPages.length
-                                  ? `Indexed ${crawlPages.length} page${crawlPages.length === 1 ? "" : "s"}`
-                                  : "Complete"}
-                        </p>
-                      </div>
-                      <div className="border-ds-outline rounded-ds-md border bg-white p-3">
-                        <p className="text-ds-on-surface text-sm font-semibold">Next after onboarding</p>
-                        <p className="text-ds-on-surface-variant mt-1 text-xs">
-                          Add Documents and Google Sheets from the dashboard knowledge section.
-                        </p>
                       </div>
                     </div>
                   </div>

@@ -138,7 +138,7 @@ function KpiCard({
       >
         {value}
       </div>
-      {helper && <p className="text-ds-on-surface-variant mt-1 text-xs">{helper}</p>}
+      {helper && <p className="ds-app-body-muted mt-1">{helper}</p>}
     </section>
   );
 }
@@ -196,7 +196,7 @@ function ByModelTable({
     <section className="flex flex-col gap-3">
       <header className="flex items-baseline justify-between">
         <h2 className="text-ds-on-surface text-lg font-semibold">By model (MTD)</h2>
-        <span className="text-ds-on-surface-variant text-xs">
+        <span className="ds-app-body-muted">
           Total LLM cost {formatCostUsd(totalLlmCost)}
         </span>
       </header>
@@ -245,7 +245,7 @@ function LeaderboardSection({
         row.plan_name ? (
           <span className="text-ds-on-surface text-sm">{row.plan_name}</span>
         ) : (
-          <span className="text-ds-on-surface-variant text-xs">No plan</span>
+          <span className="ds-app-body-muted">No plan</span>
         ),
     },
     {
@@ -304,7 +304,7 @@ function LeaderboardSection({
     <section className="flex flex-col gap-3">
       <header className="flex flex-col gap-1">
         <h2 className="text-ds-on-surface text-lg font-semibold">{title}</h2>
-        <p className="text-ds-on-surface-variant text-xs">{subtitle}</p>
+        <p className="ds-app-body-muted">{subtitle}</p>
       </header>
       <AdminDataTable
         columns={columns}

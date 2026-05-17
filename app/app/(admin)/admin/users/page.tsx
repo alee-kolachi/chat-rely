@@ -97,7 +97,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: S
         <div className="flex flex-col">
           <span className="text-ds-on-surface font-medium">{row.email}</span>
           {row.full_name && (
-            <span className="text-ds-on-surface-variant text-xs">{row.full_name}</span>
+            <span className="ds-app-body-muted">{row.full_name}</span>
           )}
         </div>
       ),
@@ -109,7 +109,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: S
         row.plan_name ? (
           <span className="text-ds-on-surface text-sm">{row.plan_name}</span>
         ) : (
-          <span className="text-ds-on-surface-variant text-xs">No plan</span>
+          <span className="ds-app-body-muted">No plan</span>
         ),
     },
     {
@@ -119,7 +119,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: S
         row.subscription_status ? (
           <AdminStatusBadge status={row.subscription_status} />
         ) : (
-          <span className="text-ds-on-surface-variant text-xs">—</span>
+          <span className="ds-app-body-muted">—</span>
         ),
     },
     {

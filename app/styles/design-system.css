@@ -100,6 +100,13 @@
    --ds-app-kicker-size: 0.6875rem;
    --ds-app-kicker-weight: 400;
    --ds-app-kicker-tracking: 0.14em;
+   --ds-app-body-size: 0.875rem;
+   --ds-app-body-line: 1.45;
+   --ds-app-body-muted-line: 1.55;
+   --ds-app-caption-size: 0.75rem;
+   --ds-app-caption-line: 1.45;
+   --ds-app-label-size: 0.875rem;
+   --ds-app-label-weight: 600;
 
    /* -------------------------------------------------------------------------
      8) Semantic status (toasts, validation, badges — avoid hardcoded reds/greens)

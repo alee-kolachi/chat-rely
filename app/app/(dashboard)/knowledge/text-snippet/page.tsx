@@ -276,7 +276,7 @@ export default function KnowledgeTextSnippetPage() {
           <div className="mb-8">
             <h1 className="ds-app-page-title">Text snippets</h1>
             <p className="ds-app-page-description ds-app-page-description--wide">
-              Short excerpts you control—indexed like other knowledge so the agent can retrieve them in chat.
+              Short excerpts you control. Indexed like other knowledge for chat.
             </p>
           </div>
 
@@ -342,7 +342,7 @@ export default function KnowledgeTextSnippetPage() {
 
           <section className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="ds-app-section-title text-base">Snippet library</h2>
+              <h2 className="ds-app-section-title">Snippet library</h2>
               <KnowledgeSearchInput
                 placeholder="Search snippets…"
                 className="w-full sm:w-72"
@@ -364,7 +364,7 @@ export default function KnowledgeTextSnippetPage() {
               <div className="flex items-center gap-3">
                 {selected.size > 0 ? (
                   <>
-                    <span className="text-ds-on-surface-variant text-xs font-medium">{selected.size} selected</span>
+                    <span className="ds-app-body-muted font-medium">{selected.size} selected</span>
                     <button
                       type="button"
                       onClick={() => void bulkDelete()}
@@ -375,7 +375,7 @@ export default function KnowledgeTextSnippetPage() {
                     </button>
                   </>
                 ) : (
-                  <span className="text-ds-on-surface-variant text-xs font-medium">
+                  <span className="ds-app-body-muted font-medium">
                     {rows.length} snippet{rows.length === 1 ? "" : "s"}
                   </span>
                 )}
@@ -406,7 +406,7 @@ export default function KnowledgeTextSnippetPage() {
                       <p className="text-ds-on-surface text-sm font-medium">
                         {searchQuery.trim() ? "No matching snippets" : "No snippets yet"}
                       </p>
-                      <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                      <p className="ds-app-body-muted mx-auto mt-1 max-w-md">
                         {searchQuery.trim()
                           ? "Try another search."
                           : "Create a snippet above so your agent can retrieve it in chat."}
@@ -451,10 +451,10 @@ export default function KnowledgeTextSnippetPage() {
                             <span className="text-ds-on-surface block max-w-[24rem] truncate text-sm font-medium">{snippet.title}</span>
                           </button>
                         </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 text-xs">
+                        <td className="ds-app-body-muted px-4 py-4">
                           {snippet.character_count.toLocaleString()}
                         </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 text-xs">
+                        <td className="ds-app-body-muted px-4 py-4">
                           {formatUpdatedAt(snippet.last_indexed_at)}
                         </td>
                         <td className="px-5 py-4 text-right sm:px-6">
@@ -497,9 +497,9 @@ export default function KnowledgeTextSnippetPage() {
                               <KnowledgeExpandedBodySkeleton />
                             ) : (
                               <div className="space-y-1 pl-4">
-                                <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">Snippet text</p>
+                                <p className="ds-app-body-muted font-semibold uppercase tracking-wide">Snippet text</p>
                                 <p className="text-ds-on-surface text-sm leading-relaxed whitespace-pre-wrap">
-                                  {expandedBody || snippet.preview || "—"}
+                                  {expandedBody || snippet.preview || "-"}
                                 </p>
                               </div>
                             )}

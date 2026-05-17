@@ -23,6 +23,7 @@ async def list_admin_plans(db: AsyncSession) -> AdminPlanListResponse:
                   p.monthly_price_cents, p.included_conversations,
                   p.overage_conversation_cents, p.max_agents,
                   p.features, p.throttle_policy, p.is_active,
+                  p.public_on_pricing_page, p.sort_order,
                   coalesce(sc.cnt, 0)::int as subscriptions_count,
                   p.created_at
                 from public.plans p

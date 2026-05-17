@@ -15,6 +15,7 @@ import {
   type AdminUsageSnapshotRow,
 } from "@/lib/admin/api";
 import { formatCostUsd } from "@/lib/admin/cost-format";
+import { formatSmartResolution } from "@/lib/admin/plan-feature-display";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 type ParsedSp = Record<string, string | string[] | undefined>;
@@ -287,6 +288,13 @@ async function UsageSnapshotsTab({ sp }: { sp: ParsedSp }) {
       label: "Used",
       align: "right",
       render: (row) => row.conversations_used.toLocaleString(),
+    },
+    {
+      key: "smart_resolution",
+      label: "Smart resolution",
+      align: "right",
+      render: (row) =>
+        formatSmartResolution(row.premium_turns_used, row.included_premium_turns),
     },
     {
       key: "overage",

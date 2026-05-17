@@ -137,7 +137,7 @@ function AccountProfileEditor({
                     className="size-full object-cover"
                   />
                 ) : (
-                  <div className="text-ds-on-surface-variant text-xs font-semibold">
+                  <div className="ds-app-body-muted font-semibold">
                     {displayInitials}
                   </div>
                 )}
@@ -181,7 +181,7 @@ function AccountProfileEditor({
                 autoComplete="name"
                 disabled={saving}
               />
-              <p className="text-ds-on-surface-variant mt-2 text-xs leading-relaxed">
+              <p className="ds-app-body-muted mt-2">
                 Shown on your profile and in notifications.
               </p>
             </div>
@@ -202,7 +202,7 @@ function AccountProfileEditor({
             autoComplete="email"
             disabled={saving}
           />
-          <p className="text-ds-on-surface-variant mt-2 text-xs leading-relaxed">
+          <p className="ds-app-body-muted mt-2">
             Update your sign-in email. You may need to confirm the new address depending on your workspace settings.
           </p>
         </div>

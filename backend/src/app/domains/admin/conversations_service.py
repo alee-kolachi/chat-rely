@@ -259,4 +259,6 @@ async def get_admin_conversation_detail(
         metadata=head_row["metadata"] or {},
         messages=messages,
         truncated=truncated,
+        total_message_count=total_messages,
+        transcript_message_cap=message_cap,
     )

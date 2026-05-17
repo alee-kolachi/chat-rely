@@ -34,7 +34,7 @@ export function parseBrandColorHex(raw: unknown): string | null {
 
 export function previewAssistantLineForTone(tone: string | null | undefined): string {
   const t = (tone ?? "").trim().toLowerCase();
-  if (t === "professional") return "Hello— how may I assist you today?";
+  if (t === "professional") return "Hello. How may I assist you today?";
   if (t === "concise") return "Hi. What do you need?";
-  return "Thanks for reaching out— how can I help?";
+  return "Thanks for reaching out. How can I help?";
 }

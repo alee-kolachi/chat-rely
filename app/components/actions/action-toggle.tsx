@@ -10,6 +10,7 @@ type ActionToggleProps = {
   disabled?: boolean;
   label?: string;
   size?: "sm" | "md";
+  className?: string;
   onChange?: (next: boolean) => void;
 };
 
@@ -19,6 +20,7 @@ export function ActionToggle({
   disabled,
   label,
   size = "sm",
+  className,
   onChange,
 }: ActionToggleProps) {
   const [internal, setInternal] = useState(defaultChecked);
@@ -28,8 +30,8 @@ export function ActionToggle({
 
   const dims =
     size === "md"
-      ? { track: "h-6 w-11", thumb: "h-5 w-5", on: "translate-x-5" }
-      : { track: "h-5 w-9", thumb: "h-4 w-4", on: "translate-x-4" };
+      ? { track: "h-6 w-11", thumb: "size-5" }
+      : { track: "h-5 w-9", thumb: "size-4" };
 
   return (
     <button
@@ -45,19 +47,14 @@ export function ActionToggle({
         onChange?.(next);
       }}
       className={cn(
-        "flex items-center rounded-full p-[2px] transition-colors",
+        "inline-flex shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-primary",
         dims.track,
-        checked ? "bg-ds-primary" : "bg-ds-outline",
-        isDisabled && "cursor-not-allowed opacity-50"
+        checked ? "justify-end bg-ds-primary" : "justify-start bg-ds-outline",
+        isDisabled && "cursor-not-allowed opacity-50",
+        className
       )}
     >
-      <span
-        className={cn(
-          "rounded-full bg-white shadow-sm transition-transform",
-          dims.thumb,
-          checked ? dims.on : "translate-x-0"
-        )}
-      />
+      <span aria-hidden className={cn("block rounded-full bg-white shadow-sm", dims.thumb)} />
     </button>
   );
 }

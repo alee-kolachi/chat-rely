@@ -109,9 +109,9 @@ export function AgentSettingsHeader() {
 export function AgentSettingsEmptyState() {
   return (
     <div className="border-ds-outline rounded-ds-xl border bg-ds-surface p-8 text-center shadow-sm">
-      <h2 className="ds-app-section-title text-base">No agent yet</h2>
+      <h2 className="ds-app-section-title">No agent yet</h2>
       <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-        Finish onboarding to create your first agent — then come back to tweak its appearance, tone, and behavior.
+        Finish onboarding to create your first agent, then tweak appearance, tone, and behavior here.
       </p>
       <Link
         href="/onboarding"

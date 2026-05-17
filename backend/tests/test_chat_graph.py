@@ -1,138 +1,160 @@
-from datetime import UTC, datetime
+"""LangGraph chat agent tests (Shopify tools + human escalation)."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.tools import StructuredTool
 
-from app.domains.conversations.schemas import MessageDTO
-from app.domains.runtime import chat_graph
+from app.agent.graph import (
+    _route_after_model,
+    _route_after_shopify_tools,
+    append_escalation_tool_prompt,
+    build_chat_graph,
+)
+from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME, build_escalate_to_human_tool
 
 
-def _msg(
-    *,
-    role: str,
-    content: str,
-    created: datetime | None = None,
-) -> MessageDTO:
-    return MessageDTO.model_validate(
-        {
-            "id": str(uuid4()),
-            "conversation_id": str(uuid4()),
-            "agent_id": str(uuid4()),
-            "user_id": "00000000-0000-0000-0000-000000000123",
-            "role": role,
-            "content": content,
-            "tool_name": None,
-            "tool_call_id": None,
-            "tool_call_payload": {},
-            "tool_result_payload": {},
-            "model": "gpt-4o-mini",
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "latency_ms": None,
-            "metadata": {},
-            "created_at": (created or datetime.now(tz=UTC)).isoformat(),
+def test_escalate_tool_name() -> None:
+    tool = build_escalate_to_human_tool()
+    assert tool.name == ESCALATE_TO_HUMAN_TOOL_NAME
+
+
+def _shopify_tool(name: str) -> StructuredTool:
+    async def _run(**kwargs: object) -> str:
+        return "{}"
+
+    return StructuredTool.from_function(
+        coroutine=_run,
+        name=name,
+        description="test",
+    )
+
+
+def test_route_to_escalation_when_requested() -> None:
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": "tc1",
+                "name": ESCALATE_TO_HUMAN_TOOL_NAME,
+                "args": {"reason": "Visitor asked for a human"},
+            }
+        ],
+    )
+    state = {
+        "messages": [SystemMessage(content="sys"), HumanMessage(content="hi"), ai],
+        "escalation_enabled": True,
+        "shopify_tool_names": set(),
+    }
+    assert _route_after_model(state) == "escalation"
+
+
+def test_route_to_shopify_tools_when_bound() -> None:
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": "tc2",
+                "name": "shopify_product_search",
+                "args": {"query": "hoodie"},
+            }
+        ],
+    )
+    state = {
+        "messages": [ai],
+        "escalation_enabled": False,
+        "shopify_tool_names": {"shopify_product_search"},
+    }
+    assert _route_after_model(state) == "shopify_tools"
+
+
+def test_route_end_when_no_tools_enabled() -> None:
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": "tc1",
+                "name": ESCALATE_TO_HUMAN_TOOL_NAME,
+                "args": {"reason": "x"},
+            }
+        ],
+    )
+    state = {"messages": [ai], "escalation_enabled": False, "shopify_tool_names": set()}
+    assert _route_after_model(state) == "__end__"
+
+
+def test_route_after_shopify_tools_loops_until_max_rounds() -> None:
+    assert _route_after_shopify_tools({"model_round": 1}) == "call_model"
+    assert _route_after_shopify_tools({"model_round": 5}) == "__end__"
+
+
+def test_append_escalation_tool_prompt_only_when_enabled() -> None:
+    base = "You are helpful."
+    assert append_escalation_tool_prompt(base, tools_enabled=False) == base
+    extended = append_escalation_tool_prompt(base, tools_enabled=True)
+    assert "escalate_to_human" in extended
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_graph_emits_done() -> None:
+    from app.agent.escalation import EscalationTurnContext
+    from app.agent.graph import stream_chat_graph
+
+    user_id = uuid4()
+    agent_id = uuid4()
+    conversation_id = uuid4()
+
+    async def _fake_astream(_initial, stream_mode=None):  # noqa: ANN001
+        assert stream_mode == ["custom", "updates"]
+        yield "custom", {"type": "token", "text": "Hello"}
+        yield "updates", {
+            "call_model": {
+                "messages": [AIMessage(content="Hello")],
+                "final_response": "Hello",
+                "fallback_used": False,
+                "usage_input_tokens": 1,
+                "usage_output_tokens": 2,
+                "tools_invoked": [],
+                "escalation_occurred": False,
+            }
         }
+
+    mock_graph = MagicMock()
+    mock_graph.astream = _fake_astream
+
+    ctx = EscalationTurnContext(
+        user_id=user_id,
+        agent_id=agent_id,
+        conversation_id=conversation_id,
+        user_message="Hi",
+        visitor_email=None,
+        esc_cfg={},
     )
+    messages = [SystemMessage(content="sys"), HumanMessage(content="Hi")]
+
+    with patch("app.agent.graph.get_compiled_chat_graph", return_value=mock_graph):
+        events = [
+            e
+            async for e in stream_chat_graph(
+                messages=messages,
+                model="gpt-4o-mini",
+                temperature=0.0,
+                fallback_message="fallback",
+                escalation_enabled=False,
+                bound_tools=[],
+                turn_context=ctx,
+            )
+        ]
+
+    assert events[0] == {"type": "token", "text": "Hello"}
+    assert events[-1]["type"] == "done"
+    assert events[-1]["response"] == "Hello"
 
 
-def test_slice_history_strips_trailing_user_matching_current() -> None:
-    rows = [
-        _msg(role="user", content="Hi"),
-        _msg(role="assistant", content="Hello"),
-        _msg(role="user", content="Refund policy?"),
-    ]
-    out = chat_graph.slice_history_for_current_turn(rows, current_user_content="Refund policy?")
-    assert len(out) == 2
-    assert out[-1].role == "assistant"
-
-
-def test_slice_history_keeps_user_when_content_differs() -> None:
-    rows = [_msg(role="user", content="A"), _msg(role="user", content="B")]
-    out = chat_graph.slice_history_for_current_turn(rows, current_user_content="C")
-    assert len(out) == 2
-
-
-def test_slice_history_respects_max_window() -> None:
-    rows = [_msg(role="user", content=f"m{i}") for i in range(20)]
-    out = chat_graph.slice_history_for_current_turn(
-        rows, current_user_content="new turn", max_window_messages=3
-    )
-    assert len(out) == 3
-    assert out[0].content == "m17"
-    assert out[-1].content == "m19"
-
-
-def test_build_retrieval_query_no_history_returns_current_only() -> None:
-    q = chat_graph.build_retrieval_query_for_embedding([], "What's the warranty?")
-    assert q == "What's the warranty?"
-
-
-def test_build_retrieval_query_latest_message_only_by_default() -> None:
-    hist = [
-        _msg(role="user", content="Tell me about the AeroPress Go"),
-        _msg(
-            role="assistant",
-            content="The AeroPress Go is a travel coffee maker with a mug and filter holder.",
-        ),
-    ]
-    q = chat_graph.build_retrieval_query_for_embedding(hist, "Does it include filters?")
-    assert q == "Does it include filters?"
-    assert "AeroPress" not in q
-
-
-def test_build_retrieval_query_includes_prior_turns_when_opt_in() -> None:
-    hist = [
-        _msg(role="user", content="Tell me about the AeroPress Go"),
-        _msg(
-            role="assistant",
-            content="The AeroPress Go is a travel coffee maker with a mug and filter holder.",
-        ),
-    ]
-    q = chat_graph.build_retrieval_query_for_embedding(
-        hist, "Does it include filters?", include_conversation_tail=True
-    )
-    assert "AeroPress" in q
-    assert "filters" in q.lower()
-
-
-@pytest.mark.asyncio
-async def test_invoke_runtime_chat_graph_empty_model_uses_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _FakeLLM:
-        async def ainvoke(self, _messages: object) -> AIMessage:
-            return AIMessage(content="")
-
-    monkeypatch.setattr(
-        chat_graph, "make_chat_model", lambda _model, *, temperature=0.0: _FakeLLM()
-    )
-    chat_graph._compiled_graph = None
-
-    text, fb, _in_t, _out_t = await chat_graph.invoke_runtime_chat_graph(
-        messages=[HumanMessage(content="Hi")],
-        model="gpt-4o-mini",
-        fallback_message="FALLBACK",
-        thread_id=None,
-    )
-    assert text == "FALLBACK"
-    assert fb is True
-
-
-@pytest.mark.asyncio
-async def test_invoke_runtime_chat_graph_returns_model_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _FakeLLM:
-        async def ainvoke(self, _messages: object) -> AIMessage:
-            return AIMessage(content="  Grounded reply  ")
-
-    monkeypatch.setattr(
-        chat_graph, "make_chat_model", lambda _model, *, temperature=0.0: _FakeLLM()
-    )
-    chat_graph._compiled_graph = None
-
-    text, fb, _in_t, _out_t = await chat_graph.invoke_runtime_chat_graph(
-        messages=[HumanMessage(content="Hi")],
-        model="gpt-4o-mini",
-        fallback_message="FALLBACK",
-        thread_id="thread-1",
-    )
-    assert text == "Grounded reply"
-    assert fb is False
+def test_build_chat_graph_compiles() -> None:
+    graph = build_chat_graph()
+    assert graph is not None

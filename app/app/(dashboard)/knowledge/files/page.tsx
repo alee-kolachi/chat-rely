@@ -243,7 +243,7 @@ export default function KnowledgeFilesPage() {
           "This agent’s knowledge storage is full (website + files share one limit). Delete a source or upgrade your plan, then try again."
         );
       } else if (e instanceof BackendApiError && e.code === "knowledge.embedding_not_configured") {
-        setError("Indexing is not configured (missing OpenAI API key on the server). Contact support or check backend configuration.");
+        setError("Indexing is not set up on the server. Contact support.");
       } else {
         setError(e instanceof Error ? e.message : "File upload failed");
       }
@@ -298,12 +298,11 @@ export default function KnowledgeFilesPage() {
                 <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-ds-sidebar ring-1 ring-ds-outline transition-transform hover:scale-105">
                   <IconCloudUpload className="text-ds-primary size-5" />
                 </div>
-                <p className="text-ds-on-surface text-sm font-semibold">
+                <p className="ds-app-card-title">
                   {uploading ? "Uploading and indexing files..." : "Drag and drop documents here or click to browse."}
                 </p>
-                <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
-                Max 50MB per file. Supports PDF, TXT, DOC, DOCX. Indexing can take up to a minute
-                  while embeddings are generated.
+                <p className="ds-app-body-muted mt-1">
+                Max 50MB per file. PDF, TXT, DOC, DOCX. Indexing can take up to a minute.
                 </p>
               </div>
             </div>
@@ -311,7 +310,7 @@ export default function KnowledgeFilesPage() {
 
           <section className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="ds-app-section-title text-base">File sources</h2>
+              <h2 className="ds-app-section-title">File sources</h2>
               <KnowledgeSearchInput
                 placeholder="Search files…"
                 className="w-full sm:w-72"
@@ -333,7 +332,7 @@ export default function KnowledgeFilesPage() {
               <div className="flex items-center gap-3">
                 {selected.size > 0 ? (
                   <>
-                    <span className="text-ds-on-surface-variant text-xs font-medium">{selected.size} selected</span>
+                    <span className="ds-app-body-muted font-medium">{selected.size} selected</span>
                     <button
                       type="button"
                       onClick={() => void bulkDelete()}
@@ -344,7 +343,7 @@ export default function KnowledgeFilesPage() {
                     </button>
                   </>
                 ) : (
-                  <span className="text-ds-on-surface-variant text-xs font-medium">{headerLabel}</span>
+                  <span className="ds-app-body-muted font-medium">{headerLabel}</span>
                 )}
                 <KnowledgeSortMenu value={sortKey} onChange={setSortKey} />
               </div>
@@ -381,7 +380,7 @@ export default function KnowledgeFilesPage() {
                           <p className="text-ds-on-surface text-sm font-medium">
                             {searchQuery.trim() ? "No matching files" : "No file sources yet"}
                           </p>
-                          <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                          <p className="ds-app-body-muted mx-auto mt-1 max-w-md">
                             {searchQuery.trim()
                               ? "Try another search or clear filters."
                               : "Upload documents above so your agent can retrieve them in conversations."}
@@ -420,10 +419,10 @@ export default function KnowledgeFilesPage() {
                             return <StatusPill label={s.label} tone={s.tone} />;
                           })()}
                         </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 font-mono text-xs">
+                        <td className="ds-app-body-muted px-4 py-4 font-mono">
                           {row.character_count.toLocaleString()}
                         </td>
-                        <td className="text-ds-on-surface-variant px-4 py-4 text-xs">
+                        <td className="ds-app-body-muted px-4 py-4">
                           {formatUpdatedAt(row.last_indexed_at)}
                         </td>
                         <td className="px-5 py-4 text-right sm:px-6">

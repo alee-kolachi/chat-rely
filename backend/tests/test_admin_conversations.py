@@ -228,6 +228,8 @@ def test_get_conversation_detail_returns_messages_in_order(
                 ),
             ],
             truncated=False,
+            total_message_count=2,
+            transcript_message_cap=1000,
         )
 
     monkeypatch.setattr(
@@ -241,6 +243,8 @@ def test_get_conversation_detail_returns_messages_in_order(
     assert response.status_code == 200
     body = response.json()
     assert body["truncated"] is False
+    assert body["total_message_count"] == 2
+    assert body["transcript_message_cap"] == 1000
     assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
     assert body["messages"][1]["model"] == "gpt-4o-mini"
 

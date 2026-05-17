@@ -90,6 +90,8 @@ class AdminUsageSnapshotSummary(BaseModel):
     estimated_overage_cents: int
     projected_conversations: int
     throttle_tier: str
+    included_premium_turns: int = 0
+    premium_turns_used: int = 0
     last_computed_at: datetime | None = None
 
 
@@ -155,6 +157,8 @@ class AdminConversationDetail(AdminConversationListItem):
     messages: list[AdminMessageDTO] = Field(default_factory=list)
     truncated: bool = False
     """True when the transcript was capped at the message limit (1000 by default)."""
+    total_message_count: int = 0
+    transcript_message_cap: int = 1000
 
 
 # ---------- User detail (declared after conversation list item) ------------------
@@ -560,6 +564,8 @@ class AdminUsageSnapshotRow(BaseModel):
     estimated_overage_cents: int
     projected_conversations: int
     throttle_tier: str
+    included_premium_turns: int = 0
+    premium_turns_used: int = 0
     last_computed_at: datetime | None = None
 
 
@@ -591,6 +597,8 @@ class AdminPlanRow(BaseModel):
     features: dict[str, Any] = Field(default_factory=dict)
     throttle_policy: dict[str, Any] = Field(default_factory=dict)
     is_active: bool
+    public_on_pricing_page: bool = True
+    sort_order: int = 0
     subscriptions_count: int = 0
     created_at: datetime
 

@@ -239,7 +239,7 @@ export function DashboardSidebar() {
                   </p>
                   {item.children.map((child) => {
                     const baseChildClass =
-                      "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-outline/35 rounded-md px-2 py-2 text-left text-xs transition-colors";
+                      "ds-app-body-muted hover:text-ds-on-surface hover:bg-ds-outline/35 rounded-md px-2 py-2 text-left transition-colors";
 
                     if (child.action === "logout") {
                       return <LogoutButton key={`${item.href}-${child.label}`} className={baseChildClass} />;
@@ -266,7 +266,7 @@ export function DashboardSidebar() {
                 <div className="border-ds-outline/70 mt-1 ml-7 flex flex-col gap-1 border-l pl-3">
                   {item.children.map((child) => {
                     const baseChildClass =
-                      "text-ds-on-surface-variant hover:text-ds-on-surface rounded-md border border-transparent px-2 py-1.5 text-left text-xs transition-colors";
+                      "ds-app-body-muted hover:text-ds-on-surface rounded-md border border-transparent px-2 py-1.5 text-left transition-colors";
 
                     if (child.action === "logout") {
                       return <LogoutButton key={`${item.href}-${child.label}`} className={baseChildClass} />;

@@ -73,8 +73,7 @@ class SitemapDiscoveryResult:
 
 
 EMBEDDING_DIMENSION = 1536
-MAX_ONBOARDING_PAGES = 5
-# Hard cap on how many distinct page URLs one crawl job may visit (safety rail; byte budget is primary for dashboard).
+# Hard cap on how many distinct page URLs one crawl job may visit (safety rail; byte budget is primary).
 MAX_CRAWL_PAGES_SAFETY_CEILING = 2000
 MAX_DASHBOARD_WEBSITE_PAGES = MAX_CRAWL_PAGES_SAFETY_CEILING
 # With include path rules, follow same-site links that pass excludes only so hub/category pages can lead to matching URLs.
@@ -108,9 +107,11 @@ def _charge_bytes_and_html_from_response(response: httpx.Response, *, remaining_
     return charged, html
 
 
-# Dashboard crawl: show URL count quickly (sitemap), then fetch HTML in small batches with DB commits.
-DASHBOARD_CRAWL_CONTENT_BATCH = 8
-DASHBOARD_CRAWL_PROGRESS_EVERY = 3
+# Dashboard crawl: sitemap seeds URL rows in bulk; HTML fetch runs in the worker (not HTTP rate limits).
+# Page rows are upserted in chunks after fetch — not one DB round-trip per page during crawl.
+DASHBOARD_CRAWL_CONTENT_BATCH = 24
+DASHBOARD_CRAWL_PROGRESS_EVERY = 12
+DASHBOARD_PAGE_UPSERT_CHUNK = 100
 
 # Large shops can expose thousands of nested sitemap index URLs; cap GETs so discovery finishes.
 SITEMAP_MAX_DOCUMENT_FETCHES = 500
@@ -646,14 +647,14 @@ async def _post_one_embedding_batch(
         detail_msg = _embedding_api_error_message(response.status_code, body)
         raise AppError(
             code="knowledge.embedding_failed",
-            message=f"Embedding API error: {detail_msg}",
+            message=f"Indexing API error: {detail_msg}",
             status_code=502,
             details={"status_code": response.status_code, "body": body[:800]},
         )
     payload = response.json()
     vectors = [item["embedding"] for item in payload.get("data", [])]
     if len(vectors) != len(batch):
-        raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
+        raise AppError(code="knowledge.embedding_failed", message="Indexing response length mismatch", status_code=502)
     usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
     tokens = int(usage.get("prompt_tokens") or usage.get("total_tokens") or 0)
     return vectors, tokens
@@ -664,7 +665,7 @@ async def _embed_texts(chunks: list[str]) -> list[list[float]]:
     if not settings.openai_api_key:
         raise AppError(
             code="knowledge.embedding_not_configured",
-            message="OPENAI_API_KEY is required for indexing embeddings",
+            message="Knowledge indexing is not configured on the server",
             status_code=500,
         )
 
@@ -694,7 +695,7 @@ async def _embed_texts(chunks: list[str]) -> list[list[float]]:
             all_vectors.extend(vecs)
 
     if len(all_vectors) != len(chunks):
-        raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
+        raise AppError(code="knowledge.embedding_failed", message="Indexing response length mismatch", status_code=502)
     return all_vectors
 
 
@@ -704,7 +705,7 @@ async def embed_texts_with_token_usage(chunks: list[str]) -> tuple[list[list[flo
     if not settings.openai_api_key:
         raise AppError(
             code="knowledge.embedding_not_configured",
-            message="OPENAI_API_KEY is required for indexing embeddings",
+            message="Knowledge indexing is not configured on the server",
             status_code=500,
         )
     if not chunks:
@@ -733,7 +734,7 @@ async def embed_texts_with_token_usage(chunks: list[str]) -> tuple[list[list[flo
             total_tokens += tok
 
     if len(all_vectors) != len(chunks):
-        raise AppError(code="knowledge.embedding_failed", message="Embedding response length mismatch", status_code=502)
+        raise AppError(code="knowledge.embedding_failed", message="Indexing response length mismatch", status_code=502)
     return all_vectors, total_tokens
 
 
@@ -1104,12 +1105,15 @@ def _ingest_params_from_metadata(metadata: dict[str, object]) -> tuple[WebsiteMo
         mode = "crawl"
     else:
         mode = "crawl"
-    max_pages = int(metadata.get("max_pages") or (MAX_DASHBOARD_WEBSITE_PAGES if origin == "dashboard_website" else MAX_ONBOARDING_PAGES))
-    if origin != "dashboard_website":
-        max_pages = min(max_pages, MAX_ONBOARDING_PAGES)
+    max_pages = int(metadata.get("max_pages") or MAX_DASHBOARD_WEBSITE_PAGES)
     include = [dict(x) for x in (metadata.get("include_rules") or []) if isinstance(x, dict)]
     exclude = [dict(x) for x in (metadata.get("exclude_rules") or []) if isinstance(x, dict)]
     return mode, max_pages, include, exclude
+
+
+def _website_ingest_uses_live_discovery(metadata: dict[str, object]) -> bool:
+    """Dashboard and onboarding: sitemap seed + incremental page rows while the worker crawls."""
+    return str(metadata.get("origin") or "") in ("dashboard_website", "onboarding")
 
 
 async def _crawl_pages(
@@ -1445,6 +1449,59 @@ def _website_page_index_metadata_json(page: dict[str, object]) -> str:
     )
 
 
+def _knowledge_source_page_row_params(page: dict[str, object], index: int) -> dict[str, str | int | None]:
+    return {
+        f"url_{index}": str(page["url"]),
+        f"depth_{index}": int(page["depth"]),
+        f"status_{index}": "parsed" if str(page["text"]).strip() else "failed",
+        f"http_status_{index}": page["http_status"],
+        f"metadata_{index}": _website_page_index_metadata_json(page),
+    }
+
+
+async def _bulk_upsert_knowledge_source_pages(
+    db: AsyncSession,
+    *,
+    source_id: UUID,
+    crawl_run_id: UUID,
+    user_id: UUID,
+    pages: list[dict[str, object]],
+) -> None:
+    if not pages:
+        return
+    for start in range(0, len(pages), DASHBOARD_PAGE_UPSERT_CHUNK):
+        chunk = pages[start : start + DASHBOARD_PAGE_UPSERT_CHUNK]
+        placeholders = ", ".join(
+            f"(:source_id, :crawl_run_id, :user_id, :url_{i}, :depth_{i}, :status_{i}, :http_status_{i}, now(), cast(:metadata_{i} as jsonb))"
+            for i in range(len(chunk))
+        )
+        params: dict[str, str | int | None] = {
+            "source_id": str(source_id),
+            "crawl_run_id": str(crawl_run_id),
+            "user_id": str(user_id),
+        }
+        for i, page in enumerate(chunk):
+            params.update(_knowledge_source_page_row_params(page, i))
+        await db.execute(
+            text(
+                f"""
+                insert into public.knowledge_source_pages (
+                  knowledge_source_id, crawl_run_id, user_id, url, depth, status, http_status, last_crawled_at, metadata
+                ) values {placeholders}
+                on conflict (knowledge_source_id, url)
+                do update set
+                  crawl_run_id = excluded.crawl_run_id,
+                  depth = excluded.depth,
+                  status = excluded.status,
+                  http_status = excluded.http_status,
+                  last_crawled_at = now(),
+                  metadata = excluded.metadata
+                """
+            ),
+            params,
+        )
+
+
 async def _upsert_knowledge_source_page(
     db: AsyncSession,
     *,
@@ -1453,35 +1510,12 @@ async def _upsert_knowledge_source_page(
     user_id: UUID,
     page: dict[str, object],
 ) -> None:
-    await db.execute(
-        text(
-            """
-            insert into public.knowledge_source_pages (
-              knowledge_source_id, crawl_run_id, user_id, url, depth, status, http_status, last_crawled_at, metadata
-            ) values (
-              :source_id, :crawl_run_id, :user_id, :url, :depth, :status, :http_status, now(),
-              cast(:metadata as jsonb)
-            )
-            on conflict (knowledge_source_id, url)
-            do update set
-              crawl_run_id = excluded.crawl_run_id,
-              depth = excluded.depth,
-              status = excluded.status,
-              http_status = excluded.http_status,
-              last_crawled_at = now(),
-              metadata = excluded.metadata
-            """
-        ),
-        {
-            "source_id": str(source_id),
-            "crawl_run_id": str(crawl_run_id),
-            "user_id": str(user_id),
-            "url": str(page["url"]),
-            "depth": int(page["depth"]),
-            "status": "parsed" if str(page["text"]).strip() else "failed",
-            "http_status": page["http_status"],
-            "metadata": _website_page_index_metadata_json(page),
-        },
+    await _bulk_upsert_knowledge_source_pages(
+        db,
+        source_id=source_id,
+        crawl_run_id=crawl_run_id,
+        user_id=user_id,
+        pages=[page],
     )
 
 
@@ -1539,33 +1573,18 @@ async def _release_dashboard_job_for_embedding_pass(
     await db.commit()
 
 
-async def _dashboard_flush_crawl_pages(
+async def _dashboard_update_crawl_job_progress(
     db: AsyncSession,
     *,
-    source_id: UUID,
-    crawl_run_id: UUID,
-    user_id: UUID,
     job_id: UUID,
-    pages_snapshot: list[dict[str, object]],
     pages_total_cap: int,
+    pages_processed: int,
     crawl_http_bytes_so_far: int | None = None,
-    cumulative_pages_processed: int | None = None,
+    crawl_phase: str = "fetching_html",
 ) -> None:
-    """Upsert page rows and bump job progress for UI polling.
-
-    ``pages_snapshot`` may be a **delta** (only new pages since last flush); pass
-    ``cumulative_pages_processed`` as total URLs processed so far for accurate progress.
-    """
-    await _require_knowledge_source_exists(db, source_id)
-    for page in pages_snapshot:
-        await _upsert_knowledge_source_page(
-            db, source_id=source_id, crawl_run_id=crawl_run_id, user_id=user_id, page=page
-        )
-    attempted = (
-        cumulative_pages_processed if cumulative_pages_processed is not None else len(pages_snapshot)
-    )
-    pct = 5 + int(min(19, 19 * attempted / max(pages_total_cap, 1)))
-    mextra: dict[str, object] = {"crawl_phase": "fetching_html"}
+    """Update indexing job counters only (no per-page DB writes). Used while the worker fetches HTML."""
+    pct = 5 + int(min(19, 19 * pages_processed / max(pages_total_cap, 1)))
+    mextra: dict[str, object] = {"crawl_phase": crawl_phase}
     if crawl_http_bytes_so_far is not None:
         mextra["crawl_http_bytes"] = crawl_http_bytes_so_far
     await db.execute(
@@ -1583,10 +1602,40 @@ async def _dashboard_flush_crawl_pages(
         {
             "job_id": str(job_id),
             "pages_total": pages_total_cap,
-            "pages_processed": attempted,
+            "pages_processed": pages_processed,
             "progress_pct": min(24, pct),
             "mextra": json.dumps(mextra),
         },
+    )
+
+
+async def _dashboard_persist_crawl_pages(
+    db: AsyncSession,
+    *,
+    source_id: UUID,
+    crawl_run_id: UUID,
+    user_id: UUID,
+    job_id: UUID,
+    pages: list[dict[str, object]],
+    pages_total_cap: int,
+    crawl_http_bytes_so_far: int | None = None,
+) -> None:
+    """Bulk-upsert crawled page rows once per phase (chunked), then refresh job progress."""
+    await _require_knowledge_source_exists(db, source_id)
+    await _bulk_upsert_knowledge_source_pages(
+        db,
+        source_id=source_id,
+        crawl_run_id=crawl_run_id,
+        user_id=user_id,
+        pages=pages,
+    )
+    await _dashboard_update_crawl_job_progress(
+        db,
+        job_id=job_id,
+        pages_total_cap=pages_total_cap,
+        pages_processed=len(pages),
+        crawl_http_bytes_so_far=crawl_http_bytes_so_far,
+        crawl_phase="fetching_html",
     )
 
 
@@ -1695,7 +1744,7 @@ async def _dashboard_seed_queued_urls(
 async def _exclude_remaining_queued_pages_for_run(
     db: AsyncSession, *, knowledge_source_id: UUID, crawl_run_id: UUID
 ) -> None:
-    """Sitemap seeding inserts many `queued` placeholders; after fetch stops (budget, etc.), drop the rest."""
+    """Sitemap seeding inserts many `queued` placeholders; drop unfetched URLs only when the crawl fully finished."""
     await db.execute(
         text(
             """
@@ -1708,6 +1757,113 @@ async def _exclude_remaining_queued_pages_for_run(
         ),
         {"sid": str(knowledge_source_id), "rid": str(crawl_run_id)},
     )
+
+
+def _effective_crawl_budget_bytes(*, origin: str, remaining_storage: int, crawl_cap: int) -> int:
+    """Onboarding uses the full knowledge pool so the first crawl can cover the whole sitemap (within plan storage)."""
+    if origin == "onboarding":
+        return max(0, remaining_storage)
+    return min(max(0, remaining_storage), max(0, crawl_cap))
+
+
+async def _count_queued_pages_for_source(db: AsyncSession, source_id: UUID, user_id: UUID) -> int:
+    row = (
+        await db.execute(
+            text(
+                """
+                select count(*)::int as c
+                from public.knowledge_source_pages
+                where knowledge_source_id = :sid and user_id = :uid and status = 'queued'::public.crawl_page_status
+                """
+            ),
+            {"sid": str(source_id), "uid": str(user_id)},
+        )
+    ).mappings().one()
+    return int(row["c"] or 0)
+
+
+async def _list_queued_page_urls(
+    db: AsyncSession, source_id: UUID, user_id: UUID, *, limit: int
+) -> list[str]:
+    rows = (
+        await db.execute(
+            text(
+                """
+                select url
+                from public.knowledge_source_pages
+                where knowledge_source_id = :sid and user_id = :uid and status = 'queued'::public.crawl_page_status
+                order by url asc
+                limit :limit
+                """
+            ),
+            {"sid": str(source_id), "uid": str(user_id), "limit": max(1, int(limit))},
+        )
+    ).mappings().all()
+    return [str(r["url"]) for r in rows]
+
+
+async def _source_has_pending_indexing_job(db: AsyncSession, source_id: UUID, user_id: UUID) -> bool:
+    row = (
+        await db.execute(
+            text(
+                """
+                select id
+                from public.indexing_jobs
+                where knowledge_source_id = :sid and user_id = :uid and status in ('queued', 'running')
+                limit 1
+                """
+            ),
+            {"sid": str(source_id), "uid": str(user_id)},
+        )
+    ).first()
+    return row is not None
+
+
+async def _clear_crawl_continuation_metadata(db: AsyncSession, source_id: UUID, user_id: UUID) -> None:
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set metadata = coalesce(metadata, '{}'::jsonb) - 'fetch_queued_only' - 'continuation_crawl_run_id'
+            where id = :sid and user_id = :uid
+            """
+        ),
+        {"sid": str(source_id), "uid": str(user_id)},
+    )
+
+
+async def _maybe_enqueue_crawl_continuation(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    source: KnowledgeSourceDTO,
+    crawl_run_id: UUID,
+    crawl_stopped_reason: str,
+) -> None:
+    if crawl_stopped_reason not in ("budget", "max_pages_safety"):
+        await _clear_crawl_continuation_metadata(db, source.id, user_id)
+        return
+    queued = await _count_queued_pages_for_source(db, source.id, user_id)
+    if queued <= 0:
+        await _clear_crawl_continuation_metadata(db, source.id, user_id)
+        return
+    if await _source_has_pending_indexing_job(db, source.id, user_id):
+        return
+    md = dict(source.metadata or {})
+    md["fetch_queued_only"] = True
+    md["continuation_crawl_run_id"] = str(crawl_run_id)
+    await db.execute(
+        text(
+            """
+            update public.knowledge_sources
+            set metadata = cast(:metadata as jsonb)
+            where id = :sid and user_id = :uid
+            """
+        ),
+        {"sid": str(source.id), "uid": str(user_id), "metadata": json.dumps(md)},
+    )
+    await enqueue_index_website_source_queued(db, source.id, user_id)
+    await db.commit()
 
 
 async def _dashboard_fetch_planned_urls_in_batches(
@@ -1747,24 +1903,33 @@ async def _dashboard_fetch_planned_urls_in_batches(
         for p in batch_pages:
             p.setdefault("depth", 0)
         all_pages.extend(batch_pages)
-        await _dashboard_flush_crawl_pages(
+        await _dashboard_update_crawl_job_progress(
+            db,
+            job_id=job_id,
+            pages_total_cap=n,
+            pages_processed=len(all_pages),
+            crawl_http_bytes_so_far=total_saved,
+        )
+        await db.commit()
+        if stopped == "budget":
+            break
+    if all_pages:
+        await _dashboard_persist_crawl_pages(
             db,
             source_id=source.id,
             crawl_run_id=crawl_run_id,
             user_id=user_id,
             job_id=job_id,
-            pages_snapshot=batch_pages,
+            pages=all_pages,
             pages_total_cap=n,
             crawl_http_bytes_so_far=total_saved,
-            cumulative_pages_processed=len(all_pages),
         )
         await db.commit()
-        if stopped == "budget":
-            break
-    await _exclude_remaining_queued_pages_for_run(
-        db, knowledge_source_id=source.id, crawl_run_id=crawl_run_id
-    )
-    await db.commit()
+    if stopped not in ("budget", "max_pages_safety"):
+        await _exclude_remaining_queued_pages_for_run(
+            db, knowledge_source_id=source.id, crawl_run_id=crawl_run_id
+        )
+        await db.commit()
     return all_pages, links_discovered, preview, total_saved, stopped
 
 
@@ -2160,7 +2325,7 @@ async def _complete_website_indexing_embedding_phase(
             if len(embedding) != EMBEDDING_DIMENSION:
                 raise AppError(
                     code="knowledge.embedding_dimension_mismatch",
-                    message="Embedding dimension does not match vector column",
+                    message="Indexed content format does not match storage",
                     status_code=500,
                     details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
                 )
@@ -2277,17 +2442,26 @@ async def _complete_website_indexing_embedding_phase(
     from app.domains.notifications.links import href_knowledge_source
     from app.domains.notifications.service import create_notification_best_effort
 
-    await create_notification_best_effort(
+    await _maybe_enqueue_crawl_continuation(
         db,
         user_id=user_id,
-        kind="knowledge_index_complete",
-        title="Knowledge indexing complete",
-        body=f"“{source.title}” is indexed and ready for answers.",
-        href=href_knowledge_source(
-            source_type=source.type, agent_id=source.agent_id, source_id=source.id
-        ),
-        metadata={"source_id": str(source.id), "source_type": source.type},
+        source=source,
+        crawl_run_id=crawl_run_id,
+        crawl_stopped_reason=crawl_stopped_reason,
     )
+    queued_after = await _count_queued_pages_for_source(db, source.id, user_id)
+    if queued_after <= 0:
+        await create_notification_best_effort(
+            db,
+            user_id=user_id,
+            kind="knowledge_index_complete",
+            title="Knowledge indexing complete",
+            body=f"“{source.title}” is indexed and ready for answers.",
+            href=href_knowledge_source(
+                source_type=source.type, agent_id=source.agent_id, source_id=source.id
+            ),
+            metadata={"source_id": str(source.id), "source_type": source.type},
+        )
     return preview_image_url
 
 
@@ -2453,9 +2627,6 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             "include_rules": include_rules,
             "exclude_rules": exclude_rules,
         }
-        crawl_run_id = await _create_crawl_run(db, source, user_id, crawl_settings)
-        await db.commit()
-
         _plan_slug, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
         included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
         effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
@@ -2464,10 +2635,44 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
         )
         remaining_storage = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
         crawl_cap = website_crawl_cap_bytes(plan_features, included_storage_cap_bytes)
-        crawl_budget_bytes = min(remaining_storage, crawl_cap)
+        origin = str(md.get("origin") or "")
+        crawl_budget_bytes = _effective_crawl_budget_bytes(
+            origin=origin,
+            remaining_storage=remaining_storage,
+            crawl_cap=crawl_cap,
+        )
         pages_persisted_incrementally = False
         dashboard_planned_url_count: int | None = None
         website_discovery_mode = "unknown"
+        fetch_queued_only = bool(md.get("fetch_queued_only")) and md.get("continuation_crawl_run_id")
+
+        if fetch_queued_only:
+            crawl_run_id = UUID(str(md["continuation_crawl_run_id"]))
+            queued_urls = await _list_queued_page_urls(db, source.id, user_id, limit=max_pages)
+            website_discovery_mode = "resume_queued"
+            if queued_urls:
+                dashboard_planned_url_count = await _count_queued_pages_for_source(db, source.id, user_id)
+                pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = (
+                    await _dashboard_fetch_planned_urls_in_batches(
+                        db,
+                        job_id=job_id,
+                        source=source,
+                        user_id=user_id,
+                        crawl_run_id=crawl_run_id,
+                        urls=queued_urls,
+                        crawl_budget_bytes=crawl_budget_bytes,
+                    )
+                )
+                pages_persisted_incrementally = True
+            else:
+                await _clear_crawl_continuation_metadata(db, source.id, user_id)
+                pages = []
+                links_discovered = 0
+                crawl_http_bytes = 0
+                crawl_stopped_reason = "complete"
+        else:
+            crawl_run_id = await _create_crawl_run(db, source, user_id, crawl_settings)
+            await db.commit()
 
         async def _indexing_sitemap_progress(docs_scanned: int, urls_matched: int) -> None:
             pct = min(
@@ -2502,7 +2707,9 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             )
             await db.commit()
 
-        if mode == "individual":
+        if fetch_queued_only:
+            pass
+        elif mode == "individual":
             website_discovery_mode = "individual"
             pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason = await _fetch_pages_for_urls(
                 [source.source_url], crawl_budget_bytes=crawl_budget_bytes
@@ -2520,7 +2727,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             if not sitemap_urls:
                 raise _app_error_for_empty_sitemap_discovery(sitemap_discovered)
             dashboard_planned_url_count = len(sitemap_urls)
-            if md.get("origin") == "dashboard_website":
+            if _website_ingest_uses_live_discovery(md):
                 await _dashboard_seed_queued_urls(
                     db,
                     source_id=source.id,
@@ -2547,7 +2754,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                     sitemap_urls, crawl_budget_bytes=crawl_budget_bytes
                 )
         else:
-            if md.get("origin") == "dashboard_website":
+            if _website_ingest_uses_live_discovery(md):
                 sitemap_plan = (
                     await _discover_sitemap_urls(
                         source.source_url,
@@ -2599,34 +2806,33 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                     )
                     await db.commit()
 
-                    _bfs_flush_cursor = [0]
-
                     async def _bfs_progress(
                         snapshot: list[dict[str, object]],
                         _bytes_so_far: int,
                         crawl_visits: int = 0,
                     ) -> None:
-                        start = _bfs_flush_cursor[0]
-                        has_new_pages = start < len(snapshot)
-                        if not has_new_pages and crawl_visits == 0:
-                            return
-                        delta = snapshot[start:] if has_new_pages else []
-                        if has_new_pages:
-                            _bfs_flush_cursor[0] = len(snapshot)
+                        if snapshot:
+                            await _bulk_upsert_knowledge_source_pages(
+                                db,
+                                source_id=source.id,
+                                crawl_run_id=crawl_run_id,
+                                user_id=user_id,
+                                pages=snapshot,
+                            )
                         cumulative = max(len(snapshot), crawl_visits)
-                        await _dashboard_flush_crawl_pages(
+                        await _dashboard_update_crawl_job_progress(
                             db,
-                            source_id=source.id,
-                            crawl_run_id=crawl_run_id,
-                            user_id=user_id,
                             job_id=job_id,
-                            pages_snapshot=delta,
                             pages_total_cap=max_pages,
+                            pages_processed=cumulative,
                             crawl_http_bytes_so_far=_bytes_so_far,
-                            cumulative_pages_processed=cumulative,
+                            crawl_phase="bfs_fetch",
                         )
                         await db.commit()
 
+                    bfs_progress_every = (
+                        1 if md.get("origin") == "onboarding" else DASHBOARD_CRAWL_PROGRESS_EVERY
+                    )
                     pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason, bfs_visits = (
                         await _crawl_pages(
                             source.source_url,
@@ -2635,15 +2841,48 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                             exclude_rules,
                             crawl_budget_bytes=crawl_budget_bytes,
                             progress_hook=_bfs_progress,
+                            progress_every=bfs_progress_every,
                         )
                     )
                     await _bfs_progress(pages, crawl_http_bytes, bfs_visits)
+                    if pages:
+                        await _dashboard_persist_crawl_pages(
+                            db,
+                            source_id=source.id,
+                            crawl_run_id=crawl_run_id,
+                            user_id=user_id,
+                            job_id=job_id,
+                            pages=pages,
+                            pages_total_cap=max_pages,
+                            crawl_http_bytes_so_far=crawl_http_bytes,
+                        )
+                        await db.commit()
                     pages_persisted_incrementally = True
-            else:
-                website_discovery_mode = "bfs"
-                pages, links_discovered, preview_image_url, crawl_http_bytes, crawl_stopped_reason, _ = await _crawl_pages(
-                    source.source_url, max_pages, include_rules, exclude_rules, crawl_budget_bytes=crawl_budget_bytes
-                )
+
+        if fetch_queued_only and not pages:
+            await _clear_crawl_continuation_metadata(db, source.id, user_id)
+            await db.execute(
+                text(
+                    """
+                    update public.indexing_jobs
+                    set status = 'succeeded', phase = 'complete', progress_pct = 100, finished_at = now()
+                    where id = :job_id
+                    """
+                ),
+                {"job_id": str(job_id)},
+            )
+            await db.execute(
+                text(
+                    """
+                    update public.knowledge_sources
+                    set status = 'ready', last_indexed_at = now(), error_message = null
+                    where id = :source_id
+                    """
+                ),
+                {"source_id": str(source.id)},
+            )
+            await db.commit()
+            return preview_image_url
 
         usable_pages = [p for p in pages if str(p["text"]).strip()]
         fetch_stats = _website_fetch_page_stats(pages)
@@ -2676,7 +2915,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 }
             )
 
-        split_after_crawl = md.get("origin") == "dashboard_website"
+        split_after_crawl = md.get("origin") in ("dashboard_website", "onboarding")
 
         if pages_persisted_incrementally:
             await db.execute(
@@ -2713,16 +2952,17 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 {"job_id": str(job_id), "pages_total": len(pages), "pages_processed": len(pages)},
             )
 
-        if not pages_persisted_incrementally or split_after_crawl:
-            await _require_knowledge_source_exists(db, source.id)
-            for page in pages:
-                await _upsert_knowledge_source_page(
-                    db,
-                    source_id=source.id,
-                    crawl_run_id=crawl_run_id,
-                    user_id=user_id,
-                    page=page,
-                )
+        if not pages_persisted_incrementally:
+            await _dashboard_persist_crawl_pages(
+                db,
+                source_id=source.id,
+                crawl_run_id=crawl_run_id,
+                user_id=user_id,
+                job_id=job_id,
+                pages=pages,
+                pages_total_cap=len(pages),
+                crawl_http_bytes_so_far=crawl_http_bytes,
+            )
 
         await db.commit()
 
@@ -2879,7 +3119,7 @@ async def index_file_source(
             if len(embedding) != EMBEDDING_DIMENSION:
                 raise AppError(
                     code="knowledge.embedding_dimension_mismatch",
-                    message="Embedding dimension does not match vector column",
+                    message="Indexed content format does not match storage",
                     status_code=500,
                     details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
                 )
@@ -3057,7 +3297,7 @@ async def index_text_snippet_source(
             if len(embedding) != EMBEDDING_DIMENSION:
                 raise AppError(
                     code="knowledge.embedding_dimension_mismatch",
-                    message="Embedding dimension does not match vector column",
+                    message="Indexed content format does not match storage",
                     status_code=500,
                     details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
                 )
@@ -3260,7 +3500,7 @@ async def index_qa_source(db: AsyncSession, source_id: UUID, user_id: UUID) -> t
             if len(embedding) != EMBEDDING_DIMENSION:
                 raise AppError(
                     code="knowledge.embedding_dimension_mismatch",
-                    message="Embedding dimension does not match vector column",
+                    message="Indexed content format does not match storage",
                     status_code=500,
                     details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
                 )
@@ -3998,7 +4238,7 @@ async def update_website_source_page(
         if len(embedding) != EMBEDDING_DIMENSION:
             raise AppError(
                 code="knowledge.embedding_dimension_mismatch",
-                message="Embedding dimension does not match vector column",
+                message="Indexed content format does not match storage",
                 status_code=500,
                 details={"expected": EMBEDDING_DIMENSION, "actual": len(embedding)},
             )

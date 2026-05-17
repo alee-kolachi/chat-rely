@@ -2,9 +2,71 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.core.settings import get_settings
 from app.domains.plans.schemas import PlanLimitsDTO
+
+AdvancedResolutionBand = Literal["comfortable", "limited", "standard_only"]
+
+
+@dataclass(frozen=True)
+class PlanModelPolicy:
+    plan_slug: str
+    default_chat_model: str
+    premium_chat_model: str
+    included_premium_turns: int
+    throttle_policy: dict[str, Any]
+
+
+def plan_model_policy_from_features(
+    plan_slug: str,
+    features: dict[str, Any] | object,
+    *,
+    throttle_policy: dict[str, Any] | None = None,
+) -> PlanModelPolicy:
+    settings = get_settings()
+    feats = features if isinstance(features, dict) else {}
+    default_model = (
+        str(feats.get("default_chat_model") or "").strip()
+        or settings.runtime_default_chat_model
+        or "gpt-4o-mini"
+    )
+    premium_model = (
+        str(feats.get("premium_chat_model") or "").strip()
+        or settings.runtime_premium_chat_model
+        or "gpt-4o"
+    )
+    raw_premium = feats.get("included_premium_turns")
+    try:
+        included_premium = max(0, int(raw_premium)) if raw_premium is not None else 0
+    except (TypeError, ValueError):
+        included_premium = 0
+    return PlanModelPolicy(
+        plan_slug=(plan_slug or "").strip().lower(),
+        default_chat_model=default_model,
+        premium_chat_model=premium_model,
+        included_premium_turns=included_premium,
+        throttle_policy=throttle_policy if isinstance(throttle_policy, dict) else {},
+    )
+
+
+def advanced_resolution_band(
+    *,
+    plan_slug: str,
+    included_premium_turns: int,
+    premium_turns_used: int,
+) -> AdvancedResolutionBand:
+    slug = (plan_slug or "").strip().lower()
+    if included_premium_turns <= 0 or slug in ("free", "hobby"):
+        return "standard_only"
+    if premium_turns_used >= included_premium_turns:
+        return "standard_only"
+    remaining = included_premium_turns - premium_turns_used
+    if remaining <= max(1, included_premium_turns // 5):
+        return "limited"
+    return "comfortable"
 
 # Default when plan features omit storage keys (legacy / misconfigured rows).
 DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES = 100 * 1024 * 1024
@@ -63,11 +125,11 @@ def plan_limits_dto_from_row(
     )
 
 
-SOURCE_SUGGESTIONS_PLAN_SLUGS = frozenset({"standard", "pro"})
+SOURCE_SUGGESTIONS_PLAN_SLUGS = frozenset({"standard", "pro", "scale"})
 
 
 def sources_suggestions_enabled_for_plan_slug(plan_slug: str | None) -> bool:
-    """AI-derived gaps to add as knowledge sources — enabled on Standard & Pro only."""
+    """AI-derived gaps to add as knowledge sources — Standard, Pro, and legacy Scale."""
     s = (plan_slug or "").strip().lower()
     return s in SOURCE_SUGGESTIONS_PLAN_SLUGS
 

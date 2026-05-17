@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
 type TicketRow = {
   id: string;
+  agent_id: string;
   conversation_id: string;
   subject: string | null;
   status: string;
@@ -15,6 +17,23 @@ type TicketRow = {
   customer_email: string | null;
   updated_at: string;
 };
+
+const STATUS_FILTER_OPTIONS = ["", "open", "pending_customer", "resolved"] as const;
+type StatusFilter = (typeof STATUS_FILTER_OPTIONS)[number];
+
+function ticketStatusLabel(status: string): string {
+  if (status === "pending_customer") return "Awaiting customer";
+  if (status === "open") return "Open";
+  if (status === "resolved") return "Resolved";
+  return status;
+}
+
+function filterLabel(status: StatusFilter): string | null {
+  if (status === "open") return "Open human escalations";
+  if (status === "pending_customer") return "Awaiting customer reply";
+  if (status === "resolved") return "Resolved";
+  return null;
+}
 
 function TicketMetricValue({ loading, value }: { loading: boolean; value: number }) {
   if (loading) {
@@ -33,22 +52,34 @@ function TicketsQueueSkeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-export default function TicketsPage() {
+function TicketsPageContent() {
+  const searchParams = useSearchParams();
+  const statusParam = (searchParams.get("status") ?? "").trim();
+  const statusFilter: StatusFilter = STATUS_FILTER_OPTIONS.includes(statusParam as StatusFilter)
+    ? (statusParam as StatusFilter)
+    : "";
+
   const { selectedAgentId } = useDashboardAgent();
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const activeFilterLabel = filterLabel(statusFilter);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const qs =
-        selectedAgentId != null && selectedAgentId !== ""
-          ? `?agent_id=${encodeURIComponent(selectedAgentId)}`
-          : "";
-      const data = await backendFetch<{ tickets: TicketRow[]; total: number }>(`/api/v1/tickets${qs}`);
+      const qs = new URLSearchParams();
+      if (selectedAgentId != null && selectedAgentId !== "") {
+        qs.set("agent_id", selectedAgentId);
+      }
+      if (statusFilter) qs.set("status", statusFilter);
+      const query = qs.toString();
+      const data = await backendFetch<{ tickets: TicketRow[]; total: number }>(
+        `/api/v1/tickets${query ? `?${query}` : ""}`
+      );
       setTickets(data.tickets);
       setTotal(data.total);
     } catch (e) {
@@ -56,13 +87,25 @@ export default function TicketsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAgentId]);
+  }, [selectedAgentId, statusFilter]);
 
   useEffect(() => {
     queueMicrotask(() => void load());
   }, [load]);
 
-  const openCount = tickets.filter((t) => t.status === "open").length;
+  const openCount = useMemo(() => tickets.filter((t) => t.status === "open").length, [tickets]);
+  const awaitingCount = useMemo(
+    () => tickets.filter((t) => t.status === "pending_customer").length,
+    [tickets]
+  );
+
+  function conversationHref(ticket: TicketRow): string {
+    const qs = new URLSearchParams({
+      conversation: ticket.conversation_id,
+      agent: ticket.agent_id,
+    });
+    return `/conversations?${qs.toString()}`;
+  }
 
   return (
     <div className="ds-app-shell p-6 md:p-8">
@@ -73,6 +116,15 @@ export default function TicketsPage() {
             <p className="ds-app-page-description ds-app-page-description--wide">
               Human escalations from chat. Open a thread in Conversations to reply.
             </p>
+            {activeFilterLabel ? (
+              <p className="text-ds-on-surface-variant mt-2 text-sm">
+                Showing: <span className="text-ds-on-surface font-semibold">{activeFilterLabel}</span>
+                {" · "}
+                <Link href="/tickets" className="text-ds-primary font-semibold hover:underline">
+                  Clear filter
+                </Link>
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -90,56 +142,113 @@ export default function TicketsPage() {
             <p className="text-ds-on-surface-variant text-sm font-medium">Total</p>
             <TicketMetricValue loading={loading} value={total} />
           </article>
-          <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm">
+          <Link
+            href="/tickets?status=open"
+            className={cn(
+              "border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm transition-colors hover:bg-ds-sidebar/50",
+              statusFilter === "open" && "ring-ds-primary ring-2"
+            )}
+          >
             <p className="text-ds-on-surface-variant text-sm font-medium">Open</p>
             <TicketMetricValue loading={loading} value={openCount} />
-          </article>
+          </Link>
+          <Link
+            href="/tickets?status=pending_customer"
+            className={cn(
+              "border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm transition-colors hover:bg-ds-sidebar/50",
+              statusFilter === "pending_customer" && "ring-ds-primary ring-2"
+            )}
+          >
+            <p className="text-ds-on-surface-variant text-sm font-medium">Awaiting customer</p>
+            <TicketMetricValue loading={loading} value={awaitingCount} />
+          </Link>
         </section>
 
         <section className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
-          <div className="border-ds-outline bg-ds-sidebar/90 border-b px-4 py-3">
+          <div className="border-ds-outline bg-ds-sidebar/90 flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
             <h2 className="ds-app-kicker text-ds-on-surface font-semibold">Queue</h2>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ["", "All"],
+                  ["open", "Open"],
+                  ["pending_customer", "Awaiting customer"],
+                  ["resolved", "Resolved"],
+                ] as const
+              ).map(([value, label]) => {
+                const href = value ? `/tickets?status=${encodeURIComponent(value)}` : "/tickets";
+                const active = statusFilter === value;
+                return (
+                  <Link
+                    key={value || "all"}
+                    href={href}
+                    className={cn(
+                      "rounded-ds-md px-2.5 py-1 text-xs font-semibold transition-colors",
+                      active
+                        ? "bg-ds-primary text-ds-on-primary"
+                        : "text-ds-on-surface-variant hover:bg-ds-sidebar ring-1 ring-ds-outline"
+                    )}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
           <div className="divide-ds-outline divide-y">
             {loading ? (
               <TicketsQueueSkeleton />
             ) : tickets.length === 0 ? (
               <p className="text-ds-on-surface-variant p-4 text-sm">
-                No tickets yet. Escalations appear when the AI hands off and “Escalate to Human” is enabled for this
-                agent.
+                {activeFilterLabel
+                  ? `No tickets in “${activeFilterLabel}”.`
+                  : "No tickets yet. Escalations appear when the AI hands off and “Escalate to Human” is enabled for this agent."}
               </p>
             ) : (
               tickets.map((t) => (
-                <div
+                <Link
                   key={t.id}
-                  className="hover:bg-ds-sidebar/40 grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[1fr_auto_auto]"
+                  href={conversationHref(t)}
+                  className="hover:bg-ds-sidebar/40 grid grid-cols-1 gap-2 px-4 py-3 transition-colors md:grid-cols-[1fr_auto]"
                 >
                   <div className="min-w-0">
-                    <p className="text-ds-on-surface truncate text-xs font-semibold">{t.subject ?? "Ticket"}</p>
-                    <p className="text-ds-on-surface-variant truncate text-xs">
+                    <p className="text-ds-on-surface truncate text-sm font-semibold">{t.subject ?? "Ticket"}</p>
+                    <p className="ds-app-body-muted truncate">
                       {t.customer_email ?? "No email captured"}
                     </p>
                   </div>
                   <span
                     className={cn(
-                      "self-center rounded-ds-md px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
-                      t.status === "open" ? "bg-amber-100 text-amber-900" : "bg-ds-sidebar text-ds-on-surface-variant"
+                      "self-center rounded-ds-md px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase md:justify-self-end",
+                      t.status === "open"
+                        ? "bg-amber-100 text-amber-900"
+                        : t.status === "pending_customer"
+                          ? "bg-ds-sidebar text-ds-on-surface-variant ring-1 ring-ds-outline"
+                          : "bg-ds-sidebar text-ds-on-surface-variant"
                     )}
                   >
-                    {t.status}
+                    {ticketStatusLabel(t.status)}
                   </span>
-                  <Link
-                    href={`/conversations?conversation=${encodeURIComponent(t.conversation_id)}`}
-                    className="text-ds-primary self-center text-xs font-semibold hover:underline md:text-right"
-                  >
-                    Open chat
-                  </Link>
-                </div>
+                </Link>
               ))
             )}
           </div>
         </section>
       </div>
     </div>
+  );
+}
+
+export default function TicketsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="ds-app-shell text-ds-on-surface-variant flex min-h-0 flex-1 flex-col p-6 text-sm md:p-8">
+          Loading…
+        </div>
+      }
+    >
+      <TicketsPageContent />
+    </Suspense>
   );
 }

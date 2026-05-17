@@ -104,6 +104,11 @@ async def _fetch_profile(db: AsyncSession, user_id: UUID) -> ProfileDTO | None:
     return ProfileDTO.model_validate(row) if row else None
 
 
+async def ensure_user_profile(db: AsyncSession, user_id: UUID) -> ProfileDTO:
+    """Create public.profiles when missing (e.g. before notifications or first API use)."""
+    return await _ensure_profile(db, user_id)
+
+
 async def _ensure_profile(db: AsyncSession, user_id: UUID) -> ProfileDTO:
     profile = await _fetch_profile(db, user_id)
     if profile:
@@ -388,7 +393,9 @@ async def fetch_me_context(db: AsyncSession, user_id: UUID) -> MeContextResponse
               conversations_used,
               overage_conversations,
               estimated_overage_cents,
-              throttle_tier
+              throttle_tier,
+              coalesce(included_premium_turns, 0) as included_premium_turns,
+              coalesce(premium_turns_used, 0) as premium_turns_used
             from public.usage_period_snapshots
             where user_id = :user_id
               and period_start = :ps

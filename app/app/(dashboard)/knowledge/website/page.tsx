@@ -12,7 +12,6 @@ import {
 } from "@/components/knowledge/knowledge-controls";
 import {
   IconChevron,
-  IconInfo,
   IconLanguage,
   IconMore,
 } from "@/components/knowledge/knowledge-icons";
@@ -144,11 +143,11 @@ function websiteCrawlDetailLine(source: WebsiteSourceListRow): string | null {
     const bits: string[] = [];
     if (docs != null) bits.push(`${docs} sitemap XML file(s) fetched`);
     if (matched != null && matched > 0) {
-      bits.push("list saves to the database when this step completes — count above is live from the worker");
+      bits.push("list saves when this step completes. Count above is live from the worker");
     }
     if (docs != null && docs >= SITEMAP_XML_DOC_FETCH_CAP) {
       bits.push(
-        "per-job XML fetch budget reached — still parsing large files or draining the queue; may take several minutes",
+        "XML fetch budget reached. Still parsing or draining the queue; may take several minutes",
       );
     }
     if (bits.length === 0) bits.push("Walking sitemap indexes for your site…");
@@ -185,10 +184,10 @@ function websiteEmptyUrlsCaption(source: WebsiteSourceListRow, q: string): strin
       if (matched != null && matched > 0) {
         return `${urlCountLabel(matched)} already match your filters (shown in the summary row). URL rows load here after discovery finishes and HTML fetch starts.`;
       }
-      return "Sitemap discovery running — URL rows appear here after matching URLs are saved.";
+      return "Sitemap discovery running. URLs appear here as they are saved.";
     }
     if (cp === "seeding_urls" || cp === "urls_discovered") {
-      return "Saving the URL list — rows should appear here shortly.";
+      return "Saving the URL list. Rows should appear shortly.";
     }
   }
   return "No indexed URLs yet. Finish indexing to see links here.";
@@ -345,7 +344,7 @@ export default function KnowledgeWebsitePage() {
           /* ignore poll errors */
         }
       })();
-    }, 3500);
+    }, 8000);
     return () => window.clearInterval(id);
   }, [selectedAgentId, indexingActive, silentRefreshSources]);
 
@@ -611,13 +610,10 @@ export default function KnowledgeWebsitePage() {
                       onChange={(e) => setUrlInput(e.target.value)}
                     />
                   </div>
-                  <div className="mt-2 flex items-start gap-2">
-                    <IconInfo className="text-ds-on-surface-variant mt-0.5 size-4 shrink-0" />
-                    <p className="text-ds-on-surface-variant text-xs leading-relaxed">
-                      For Shopify, prefer your <strong className="text-ds-on-surface">sitemap.xml</strong> under Sitemap
-                      to reduce duplicate pages. Include/exclude path rules apply to crawled or sitemap URLs.
-                    </p>
-                  </div>
+                  <p className="ds-app-body-muted mt-2">
+                    For Shopify, prefer your <strong className="text-ds-on-surface">sitemap.xml</strong> under Sitemap
+                    to reduce duplicate pages. Include/exclude path rules apply to crawled or sitemap URLs.
+                  </p>
                 </div>
 
                 {supportsAdvancedOptions ? (
@@ -651,7 +647,7 @@ export default function KnowledgeWebsitePage() {
                           }
                           onRemove={(id) => setExcludeChips((prev) => prev.filter((c) => c.id !== id))}
                         />
-                        <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+                        <p className="ds-app-body-muted">
                           Rules match the URL <strong className="text-ds-on-surface">path</strong> only (e.g.{" "}
                           <code className="text-ds-on-surface bg-ds-sidebar/80 rounded px-1 py-0.5 text-[11px]">
                             /products/…
@@ -670,7 +666,7 @@ export default function KnowledgeWebsitePage() {
                               {previewLoading ? "Checking sitemap…" : "Estimate filtered URLs (sitemap only)"}
                             </button>
                             {urlPreviewLine ? (
-                              <p className="text-ds-on-surface-variant text-xs leading-relaxed">{urlPreviewLine}</p>
+                              <p className="ds-app-body-muted">{urlPreviewLine}</p>
                             ) : null}
                             {urlPreviewWarning ? (
                               <p className="text-amber-800 dark:text-amber-200/90 text-xs leading-relaxed">{urlPreviewWarning}</p>
@@ -699,7 +695,7 @@ export default function KnowledgeWebsitePage() {
 
         <section className="space-y-4 pb-8 lg:pb-10">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="ds-app-section-title text-base">Link sources</h2>
+            <h2 className="ds-app-section-title">Link sources</h2>
             <KnowledgeSearchInput
               placeholder="Search links and sub-pages…"
               className="w-full sm:w-72"
@@ -709,7 +705,7 @@ export default function KnowledgeWebsitePage() {
           </div>
 
           {searchActive && searchPagesLoading ? (
-            <p className="text-ds-on-surface-variant text-xs">Searching nested pages…</p>
+            <p className="ds-app-body-muted">Searching nested pages…</p>
           ) : null}
 
           <div className="border-ds-outline flex flex-col gap-2 border-b pb-2 sm:flex-row sm:items-center sm:justify-between">
@@ -725,7 +721,7 @@ export default function KnowledgeWebsitePage() {
             <div className="flex items-center gap-3">
               {selected.size > 0 ? (
                 <>
-                  <span className="text-ds-on-surface-variant text-xs font-medium">{selected.size} selected</span>
+                  <span className="ds-app-body-muted font-medium">{selected.size} selected</span>
                   <button
                     type="button"
                     onClick={() => void handleBulkDelete()}
@@ -751,7 +747,7 @@ export default function KnowledgeWebsitePage() {
                 <p className="text-ds-on-surface text-sm font-medium">
                   {searchActive ? "No matching links" : "No website sources yet"}
                 </p>
-                <p className="text-ds-on-surface-variant mx-auto mt-1 max-w-md text-xs leading-relaxed">
+                <p className="ds-app-body-muted mx-auto mt-1 max-w-md">
                   {searchActive
                     ? "Try another search or clear filters."
                     : "Add a crawl, sitemap, or single URL above to index content for this agent."}
@@ -804,7 +800,7 @@ function PathRuleBlock({
 
   return (
     <div className="space-y-2">
-      <label className="text-ds-on-surface-variant text-xs font-medium">{label}</label>
+      <label className="ds-app-label-muted font-medium">{label}</label>
       {chips.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {chips.map((c) => (
@@ -945,7 +941,7 @@ function WebsiteSourceRow({
     return () => {
       cancelled = true;
     };
-  }, [expanded, source.id, source.link_count, source.last_indexed_at, onError, cachedPages]);
+  }, [expanded, source.id, onError, cachedPages]);
 
   async function loadPages(nextOffset: number, nextLimit: number, append: boolean) {
     onError(null);
@@ -989,7 +985,7 @@ function WebsiteSourceRow({
     const label = source.source_url ?? source.title;
     if (
       !window.confirm(
-        `Delete this website source (${label}) and all indexed pages and embeddings? This cannot be undone.`
+        `Delete this website source (${label}) and all indexed pages? This cannot be undone.`
       )
     ) {
       return;
@@ -1125,7 +1121,7 @@ function WebsiteSourceRow({
           </div>
         </div>
         {!showIndexedRatio && source.job_crawl_limit_exceeded ? (
-          <div className="text-ds-on-surface-variant mr-2 hidden max-w-[min(14rem,40%)] shrink-0 flex-col items-end text-right text-xs sm:flex">
+          <div className="ds-app-body-muted mr-2 hidden max-w-[min(14rem,40%)] shrink-0 flex-col items-end text-right sm:flex">
             <span className="tabular-nums">{source.job_pages_processed ?? 0} pages indexed</span>
             <span className="mt-0.5 font-medium text-rose-700 dark:text-rose-300">Size limit exceeded</span>
           </div>
@@ -1191,7 +1187,7 @@ function WebsiteSourceRow({
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[92%] max-w-md animate-pulse rounded-sm" />
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[85%] max-w-sm animate-pulse rounded-sm" />
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[78%] max-w-xs animate-pulse rounded-sm" />
-              <p className="text-ds-on-surface-variant pt-1 text-xs leading-relaxed">Loading indexed URLs…</p>
+              <p className="ds-app-body-muted pt-1">Loading indexed URLs…</p>
             </div>
           ) : visiblePages.length === 0 ? (
             <p className="text-ds-on-surface-variant py-1 text-sm leading-relaxed">
@@ -1382,7 +1378,7 @@ function PageRow({
         maxWidthClassName="max-w-2xl"
       >
         <div className="space-y-1">
-          <label className="text-ds-on-surface-variant text-xs font-medium">URL</label>
+          <label className="ds-app-label-muted font-medium">URL</label>
           <input
             className="ds-app-field rounded-ds-lg w-full"
             value={editUrl}

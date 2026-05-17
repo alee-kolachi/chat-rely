@@ -8,9 +8,12 @@ from starlette.responses import Response
 
 
 class PublicWidgetCORSMiddleware(BaseHTTPMiddleware):
-    """Reflect ``Origin`` (or ``*``) for ``/api/v1/public/widget`` so third-party sites can call the API."""
+    """Reflect ``Origin`` for embeddable widget + public chat SSE routes."""
 
-    PREFIX = "/api/v1/public/widget"
+    PREFIXES = ("/api/v1/public/widget", "/api/chat/public")
+
+    def _matches(self, path: str) -> bool:
+        return any(path.startswith(p) for p in self.PREFIXES)
 
     def _cors_headers(self, request: Request) -> dict[str, str]:
         origin = (request.headers.get("origin") or "").strip()
@@ -27,7 +30,7 @@ class PublicWidgetCORSMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         path = request.url.path
-        if not path.startswith(self.PREFIX):
+        if not self._matches(path):
             return await call_next(request)
 
         if request.method == "OPTIONS":

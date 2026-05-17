@@ -14,7 +14,7 @@ export function DeployShopifyStatus() {
     <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="ds-app-section-title text-base">Shopify integration</p>
+          <p className="ds-app-section-title">Shopify integration</p>
           <p className="text-ds-on-surface-variant mt-1 text-sm">
             Store:{" "}
             <span className="text-ds-on-surface font-semibold">

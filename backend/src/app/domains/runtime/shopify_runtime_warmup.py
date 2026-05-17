@@ -10,7 +10,10 @@ from sqlalchemy import text
 from app.core.settings import get_settings
 from app.db.session import get_session_factory
 from app.domains.actions.service import list_enabled_shopify_actions_for_runtime
-from app.domains.integrations.shopify.service import load_shopify_connection_for_agent
+from app.domains.integrations.shopify.service import (
+    load_shopify_connection_for_agent,
+    mark_shopify_disconnected_cached,
+)
 
 log = structlog.get_logger("runtime.shopify_warmup")
 
@@ -71,3 +74,38 @@ async def warm_shopify_runtime_caches() -> None:
         attempted=len(pairs),
         warmed=warmed,
     )
+
+
+async def warm_shopify_disconnected_caches() -> None:
+    """Prime negative cache for agents without a connected store (skips ~2–4s DB probe per turn)."""
+    lim = max(0, int(get_settings().runtime_shopify_cache_warm_max_agents))
+    if lim == 0:
+        return
+    sf = get_session_factory()
+    try:
+        async with sf() as s:
+            result = await s.execute(
+                text(
+                    """
+                    select a.id as agent_id
+                    from public.agents a
+                    where a.archived_at is null
+                      and not exists (
+                        select 1
+                        from public.shopify_connections c
+                        where c.agent_id = a.id
+                          and c.status = 'connected'
+                      )
+                    order by a.created_at desc
+                    limit :lim
+                    """
+                ),
+                {"lim": lim},
+            )
+            agent_ids = [UUID(str(r["agent_id"])) for r in result.mappings().all()]
+    except Exception as exc:
+        log.warning("runtime.shopify_disconnected_warmup_failed", error=str(exc))
+        return
+    for aid in agent_ids:
+        mark_shopify_disconnected_cached(aid)
+    log.info("runtime.shopify_disconnected_warmup_done", primed=len(agent_ids))

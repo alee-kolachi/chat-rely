@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { IconShopifyBag, IconCheck } from "./action-icons";
 
 type ShopifyConnectionPanelProps = {
@@ -8,6 +9,8 @@ type ShopifyConnectionPanelProps = {
   busy?: boolean;
   /** When false, Connect / input are disabled (e.g. no agent selected). */
   connectEnabled?: boolean;
+  /** Parent section provides the Shopify heading; card shows connection UI only. */
+  embedded?: boolean;
   shopDraft: string;
   onShopDraftChange: (value: string) => void;
   onConnect: () => void;
@@ -16,12 +19,12 @@ type ShopifyConnectionPanelProps = {
 };
 
 function formatSynced(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   try {
     const d = new Date(iso);
     return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -32,6 +35,7 @@ export function ConnectionCard({
   lastSyncedAt,
   busy,
   connectEnabled = true,
+  embedded = false,
   shopDraft,
   onShopDraftChange,
   onConnect,
@@ -40,20 +44,27 @@ export function ConnectionCard({
 }: ShopifyConnectionPanelProps) {
   if (!connected) {
     return (
-      <section className="border-ds-outline rounded-ds-xl flex flex-col gap-4 border bg-white p-6 shadow-sm md:flex-row md:flex-wrap md:items-end md:justify-between">
-        <div className="flex items-start gap-4">
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-ds-md bg-slate-100 text-slate-600">
-            <IconShopifyBag className="size-6" />
+      <section
+        className={cn(
+          "border-ds-outline flex flex-col gap-4 rounded-ds-lg border bg-ds-sidebar/30 p-5",
+          !embedded && "md:flex-row md:flex-wrap md:items-end md:justify-between"
+        )}
+      >
+        {!embedded ? (
+          <div className="flex items-start gap-4">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-ds-md bg-slate-100 text-slate-600">
+              <IconShopifyBag className="size-6" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="ds-app-section-title">Shopify</h2>
+              <p className="ds-app-body-muted mt-1">
+                Connect your store so actions can read products, orders, and inventory.
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h2 className="text-ds-on-surface text-base font-bold">Shopify</h2>
-            <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-              Connect your store so actions can read products, orders, and inventory.
-            </p>
-          </div>
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[280px]">
-          <label className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
+        ) : null}
+        <div className={cn("flex w-full flex-col gap-2", !embedded && "sm:w-auto sm:min-w-[280px]")}>
+          <label className="ds-app-kicker font-semibold">
             Store subdomain
           </label>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -74,7 +85,7 @@ export function ConnectionCard({
               Connect Shopify
             </button>
           </div>
-          <p className="text-ds-on-surface-variant text-[11px] leading-relaxed">
+          <p className="ds-app-body-muted">
             Use your myshopify subdomain (for <span className="font-medium">store.myshopify.com</span>, enter{" "}
             <span className="font-medium">store</span>).
           </p>
@@ -84,21 +95,28 @@ export function ConnectionCard({
   }
 
   return (
-    <section className="border-ds-outline rounded-ds-xl flex flex-col gap-5 border bg-white p-6 shadow-sm md:flex-row md:items-center md:justify-between">
+    <section
+      className={cn(
+        "border-ds-outline flex flex-col gap-5 rounded-ds-lg border bg-ds-sidebar/30 p-5",
+        !embedded && "md:flex-row md:items-center md:justify-between"
+      )}
+    >
       <div className="flex items-start gap-4">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-ds-md bg-emerald-50 text-emerald-700">
-          <IconShopifyBag className="size-6" />
-        </div>
+        {!embedded ? (
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-ds-md bg-emerald-50 text-emerald-700">
+            <IconShopifyBag className="size-6" />
+          </div>
+        ) : null}
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-ds-on-surface text-base font-bold">Shopify</h2>
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold tracking-widest text-emerald-700 uppercase">
+            {!embedded ? <h2 className="ds-app-section-title">Shopify</h2> : null}
+            <span className="ds-app-kicker inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700">
               <IconCheck className="size-3" />
               Connected
             </span>
           </div>
-          <p className="text-ds-on-surface-variant mt-1 text-sm">
-            <span className="text-ds-on-surface font-medium">{shopDomain ?? "—"}</span>
+          <p className="ds-app-body-muted mt-1">
+            <span className="text-ds-on-surface font-medium">{shopDomain ?? "-"}</span>
             <span className="text-ds-outline mx-2">|</span>
             Last synced {formatSynced(lastSyncedAt)}
           </p>
@@ -106,7 +124,7 @@ export function ConnectionCard({
             {scopes.map((scope) => (
               <span
                 key={scope}
-                className="border-ds-outline text-ds-on-surface-variant rounded-md border bg-white px-2 py-0.5 text-[11px] font-medium"
+                className="border-ds-outline ds-app-caption rounded-md border bg-white px-2 py-0.5 font-medium"
               >
                 {scope}
               </span>

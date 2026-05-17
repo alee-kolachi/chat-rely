@@ -44,7 +44,7 @@ export function AdminDataTable<T>({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
-            <tr className="bg-ds-neutral text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
+            <tr className="bg-ds-neutral ds-app-body-muted font-semibold uppercase tracking-wide">
               {columns.map((col) => {
                 const sortKey = col.sortKey ?? col.key;
                 const isActive = sortBy === sortKey;
@@ -148,7 +148,7 @@ export function AdminPagination({ page, pageSize, total, buildPageHref }: AdminP
   const nextDisabled = page >= totalPages;
 
   return (
-    <div className="text-ds-on-surface-variant flex items-center justify-between text-xs">
+    <div className="ds-app-body-muted flex items-center justify-between">
       <span>
         Showing <span className="text-ds-on-surface font-medium">{from}</span>–
         <span className="text-ds-on-surface font-medium">{to}</span> of{" "}

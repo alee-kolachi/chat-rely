@@ -45,7 +45,7 @@ def test_sources_suggestions_enabled_for_plan_slug() -> None:
     assert sources_suggestions_enabled_for_plan_slug("pro") is True
     assert sources_suggestions_enabled_for_plan_slug("free") is False
     assert sources_suggestions_enabled_for_plan_slug("hobby") is False
-    assert sources_suggestions_enabled_for_plan_slug("scale") is False
+    assert sources_suggestions_enabled_for_plan_slug("scale") is True
     assert sources_suggestions_enabled_for_plan_slug(None) is False
 
 

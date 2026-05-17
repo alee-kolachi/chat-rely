@@ -26,6 +26,8 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 class CheckoutRequest(BaseModel):
     plan_slug: str = Field(min_length=1, max_length=64)
     interval: str = Field(default="month", pattern="^month$")
+    return_context: str = Field(default="account", pattern="^(account|onboarding|marketing)$")
+    agent_id: UUID | None = None
 
 
 @router.post("/checkout")
@@ -39,6 +41,8 @@ async def billing_checkout(
         user_id=user.user_id,
         plan_slug=body.plan_slug,
         interval=body.interval,
+        return_context=body.return_context,
+        agent_id=body.agent_id,
     )
     await db.commit()
     return {"url": url}

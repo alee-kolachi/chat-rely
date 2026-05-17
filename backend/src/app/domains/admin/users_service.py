@@ -361,7 +361,10 @@ async def get_admin_user_detail(
                   id, period_start, period_end,
                   included_conversations, conversations_used, overage_conversations,
                   estimated_overage_cents, projected_conversations,
-                  throttle_tier::text as throttle_tier, last_computed_at
+                  throttle_tier::text as throttle_tier,
+                  coalesce(included_premium_turns, 0) as included_premium_turns,
+                  coalesce(premium_turns_used, 0) as premium_turns_used,
+                  last_computed_at
                 from public.usage_period_snapshots
                 where user_id = :user_id
                 order by period_start desc

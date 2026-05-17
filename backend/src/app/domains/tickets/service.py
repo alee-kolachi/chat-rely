@@ -123,6 +123,7 @@ async def list_tickets(
     *,
     user_id: UUID,
     agent_id: UUID | None = None,
+    status: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[TicketDTO], int]:
@@ -141,6 +142,11 @@ async def list_tickets(
         sql_select += " and agent_id = :agent_id"
         params["agent_id"] = str(agent_id)
         count_params["agent_id"] = str(agent_id)
+    if status:
+        sql_count += " and status = :status"
+        sql_select += " and status = :status"
+        params["status"] = status
+        count_params["status"] = status
     sql_select += " order by updated_at desc limit :limit offset :offset"
 
     cr = await db.execute(text(sql_count), count_params)

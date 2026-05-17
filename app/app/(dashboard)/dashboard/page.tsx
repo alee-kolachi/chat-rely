@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DashboardChartEmptyState,
@@ -74,7 +75,15 @@ function statusPresentation(status: string): { label: string; tone: "ok" | "huma
   return { label: "In progress", tone: "open" };
 }
 
+function conversationDetailHref(conversationId: string, agentId: string | null | undefined): string {
+  const qs = new URLSearchParams({ conversation: conversationId });
+  const agent = (agentId ?? "").trim();
+  if (agent) qs.set("agent", agent);
+  return `/conversations?${qs.toString()}`;
+}
+
 export default function DashboardPage() {
+  const router = useRouter();
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const { data: meData, loading: meLoading } = useMeContext();
   const showAnalyticsNav = !meLoading && planAllowsAnalyticsPage(meData?.plan.slug);
@@ -139,23 +148,23 @@ export default function DashboardPage() {
   const primaryMetrics = [
     {
       label: "Conversations",
-      value: data ? String(started) : "—",
-      hint: "New sessions that began in this date range for this agent.",
+      value: data ? String(started) : "-",
+      hint: "New sessions in this date range.",
     },
     {
       label: "Active chats",
-      value: data ? String(activeNow) : "—",
-      hint: "Conversations still open right now—visitors may be mid-chat or waiting for a reply.",
+      value: data ? String(activeNow) : "-",
+      hint: "Open chats right now.",
     },
     {
       label: "Resolved by agent",
-      value: data?.resolved_by_agent_pct != null ? `${data.resolved_by_agent_pct}%` : "—",
-      hint: "Share of closed chats the AI handled without escalation (outcomes pipeline).",
+      value: data?.resolved_by_agent_pct != null ? `${data.resolved_by_agent_pct}%` : "-",
+      hint: "Closed without escalation in this period.",
     },
     {
       label: "Needs human help",
-      value: data?.needs_human_pct != null ? `${data.needs_human_pct}%` : "—",
-      hint: "Chats escalated to your team in this period.",
+      value: data?.needs_human_pct != null ? `${data.needs_human_pct}%` : "-",
+      hint: "Escalated to your team in this period.",
     },
   ];
 
@@ -168,6 +177,9 @@ export default function DashboardPage() {
     selectedAgentId != null
       ? `/conversations?agent=${encodeURIComponent(selectedAgentId)}`
       : "/conversations";
+
+  const ticketsHref = (status: "open" | "pending_customer") =>
+    `/tickets?status=${encodeURIComponent(status)}`;
 
   return (
     <div className="ds-app-shell px-6 pt-6 pb-24 md:px-8 md:pt-8 md:pb-28">
@@ -215,7 +227,7 @@ export default function DashboardPage() {
               ) : (
                 <p className="ds-app-metric-value mt-2 min-w-0 break-words">{metric.value}</p>
               )}
-              <p className="text-ds-on-surface-variant mt-auto pt-3 text-xs leading-relaxed text-pretty break-words">
+              <p className="ds-app-body-muted mt-auto pt-3 text-pretty break-words">
                 {metric.hint}
               </p>
             </article>
@@ -230,8 +242,7 @@ export default function DashboardPage() {
               </div>
               <h3 className="ds-app-section-title text-xl md:text-2xl">Your agent is live</h3>
               <p className="text-ds-on-surface-variant mt-2 max-w-2xl text-sm leading-relaxed md:text-base">
-                Share it with customers to start seeing data here. Once people chat with your agent, this dashboard will
-                populate with conversations, resolution rate, and escalations.
+                Share your widget to start collecting chats. Metrics appear here as conversations come in.
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                 <a
@@ -272,7 +283,7 @@ export default function DashboardPage() {
                 <div className="border-ds-outline flex flex-col gap-1 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <h3 className="ds-app-section-title">Conversations over time</h3>
-                    <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
+                    <p className="ds-app-body-muted mt-1">
                       Daily volume for the selected period
                     </p>
                   </div>
@@ -421,7 +432,7 @@ export default function DashboardPage() {
               </article>
               <aside className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
                 <h3 className="ds-app-section-title">Team queue snapshot</h3>
-                <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
+                <p className="ds-app-body-muted mt-1">
                   Escalations and threads waiting on the customer.
                 </p>
                 <div className="mt-5 space-y-3">
@@ -430,11 +441,13 @@ export default function DashboardPage() {
                   ) : (
                     <>
                       <QueueItem
+                        href={ticketsHref("open")}
                         label="Open human escalations"
                         value={String(data?.open_escalations ?? 0)}
                         tone="warning"
                       />
                       <QueueItem
+                        href={ticketsHref("pending_customer")}
                         label="Awaiting customer reply"
                         value={String(data?.awaiting_customer_reply ?? 0)}
                         tone="neutral"
@@ -455,7 +468,7 @@ export default function DashboardPage() {
               <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <h3 className="ds-app-section-title">Recent conversations</h3>
-                  <Link href={conversationsHref} className="text-ds-primary shrink-0 text-xs font-semibold hover:underline">
+                  <Link href={conversationsHref} className="text-ds-primary shrink-0 text-sm font-semibold hover:underline">
                     View all
                   </Link>
                 </div>
@@ -474,18 +487,26 @@ export default function DashboardPage() {
                       {!showPanelSkeleton &&
                         (data?.recent ?? []).map((item) => {
                           const sp = statusPresentation(item.status);
+                          const href = conversationDetailHref(item.conversation_id, selectedAgentId);
+                          const label = visitorLabel(item.visitor_id);
                           return (
-                            <tr key={item.conversation_id}>
-                              <td className="text-ds-on-surface py-3 text-sm font-semibold">
-                                <Link
-                                  href={`/conversations?conversation=${encodeURIComponent(item.conversation_id)}&agent=${encodeURIComponent(selectedAgentId ?? "")}`}
-                                  className="hover:text-ds-interactive-hover hover:underline"
-                                >
-                                  {visitorLabel(item.visitor_id)}
-                                </Link>
-                              </td>
+                            <tr
+                              key={item.conversation_id}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Open conversation with ${label}`}
+                              className="hover:bg-ds-sidebar/50 focus-visible:bg-ds-sidebar/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ds-primary"
+                              onClick={() => router.push(href)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  router.push(href);
+                                }
+                              }}
+                            >
+                              <td className="text-ds-on-surface py-3 text-sm font-semibold">{label}</td>
                               <td className="text-ds-on-surface-variant max-w-[200px] truncate py-3 text-sm">
-                                {item.topic_preview ?? "—"}
+                                {item.topic_preview ?? "-"}
                               </td>
                               <td className="py-3">
                                 <span
@@ -499,7 +520,7 @@ export default function DashboardPage() {
                                   {sp.label}
                                 </span>
                               </td>
-                              <td className="text-ds-on-surface-variant py-3 text-right text-xs">
+                              <td className="ds-app-body-muted py-3 text-right">
                                 {formatRelative(item.last_activity_at)}
                               </td>
                             </tr>
@@ -515,9 +536,8 @@ export default function DashboardPage() {
 
               <article className="border-ds-outline bg-ds-surface flex flex-col rounded-ds-xl border p-6 shadow-sm">
                 <h3 className="ds-app-section-title">Source suggestions</h3>
-                <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                  Topics from AI-analyzed chats where extra knowledge would help—open matching conversations or add
-                  coverage in Knowledge.
+                <p className="ds-app-body-muted mt-1">
+                  Topics where extra knowledge would help. Open a conversation or add content in Knowledge.
                 </p>
                 <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
                   {showPanelSkeleton ? <DashboardTrainingTopicsSkeleton /> : null}
@@ -531,8 +551,8 @@ export default function DashboardPage() {
                           href={`/conversations?agent=${encodeURIComponent(selectedAgentId ?? "")}&training_topic=${encodeURIComponent(topic.slug)}`}
                           className="border-ds-outline block rounded-ds-lg border bg-ds-sidebar/80 p-3 shadow-sm transition-colors hover:bg-ds-sidebar"
                         >
-                          <p className="text-ds-on-surface text-sm font-semibold">{topic.label}</p>
-                          <p className="text-ds-on-surface-variant mt-0.5 text-xs">
+                          <p className="ds-app-card-title">{topic.label}</p>
+                          <p className="ds-app-body-muted mt-0.5">
                             {topic.count} in this period
                           </p>
                         </Link>
@@ -560,10 +580,12 @@ export default function DashboardPage() {
 }
 
 function QueueItem({
+  href,
   label,
   value,
   tone,
 }: {
+  href: string;
   label: string;
   value: string;
   tone: "neutral" | "warning" | "danger";
@@ -575,10 +597,13 @@ function QueueItem({
         ? "bg-amber-100 text-amber-800"
         : "bg-ds-sidebar text-ds-on-surface-variant ring-1 ring-ds-outline";
   return (
-    <div className="border-ds-outline flex items-center justify-between rounded-ds-md border bg-white px-3 py-2.5 shadow-sm">
-      <p className="text-ds-on-surface text-sm">{label}</p>
+    <Link
+      href={href}
+      className="border-ds-outline hover:bg-ds-sidebar/60 focus-visible:ring-ds-primary flex items-center justify-between rounded-ds-md border bg-white px-3 py-2.5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
+    >
+      <p className="text-ds-on-surface text-sm font-medium">{label}</p>
       <span className={cn("rounded-ds-md px-2 py-1 text-xs font-semibold", toneClass)}>{value}</span>
-    </div>
+    </Link>
   );
 }
 
@@ -596,8 +621,8 @@ function EmptyAction({
   return (
     <article className="border-ds-outline rounded-ds-lg border bg-white p-4 text-left shadow-sm">
       <h4 className="ds-app-card-title">{title}</h4>
-      <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">{description}</p>
-      <a href={href} className="text-ds-primary mt-3 inline-block text-xs font-semibold hover:underline">
+      <p className="ds-app-body-muted mt-1">{description}</p>
+      <a href={href} className="text-ds-primary mt-3 inline-block text-sm font-semibold hover:underline">
         {cta}
       </a>
     </article>

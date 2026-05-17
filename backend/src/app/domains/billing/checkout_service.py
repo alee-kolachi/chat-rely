@@ -26,6 +26,8 @@ async def create_subscription_checkout_session(
     user_id: UUID,
     plan_slug: str,
     interval: str = "month",
+    return_context: str = "account",
+    agent_id: UUID | None = None,
 ) -> str:
     if interval.lower() != "month":
         raise AppError(
@@ -72,9 +74,19 @@ async def create_subscription_checkout_session(
         raise AppError(code="plan.not_found", message="Plan not found", status_code=404)
 
     base = settings.billing_app_base_url.rstrip("/")
-    # Stripe replaces {CHECKOUT_SESSION_ID} so the app can finalize without webhooks (e.g. localhost).
-    success_url = f"{base}/account/plan?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{base}/account/plan?checkout=cancel"
+    agent_q = f"&agentId={agent_id}" if agent_id else ""
+    ctx = return_context.strip().lower()
+    if ctx == "onboarding":
+        success_url = (
+            f"{base}/onboarding/pricing?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}{agent_q}"
+        )
+        cancel_url = f"{base}/onboarding/pricing?checkout=cancel{agent_q}"
+    elif ctx == "marketing":
+        success_url = f"{base}/pricing?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{base}/pricing?checkout=cancel"
+    else:
+        success_url = f"{base}/account/plan?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{base}/account/plan?checkout=cancel"
 
     try:
         session = stripe.checkout.Session.create(

@@ -41,7 +41,7 @@ export default function DeployPage() {
               <Link href="/actions#shopify-integration" className="text-ds-primary font-semibold hover:underline">
                 Actions &amp; integrations
               </Link>
-              , connect your Shopify store with OAuth.
+              , connect your Shopify store with Shopify sign-in.
             </li>
             <li>Enable the Shopify actions you want (product search, order lookup, etc.).</li>
             <li>

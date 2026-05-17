@@ -14,7 +14,8 @@ export function NotificationsMenu() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const { notifications, unreadCount, markRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const hasUnread = unreadCount > 0;
   const onNotificationsPage = pathname === "/notifications" || pathname.startsWith("/notifications/");
   const preview = notifications.slice(0, MENU_LIMIT);
 
@@ -60,15 +61,17 @@ export function NotificationsMenu() {
           className="border-ds-outline bg-ds-surface absolute right-0 z-[100] mt-2 w-[min(92vw,24rem)] overflow-hidden rounded-ds-lg border shadow-lg"
           role="menu"
         >
-          <div className="border-ds-outline/80 flex items-center justify-between border-b px-3 py-2.5">
-            <p className="text-ds-on-surface text-sm font-semibold">Notifications</p>
-            <Link
-              href="/notifications"
-              onClick={() => setOpen(false)}
-              className="text-ds-primary cursor-pointer text-xs font-semibold hover:underline"
-            >
-              See all notifications
-            </Link>
+          <div className="border-ds-outline/80 flex items-center justify-between gap-2 border-b px-3 py-2.5">
+            <p className="ds-app-card-title">Notifications</p>
+            {hasUnread ? (
+              <button
+                type="button"
+                onClick={() => void markAllRead()}
+                className="text-ds-primary hover:text-ds-primary/80 shrink-0 cursor-pointer text-sm font-semibold transition-colors"
+              >
+                Mark all as read
+              </button>
+            ) : null}
           </div>
           <div className="max-h-[24rem] overflow-y-auto">
             {preview.length === 0 ? (
@@ -86,17 +89,27 @@ export function NotificationsMenu() {
                   className="border-ds-outline/70 hover:bg-ds-sidebar/60 block cursor-pointer border-b px-3 py-3 text-left transition-colors last:border-b-0"
                 >
                   <div className="mb-1 flex items-start justify-between gap-2">
-                    <p className="text-ds-on-surface text-sm font-semibold">{notification.title}</p>
-                    <span className="text-ds-on-surface-variant shrink-0 text-[11px]">
+                    <p className="ds-app-card-title">{notification.title}</p>
+                    <span className="ds-app-caption shrink-0">
                       {formatNotificationTime(notification.created_at)}
                     </span>
                   </div>
-                  <p className="text-ds-on-surface-variant line-clamp-2 text-xs leading-relaxed">
+                  <p className="ds-app-body-muted line-clamp-2">
                     {notification.body}
                   </p>
                 </Link>
               ))
             )}
+          </div>
+          <div className="border-ds-outline/80 border-t px-3 py-2.5">
+            <Link
+              href="/notifications"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="text-ds-primary hover:text-ds-primary/80 block cursor-pointer text-center text-sm font-semibold transition-colors"
+            >
+              See all notifications
+            </Link>
           </div>
         </div>
       ) : null}

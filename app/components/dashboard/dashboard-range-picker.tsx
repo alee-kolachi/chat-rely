@@ -63,7 +63,7 @@ export function DashboardRangePicker({
       </div>
       {preset === "custom" ? (
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-ds-on-surface-variant text-xs font-medium">
+          <label className="ds-app-label-muted font-medium">
             From{" "}
             <input
               type="date"
@@ -72,7 +72,7 @@ export function DashboardRangePicker({
               className="border-ds-outline ml-1 rounded-ds-md border px-2 py-1 text-sm"
             />
           </label>
-          <label className="text-ds-on-surface-variant text-xs font-medium">
+          <label className="ds-app-label-muted font-medium">
             To{" "}
             <input
               type="date"

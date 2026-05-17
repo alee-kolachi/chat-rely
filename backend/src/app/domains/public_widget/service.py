@@ -16,11 +16,9 @@ FREE_PLAN_SLUG = "free"
 
 
 def attachments_ui_enabled_for_plan_slug(plan_slug: str | None) -> bool:
-    """Roadmap: paid tiers get an attachment affordance in the storefront widget; Free does not."""
-    s = (plan_slug or "").strip().lower()
-    if not s:
-        return False
-    return s != FREE_PLAN_SLUG
+    """Visitor file uploads in the widget — disabled until upload pipeline ships (marketing: Coming soon)."""
+    _ = plan_slug
+    return False
 
 
 def hide_powered_by_chatrely_for_plan_slug(plan_slug: str | None) -> bool:

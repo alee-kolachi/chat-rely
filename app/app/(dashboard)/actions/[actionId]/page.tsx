@@ -13,6 +13,7 @@ import { getShopifyAction } from "@/components/actions/shopify-actions-data";
 import type { ShopifyActionStatus } from "@/components/actions/shopify-actions-data";
 import { useActionCatalog } from "@/components/actions/use-action-catalog";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { useGuardedSubmit } from "@/hooks/use-guarded-submit";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { actionSlugToKey } from "@/lib/action-keys";
 
@@ -46,11 +47,27 @@ export default function ActionDetailPage() {
   const needsShopifyConnection = Boolean(
     shopifyAction && apiEntry && apiEntry.status === "live" && !apiEntry.scopes_satisfied
   );
+  const { submit: submitToggle, pending: togglePending } = useGuardedSubmit(async (next: boolean) => {
+    if (!selectedAgentId) return;
+    try {
+      await backendFetch(`/api/v1/agents/${selectedAgentId}/actions/${encodeURIComponent(actionKey)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: next }),
+      });
+      await refresh();
+    } catch (e) {
+      const msg =
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not update action";
+      setBanner(msg);
+    }
+  });
+
   const toggleDisabled =
     !apiEntry ||
     apiEntry.status !== "live" ||
     !apiEntry.scopes_satisfied ||
     loading ||
+    togglePending ||
     !selectedAgentId;
 
   const needsCatalog = !shopifyAction;
@@ -59,21 +76,10 @@ export default function ActionDetailPage() {
   const missingAgent = Boolean(needsCatalog && !selectedAgentId);
 
   const handleToggle = useCallback(
-    async (next: boolean) => {
-      if (!selectedAgentId) return;
-      try {
-        await backendFetch(`/api/v1/agents/${selectedAgentId}/actions/${encodeURIComponent(actionKey)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ enabled: next }),
-        });
-        await refresh();
-      } catch (e) {
-        const msg =
-          e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not update action";
-        setBanner(msg);
-      }
+    (next: boolean) => {
+      void submitToggle(next);
     },
-    [selectedAgentId, actionKey, refresh]
+    [submitToggle]
   );
 
   if (needsCatalog && missingAgent) {
@@ -82,7 +88,7 @@ export default function ActionDetailPage() {
         <div className="mx-auto max-w-4xl">
           <Link
             href="/actions"
-            className="text-ds-primary hover:text-ds-secondary mb-6 inline-flex items-center gap-1 text-xs font-medium"
+            className="text-ds-primary hover:text-ds-secondary mb-6 inline-flex items-center gap-1 text-sm font-medium"
           >
             <IconArrowLeft className="size-3.5" aria-hidden />
             Actions & integrations
@@ -125,7 +131,7 @@ export default function ActionDetailPage() {
     return (
       <div className="ds-app-shell p-6 pb-36 md:p-8 md:pb-40">
         <div className="mx-auto w-full max-w-4xl">
-          <nav className="text-ds-on-surface-variant mb-6 flex flex-wrap items-center gap-2 text-xs font-medium">
+          <nav className="ds-app-body-muted mb-6 flex flex-wrap items-center gap-2 font-medium">
             <Link
               href="/actions"
               className="text-ds-primary hover:text-ds-secondary inline-flex max-w-full items-center gap-1 transition-colors"
@@ -206,7 +212,7 @@ export default function ActionDetailPage() {
   return (
     <div className="ds-app-shell p-6 pb-36 md:p-8 md:pb-40">
       <div className="mx-auto w-full max-w-4xl">
-        <nav className="text-ds-on-surface-variant mb-6 flex flex-wrap items-center gap-2 text-xs font-medium">
+        <nav className="ds-app-body-muted mb-6 flex flex-wrap items-center gap-2 font-medium">
           <Link
             href="/actions"
             className="text-ds-primary hover:text-ds-secondary inline-flex max-w-full items-center gap-1 transition-colors"
@@ -293,7 +299,7 @@ export default function ActionDetailPage() {
 
       <div className="border-ds-outline bg-ds-surface/95 fixed right-0 bottom-0 left-0 z-10 border-t backdrop-blur-sm pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 md:left-64">
         <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-6 md:px-8">
-          <span className="text-ds-on-surface-variant text-xs">
+          <span className="ds-app-body-muted">
             Toggle enables this action for chat immediately. Configuration below is optional.
           </span>
           <div className="flex shrink-0 items-center gap-2">

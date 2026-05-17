@@ -1,33 +1,53 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { WidgetChatShell } from "@/components/chat/widget-chat-shell";
 import { backendFetch } from "@/lib/backend-api";
+import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
+import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
+import { TONE_OPTIONS, type AgentTone, readBehaviorString } from "@/lib/agent-settings";
+import { faviconServiceUrl } from "@/lib/website-url";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
-import { brandChromeClasses } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
 import {
-  OnboardingFieldRow,
   OnboardingInput,
   OnboardingMainColumn,
   onboardingSplitBody,
-  onboardingSplitCard,
+  onboardingSplitCardFilled,
   onboardingSplitGrid,
-  onboardingSplitRootStretch,
+  onboardingSplitLeftSection,
+  onboardingSplitRightSectionCentered,
+  onboardingSplitRoot,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 
-const toneOptions = ["Friendly", "Professional", "Concise"] as const;
-const colorOptions = ["#000000", "#FB923C", "#F472B6", "#3B82F6", "#10B981", "#6366F1"] as const;
+type OnboardingStatusPayload = {
+  website_url: string | null;
+};
+
+type AgentPayload = {
+  name?: string;
+  behavior_settings?: Record<string, unknown>;
+};
+
+function normalizeTone(raw: string | undefined): AgentTone {
+  const key = (raw ?? "").trim().toLowerCase();
+  if (key === "professional") return "Professional";
+  if (key === "concise") return "Concise";
+  return "Friendly";
+}
 
 export default function AppearanceToneOnboardingPage() {
   const router = useRouter();
-  const [tone, setTone] = useState<(typeof toneOptions)[number]>("Friendly");
-  const [hex, setHex] = useState("000000");
-  const [selectedColor, setSelectedColor] = useState(0);
-  const [model, setModel] = useState("gpt-4o");
+  const [tone, setTone] = useState<AgentTone>("Friendly");
+  const [hex, setHex] = useState("831C91");
+  const [selectedPreset, setSelectedPreset] = useState(0);
+  const [agentName, setAgentName] = useState("Support");
+  const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const agentId = useResolvedOnboardingAgentId();
 
@@ -37,19 +57,52 @@ export default function AppearanceToneOnboardingPage() {
     return `${path}?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
 
-  const previewAssistantMessage = useMemo(() => {
-    if (tone === "Professional") return "Hello— how may I assist you today?";
-    if (tone === "Concise") return "Hi. What do you need?";
-    return "Thanks for reaching out— how can I help?";
-  }, [tone]);
+  useEffect(() => {
+    if (!agentId) {
+      queueMicrotask(() => setIsLoading(false));
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [agent, status] = await Promise.all([
+          backendFetch<AgentPayload>(`/api/v1/agents/${agentId}`),
+          backendFetch<OnboardingStatusPayload>(
+            `/api/v1/onboarding/status?agent_id=${encodeURIComponent(agentId)}`,
+          ),
+        ]);
+        if (cancelled) return;
+        const behavior = agent.behavior_settings ?? {};
+        const savedTone = normalizeTone(readBehaviorString(behavior, "tone"));
+        const savedColor = parseBrandColorHex(behavior.brand_color) ?? BRAND_COLOR_PRESETS[0].hex;
+        const presetIndex = BRAND_COLOR_PRESETS.findIndex(
+          (p) => p.hex.toUpperCase() === savedColor.toUpperCase(),
+        );
+        setAgentName(agent.name?.trim() || "Support");
+        setTone(savedTone);
+        setHex(savedColor.replace("#", ""));
+        setSelectedPreset(presetIndex >= 0 ? presetIndex : 0);
+        const icon = faviconServiceUrl(status.website_url);
+        setWebsiteLogoUrl(icon || null);
+      } catch {
+        if (!cancelled) setError("Could not load your agent settings.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
 
   const previewBrandColor = useMemo(() => {
-    const cleaned = hex.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6);
-    if (cleaned.length === 6) return `#${cleaned.toUpperCase()}`;
-    return colorOptions[selectedColor];
-  }, [hex, selectedColor]);
+    const parsed = parseBrandColorHex(`#${hex}`);
+    if (parsed) return parsed;
+    return BRAND_COLOR_PRESETS[selectedPreset]?.hex ?? "#831C91";
+  }, [hex, selectedPreset]);
 
   const previewBrandChrome = useMemo(() => brandChromeClasses(previewBrandColor), [previewBrandColor]);
+  const previewAssistantMessage = useMemo(() => previewAssistantLineForTone(tone), [tone]);
 
   async function handleContinue() {
     if (!agentId || isSaving) return;
@@ -59,10 +112,9 @@ export default function AppearanceToneOnboardingPage() {
       await backendFetch(`/api/v1/agents/${agentId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          model,
           behavior_settings: {
             tone,
-            brand_color: `#${hex.toUpperCase()}`,
+            brand_color: previewBrandColor,
             widget_position: "bottom_right",
           },
         }),
@@ -87,13 +139,13 @@ export default function AppearanceToneOnboardingPage() {
           backLabel="Back"
           primaryAsButton
           onPrimaryClick={handleContinue}
-          primaryDisabled={!agentId}
+          primaryDisabled={!agentId || isLoading}
           primaryPending={isSaving}
           primaryLabel={isSaving ? "Saving..." : "Continue"}
         />
       }
     >
-      <OnboardingMainColumn className={onboardingSplitRootStretch}>
+      <OnboardingMainColumn className={onboardingSplitRoot}>
         <div className={onboardingSplitBody}>
           <div
             className="pointer-events-none absolute inset-0 -z-10 rounded-[36px] opacity-80"
@@ -104,9 +156,9 @@ export default function AppearanceToneOnboardingPage() {
             aria-hidden
           />
 
-          <div className={cn(onboardingSplitCard, "flex flex-col max-lg:flex-none lg:min-h-0 lg:flex-1")}>
+          <div className={onboardingSplitCardFilled}>
             <div className={onboardingSplitGrid}>
-              <section className="flex flex-col overflow-visible p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-auto lg:p-10">
+              <section className={cn(onboardingSplitLeftSection, "overflow-visible lg:overflow-y-auto lg:overscroll-y-auto")}>
                 <div>
                   <p className="text-ds-on-surface-variant mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
                     Step 5
@@ -115,38 +167,15 @@ export default function AppearanceToneOnboardingPage() {
                     <span className="text-ds-primary font-bold">Appearance</span> and tone
                   </h1>
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                    Choose how the agent sounds and how the widget looks on your site. Changes show in the live preview
-                    below (or beside on larger screens).
+                    Match your brand and how the agent sounds. These settings apply in the playground and on your site.
                   </p>
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <OnboardingFieldRow
-                        id="model"
-                        label="Model"
-                        labelClassName="mb-2 text-[14px] leading-[14px] font-medium"
-                        hint="Higher capability can increase latency and cost."
-                      >
-                        <select
-                          id="model"
-                          className="border-ds-outline focus:border-ds-primary focus:ring-ds-primary/15 w-full appearance-none rounded-ds-md border bg-white px-4 py-3 text-sm outline-none focus:ring-2"
-                          value={model}
-                          onChange={(e) => setModel(e.target.value)}
-                        >
-                          <option value="gpt-4o">GPT-4o (recommended)</option>
-                          <option value="gpt-4o-mini">GPT-4o mini</option>
-                          <option value="gpt-3.5">GPT-3.5 Turbo</option>
-                        </select>
-                      </OnboardingFieldRow>
-                    </div>
-
-                    <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
                       <p className="text-ds-on-surface mb-1 text-sm font-semibold">Tone</p>
-                      <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
-                        Sets default phrasing style for customer-facing replies.
-                      </p>
+                      <p className="ds-app-body-muted mb-3">How replies sound to customers.</p>
                       <div className="bg-ds-sidebar flex flex-col gap-1 rounded-ds-md border border-ds-outline p-1 sm:flex-row sm:gap-0">
-                        {toneOptions.map((t) => (
+                        {TONE_OPTIONS.map((t) => (
                           <button
                             key={t}
                             type="button"
@@ -165,29 +194,29 @@ export default function AppearanceToneOnboardingPage() {
 
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
                       <p className="text-ds-on-surface mb-1 text-sm font-semibold">Brand color</p>
-                      <p className="text-ds-on-surface-variant mb-4 text-xs leading-relaxed">
-                        Used for accents in the widget and launcher.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {colorOptions.map((color, index) => (
+                      <p className="ds-app-body-muted mb-4">Widget header and launcher accent.</p>
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        {BRAND_COLOR_PRESETS.map((preset, index) => (
                           <button
-                            key={color}
+                            key={preset.hex}
                             type="button"
                             onClick={() => {
-                              setSelectedColor(index);
-                              setHex(color.replace("#", "").toUpperCase().slice(0, 6));
+                              setSelectedPreset(index);
+                              setHex(preset.hex.replace("#", "").toUpperCase());
                             }}
-                            aria-label={`Color ${color}`}
-                            className={`touch-manipulation size-11 rounded-full border-2 transition-transform hover:scale-105 sm:size-10 ${
-                              selectedColor === index
+                            aria-label={preset.label}
+                            title={preset.label}
+                            className={cn(
+                              "touch-manipulation size-11 rounded-full border-2 transition-transform hover:scale-105 sm:size-10",
+                              selectedPreset === index && parseBrandColorHex(`#${hex}`)?.toUpperCase() === preset.hex.toUpperCase()
                                 ? "border-ds-primary ring-2 ring-ds-primary/25 ring-offset-2"
-                                : "border-transparent"
-                            }`}
-                            style={{ backgroundColor: color }}
+                                : "border-transparent",
+                            )}
+                            style={{ backgroundColor: preset.hex }}
                           />
                         ))}
                         <div className="border-ds-outline ml-1 flex items-center overflow-hidden rounded-ds-md border">
-                          <span className="text-ds-on-surface-variant px-2 font-mono text-xs">#</span>
+                          <span className="ds-app-body-muted px-2 font-mono">#</span>
                           <OnboardingInput
                             value={hex}
                             onChange={(e) => setHex(e.target.value.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6))}
@@ -203,7 +232,7 @@ export default function AppearanceToneOnboardingPage() {
                 </div>
               </section>
 
-              <section className="bg-ds-sidebar border-ds-outline relative flex flex-col overflow-visible border-t p-6 sm:p-8 max-lg:min-h-min lg:h-full lg:min-h-0 lg:items-center lg:justify-center lg:overflow-y-auto lg:overscroll-y-auto lg:border-t-0 lg:border-l lg:p-10">
+              <section className={cn(onboardingSplitRightSectionCentered, "overflow-visible lg:overflow-y-auto lg:overscroll-y-auto")}>
                 <div
                   className="pointer-events-none absolute inset-0 opacity-35"
                   style={{
@@ -214,39 +243,41 @@ export default function AppearanceToneOnboardingPage() {
                   aria-hidden
                 />
                 <div className="relative z-[1] mx-auto flex w-full max-w-[400px] flex-col items-center pb-2">
-                  <div
-                    role="region"
-                    aria-label="Chat widget"
-                    className="border-ds-outline flex min-h-[14rem] w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border bg-white shadow-xl sm:min-h-[20rem] lg:min-h-[420px]"
+                  <WidgetChatShell
+                    agentName={agentName}
+                    brandColorHex={previewBrandColor}
+                    websiteLogoUrl={websiteLogoUrl}
+                    websiteLogoPending={isLoading}
+                    shellHeightClass="h-full min-h-[14rem] w-full sm:min-h-[20rem] lg:min-h-[520px]"
+                    footer={
+                      <div className="border-ds-outline px-3 py-2.5">
+                        <div className="rounded-ds-md border border-ds-outline bg-ds-sidebar px-3 py-2 text-xs text-ds-on-surface-variant">
+                          Write a message…
+                        </div>
+                      </div>
+                    }
                   >
-                    <div
-                      className="flex shrink-0 items-center gap-2 px-4 py-3"
-                      style={{ backgroundColor: previewBrandColor }}
-                    >
-                      <span
-                        className={`size-2 shrink-0 rounded-full shadow-sm ${previewBrandChrome.dotClass}`}
-                        aria-hidden
-                      />
-                      <span className={`text-sm font-semibold ${previewBrandChrome.titleClass}`}>Chat</span>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto bg-ds-sidebar p-3">
-                      <div className="border-ds-outline rounded-2xl rounded-tl-sm border bg-white px-3 py-2.5 text-xs leading-relaxed text-ds-on-surface">
+                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-ds-sidebar p-3 sm:p-4">
+                      <div className="border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-white px-3 py-2.5 text-xs leading-relaxed text-ds-on-surface sm:text-sm">
                         {previewAssistantMessage}
                       </div>
                     </div>
-                    <div className="border-ds-outline shrink-0 border-t bg-white px-3 py-2.5">
-                      <div className="rounded-ds-md border border-ds-outline bg-ds-sidebar px-3 py-2 text-xs text-ds-on-surface-variant">
-                        Write a message…
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex w-full max-w-[340px] justify-end">
+                  </WidgetChatShell>
+                  <div className="mt-3 flex w-full max-w-[26rem] justify-end">
                     <div
-                      className={`pointer-events-none flex size-14 items-center justify-center rounded-full border border-black/10 text-xl shadow-[0_10px_25px_rgba(15,23,42,0.22)] ring-4 ring-white ${previewBrandChrome.fabIconClass}`}
+                      className={cn(
+                        "flex size-14 items-center justify-center overflow-hidden rounded-full border border-black/10 shadow-[0_10px_25px_rgba(15,23,42,0.22)] ring-4 ring-white",
+                        previewBrandChrome.fabIconClass,
+                      )}
                       style={{ backgroundColor: previewBrandColor }}
                       aria-hidden
                     >
-                      💬
+                      {websiteLogoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={websiteLogoUrl} alt="" className="size-8 object-contain" />
+                      ) : (
+                        <span className="text-xl">💬</span>
+                      )}
                     </div>
                   </div>
                 </div>

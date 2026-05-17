@@ -68,13 +68,14 @@ export default async function AdminConversationDetailPage({
             ← Back to conversations
           </Link>
           <h1 className="text-ds-on-surface text-2xl font-semibold">Conversation transcript</h1>
-          <p className="text-ds-on-surface-variant text-xs">{conversation.id}</p>
+          <p className="ds-app-body-muted">{conversation.id}</p>
         </header>
 
         {conversation.truncated && (
           <div className="border-amber-200/60 bg-amber-50/60 text-amber-900 rounded-md border px-4 py-3 text-sm">
-            Showing the first {conversation.messages.length.toLocaleString()} messages. The full
-            transcript exceeds the {conversation.messages.length.toLocaleString()}-message cap.
+            Showing the first {conversation.messages.length.toLocaleString()} of{" "}
+            {conversation.total_message_count.toLocaleString()} messages (transcript capped at{" "}
+            {conversation.transcript_message_cap.toLocaleString()}).
           </div>
         )}
 
@@ -193,7 +194,7 @@ export default async function AdminConversationDetailPage({
 
         <SidebarCard title="Metadata">
           <details className="border-ds-outline/60 rounded-md border bg-white/60">
-            <summary className="text-ds-on-surface-variant cursor-pointer px-2 py-1 text-xs font-medium">
+            <summary className="ds-app-body-muted cursor-pointer px-2 py-1 font-medium">
               Raw conversation.metadata JSON
             </summary>
             <pre className="text-ds-on-surface max-h-80 overflow-auto px-3 py-2 text-[11px] leading-snug">
@@ -237,7 +238,7 @@ function CostByModelTable({ rows }: { rows: AdminCostByModelRow[] }) {
   return (
     <section className="border-ds-outline rounded-xl border bg-ds-surface p-4">
       <header className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-ds-on-surface text-sm font-semibold">Cost by model</h2>
+        <h2 className="ds-app-card-title">Cost by model</h2>
         <span className="text-ds-on-surface-variant text-[11px]">
           Multiple models in this conversation
         </span>
@@ -294,7 +295,7 @@ function CostByKindTable({ rows }: { rows: AdminCostKindRollup[] }) {
   return (
     <section className="border-ds-outline rounded-xl border bg-ds-surface p-4">
       <header className="mb-3">
-        <h2 className="text-ds-on-surface text-sm font-semibold">Cost by operation kind</h2>
+        <h2 className="ds-app-card-title">Cost by operation kind</h2>
         <p className="text-ds-on-surface-variant mt-1 text-[11px]">
           Roll-up from the API ledger (LLM rounds, embeddings, tools).
         </p>
@@ -325,7 +326,7 @@ function TrueCostEventsTable({ events }: { events: AdminCostEventRow[] }) {
   return (
     <section className="border-ds-outline rounded-xl border bg-ds-surface p-4">
       <header className="mb-3">
-        <h2 className="text-ds-on-surface text-sm font-semibold">True cost ledger</h2>
+        <h2 className="ds-app-card-title">True cost ledger</h2>
         <p className="text-ds-on-surface-variant mt-1 text-[11px]">
           One row per billed API operation (including RAG embeddings and each LLM round). Shopify
           tool rows are $0 (Admin API, not OpenAI metered).

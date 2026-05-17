@@ -169,7 +169,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
       <h2 className="ds-app-section-title mb-2 text-base">Escalation behavior</h2>
       <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
         When the AI escalates, customers either see a live response estimate (when you count as available) or are guided
-        toward email follow-up. Availability below controls which path applies—not whether escalation itself is allowed.
+        toward email follow-up. Availability below controls which path applies, not whether escalation is allowed.
       </p>
 
       {banner ? (
@@ -190,7 +190,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
           />
           <span>
             <span className="text-ds-on-surface block text-sm font-semibold">Only when I mark myself available now</span>
-            <span className="text-ds-on-surface-variant text-xs">
+            <span className="ds-app-body-muted">
               Live ETA uses your “Available now” toggle and the typical reply time below. Outside that, customers see the
               email path.
             </span>
@@ -206,7 +206,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
           />
           <span>
             <span className="text-ds-on-surface block text-sm font-semibold">During my business hours only</span>
-            <span className="text-ds-on-surface-variant text-xs">
+            <span className="ds-app-body-muted">
               Live ETA applies automatically in the hours and days you set (in your time zone). Otherwise, customers see
               the email path.
             </span>
@@ -224,7 +224,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
             <span className="text-ds-on-surface block text-sm font-semibold">
               Business hours, or when I mark myself available now
             </span>
-            <span className="text-ds-on-surface-variant text-xs">
+            <span className="ds-app-body-muted">
               Combines scheduled hours with an optional “Available now” override (for early/late coverage).
             </span>
           </span>
@@ -241,7 +241,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
           />
           <span>
             <span className="text-ds-on-surface block text-sm font-semibold">Available now</span>
-            <span className="text-ds-on-surface-variant text-xs">
+            <span className="ds-app-body-muted">
               Turn on when someone on your team is actively monitoring chat{availabilityMode === AVAILABILITY.scheduleAndManual ? " outside the schedule above" : ""}.
             </span>
           </span>
@@ -250,8 +250,8 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
 
       {showScheduleFields ? (
         <div className="border-ds-outline mt-6 space-y-4 rounded-ds-lg border bg-ds-sidebar/40 p-4">
-          <p className="text-ds-on-surface text-sm font-semibold">Business hours</p>
-          <p className="text-ds-on-surface-variant text-xs leading-relaxed">
+          <p className="ds-app-card-title">Business hours</p>
+          <p className="ds-app-body-muted">
             Used to decide live ETA vs email when schedule-based availability is on. Times use a 24-hour clock in the
             time zone below (Monday = first day).
           </p>
@@ -326,7 +326,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
           value={estimatedMinutes}
           onChange={(e) => setEstimatedMinutes(Number(e.target.value) || 15)}
         />
-        <p className="text-ds-on-surface-variant mt-1 text-xs">
+        <p className="ds-app-body-muted mt-1">
           Shown as the live ETA when you count as available (manual toggle and/or business hours, depending on your
           choice above).
         </p>

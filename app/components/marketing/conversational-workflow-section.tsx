@@ -14,36 +14,36 @@ const workflowItems: WorkflowItem[] = [
     title: "Connect your Shopify store",
     status: "Ready",
     details:
-      "One connection pulls products, orders, policies, and inventory into your agent — no PDF upload marathon or weekly re-crawl.",
-    cards: ["Link store in one flow", "Policies & catalog stay in sync"],
+      "Shopify sign-in pulls products, orders, inventory, and policies into enabled actions.",
+    cards: ["One-time store link", "Read-only Admin API scopes"],
   },
   {
-    title: "Resolve issues with live data",
+    title: "Answer with live data",
     status: "Live",
     details:
-      "WISMO, returns windows, and stock questions pull from Shopify as it is today — not a snapshot from when you last trained the bot.",
-    cards: ["Order status & tracking", "Refund rules from your store"],
+      "WISMO, returns windows, and stock questions use Shopify as it is today, plus knowledge you indexed from your site and docs.",
+    cards: ["Order & product lookups", "Grounded policy answers"],
   },
   {
-    title: "Take real support actions",
+    title: "Run enabled actions",
     status: "Running",
     details:
-      "Your agent does what a tier-1 teammate would: look up the order, open a ticket, send confirmations — without waiting on a human for every thread.",
-    cards: ["Create ticket with transcript", "Customer-facing follow-ups"],
+      "Turn on the Shopify actions your plan allows. The agent calls tools when needed instead of guessing catalog or order facts.",
+    cards: ["Configurable per agent", "Tool results in the thread"],
   },
   {
-    title: "Escalate before it guesses wrong",
+    title: "Escalate with context",
     status: "Guarded",
     details:
-      "When confidence drops or the shopper is stuck, the agent says so and hands off with the full conversation — no “confidently wrong” answers in front of customers.",
-    cards: ["Low-confidence path", "Human sees full context"],
+      "When a shopper needs a person, the agent hands off and creates a ticket with the full transcript.",
+    cards: ["Human escalation action", "Tickets in your dashboard"],
   },
   {
-    title: "Improve from real conversations",
+    title: "Review and improve",
     status: "Insights",
     details:
-      "See what shoppers asked, what worked, and what got escalated — then tighten playbooks without rebuilding your knowledge base from scratch.",
-    cards: ["Spot recurring gaps", "Prioritize what to fix next"],
+      "Read conversations, see analytics by plan, and add knowledge where shoppers keep asking the same thing.",
+    cards: ["Conversation history", "Source suggestions on Standard+"],
   },
 ];
 
@@ -62,12 +62,11 @@ export function ConversationalWorkflowSection() {
       <div className="mx-auto grid max-w-[1200px] gap-12 lg:grid-cols-2 lg:items-center">
         <div>
           <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          Smarter Shopify support with live actions and escalation
+            How ChatRely fits your Shopify support flow
           </h2>
           <p className="mt-4 text-base leading-7 text-ds-on-surface-variant sm:mt-6">
-            Connect once to your live Shopify store. ChatRely answers with current data, runs the right actions, and
-            escalates with full context — so shoppers are not stuck re-explaining and your team is not guessing what
-            happened.
+            Connect once, answer from live data and your knowledge base, escalate when needed, and review outcomes in the
+            dashboard.
           </p>
 
           <p className="mt-6 text-xs font-medium uppercase tracking-[0.12em] text-ds-on-surface-variant lg:hidden">
@@ -101,7 +100,7 @@ export function ConversationalWorkflowSection() {
                 <div className="rounded-b-2xl border-t border-zinc-200 bg-zinc-100 p-5">
                   <div className="mx-auto max-w-sm rounded-2xl border border-zinc-200 bg-white p-5 shadow-lg">
                     <div className="mb-4 flex items-center justify-between border-b border-zinc-100 pb-3">
-                      <h3 className="text-base font-bold">AI Actions</h3>
+                      <h3 className="text-base font-bold">Workflow</h3>
                       <span className="text-xs text-green-600">{step.status}</span>
                     </div>
                     <p className="text-sm leading-6 text-ds-on-surface-variant">{step.details}</p>
@@ -146,7 +145,7 @@ export function ConversationalWorkflowSection() {
         <div className="hidden rounded-[32px] border border-zinc-200 bg-zinc-100 p-8 lg:block">
           <div className="mx-auto max-w-sm rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="mb-6 flex items-center justify-between border-b border-zinc-100 pb-4">
-              <h3 className="text-lg font-bold">AI Actions</h3>
+              <h3 className="text-lg font-bold">Workflow</h3>
               <span className="text-xs text-green-600">{active.status}</span>
             </div>
             <p className="text-sm leading-6 text-ds-on-surface-variant">{active.details}</p>

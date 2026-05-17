@@ -17,8 +17,8 @@ export function LandingPricingTeaser() {
         >
           Compare all plans &amp; features
         </Link>
-        <p className="text-ds-on-surface-variant max-w-md text-xs leading-relaxed">
-          The full plan table with prices and CTAs is on the pricing page.
+        <p className="ds-app-body-muted max-w-md">
+          Essential AI on every plan. Standard and Pro add smart resolution for complex issues. Chat stays on.
         </p>
       </div>
     </>

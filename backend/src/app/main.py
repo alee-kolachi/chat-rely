@@ -1,3 +1,4 @@
+import asyncio
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -7,12 +8,13 @@ from typing import Any
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException, RequestValidationError
-from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import get_api_router
-from app.middleware.public_widget_cors import PublicWidgetCORSMiddleware
+from app.api.routes.chat import router as chat_router
+from app.api.routes.chat_public import router as chat_public_router
 from app.core.auth_state import set_token_verifier
 from app.core.errors import (
     AppError,
@@ -26,13 +28,16 @@ from app.core.security import TokenVerifier
 from app.core.settings import get_settings, validate_settings
 from app.db.engine import get_engine, init_engine
 from app.db.session import check_db_ready, init_session_factory
-from app.domains.runtime.shopify_runtime_warmup import warm_shopify_runtime_caches
+from app.domains.runtime.runtime_cache_warmup import warm_all_runtime_caches
+from app.middleware.public_widget_cors import PublicWidgetCORSMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     validate_settings()
     settings = get_settings()
+    indexing_worker_task: asyncio.Task[None] | None = None
     setup_logging(
         settings.log_level,
         log_file_enabled=settings.log_file_enabled,
@@ -47,14 +52,24 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_engine(settings)
     init_session_factory()
     await check_db_ready()
-    await warm_shopify_runtime_caches()
+    await warm_all_runtime_caches()
     # Always install a real verifier when a Bearer token is present. Dev bypass (see deps.py) only
     # applies to requests *without* Authorization — otherwise every logged-in user would share
     # DEV_AUTH_BYPASS_USER_ID because verify_token was never run.
     verifier = TokenVerifier(settings)
     await verifier.warmup()
     set_token_verifier(verifier)
+    if settings.is_development and settings.indexing_worker_embedded_in_dev:
+        from app.workers.indexing_worker import run_worker_loop
+
+        indexing_worker_task = asyncio.create_task(run_worker_loop(poll_interval_seconds=2.0))
     yield
+    if indexing_worker_task is not None:
+        indexing_worker_task.cancel()
+        try:
+            await indexing_worker_task
+        except asyncio.CancelledError:
+            pass
     await get_engine().dispose()
 
 
@@ -73,6 +88,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(PublicWidgetCORSMiddleware)
+    app.add_middleware(RateLimitMiddleware)
 
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next: Any) -> Response:
@@ -118,5 +134,7 @@ def create_app() -> FastAPI:
         return await unhandled_error_handler(request, exc)
 
     app.include_router(get_api_router())
+    app.include_router(chat_router, prefix="/api/chat")
+    app.include_router(chat_public_router, prefix="/api/chat")
     return app
 

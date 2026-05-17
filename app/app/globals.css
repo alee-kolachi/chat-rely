@@ -217,6 +217,38 @@
     color: var(--ds-on-surface-variant);
   }
 
+  .ds-app-body {
+    font-size: var(--ds-app-body-size);
+    line-height: var(--ds-app-body-line);
+    color: var(--ds-on-surface);
+  }
+
+  .ds-app-body-muted {
+    font-size: var(--ds-app-body-size);
+    line-height: var(--ds-app-body-muted-line);
+    color: var(--ds-on-surface-variant);
+  }
+
+  .ds-app-caption {
+    font-size: var(--ds-app-caption-size);
+    line-height: var(--ds-app-caption-line);
+    color: var(--ds-on-surface-variant);
+  }
+
+  .ds-app-label {
+    font-size: var(--ds-app-label-size);
+    font-weight: var(--ds-app-label-weight);
+    line-height: var(--ds-app-body-line);
+    color: var(--ds-on-surface);
+  }
+
+  .ds-app-label-muted {
+    font-size: var(--ds-app-label-size);
+    font-weight: var(--ds-app-label-weight);
+    line-height: var(--ds-app-body-line);
+    color: var(--ds-on-surface-variant);
+  }
+
   /* Form controls aligned with onboarding / playground */
   .ds-app-field {
     width: 100%;
@@ -225,8 +257,8 @@
     background: var(--ds-surface);
     color: var(--ds-on-surface);
     padding: 0.625rem 1rem;
-    font-size: 0.875rem;
-    line-height: 1.45;
+    font-size: var(--ds-app-body-size);
+    line-height: var(--ds-app-body-line);
     outline: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
@@ -244,6 +276,15 @@
     resize: vertical;
     min-height: 10rem;
     padding: 0.875rem 1rem;
+  }
+
+  /* Playground chat composer: ChatGPT-style 1–3 line auto-grow (overrides textarea.ds-app-field min-height). */
+  textarea.ds-app-field.playground-composer-input {
+    min-height: 0;
+    resize: none;
+    padding: 0.5rem 1rem;
+    line-height: 1.375;
+    overflow-y: hidden;
   }
 
   .chat-turn1-user,
@@ -333,6 +374,31 @@
 @media (prefers-reduced-motion: reduce) {
   .ds-thinking-dot {
     animation: none;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.shimmer-animate {
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.streaming-cursor::after {
+  content: "|";
+  margin-left: 1px;
+  animation: stream-cursor-blink 1s step-end infinite;
+}
+
+@keyframes stream-cursor-blink {
+  50% {
+    opacity: 0;
   }
 }
 

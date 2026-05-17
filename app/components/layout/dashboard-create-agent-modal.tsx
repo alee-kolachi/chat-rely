@@ -109,11 +109,11 @@ export function DashboardCreateAgentModal({
         <h2 id="dashboard-create-agent-title" className="text-ds-on-surface text-base font-semibold">
           New agent
         </h2>
-        <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-          Each agent has its own embed key, knowledge, and settings—ideal for separate stores or brands.
+        <p className="ds-app-body-muted mt-1">
+          Each agent has its own embed key, knowledge, and settings. Use one per store or brand.
         </p>
         <label className="mt-4 block">
-          <span className="text-ds-on-surface-variant mb-1 block text-xs font-semibold uppercase tracking-wide">
+          <span className="ds-app-label-muted mb-1 block uppercase tracking-wide">
             Display name
           </span>
           <input
@@ -136,7 +136,7 @@ export function DashboardCreateAgentModal({
             <p>{error}</p>
             {error.includes("Upgrade") ? (
               <Link
-                href="/account/billing"
+                href="/account/plan"
                 className="mt-2 inline-block font-semibold text-rose-900 underline decoration-rose-400 underline-offset-2 hover:opacity-90 dark:text-rose-50"
               >
                 View billing and plans

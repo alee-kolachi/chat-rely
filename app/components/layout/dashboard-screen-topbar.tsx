@@ -53,7 +53,7 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
     <header className="border-ds-outline bg-ds-surface flex h-14 min-w-0 shrink-0 items-center justify-between border-b px-4 md:h-16 md:px-8">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
         <div className="flex min-w-0 max-w-full flex-1 items-center gap-2 sm:gap-3 md:max-w-lg">
-          <span className="text-ds-on-surface-variant shrink-0 text-[11px] font-semibold tracking-wide uppercase sm:text-xs">
+          <span className="ds-app-kicker shrink-0 font-semibold">
             Agent
           </span>
           <div className="min-w-0 flex-1">
@@ -113,8 +113,8 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
               </button>
               {atAgentLimit ? (
                 <Link
-                  href="/account/billing"
-                  className="text-ds-primary hover:text-ds-secondary shrink-0 text-xs font-semibold underline-offset-2 hover:underline md:text-sm"
+                  href="/account/plan"
+                  className="text-ds-primary hover:text-ds-secondary shrink-0 text-sm font-semibold underline-offset-2 hover:underline"
                 >
                   Upgrade
                 </Link>
@@ -130,7 +130,7 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
             <Link
               href="/account/plan"
               className={cn(
-                "border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex h-9 max-w-[9.5rem] items-center truncate rounded-full border bg-white px-2.5 text-xs font-semibold shadow-sm transition-colors md:max-w-[15rem] md:px-3 md:text-sm",
+                "border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex h-9 max-w-[9.5rem] items-center truncate rounded-full border bg-white px-2.5 text-sm font-semibold shadow-sm transition-colors md:max-w-[15rem] md:px-3",
                 "focus-visible:ring-ds-primary focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               )}
               title={planChip}

@@ -169,12 +169,12 @@ async def build_agent_dashboard(
               (select count(*)::int from convo_range) as started_n,
               (select count(*)::int from convo_all where status = 'open') as active_open_n,
               (select count(*)::int from convo_range where status = 'escalated') as escalated_n,
-              (select count(*)::int from outcomes) as outcome_total,
               (
                 select count(*)::int
-                from outcomes o
-                where (o.payload->>'resolved_by_agent')::boolean is true
-              ) as resolved_n,
+                from convo_range
+                where status in ('resolved', 'idle_closed')
+              ) as status_resolved_n,
+              (select count(*)::int from outcomes) as outcome_total,
               (select open_escalations from ticket_counts) as open_escalations,
               (select awaiting_customer_reply from ticket_counts) as awaiting_customer_reply,
               coalesce(
@@ -236,15 +236,13 @@ async def build_agent_dashboard(
     conversations_started = int(crow["started_n"] or 0)
     active_conversations = int(crow["active_open_n"] or 0)
     escalated_n = int(crow["escalated_n"] or 0)
-    outcome_total = int(crow["outcome_total"] or 0)
-    resolved_n = int(crow["resolved_n"] or 0)
-    resolved_by_agent_pct: float | None = None
-    if outcome_total > 0:
-        resolved_by_agent_pct = round(100.0 * resolved_n / outcome_total, 1)
+    status_resolved_n = int(crow["status_resolved_n"] or 0)
     aggregate_ms = round((perf_counter() - step_start) * 1000, 1)
 
+    resolved_by_agent_pct: float | None = None
     needs_human_pct: float | None = None
     if conversations_started > 0:
+        resolved_by_agent_pct = round(100.0 * status_resolved_n / conversations_started, 1)
         needs_human_pct = round(100.0 * escalated_n / conversations_started, 1)
 
     series = [

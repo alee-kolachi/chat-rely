@@ -72,7 +72,7 @@ export function AccountMenu() {
           className="border-ds-outline bg-ds-surface absolute right-0 z-[100] mt-2 w-56 overflow-hidden rounded-ds-lg border py-1 shadow-lg"
           role="menu"
         >
-          <p className="text-ds-on-surface-variant border-ds-outline/80 border-b px-3 py-2 text-xs font-semibold tracking-wide uppercase">
+          <p className="ds-app-body-muted border-ds-outline/80 border-b px-3 py-2 font-semibold tracking-wide uppercase">
             Account
           </p>
           {accountLinks.map((item) => {

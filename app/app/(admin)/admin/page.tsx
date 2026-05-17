@@ -112,7 +112,7 @@ function CostingSummaryCard({ overview }: { overview: AdminOverview }) {
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h2 className="text-ds-on-surface text-lg font-semibold">Costing (MTD)</h2>
-          <p className="text-ds-on-surface-variant text-xs">
+          <p className="ds-app-body-muted">
             Reuses the platform Costing roll-up. Detail and leaderboards on{" "}
             <Link
               href="/admin/costing"
@@ -266,7 +266,7 @@ function ActivityColumn({
   return (
     <section className="border-ds-outline flex flex-col gap-2 rounded-xl border bg-ds-surface p-4">
       <header className="flex items-center justify-between">
-        <h3 className="text-ds-on-surface text-sm font-semibold">{title}</h3>
+        <h3 className="ds-app-card-title">{title}</h3>
         <Link
           href={viewAllHref}
           className="text-ds-primary text-xs font-medium hover:underline"
@@ -276,7 +276,7 @@ function ActivityColumn({
       </header>
       <div className="flex flex-col gap-2">
         {childArray.length === 0 ? (
-          <p className="text-ds-on-surface-variant text-xs italic">{emptyMessage}</p>
+          <p className="ds-app-body-muted italic">{emptyMessage}</p>
         ) : (
           childArray
         )}
@@ -292,7 +292,7 @@ function WorkerHeartbeats({ overview }: { overview: AdminOverview }) {
   return (
     <section className="border-ds-outline rounded-xl border bg-ds-surface p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-ds-on-surface text-sm font-semibold">Worker heartbeats</h2>
+        <h2 className="ds-app-card-title">Worker heartbeats</h2>
         <Link href="/admin/system" className="text-ds-primary text-xs hover:underline">
           System health →
         </Link>

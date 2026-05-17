@@ -12,6 +12,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
+import { useGuardedSubmit } from "@/hooks/use-guarded-submit";
 import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import type { NotificationsListResponse, UserNotification } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
@@ -140,23 +141,20 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
-  const markRead = useCallback(
-    async (ids: string[]) => {
-      if (!ids.length) return;
-      try {
-        await backendFetch("/api/v1/notifications/read", {
-          method: "POST",
-          body: JSON.stringify({ notification_ids: ids }),
-        });
-        await refresh();
-      } catch {
-        /* ignore */
-      }
-    },
-    [refresh]
-  );
+  const { submit: submitMarkRead } = useGuardedSubmit(async (ids: string[]) => {
+    if (!ids.length) return;
+    try {
+      await backendFetch("/api/v1/notifications/read", {
+        method: "POST",
+        body: JSON.stringify({ notification_ids: ids }),
+      });
+      await refresh();
+    } catch {
+      /* ignore */
+    }
+  });
 
-  const markAllRead = useCallback(async () => {
+  const { submit: submitMarkAllRead } = useGuardedSubmit(async () => {
     try {
       await backendFetch("/api/v1/notifications/read", {
         method: "POST",
@@ -166,7 +164,18 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
-  }, [refresh]);
+  });
+
+  const markRead = useCallback(
+    (ids: string[]) => {
+      void submitMarkRead(ids);
+    },
+    [submitMarkRead]
+  );
+
+  const markAllRead = useCallback(() => {
+    void submitMarkAllRead();
+  }, [submitMarkAllRead]);
 
   const value = useMemo(
     () => ({
@@ -222,9 +231,9 @@ function NotificationToastHost({
           >
             <div className="mb-1 flex items-center gap-2">
               <span className="bg-ds-primary inline-block size-2 shrink-0 rounded-full" />
-              <p className="text-ds-on-surface text-sm font-semibold">{toast.title}</p>
+              <p className="ds-app-card-title">{toast.title}</p>
             </div>
-            <p className="text-ds-on-surface-variant line-clamp-3 text-xs leading-relaxed">
+            <p className="ds-app-body-muted line-clamp-3">
               {toast.body || "Open to view details."}
             </p>
           </Link>

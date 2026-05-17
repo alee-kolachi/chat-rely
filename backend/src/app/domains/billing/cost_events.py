@@ -13,6 +13,7 @@ from app.core.settings import Settings, get_settings
 from app.domains.admin.costing import compute_embedding_cost_usd, compute_message_cost_usd
 
 COST_KIND_LLM_MAIN = "llm_main"
+COST_KIND_LLM_ROUTING = "llm_routing"
 COST_KIND_LLM_SHOPIFY_ROUTER = "llm_shopify_router"
 COST_KIND_LLM_INTENT_FALLBACK = "llm_intent_fallback"
 COST_KIND_LLM_TURN_SIGNALS = "llm_turn_signals"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -43,6 +44,7 @@ class _ShopifyConnCacheEntry:
 
 
 _shopify_conn_cache: dict[UUID, _ShopifyConnCacheEntry] = {}
+_shopify_not_connected_until: dict[UUID, float] = {}
 _shopify_conn_locks: dict[UUID, asyncio.Lock] = {}
 
 
@@ -57,6 +59,33 @@ def _shopify_conn_lock(agent_id: UUID) -> asyncio.Lock:
 def invalidate_shopify_connection_cache(agent_id: UUID) -> None:
     """Drop cached plaintext token/decrypted metadata (call after OAuth save or disconnect)."""
     _shopify_conn_cache.pop(agent_id, None)
+    _shopify_not_connected_until.pop(agent_id, None)
+
+
+def is_shopify_disconnected_cached(agent_id: UUID) -> bool:
+    """True when a recent probe found no connected store (skip DB on hot path)."""
+    neg_ttl = float(get_settings().runtime_shopify_disconnected_cache_ttl_seconds)
+    if neg_ttl <= 0:
+        return False
+    neg_until = _shopify_not_connected_until.get(agent_id)
+    return neg_until is not None and time.monotonic() < neg_until
+
+
+def mark_shopify_disconnected_cached(agent_id: UUID) -> None:
+    """Prime negative cache without a DB round-trip (startup warmup)."""
+    neg_ttl = float(get_settings().runtime_shopify_disconnected_cache_ttl_seconds)
+    if neg_ttl > 0:
+        _shopify_not_connected_until[agent_id] = time.monotonic() + neg_ttl
+
+
+def get_cached_shopify_connection(agent_id: UUID) -> tuple[str, str] | None:
+    """In-process hit for connected store (skip DB when token still valid)."""
+    cached = _shopify_conn_cache.get(agent_id)
+    if cached is None:
+        return None
+    if _needs_access_refresh(cached.token_expires_at, has_refresh=cached.has_refresh_token):
+        return None
+    return cached.shop_domain, cached.access_token
 
 
 def normalize_shop_domain(shop: str) -> str:
@@ -224,7 +253,7 @@ async def refresh_shopify_tokens(*, shop_domain: str, refresh_token: str) -> dic
     if response.status_code != 200:
         raise AppError(
             code="shopify.token_refresh_failed",
-            message="Failed to refresh Shopify access token — reconnect Shopify",
+            message="Failed to refresh Shopify access token. Reconnect Shopify.",
             status_code=502,
             details={"status": response.status_code, "body": response.text[:500]},
         )
@@ -452,6 +481,13 @@ async def load_shopify_connection_for_agent(
             )
             return cached.shop_domain, cached.access_token
 
+        neg_ttl = float(get_settings().runtime_shopify_disconnected_cache_ttl_seconds)
+        now_mono = time.monotonic()
+        neg_until = _shopify_not_connected_until.get(agent_id)
+        if neg_ttl > 0 and neg_until is not None and now_mono < neg_until:
+            log.info("shopify.connection_negative_cache_hit", agent_id=str(agent_id))
+            return None
+
         await _ensure_agent_owned(db, user_id, agent_id)
         result = await db.execute(
             text(
@@ -472,6 +508,7 @@ async def load_shopify_connection_for_agent(
         row = result.mappings().first()
         if not row or row["status"] != "connected":
             _shopify_conn_cache.pop(agent_id, None)
+            mark_shopify_disconnected_cached(agent_id)
             return None
         shop_domain = str(row["shop_domain"])
         token = decrypt_shopify_access_token_encrypted(str(row["access_token_encrypted"]))
@@ -520,6 +557,7 @@ async def load_shopify_connection_for_agent(
                 await db.rollback()
                 raise
 
+        _shopify_not_connected_until.pop(agent_id, None)
         _shopify_conn_cache[agent_id] = _ShopifyConnCacheEntry(
             shop_domain=shop_domain,
             access_token=token,
