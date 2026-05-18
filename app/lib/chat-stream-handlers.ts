@@ -29,7 +29,6 @@ export function applyChatSseEvent(
     return {
       text: current.text + ev.text,
       streamPhase: "streaming",
-      statusLine: null,
     };
   }
   if (ev.type === "done") {

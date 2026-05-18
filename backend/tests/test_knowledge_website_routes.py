@@ -544,6 +544,296 @@ def test_app_error_for_empty_sitemap_discovery() -> None:
     assert empty_filters.code == "knowledge.sitemap_empty"
 
 
+def test_normalize_sitemap_document_url_preserves_query() -> None:
+    from app.core.errors import AppError
+    from app.domains.knowledge.service import _normalize_sitemap_document_url, _normalize_url_string
+
+    assert (
+        _normalize_sitemap_document_url("https://shop.example/sitemap_products_1.xml?from=1&to=2#frag")
+        == "https://shop.example/sitemap_products_1.xml?from=1&to=2"
+    )
+    assert _normalize_url_string("https://shop.example/p?id=1#x") == "https://shop.example/p"
+    with pytest.raises(AppError):
+        _normalize_sitemap_document_url("not-a-url")
+
+
+def _mock_sitemap_http_client(
+    *,
+    index_xml: bytes,
+    child_xml: bytes,
+    child_path: str = "/sitemap_products_1.xml",
+    fail_child_without_query: bool = False,
+    fail_url: str | None = None,
+) -> type:
+    """Build a fake httpx.AsyncClient that records GET URLs and serves test sitemap XML."""
+
+    class _Resp:
+        def __init__(self, content: bytes, status_code: int = 200) -> None:
+            self.content = content
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+    class _FakeClient:
+        requested: list[str] = []
+
+        def __init__(self, *_a: object, **_kw: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+        async def get(self, url: str) -> _Resp:
+            _FakeClient.requested.append(url)
+            if fail_url and url == fail_url:
+                return _Resp(b"", status_code=500)
+            if fail_child_without_query and child_path in url and "?" not in url:
+                return _Resp(b"", status_code=400)
+            if url.endswith("/sitemap.xml"):
+                return _Resp(index_xml)
+            if child_path in url and "?" in url:
+                return _Resp(child_xml)
+            if child_path in url:
+                return _Resp(child_xml)
+            return _Resp(b"<urlset></urlset>")
+
+    return _FakeClient
+
+
+@pytest.mark.asyncio
+async def test_discover_sitemap_urls_nested_shopify_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.domains.knowledge import service as svc
+
+    index_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://shop.test/sitemap_products_1.xml?from=1&amp;to=2</loc>
+  </sitemap>
+</sitemapindex>"""
+    child_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://shop.test/products/item-a</loc></url>
+</urlset>"""
+    fake_cls = _mock_sitemap_http_client(
+        index_xml=index_xml,
+        child_xml=child_xml,
+        fail_child_without_query=True,
+    )
+    monkeypatch.setattr(svc.httpx, "AsyncClient", fake_cls)
+
+    discovered = await svc._discover_sitemap_urls("https://shop.test/", 100, [], [])
+    assert "https://shop.test/products/item-a" in discovered.urls
+    child_gets = [u for u in fake_cls.requested if "sitemap_products_1.xml" in u]
+    assert child_gets
+    assert any("from=1" in u and "to=2" in u for u in child_gets)
+
+
+@pytest.mark.asyncio
+async def test_discover_sitemap_urls_collects_all_before_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.domains.knowledge import service as svc
+
+    index_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://shop.test/sitemap_mixed_1.xml</loc></sitemap>
+</sitemapindex>"""
+    child_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://shop.test/blogs/post-a</loc></url>
+  <url><loc>https://shop.test/products/item-b</loc></url>
+  <url><loc>https://shop.test/pages/about</loc></url>
+</urlset>"""
+    fake_cls = _mock_sitemap_http_client(index_xml=index_xml, child_xml=child_xml, child_path="/sitemap_mixed_1.xml")
+    monkeypatch.setattr(svc.httpx, "AsyncClient", fake_cls)
+
+    discovered = await svc._discover_sitemap_urls("https://shop.test/", 100, [], [])
+    assert discovered.urls_discovered_total == 3
+    assert len(discovered.urls) == 3
+
+    inc = [{"operator": "contains", "pattern": "/blogs/"}]
+    filtered = await svc._discover_sitemap_urls("https://shop.test/", 100, inc, [])
+    assert filtered.urls_discovered_total == 3
+    assert filtered.urls_after_filter == 1
+    assert filtered.urls == ["https://shop.test/blogs/post-a"]
+
+
+def test_cap_path_filtered_urls_strict_contains() -> None:
+    from app.domains.knowledge.service import _cap_path_filtered_urls
+
+    urls = [
+        "https://shop.test/collections/boys-perfumes",
+        "https://shop.test/collections/men-cargo-pants",
+        "https://shop.test/products/p1",
+        "https://shop.test/cart",
+    ]
+    inc = [{"operator": "contains", "pattern": "perfumes"}]
+    out = _cap_path_filtered_urls(urls, inc, [], 100)
+    assert out == ["https://shop.test/collections/boys-perfumes"]
+
+
+def test_extract_embedded_same_site_paths_collection_products() -> None:
+    from app.domains.knowledge.service import _extract_embedded_same_site_paths, _extract_page_urls
+
+    base = "https://shop.test/collections/women-perfumes"
+    html = (
+        '{"url":"collections/women-perfumes/products/6cswf956-red"}'
+        '<a href="/collections/men-cargo-pants">other</a>'
+    )
+    embedded = _extract_embedded_same_site_paths(base, html)
+    assert "https://shop.test/collections/women-perfumes/products/6cswf956-red" in embedded
+    page_urls = _extract_page_urls(base, html)
+    assert "https://shop.test/collections/women-perfumes/products/6cswf956-red" in page_urls
+    assert "https://shop.test/collections/men-cargo-pants" in page_urls
+
+
+@pytest.mark.asyncio
+async def test_expand_urls_from_matching_hubs_strict_path_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.domains.knowledge import service as svc
+
+    hub = "https://shop.test/collections/women-perfumes"
+    html = (
+        '{"x":"collections/women-perfumes/products/6cswf956-red"}'
+        '<a href="/collections/men-cargo-pants">nav</a>'
+        '<a href="/cart">cart</a>'
+    )
+
+    class _Resp:
+        status_code = 200
+        content = html.encode()
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def __init__(self, *_a: object, **_kw: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+        async def get(self, url: str) -> _Resp:
+            assert url == hub
+            return _Resp()
+
+    monkeypatch.setattr(svc.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(svc, "_charge_bytes_and_html_from_response", lambda _r, **_: (100, html))
+
+    inc = [{"operator": "contains", "pattern": "perfumes"}]
+    out, added = await svc._expand_urls_from_matching_hubs(
+        [hub], include_rules=inc, exclude_rules=[], max_urls=100
+    )
+    assert hub in out
+    assert "https://shop.test/collections/women-perfumes/products/6cswf956-red" in out
+    assert "https://shop.test/collections/men-cargo-pants" not in out
+    assert "https://shop.test/cart" not in out
+    assert added == 1
+
+
+@pytest.mark.asyncio
+async def test_discover_sitemap_urls_include_expands_matching_hub_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.domains.knowledge import service as svc
+
+    index_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://shop.test/sitemap_coll_1.xml</loc></sitemap>
+</sitemapindex>"""
+    child_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://shop.test/collections/boys-perfumes</loc></url>
+  <url><loc>https://shop.test/products/standalone</loc></url>
+  <url><loc>https://shop.test/collections/men-cargo-pants</loc></url>
+</urlset>"""
+    hub_html = '{"u":"collections/boys-perfumes/products/p1-red"}'
+
+    class _Resp:
+        def __init__(self, *, content: bytes, status_code: int = 200) -> None:
+            self.content = content
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError("http error")
+
+    class _FakeClient:
+        def __init__(self, *_a: object, **_kw: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+        async def get(self, url: str) -> _Resp:
+            if url.endswith("sitemap_coll_1.xml"):
+                return _Resp(content=child_xml)
+            if url.endswith("/sitemap.xml"):
+                return _Resp(content=index_xml)
+            if "boys-perfumes" in url:
+                return _Resp(content=hub_html.encode())
+            return _Resp(content=b"<urlset></urlset>")
+
+    monkeypatch.setattr(svc.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(svc, "_charge_bytes_and_html_from_response", lambda _r, **_: (50, hub_html))
+
+    inc = [{"operator": "contains", "pattern": "perfumes"}]
+    discovered = await svc._discover_sitemap_urls("https://shop.test/", 100, inc, [])
+    assert discovered.urls_discovered_total == 3
+    assert discovered.urls_after_filter == 1
+    assert "https://shop.test/collections/boys-perfumes" in discovered.urls
+    assert "https://shop.test/collections/boys-perfumes/products/p1-red" in discovered.urls
+    assert "https://shop.test/collections/men-cargo-pants" not in discovered.urls
+    assert discovered.hub_urls_added >= 1
+
+
+@pytest.mark.asyncio
+async def test_discover_sitemap_urls_respects_include_exclude(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.domains.knowledge import service as svc
+
+    index_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://shop.test/sitemap_mixed_1.xml?from=9&amp;to=10</loc>
+  </sitemap>
+</sitemapindex>"""
+    child_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://shop.test/blogs/post-a</loc></url>
+  <url><loc>https://shop.test/products/item-b</loc></url>
+  <url><loc>https://shop.test/pages/about</loc></url>
+</urlset>"""
+    fake_cls = _mock_sitemap_http_client(
+        index_xml=index_xml,
+        child_xml=child_xml,
+        child_path="/sitemap_mixed_1.xml",
+    )
+    monkeypatch.setattr(svc.httpx, "AsyncClient", fake_cls)
+
+    inc = [{"operator": "contains", "pattern": "/blogs/"}]
+    only_blogs = await svc._discover_sitemap_urls("https://shop.test/", 100, inc, [])
+    assert only_blogs.urls == ["https://shop.test/blogs/post-a"]
+    assert any("sitemap_mixed_1.xml?from=9" in u for u in fake_cls.requested)
+
+    fake_cls2 = _mock_sitemap_http_client(
+        index_xml=index_xml,
+        child_xml=child_xml,
+        child_path="/sitemap_mixed_1.xml",
+    )
+    monkeypatch.setattr(svc.httpx, "AsyncClient", fake_cls2)
+    exc = [{"operator": "contains", "pattern": "/products/"}]
+    no_products = await svc._discover_sitemap_urls("https://shop.test/", 100, [], exc)
+    assert "https://shop.test/blogs/post-a" in no_products.urls
+    assert "https://shop.test/pages/about" in no_products.urls
+    assert "https://shop.test/products/item-b" not in no_products.urls
+
+
 @pytest.mark.asyncio
 async def test_dashboard_fetch_planned_urls_passes_remaining_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     from datetime import datetime, timezone

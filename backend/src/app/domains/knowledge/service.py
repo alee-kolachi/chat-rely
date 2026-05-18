@@ -10,7 +10,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 from uuid import UUID
 
 import httpx
@@ -70,6 +70,9 @@ class SitemapDiscoveryResult:
     xml_parse_failure_count: int = 0
     had_successful_xml_document: bool = False
     truncated_by_doc_cap: bool = False
+    urls_discovered_total: int = 0
+    urls_after_filter: int = 0
+    hub_urls_added: int = 0
 
 
 EMBEDDING_DIMENSION = 1536
@@ -117,6 +120,11 @@ DASHBOARD_PAGE_UPSERT_CHUNK = 100
 SITEMAP_MAX_DOCUMENT_FETCHES = 500
 # Concurrent GETs when walking nested sitemap indexes (same origin session).
 SITEMAP_PARALLEL_FETCHES = 8
+# Collect every ``<url><loc>`` from sitemaps before path filters (Shopify catalogs are often 2k+).
+SITEMAP_MAX_PAGE_URLS_COLLECTED = 50_000
+# After path filters match hub pages (collections, categories), fetch HTML for embedded product paths.
+HUB_EXPAND_MAX_HUB_VISITS = 64
+HUB_EXPAND_MAX_LINKS_PER_HUB = 1200
 # Batch multi-row inserts when seeding sitemap URL placeholders for the dashboard.
 DASHBOARD_SEED_URL_INSERT_CHUNK = 250
 
@@ -330,10 +338,28 @@ def _approx_embed_request_tokens(chunk: str) -> int:
 
 
 def _normalize_url_string(url: str) -> str:
+    """Canonical page URL for indexing and path-rule matching (no query or fragment)."""
     parsed = urlparse(url.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise AppError(code="validation.invalid_input", message="Invalid URL", status_code=422)
     return f"{parsed.scheme}://{parsed.netloc}{parsed.path or '/'}"
+
+
+def _normalize_sitemap_document_url(url: str) -> str:
+    """Fetch URL for nested sitemap XML; preserves query (Shopify ``?from=&to=`` child indexes)."""
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise AppError(code="validation.invalid_input", message="Invalid URL", status_code=422)
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path or "/",
+            "",
+            parsed.query,
+            "",
+        )
+    )
 
 
 def normalize_dashboard_website_url(protocol: str, url_input: str) -> str:
@@ -368,11 +394,22 @@ def _rule_matches(operator: str, pattern: str, path_value: str) -> bool:
     return False
 
 
+_NON_HTML_PAGE_PATH_SUFFIXES = (".atom", ".oembed", ".json", ".xml", ".js", ".css", ".map")
+
+
+def _is_indexable_html_page_url(url: str) -> bool:
+    """Drop feed/alternate format URLs often linked from Shopify collection pages."""
+    path = _url_path_for_rules(url).lower()
+    return not any(path.endswith(suffix) for suffix in _NON_HTML_PAGE_PATH_SUFFIXES)
+
+
 def _url_passes_filters(url: str, include_rules: list[dict[str, str]], exclude_rules: list[dict[str, str]]) -> bool:
     """Exclude rules run first (any match drops the URL). With no include rules, URL passes if not excluded.
 
     Multiple include chips are OR: the path must match **at least one** include rule when includes are set.
     """
+    if not _is_indexable_html_page_url(url):
+        return False
     path_value = _url_path_for_rules(url)
     for ex in exclude_rules:
         op, pat = ex.get("operator", ""), ex.get("pattern", "")
@@ -395,6 +432,124 @@ def _url_passes_excludes_only(url: str, exclude_rules: list[dict[str, str]]) -> 
         if pat and _rule_matches(op, pat, path_value):
             return False
     return True
+
+
+def _filter_discovered_page_urls(
+    urls: list[str],
+    include_rules: list[dict[str, str]],
+    exclude_rules: list[dict[str, str]],
+) -> list[str]:
+    """Apply path include/exclude to a full sitemap URL list (order preserved, deduped)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for u in urls:
+        if u in seen:
+            continue
+        if _url_passes_filters(u, include_rules, exclude_rules):
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _cap_path_filtered_urls(
+    urls: list[str],
+    include_rules: list[dict[str, str]],
+    exclude_rules: list[dict[str, str]],
+    max_urls: int,
+) -> list[str]:
+    """Strict path filter before queueing HTML fetch (include = path must match)."""
+    if not include_rules and not exclude_rules:
+        return urls[:max_urls]
+    filtered = _filter_discovered_page_urls(urls, include_rules, exclude_rules)
+    return filtered[:max_urls]
+
+
+def _extract_embedded_same_site_paths(base_url: str, html: str) -> list[str]:
+    """Paths embedded in JSON/scripts (common on Shopify collection grids), not only ``<a href>``."""
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return []
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    host = re.escape(parsed.netloc)
+    out: list[str] = []
+    path_re = re.compile(
+        rf"(?:https?://{host})?"
+        r"(/?(?:collections/[^\s\"'<>\\?#]+(?:/products/[^\s\"'<>\\?#]+)?|products/[^\s\"'<>\\?#]+))",
+        re.IGNORECASE,
+    )
+    for m in path_re.finditer(html):
+        raw_path = m.group(1)
+        if not raw_path.startswith("/"):
+            raw_path = f"/{raw_path}"
+        try:
+            out.append(_normalize_url_string(f"{origin}{raw_path}"))
+        except AppError:
+            continue
+    abs_re = re.compile(rf"https?://{host}/[^\s\"'<>\\?#]+", re.IGNORECASE)
+    for m in abs_re.finditer(html):
+        try:
+            candidate = _normalize_url_string(m.group(0))
+        except AppError:
+            continue
+        if _same_site_host(parsed.netloc, urlparse(candidate).netloc):
+            out.append(candidate)
+    return out
+
+
+def _extract_page_urls(base_url: str, html: str) -> list[str]:
+    """Anchor links plus same-site paths embedded in page HTML."""
+    seen: set[str] = set()
+    merged: list[str] = []
+    for u in _extract_links(base_url, html) + _extract_embedded_same_site_paths(base_url, html):
+        if u in seen:
+            continue
+        seen.add(u)
+        merged.append(u)
+    return merged
+
+
+async def _expand_urls_from_matching_hubs(
+    seed_urls: list[str],
+    *,
+    include_rules: list[dict[str, str]],
+    exclude_rules: list[dict[str, str]],
+    max_urls: int,
+) -> tuple[list[str], int]:
+    """Fetch pages that matched include rules; add linked URLs only if their path still matches include/exclude."""
+    if not include_rules or not seed_urls:
+        return seed_urls[:max_urls], 0
+    result: list[str] = []
+    seen: set[str] = set()
+    for u in seed_urls:
+        if u not in seen:
+            seen.add(u)
+            result.append(u)
+    added = 0
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=_WEBSITE_CRAWL_HEADERS) as client:
+        for hub in seed_urls[:HUB_EXPAND_MAX_HUB_VISITS]:
+            if len(result) >= max_urls:
+                break
+            try:
+                response = await client.get(hub)
+                response.raise_for_status()
+                _charged, html = _charge_bytes_and_html_from_response(
+                    response, remaining_budget_bytes=_CRAWL_BODY_CHARGE_CAP_BYTES
+                )
+                hub_added = 0
+                for link in _extract_page_urls(hub, html):
+                    if len(result) >= max_urls or hub_added >= HUB_EXPAND_MAX_LINKS_PER_HUB:
+                        break
+                    if link in seen:
+                        continue
+                    if not _url_passes_filters(link, include_rules, exclude_rules):
+                        continue
+                    seen.add(link)
+                    result.append(link)
+                    hub_added += 1
+                    added += 1
+            except Exception:
+                continue
+    return result[:max_urls], added
 
 
 async def _require_knowledge_source_exists(db: AsyncSession, source_id: UUID) -> None:
@@ -443,11 +598,211 @@ def _extract_links(base_url: str, html: str) -> list[str]:
     return links
 
 
+# Meta / JSON keys that are layout, auth, or asset pointers — not useful in RAG excerpts.
+_META_SKIP_NAMES: frozenset[str] = frozenset(
+    {
+        "viewport",
+        "theme-color",
+        "color-scheme",
+        "robots",
+        "referrer",
+        "format-detection",
+        "msapplication-tilecolor",
+        "csrf-token",
+        "csrf-param",
+        "google-site-verification",
+        "facebook-domain-verification",
+        "p:domain_verify",
+    }
+)
+_META_SKIP_PROPERTY_PREFIXES: tuple[str, ...] = (
+    "og:image",
+    "og:video",
+    "twitter:image",
+    "twitter:player",
+)
+
+_JSON_SKIP_KEYS: frozenset[str] = frozenset(
+    {
+        "@context",
+        "context",
+        "@id",
+        "accessToken",
+        "betas",
+        "shopId",
+        "predictiveSearch",
+        "locale",
+        "domain",
+        "featured_image",
+        "image",
+        "images",
+        "logo",
+        "sameAs",
+        "seller",
+        "hasMerchantReturnPolicy",
+        "shippingDetails",
+        "inventory_management",
+        "selling_plan_allocations",
+        "quantity_rule",
+        "requires_selling_plan",
+    }
+)
+_JSON_MONEY_KEYS: frozenset[str] = frozenset(
+    {
+        "price",
+        "compare_at_price",
+        "minprice",
+        "maxprice",
+        "lowprice",
+        "highprice",
+        "unitprice",
+    }
+)
+_MAX_JSON_INDEX_FRAGMENTS = 200
+_THIN_PAGE_BODY_FALLBACK_CHARS = 700
+
+
+def _humanize_json_key(key: str) -> str:
+    clean = key.lstrip("@").replace("_", " ").replace("-", " ")
+    if not clean:
+        return "value"
+    return clean[0].upper() + clean[1:] if len(clean) > 1 else clean.upper()
+
+
+def _json_key_is_noise(key: str) -> bool:
+    lowered = key.lower().lstrip("@")
+    if lowered in _JSON_SKIP_KEYS or lowered == "type":
+        return True
+    if lowered in {"id", "gid", "shopid"} or lowered.endswith("id") and lowered not in {
+        "sku",
+        "grid",
+    }:
+        return True
+    if "token" in lowered or "secret" in lowered or "password" in lowered:
+        return True
+    if lowered.endswith("url") or lowered.endswith("uri") or lowered in {"url", "href", "src"}:
+        return True
+    return False
+
+
+def _scalar_value_indexable(value: object) -> bool:
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True
+    if isinstance(value, str):
+        text = _normalize_text(value)
+        if len(text) < 2:
+            return False
+        if text.startswith(("http://", "https://", "//")):
+            return False
+        if len(text) > 800:
+            return False
+        return True
+    return False
+
+
+def _parse_money_amount(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if isinstance(value, int) and value >= 10_000 and value % 100 == 0:
+            return value / 100.0
+        return numeric
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
+def _format_json_scalar(key: str, value: object, parent: dict[str, object] | None) -> str | None:
+    key_l = key.lower().lstrip("@")
+    if isinstance(value, bool):
+        return f"{_humanize_json_key(key)}: {'yes' if value else 'no'}"
+    if key_l in _JSON_MONEY_KEYS:
+        numeric = _parse_money_amount(value)
+        if numeric is not None:
+            currency = None
+            if parent:
+                raw_currency = parent.get("priceCurrency") or parent.get("currency")
+                if isinstance(raw_currency, str) and raw_currency.strip():
+                    currency = raw_currency.strip()
+            amount = (
+                str(int(numeric))
+                if numeric == int(numeric)
+                else f"{numeric:.2f}".rstrip("0").rstrip(".")
+            )
+            if currency:
+                return f"{currency} {amount}"
+            return f"{_humanize_json_key(key)}: {amount}"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{_humanize_json_key(key)}: {value}"
+    if isinstance(value, str):
+        text = _normalize_text(value)
+        if not text:
+            return None
+        return f"{_humanize_json_key(key)}: {text}"
+    return None
+
+
+def _flatten_json_for_indexing(
+    node: object,
+    fragments: list[str],
+    *,
+    depth: int = 0,
+    max_depth: int = 14,
+    parent: dict[str, object] | None = None,
+) -> None:
+    """Recursively turn JSON-LD / inline JSON into labeled plain-text snippets."""
+    if depth > max_depth or len(fragments) >= _MAX_JSON_INDEX_FRAGMENTS:
+        return
+    if isinstance(node, dict):
+        price = node.get("price")
+        currency = node.get("priceCurrency") or node.get("currency")
+        if price is not None and isinstance(currency, str) and currency.strip():
+            combined = _format_json_scalar("price", price, {**node, "priceCurrency": currency})
+            if combined and combined not in fragments:
+                fragments.append(combined)
+        for key, value in node.items():
+            if _json_key_is_noise(key):
+                continue
+            if key in ("price", "priceCurrency", "currency") and price is not None and currency:
+                continue
+            if isinstance(value, dict):
+                _flatten_json_for_indexing(value, fragments, depth=depth + 1, max_depth=max_depth, parent=node)
+            elif isinstance(value, list):
+                _flatten_json_for_indexing(value, fragments, depth=depth + 1, max_depth=max_depth, parent=node)
+            elif _scalar_value_indexable(value):
+                line = _format_json_scalar(key, value, node)
+                if line:
+                    fragments.append(line)
+    elif isinstance(node, list):
+        primitive_items = [item for item in node if _scalar_value_indexable(item)]
+        if primitive_items and len(primitive_items) == len(node) and parent is not None:
+            joined = ", ".join(_normalize_text(str(item)) for item in primitive_items)
+            parent_key = ""
+            if isinstance(parent, dict):
+                for k, v in parent.items():
+                    if v is node:
+                        parent_key = k
+                        break
+            label = _humanize_json_key(parent_key) if parent_key else "Items"
+            fragments.append(f"{label}: {joined}")
+            return
+        for item in node:
+            _flatten_json_for_indexing(item, fragments, depth=depth + 1, max_depth=max_depth, parent=parent)
+
+
 def _head_meta_text_fragments(soup: BeautifulSoup) -> list[str]:
     """
-    Visible text from ``get_text`` omits ``<meta content=\"...\">`` and similar —
-    only text nodes are included. SPAs (e.g. Next.js) often ship real copy in
-    meta description / Open Graph while the body is a loading shell; collect those.
+    Visible text from ``get_text`` omits ``<meta content=\"...\">`` — collect all
+    non-layout meta (Open Graph, Twitter, product tags, descriptions).
     """
     fragments: list[str] = []
     title = soup.find("title")
@@ -459,13 +814,60 @@ def _head_meta_text_fragments(soup: BeautifulSoup) -> list[str]:
         content = meta.get("content")
         if not content or not str(content).strip():
             continue
-        name = str(meta.get("name") or "").lower()
-        prop = str(meta.get("property") or "").lower()
-        if name in ("description", "twitter:title", "twitter:description") or prop in (
-            "og:title",
-            "og:description",
-        ):
-            fragments.append(_normalize_text(str(content)))
+        name = str(meta.get("name") or "").strip()
+        prop = str(meta.get("property") or "").strip()
+        label = prop or name
+        if not label:
+            continue
+        label_l = label.lower()
+        if label_l in _META_SKIP_NAMES:
+            continue
+        if any(label_l.startswith(prefix) for prefix in _META_SKIP_PROPERTY_PREFIXES):
+            continue
+        if label_l.startswith("og:image:") or label_l.startswith("twitter:image:"):
+            continue
+        text = _normalize_text(str(content))
+        if not text:
+            continue
+        fragments.append(f"{label}: {text}")
+    return fragments
+
+
+def _microdata_text_fragments(soup: BeautifulSoup) -> list[str]:
+    fragments: list[str] = []
+    for el in soup.find_all(attrs={"itemprop": True}):
+        prop = str(el.get("itemprop") or "").strip()
+        if not prop or _json_key_is_noise(prop):
+            continue
+        if el.name == "meta":
+            value = el.get("content")
+        elif el.name in {"a", "link", "img", "source"}:
+            value = el.get("href") or el.get("src") or el.get("content")
+        else:
+            value = el.get("content") or el.get_text(" ", strip=True)
+        if value is None:
+            continue
+        line = _format_json_scalar(prop, value, None)
+        if line:
+            fragments.append(line)
+    return fragments
+
+
+def _embedded_json_text_fragments(soup: BeautifulSoup) -> list[str]:
+    """JSON-LD and inline ``application/json`` blocks (Shopify variants, FAQs, etc.)."""
+    fragments: list[str] = []
+    for script in soup.find_all("script"):
+        script_type = str(script.get("type") or "").lower()
+        if script_type not in {"application/ld+json", "application/json"}:
+            continue
+        raw = script.string or script.get_text(" ", strip=True)
+        if not raw or len(raw.strip()) < 24:
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        _flatten_json_for_indexing(payload, fragments)
     return fragments
 
 
@@ -484,57 +886,26 @@ def _dedupe_preserve_order_snippets(snippets: list[str]) -> list[str]:
     return out
 
 
-def _json_ld_text_fragments(soup: BeautifulSoup) -> list[str]:
-    """Extract useful product fields from JSON-LD scripts (price is often only here)."""
-    fragments: list[str] = []
-
-    def walk(node: object) -> None:
-        if isinstance(node, dict):
-            for key in ("name", "description", "sku", "priceCurrency", "price"):
-                value = node.get(key)
-                if isinstance(value, (str, int, float)):
-                    text_value = _normalize_text(str(value))
-                    if text_value:
-                        fragments.append(text_value)
-            offers = node.get("offers")
-            if isinstance(offers, dict):
-                walk(offers)
-            elif isinstance(offers, list):
-                for item in offers:
-                    walk(item)
-            for nested_key in ("mainEntity", "itemOffered"):
-                nested = node.get(nested_key)
-                if isinstance(nested, (dict, list)):
-                    walk(nested)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
-
-    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
-        raw = script.string or script.get_text(" ", strip=True)
-        if not raw or not raw.strip():
-            continue
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        walk(payload)
-
-    return fragments
-
-
-def _extract_page_text(html: str) -> str:
-    soup = _parse_html(html)
-    head_frags = _head_meta_text_fragments(soup)
-    json_ld_frags = _json_ld_text_fragments(soup)
-    for element in soup(["script", "style", "noscript"]):
-        element.decompose()
-
-    main_candidates = soup.select("main, article, [role='main'], #MainContent, #main-content")
-    root = main_candidates[0] if main_candidates else (soup.body or soup)
-
+def _extract_structural_body_blocks(root: BeautifulSoup) -> list[str]:
     structural_blocks: list[str] = []
-    for tag in root.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "pre", "code", "table"]):
+    block_tags = [
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "p",
+        "li",
+        "dt",
+        "dd",
+        "pre",
+        "code",
+        "table",
+        "blockquote",
+        "figcaption",
+    ]
+    for tag in root.find_all(block_tags):
         name = str(tag.name).lower()
         text_val = _normalize_text(tag.get_text(" ", strip=True))
         if not text_val:
@@ -545,12 +916,31 @@ def _extract_page_text(html: str) -> str:
         elif name in {"pre", "code"}:
             structural_blocks.append(f"```\n{text_val}\n```")
         elif name == "table":
-            # Keep table content in one block so chunker does not split rows apart.
             structural_blocks.append(f"[Table]\n{text_val}")
         else:
             structural_blocks.append(text_val)
+    return structural_blocks
 
-    merged = _dedupe_preserve_order_snippets([*head_frags, *json_ld_frags, *structural_blocks])
+
+def _extract_page_text(html: str) -> str:
+    soup = _parse_html(html)
+    head_frags = _head_meta_text_fragments(soup)
+    json_frags = _embedded_json_text_fragments(soup)
+    microdata_frags = _microdata_text_fragments(soup)
+    for element in soup(["script", "style", "noscript"]):
+        element.decompose()
+
+    main_candidates = soup.select("main, article, [role='main'], #MainContent, #main-content")
+    root = main_candidates[0] if main_candidates else (soup.body or soup)
+
+    structural_blocks = _extract_structural_body_blocks(root)
+    merged = _dedupe_preserve_order_snippets(
+        [*head_frags, *json_frags, *microdata_frags, *structural_blocks]
+    )
+    if len("\n\n".join(merged)) < _THIN_PAGE_BODY_FALLBACK_CHARS:
+        fallback = _normalize_text(root.get_text("\n", strip=True))
+        if fallback:
+            merged = _dedupe_preserve_order_snippets([*merged, fallback])
     return "\n\n".join(merged).strip()
 
 
@@ -1023,11 +1413,25 @@ async def preview_dashboard_website_filtered_urls(
     discovered = await _discover_sitemap_urls(source_url, MAX_DASHBOARD_WEBSITE_PAGES, inc, exc)
     urls = discovered.urls
     cap = min(int(payload.max_sample_urls), 100)
-    warning = (
-        "Sitemap discovery stopped after many nested sitemap files; the URL list may be incomplete."
-        if discovered.truncated_by_doc_cap
-        else None
-    )
+    warning_parts: list[str] = []
+    if discovered.truncated_by_doc_cap:
+        warning_parts.append(
+            "Sitemap discovery stopped after many nested sitemap files; the URL list may be incomplete."
+        )
+    if urls and discovered.http_failure_count > 0:
+        warning_parts.append(
+            "Some nested sitemaps failed to load; the URL count may be incomplete."
+        )
+    if discovered.urls_discovered_total > 0 and (inc or exc):
+        filter_note = (
+            f"Found {discovered.urls_discovered_total} page URL(s) in sitemap XML; "
+            f"{discovered.urls_after_filter} match your path filters"
+        )
+        if discovered.hub_urls_added > 0:
+            filter_note += f"; +{discovered.hub_urls_added} from matching hub pages (path still matches)"
+        filter_note += f"; {len(urls)} will be indexed (cap {MAX_DASHBOARD_WEBSITE_PAGES})."
+        warning_parts.append(filter_note)
+    warning = " ".join(warning_parts) if warning_parts else None
     if urls:
         return WebsiteUrlPreviewResponse(
             discovery_mode="sitemap",
@@ -1255,11 +1659,13 @@ async def _discover_sitemap_urls(
 ) -> SitemapDiscoveryResult:
     """Discover page URLs from sitemap XML (supports nested index files).
 
-    Uses streaming ``iterparse`` so multi-megabyte catalog sitemaps (common on large shops)
-    do not block for minutes with no progress. Optional ``progress`` reports after each
-    sitemap document finishes parsing (docs scanned, URLs matched so far).
+    Walks every nested sitemap (path filters are **not** applied during XML parse). After the
+    full list is collected, include/exclude rules run on each page URL path. When include rules
+    are set, matching hub pages (e.g. filtered collections) are fetched once to add embedded
+    same-site URLs (e.g. ``/collections/…/products/…``) that still pass the same path filters.
     """
-    results: list[str] = []
+    all_page_urls: list[str] = []
+    seen_page_urls: set[str] = set()
     seen_sitemaps: set[str] = set()
     sitemap_queue: deque[tuple[str, int]] = deque((u, 0) for u in _sitemap_seed_urls(start_url))
     documents_fetched = 0
@@ -1268,6 +1674,7 @@ async def _discover_sitemap_urls(
     xml_parse_failure_count = 0
     had_successful_xml_document = False
     truncated_by_doc_cap = False
+    truncated_by_url_collect_cap = False
 
     # Large regional catalog XML can exceed default read timeouts; discovery only uses this client.
     sitemap_timeout = httpx.Timeout(180.0, connect=20.0)
@@ -1281,7 +1688,7 @@ async def _discover_sitemap_urls(
             except Exception:
                 return ("fail", None)
 
-        while sitemap_queue and len(results) < max_urls:
+        while sitemap_queue:
             if documents_fetched >= SITEMAP_MAX_DOCUMENT_FETCHES:
                 truncated_by_doc_cap = True
                 break
@@ -1291,7 +1698,6 @@ async def _discover_sitemap_urls(
                 len(batch) < SITEMAP_PARALLEL_FETCHES
                 and sitemap_queue
                 and documents_fetched + len(batch) < SITEMAP_MAX_DOCUMENT_FETCHES
-                and len(results) < max_urls
             ):
                 sm_url, depth = sitemap_queue.popleft()
                 if sm_url in seen_sitemaps or depth > 8:
@@ -1305,7 +1711,7 @@ async def _discover_sitemap_urls(
             documents_fetched += len(batch)
             fetched_tuples = await asyncio.gather(*[_fetch_sitemap_body(sm_url) for sm_url, _ in batch])
 
-            hit_cap = False
+            hit_collect_cap = False
             for (_sm_url, depth), (fetch_st, content) in zip(batch, fetched_tuples, strict=True):
                 if fetch_st != "ok" or content is None:
                     http_failure_count += 1
@@ -1314,8 +1720,9 @@ async def _discover_sitemap_urls(
                 doc_parse_ok = False
                 try:
                     for _event, elem in ET.iterparse(io.BytesIO(content), events=("end",)):
-                        if len(results) >= max_urls:
-                            hit_cap = True
+                        if len(all_page_urls) >= SITEMAP_MAX_PAGE_URLS_COLLECTED:
+                            hit_collect_cap = True
+                            truncated_by_url_collect_cap = True
                             break
                         local = _local_xml_tag(elem.tag)
                         if local == "url":
@@ -1331,14 +1738,16 @@ async def _discover_sitemap_urls(
                                 norm = _normalize_url_string(loc_text)
                             except AppError:
                                 continue
-                            if _url_passes_filters(norm, include_rules, exclude_rules) and norm not in results:
-                                results.append(norm)
+                            if norm not in seen_page_urls:
+                                seen_page_urls.add(norm)
+                                all_page_urls.append(norm)
                         elif local == "sitemap":
                             for el in elem:
                                 if _local_xml_tag(el.tag) == "loc" and el.text and el.text.strip():
                                     raw_loc = el.text.strip()
                                     try:
-                                        norm_loc = _normalize_url_string(raw_loc)
+                                        # Nested sitemap docs are never path-filtered; query must stay for Shopify.
+                                        norm_loc = _normalize_sitemap_document_url(raw_loc)
                                     except AppError:
                                         continue
                                     sitemap_queue.append((norm_loc, depth + 1))
@@ -1350,21 +1759,45 @@ async def _discover_sitemap_urls(
                 if doc_parse_ok:
                     had_successful_xml_document = True
 
-                if hit_cap:
+                if hit_collect_cap:
                     break
 
             if progress:
-                await progress(documents_fetched, len(results))
-            if hit_cap:
+                await progress(documents_fetched, len(all_page_urls))
+            if hit_collect_cap:
                 break
 
+    urls_discovered_total = len(all_page_urls)
+    filtered = _filter_discovered_page_urls(all_page_urls, include_rules, exclude_rules)
+    urls_after_filter = len(filtered)
+    hub_urls_added = 0
+    if include_rules and filtered:
+        filtered, hub_urls_added = await _expand_urls_from_matching_hubs(
+            filtered,
+            include_rules=include_rules,
+            exclude_rules=exclude_rules,
+            max_urls=max_urls,
+        )
+    final_urls = filtered[:max_urls]
+    if include_rules and filtered:
+        log.info(
+            "sitemap_discovery.filtered",
+            urls_discovered_total=urls_discovered_total,
+            urls_after_filter=urls_after_filter,
+            hub_urls_added=hub_urls_added,
+            final_url_count=len(final_urls),
+        )
+
     return SitemapDiscoveryResult(
-        urls=results[:max_urls],
+        urls=final_urls,
         http_success_count=http_success_count,
         http_failure_count=http_failure_count,
         xml_parse_failure_count=xml_parse_failure_count,
         had_successful_xml_document=had_successful_xml_document,
-        truncated_by_doc_cap=truncated_by_doc_cap,
+        truncated_by_doc_cap=truncated_by_doc_cap or truncated_by_url_collect_cap,
+        urls_discovered_total=urls_discovered_total,
+        urls_after_filter=urls_after_filter,
+        hub_urls_added=hub_urls_added,
     )
 
 
@@ -1636,6 +2069,21 @@ async def _dashboard_persist_crawl_pages(
         pages_processed=len(pages),
         crawl_http_bytes_so_far=crawl_http_bytes_so_far,
         crawl_phase="fetching_html",
+    )
+
+
+async def _reset_website_source_pages_for_discovery(
+    db: AsyncSession, *, source_id: UUID, user_id: UUID
+) -> None:
+    """Remove prior crawl rows so retrain / a new run does not keep an old 4-link plan."""
+    await db.execute(
+        text(
+            """
+            delete from public.knowledge_source_pages
+            where knowledge_source_id = :source_id and user_id = :user_id
+            """
+        ),
+        {"source_id": str(source_id), "user_id": str(user_id)},
     )
 
 
@@ -2672,14 +3120,15 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 crawl_stopped_reason = "complete"
         else:
             crawl_run_id = await _create_crawl_run(db, source, user_id, crawl_settings)
+            await _reset_website_source_pages_for_discovery(db, source_id=source.id, user_id=user_id)
             await db.commit()
 
-        async def _indexing_sitemap_progress(docs_scanned: int, urls_matched: int) -> None:
+        async def _indexing_sitemap_progress(docs_scanned: int, urls_in_sitemap: int) -> None:
             pct = min(
-                23,
+                20,
                 5
                 + int(
-                    18
+                    15
                     * min(docs_scanned, SITEMAP_MAX_DOCUMENT_FETCHES)
                     / max(SITEMAP_MAX_DOCUMENT_FETCHES, 1)
                 ),
@@ -2700,7 +3149,32 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                         {
                             "crawl_phase": "sitemap_discovery",
                             "sitemap_docs_fetched": docs_scanned,
-                            "sitemap_urls_matched": urls_matched,
+                            "sitemap_urls_discovered": urls_in_sitemap,
+                        }
+                    ),
+                },
+            )
+            await db.commit()
+
+        async def _indexing_apply_filters_progress(discovered: SitemapDiscoveryResult) -> None:
+            await db.execute(
+                text(
+                    """
+                    update public.indexing_jobs
+                    set progress_pct = greatest(progress_pct, 22),
+                        metrics = coalesce(metrics, '{}'::jsonb) || cast(:extra as jsonb)
+                    where id = :job_id
+                    """
+                ),
+                {
+                    "job_id": str(job_id),
+                    "extra": json.dumps(
+                        {
+                            "crawl_phase": "applying_path_filters",
+                            "sitemap_urls_discovered": discovered.urls_discovered_total,
+                            "sitemap_urls_after_filter": discovered.urls_after_filter,
+                            "sitemap_hub_urls_added": discovered.hub_urls_added,
+                            "sitemap_urls_matched": len(discovered.urls),
                         }
                     ),
                 },
@@ -2723,7 +3197,10 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 exclude_rules,
                 progress=_indexing_sitemap_progress,
             )
-            sitemap_urls = sitemap_discovered.urls
+            await _indexing_apply_filters_progress(sitemap_discovered)
+            sitemap_urls = _cap_path_filtered_urls(
+                sitemap_discovered.urls, include_rules, exclude_rules, max_pages
+            )
             if not sitemap_urls:
                 raise _app_error_for_empty_sitemap_discovery(sitemap_discovered)
             dashboard_planned_url_count = len(sitemap_urls)
@@ -2755,15 +3232,17 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 )
         else:
             if _website_ingest_uses_live_discovery(md):
-                sitemap_plan = (
-                    await _discover_sitemap_urls(
-                        source.source_url,
-                        max_pages,
-                        include_rules,
-                        exclude_rules,
-                        progress=_indexing_sitemap_progress,
-                    )
-                ).urls
+                sitemap_discovered = await _discover_sitemap_urls(
+                    source.source_url,
+                    max_pages,
+                    include_rules,
+                    exclude_rules,
+                    progress=_indexing_sitemap_progress,
+                )
+                await _indexing_apply_filters_progress(sitemap_discovered)
+                sitemap_plan = _cap_path_filtered_urls(
+                    sitemap_discovered.urls, include_rules, exclude_rules, max_pages
+                )
                 if len(sitemap_plan) > 0:
                     website_discovery_mode = "sitemap"
                     dashboard_planned_url_count = len(sitemap_plan)

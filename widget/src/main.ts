@@ -61,6 +61,9 @@ function getOrCreateVisitorId(agentKey: string): string {
   }
 }
 
+const EMPTY_REPLY_FALLBACK =
+  "I'm not sure about that right now. Try asking in another way, or contact our support team if you need more help.";
+
 function normalizeHexColor(input: string | null | undefined, fallback: string): string {
   if (!input) return fallback;
   const s = input.trim();
@@ -446,6 +449,25 @@ async function boot(): Promise<void> {
       dotsEl.hidden = true;
     };
 
+    let statusEl: HTMLDivElement | null = null;
+    const clearStatus = (): void => {
+      statusEl?.remove();
+      statusEl = null;
+    };
+    const showStatus = (line: string): void => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      if (!statusEl) {
+        statusEl = document.createElement("p");
+        statusEl.className = "cr-tool-status";
+        assistantEl.appendChild(statusEl);
+      }
+      statusEl.textContent = trimmed;
+      hideDots();
+      messages.scrollTop = messages.scrollHeight;
+    };
+
+    let gotDone = false;
     try {
       for await (const ev of streamChat(apiBase, agentKey, {
         message: text,
@@ -453,21 +475,26 @@ async function boot(): Promise<void> {
         visitor_id: visitorId,
         locale: navigator.language,
       })) {
-        if (ev.type === "token") {
+        if (ev.type === "status") {
+          showStatus(ev.text);
+        } else if (ev.type === "token") {
           hideDots();
+          clearStatus();
           const prev = assistantEl.getAttribute("data-plain") || "";
           const nextPlain = prev + ev.text;
           assistantEl.setAttribute("data-plain", nextPlain);
           assistantEl.innerHTML = renderAssistantHtml(nextPlain);
           messages.scrollTop = messages.scrollHeight;
         } else if (ev.type === "done") {
+          gotDone = true;
           if (ev.conversation_id) conversationId = ev.conversation_id;
           hideDots();
+          clearStatus();
           const reply = typeof ev.response === "string" ? ev.response : "";
-          if (reply.trim()) {
-            assistantEl.setAttribute("data-plain", reply);
-            assistantEl.innerHTML = renderAssistantHtml(reply);
-          }
+          const plain = assistantEl.getAttribute("data-plain") || "";
+          const finalReply = reply.trim() || plain.trim() || EMPTY_REPLY_FALLBACK;
+          assistantEl.setAttribute("data-plain", finalReply);
+          assistantEl.innerHTML = renderAssistantHtml(finalReply);
           const mid =
             typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
           if (cfg.message_feedback_enabled && mid) {
@@ -483,6 +510,16 @@ async function boot(): Promise<void> {
       appendMessage("err", e instanceof Error ? e.message : "Network error.");
     } finally {
       hideDots();
+      clearStatus();
+      if (!gotDone) {
+        const plain = (assistantEl.getAttribute("data-plain") || "").trim();
+        if (plain) {
+          assistantEl.innerHTML = renderAssistantHtml(plain);
+        } else {
+          wrap.remove();
+          appendMessage("err", "Something went wrong. Try again.");
+        }
+      }
       sending = false;
       send.disabled = false;
     }

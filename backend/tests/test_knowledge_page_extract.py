@@ -77,6 +77,90 @@ def test_extract_includes_json_ld_product_price() -> None:
     assert "PKR" in text
 
 
+def test_extract_includes_shopify_product_group_variant_prices() -> None:
+    """Shopify PDPs use ProductGroup + hasVariant; price lives on variant offers."""
+    html = """<!doctype html><html><head>
+    <meta property="og:price:amount" content="2,449" />
+    <meta property="og:price:currency" content="PKR" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "ProductGroup",
+      "name": "STILL FIRE",
+      "hasVariant": [{
+        "@type": "Product",
+        "sku": "6CSWF956-50M-RED",
+        "offers": {
+          "@type": "Offer",
+          "priceCurrency": "PKR",
+          "price": "2449.00"
+        }
+      }]
+    }
+    </script>
+    </head><body><h1>STILL FIRE</h1></body></html>"""
+    text = _extract_page_text(html)
+    assert "STILL FIRE" in text
+    assert "2449" in text
+    assert "PKR" in text
+
+
+def test_extract_includes_inline_application_json_variant() -> None:
+    html = """<!doctype html><html><head>
+    <script type="application/json">
+    {
+      "title": "50ml / RED",
+      "sku": "6CSWF956-50M-RED",
+      "options": ["50ml", "RED"],
+      "price": 244900,
+      "compare_at_price": 349900,
+      "available": true
+    }
+    </script>
+    </head><body><h1>STILL FIRE</h1></body></html>"""
+    text = _extract_page_text(html)
+    assert "6CSWF956-50M-RED" in text
+    assert "2449" in text
+    assert "3499" in text
+    assert "50ml" in text
+
+
+def test_extract_includes_json_ld_faq_graph() -> None:
+    html = """<!doctype html><html><head>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "FAQPage",
+          "mainEntity": [{
+            "@type": "Question",
+            "name": "How long is shipping?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "3 to 5 business days."
+            }
+          }]
+        }
+      ]
+    }
+    </script>
+    </head><body></body></html>"""
+    text = _extract_page_text(html)
+    assert "How long is shipping?" in text
+    assert "3 to 5 business days" in text
+
+
+def test_extract_meta_includes_labeled_open_graph_fields() -> None:
+    html = """<!doctype html><html><head>
+    <meta property="og:title" content="Widget Pro" />
+    <meta property="omega:product_type" content="Gadget" />
+    </head><body></body></html>"""
+    text = _extract_page_text(html)
+    assert "Widget Pro" in text
+    assert "Gadget" in text
+
+
 def test_chunk_text_preserves_semantic_blocks() -> None:
     from app.domains.knowledge.service import _chunk_text
 

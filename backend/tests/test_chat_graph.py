@@ -108,7 +108,8 @@ def test_route_end_when_no_tools_enabled() -> None:
         ],
     )
     state = {"messages": [ai], "escalation_enabled": False, "shopify_tool_names": set()}
-    assert _route_after_model(state) == "__end__"
+    # Unbound tool calls still route to the tools node so every call gets a ToolMessage reply.
+    assert _route_after_model(state) == "shopify_tools"
 
 
 def test_route_after_shopify_tools_loops_until_max_rounds() -> None:
@@ -121,6 +122,24 @@ def test_append_escalation_tool_prompt_only_when_enabled() -> None:
     assert append_escalation_tool_prompt(base, tools_enabled=False) == base
     extended = append_escalation_tool_prompt(base, tools_enabled=True)
     assert "escalate_to_human" in extended
+
+
+def test_handoff_reply_copy_is_visitor_clear() -> None:
+    from app.agent.escalation import (
+        handoff_reply_already_escalated,
+        handoff_reply_awaiting_team,
+        visitor_empty_reply_fallback,
+    )
+
+    already = handoff_reply_already_escalated()
+    awaiting = handoff_reply_awaiting_team()
+    empty = visitor_empty_reply_fallback()
+
+    assert already == awaiting
+    assert "Your message is with our team" in awaiting
+    assert "importing" not in awaiting.lower()
+    assert "importing" not in empty.lower()
+    assert "support team" in empty
 
 
 @pytest.mark.asyncio

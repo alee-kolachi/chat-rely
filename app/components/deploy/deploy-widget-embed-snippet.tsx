@@ -3,48 +3,25 @@
 import { useCallback, useMemo, useState } from "react";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { getBackendBaseUrl } from "@/lib/backend-api";
+import { buildWidgetEmbedSnippet, getWidgetApiBase, getWidgetScriptSrc } from "@/lib/widget-embed";
 import { cn } from "@/lib/utils";
-
-/**
- * Build the install snippet.
- * Set NEXT_PUBLIC_WIDGET_SCRIPT_URL to your hosted widget.js (CDN or absolute URL).
- * Defaults to same-origin `/widget.js` (copy `widget/dist/widget.js` to `app/public/widget.js` after build).
- */
-function buildSnippet(agentKey: string, apiBase: string, scriptSrc: string): string {
-  const base = apiBase.replace(/\/$/, "");
-  return `<!-- ChatRely widget -->
-<script
-  async
-  src="${scriptSrc}"
-  data-chatrely-agent-key="${agentKey}"
-  data-chatrely-api-base="${base}"
-></script>`;
-}
 
 export function DeployWidgetEmbedSnippet() {
   const { selectedAgent, agentsLoading, agentsError } = useDashboardAgent();
   const [copied, setCopied] = useState(false);
 
   const apiBase = useMemo(() => {
-    const b = getBackendBaseUrl().trim().replace(/\/$/, "");
+    const b = getWidgetApiBase() || getBackendBaseUrl().trim().replace(/\/$/, "");
     if (b) return b;
-    if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
     return "https://YOUR-PUBLIC-API-ORIGIN";
   }, []);
 
-  const scriptSrc = useMemo(() => {
-    const env = process.env.NEXT_PUBLIC_WIDGET_SCRIPT_URL?.trim();
-    if (env) return env.replace(/\/$/, "");
-    if (typeof window !== "undefined") {
-      return `${window.location.origin.replace(/\/$/, "")}/widget.js`;
-    }
-    return "/widget.js";
-  }, []);
+  const scriptSrc = useMemo(() => getWidgetScriptSrc(), []);
 
   const snippet = useMemo(() => {
     const key = selectedAgent?.public_key?.trim();
     if (!key) return "";
-    return buildSnippet(key, apiBase, scriptSrc);
+    return buildWidgetEmbedSnippet(key, apiBase, scriptSrc);
   }, [selectedAgent, apiBase, scriptSrc]);
 
   const onCopy = useCallback(async () => {

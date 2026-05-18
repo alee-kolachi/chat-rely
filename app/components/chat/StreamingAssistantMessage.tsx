@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 export type AssistantStreamPhase = "thinking" | "streaming" | "done" | "error";
 
 const EMPTY_REPLY_FALLBACK =
-  "I couldn't put together an answer just now. Try again, or check that your website finished importing.";
+  "I'm not sure about that right now. Try asking in another way, or contact our support team if you need more help.";
 
 export function StreamingAssistantMessage({
   text,

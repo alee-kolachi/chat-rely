@@ -96,6 +96,25 @@ async def invoke_shopify_tool_with_timeout(
                 ),
             }
         )
+    except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        log.warning(
+            "agent.shopify_tool_failed",
+            conversation_id=str(conversation_id) if conversation_id else None,
+            tool=tool_name,
+            round_idx=round_idx,
+            elapsed_ms=elapsed_ms,
+            error=str(exc)[:500],
+        )
+        return json.dumps(
+            {
+                "error": "tool_failed",
+                "message": (
+                    "Live store data could not be loaded right now. "
+                    "Tell the customer to try again shortly."
+                ),
+            }
+        )
     if not isinstance(out, str):
         out = str(out)
     return out

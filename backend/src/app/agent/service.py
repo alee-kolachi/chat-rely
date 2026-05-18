@@ -15,10 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.escalation import (
     EscalationTurnContext,
     build_escalation_info,
+    conversation_is_awaiting_human_team,
+    handoff_reply_awaiting_team,
     handoff_reply_for_status,
     message_requests_human,
     perform_escalation,
     persist_visitor_email,
+    visitor_empty_reply_fallback,
 )
 from app.agent.graph import append_escalation_tool_prompt, stream_chat_graph
 from app.agent.messages import build_turn_messages, slice_history_for_current_turn
@@ -195,6 +198,37 @@ async def stream_chat(
         history_rows = []
 
     conversation_id = conv["id"]
+    awaiting_human_team = await _db_call(
+        lambda db: conversation_is_awaiting_human_team(
+            db,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+    )
+
+    if awaiting_human_team:
+        ack = handoff_reply_awaiting_team()
+        yield format_sse("token", {"text": ack})
+        yield format_sse(
+            "done",
+            {
+                "conversation_id": str(conversation_id),
+                "assistant_message_id": None,
+                "response": ack,
+                "model": str(config.get("model") or "gpt-4o-mini"),
+                "fallback_used": False,
+                "tools_available_count": 0,
+                "tools_invoked": [],
+                "retrieval_count": 0,
+                "escalation": build_escalation_info(
+                    human_enabled=False,
+                    esc_cfg={},
+                    occurred=False,
+                ).model_dump(mode="json"),
+            },
+        )
+        return
+
     shopify_task = asyncio.create_task(
         _load_shopify_tools_fast(
             user_id=user_id,
@@ -210,13 +244,11 @@ async def stream_chat(
         human_on, esc_cfg = False, {}
 
     operator_engaged = bool((conv.get("metadata") or {}).get(OPERATOR_ENGAGED_META_KEY))
-    escalated_thread = conv.get("status") == "escalated"
     has_indexed_kb = bool(config.get("has_indexed_knowledge"))
     chitchat_turn = is_likely_greeting_or_small_talk(payload.message)
     skip_rag = (
         not has_indexed_kb
         or operator_engaged
-        or escalated_thread
         or chitchat_turn
     )
 
@@ -425,23 +457,6 @@ async def stream_chat(
         esc_ctx=esc_ctx,
     )
 
-    if operator_engaged or escalated_thread:
-        yield format_sse(
-            "done",
-            {
-                "conversation_id": str(conversation_id),
-                "assistant_message_id": None,
-                "response": "",
-                "model": model,
-                "fallback_used": False,
-                "tools_available_count": tools_bound_count,
-                "tools_invoked": [],
-                "retrieval_count": retrieval_count,
-                "escalation": escalation_info.model_dump(mode="json"),
-            },
-        )
-        return
-
     done_payload: dict[str, Any] = {}
 
     if escalation_enabled and wants_human:
@@ -525,6 +540,18 @@ async def stream_chat(
                 yield frame
 
     answer = str(done_payload.get("response") or "").strip()
+    if not answer:
+        still_awaiting = await _db_call(
+            lambda db: conversation_is_awaiting_human_team(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        )
+        if still_awaiting:
+            answer = handoff_reply_awaiting_team()
+        else:
+            answer = str(fallback_message or "").strip() or visitor_empty_reply_fallback()
     usage_in = int(done_payload.get("usage_input_tokens") or 0)
     usage_out = int(done_payload.get("usage_output_tokens") or 0)
     tools_invoked = list(done_payload.get("tools_invoked") or [])
@@ -533,6 +560,22 @@ async def stream_chat(
         human_enabled=human_on,
         esc_cfg=esc_cfg,
         occurred=escalation_occurred,
+    )
+
+    yield format_sse(
+        "done",
+        {
+            "conversation_id": str(conversation_id),
+            "assistant_message_id": None,
+            "response": answer,
+            "model": model,
+            "fallback_used": bool(done_payload.get("fallback_used")),
+            "tools_available_count": tools_bound_count,
+            "tools_invoked": tools_invoked,
+            "retrieval_count": retrieval_count,
+            "retrieval_preview": retrieval_preview,
+            "escalation": escalation_info.model_dump(mode="json"),
+        },
     )
 
     assistant_message: Any = None
@@ -606,22 +649,6 @@ async def stream_chat(
                     turn_user_message_id=user_message_row.id,
                     metadata={"tool_name": tool_name},
                 )
-
-    yield format_sse(
-        "done",
-        {
-            "conversation_id": str(conversation_id),
-            "assistant_message_id": str(assistant_message.id) if assistant_message else None,
-            "response": answer,
-            "model": model,
-            "fallback_used": bool(done_payload.get("fallback_used")),
-            "tools_available_count": tools_bound_count,
-            "tools_invoked": tools_invoked,
-            "retrieval_count": retrieval_count,
-            "retrieval_preview": retrieval_preview,
-            "escalation": escalation_info.model_dump(mode="json"),
-        },
-    )
 
     total_ms = int((time.perf_counter() - t_turn) * 1000.0)
     _log_runtime_turn_timing(

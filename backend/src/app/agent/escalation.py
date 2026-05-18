@@ -28,10 +28,59 @@ def message_requests_human(text: str) -> bool:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import text
+
 from app.domains.actions.human_availability import seller_is_available_for_live_chat
-from app.domains.conversations.service import get_conversation
+from app.domains.conversations.service import OPERATOR_ENGAGED_META_KEY, get_conversation
 from app.domains.runtime.schemas import RuntimeEscalationInfo
 from app.domains.tickets.service import record_escalation, update_visitor_email_metadata
+
+
+def normalize_conversation_status(status: Any) -> str:
+    raw = str(status or "open").strip().lower()
+    if "." in raw:
+        raw = raw.rsplit(".", 1)[-1]
+    return raw.strip("'\"")
+
+
+async def conversation_is_awaiting_human_team(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+) -> bool:
+    """True when the thread is escalated, has a ticket, or an operator took over."""
+    result = await db.execute(
+        text(
+            """
+            select c.status::text as status, c.metadata
+            from public.conversations c
+            where c.id = :conversation_id and c.user_id = :user_id
+            """
+        ),
+        {"conversation_id": str(conversation_id), "user_id": str(user_id)},
+    )
+    row = result.mappings().first()
+    if row is None:
+        return False
+    if normalize_conversation_status(row["status"]) == "escalated":
+        return True
+    meta = row["metadata"] if isinstance(row["metadata"], dict) else {}
+    if bool(meta.get(OPERATOR_ENGAGED_META_KEY)):
+        return True
+    ticket = await db.execute(
+        text(
+            """
+            select 1
+            from public.tickets t
+            where t.conversation_id = :conversation_id
+              and t.user_id = :user_id
+            limit 1
+            """
+        ),
+        {"conversation_id": str(conversation_id), "user_id": str(user_id)},
+    )
+    return ticket.first() is not None
 
 
 def handoff_reply_for_status(
@@ -39,8 +88,8 @@ def handoff_reply_for_status(
     conversation_status: str,
     esc_cfg: dict[str, Any],
 ) -> str:
-    if conversation_status == "escalated":
-        return handoff_reply_already_escalated()
+    if normalize_conversation_status(conversation_status) == "escalated":
+        return handoff_reply_awaiting_team()
     return handoff_reply_open(
         seller_live=seller_is_available_for_live_chat(esc_cfg),
         estimated_minutes=int(esc_cfg.get("estimated_response_minutes", 15)),
@@ -61,7 +110,21 @@ def handoff_reply_open(*, seller_live: bool, estimated_minutes: int) -> str:
 
 
 def handoff_reply_already_escalated() -> str:
-    return "Our team already has this conversation and will follow up as soon as they can."
+    return handoff_reply_awaiting_team()
+
+
+def handoff_reply_awaiting_team() -> str:
+    return (
+        "Your message is with our team. "
+        "They'll get back to you as soon as they can. You can add more here anytime."
+    )
+
+
+def visitor_empty_reply_fallback() -> str:
+    return (
+        "I'm not sure about that right now. "
+        "Try asking in another way, or contact our support team if you need more help."
+    )
 
 
 @dataclass(frozen=True)

@@ -61,3 +61,7 @@ Run these as separate processes or services alongside the API:
 1. `cd widget && npm install && npm run build`
 2. Deploy `widget/dist/widget.js` to a CDN or copy it to **`app/public/widget.js`** in the Next app so it is served at `/widget.js`.
 3. Optionally set **`NEXT_PUBLIC_WIDGET_SCRIPT_URL`** in `app/.env.local` to an absolute URL if the script is hosted elsewhere (see `app/.env.example`).
+
+### ChatRely on your own app (product support widget)
+
+Set **`NEXT_PUBLIC_CHATRELY_SITE_AGENT_KEY`** to a platform agent’s public embed key and seed knowledge with `backend/scripts/seed_platform_site_agent.py` (see `backend/README.md`). The widget appears on all app routes when that env var is set.

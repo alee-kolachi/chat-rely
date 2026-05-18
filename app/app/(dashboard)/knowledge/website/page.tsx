@@ -109,19 +109,38 @@ function websiteLinksSummary(source: WebsiteSourceListRow): string {
   }
   const crawlPhase = typeof m.crawl_phase === "string" ? m.crawl_phase : null;
   if (crawlPhase === "sitemap_discovery") {
-    const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
+    const discovered = typeof m.sitemap_urls_discovered === "number" ? m.sitemap_urls_discovered : null;
     const docs = typeof m.sitemap_docs_fetched === "number" ? m.sitemap_docs_fetched : null;
-    if (matched != null && matched > 0) {
-      return `${urlCountLabel(matched)} matched (discovery)`;
+    if (discovered != null && discovered > 0) {
+      return `${urlCountLabel(discovered)} in sitemap (scanning)`;
     }
     if (docs != null && docs > 0) {
       return `scanning sitemap · ${docs} XML file(s) fetched`;
     }
-    return "discovering URLs…";
+    return "scanning sitemap…";
+  }
+  if (crawlPhase === "applying_path_filters") {
+    const discovered = typeof m.sitemap_urls_discovered === "number" ? m.sitemap_urls_discovered : null;
+    const afterFilter = typeof m.sitemap_urls_after_filter === "number" ? m.sitemap_urls_after_filter : null;
+    const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
+    const hubAdded = typeof m.sitemap_hub_urls_added === "number" ? m.sitemap_hub_urls_added : null;
+    if (matched != null && matched > 0) {
+      const hub =
+        hubAdded != null && hubAdded > 0 ? ` (+${hubAdded} from hub pages, path matched)` : "";
+      return `applying filters · ${urlCountLabel(matched)} to index${hub}`;
+    }
+    if (discovered != null && afterFilter != null) {
+      return `applying filters · ${afterFilter} of ${discovered} match`;
+    }
+    return "applying path filters…";
   }
   if (crawlPhase === "seeding_urls") {
     const total = typeof m.seeding_total === "number" ? m.seeding_total : null;
     if (total != null && total > 0) return `${urlCountLabel(total)} queued for fetch`;
+  }
+  const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
+  if (matched != null && matched > 0 && source.link_count === 0) {
+    return `${urlCountLabel(matched)} to index`;
   }
   return `${source.link_count} links`;
 }
@@ -139,11 +158,11 @@ function websiteCrawlDetailLine(source: WebsiteSourceListRow): string | null {
   const crawlPhase = typeof m.crawl_phase === "string" ? m.crawl_phase : null;
   if (crawlPhase === "sitemap_discovery") {
     const docs = typeof m.sitemap_docs_fetched === "number" ? m.sitemap_docs_fetched : null;
-    const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
+    const discovered = typeof m.sitemap_urls_discovered === "number" ? m.sitemap_urls_discovered : null;
     const bits: string[] = [];
     if (docs != null) bits.push(`${docs} sitemap XML file(s) fetched`);
-    if (matched != null && matched > 0) {
-      bits.push("list saves when this step completes. Count above is live from the worker");
+    if (discovered != null && discovered > 0) {
+      bits.push("path filters run after the full sitemap list is built");
     }
     if (docs != null && docs >= SITEMAP_XML_DOC_FETCH_CAP) {
       bits.push(
@@ -151,6 +170,20 @@ function websiteCrawlDetailLine(source: WebsiteSourceListRow): string | null {
       );
     }
     if (bits.length === 0) bits.push("Walking sitemap indexes for your site…");
+    return bits.join(" · ");
+  }
+  if (crawlPhase === "applying_path_filters") {
+    const discovered = typeof m.sitemap_urls_discovered === "number" ? m.sitemap_urls_discovered : null;
+    const afterFilter = typeof m.sitemap_urls_after_filter === "number" ? m.sitemap_urls_after_filter : null;
+    const bits: string[] = ["Applying your include/exclude path rules"];
+    const hubAdded = typeof m.sitemap_hub_urls_added === "number" ? m.sitemap_hub_urls_added : null;
+    if (discovered != null && afterFilter != null) {
+      bits.push(`${afterFilter} of ${discovered} sitemap URL(s) match your path rules`);
+    }
+    if (hubAdded != null && hubAdded > 0) {
+      bits.push(`${hubAdded} more URL(s) found on those pages (embedded links, same path rules)`);
+    }
+    bits.push("page fetch starts next");
     return bits.join(" · ");
   }
   if (crawlPhase === "seeding_urls") {
@@ -180,11 +213,18 @@ function websiteEmptyUrlsCaption(source: WebsiteSourceListRow, q: string): strin
   if (activeJob && jobPhase === "crawling" && m && typeof m === "object") {
     const cp = typeof m.crawl_phase === "string" ? m.crawl_phase : null;
     if (cp === "sitemap_discovery") {
+      const discovered = typeof m.sitemap_urls_discovered === "number" ? m.sitemap_urls_discovered : null;
+      if (discovered != null && discovered > 0) {
+        return `${urlCountLabel(discovered)} found in sitemap XML so far. Path filters run next, then matching URLs appear here.`;
+      }
+      return "Scanning sitemap XML. Path filters run before any page HTML is fetched.";
+    }
+    if (cp === "applying_path_filters") {
       const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
       if (matched != null && matched > 0) {
-        return `${urlCountLabel(matched)} already match your filters (shown in the summary row). URL rows load here after discovery finishes and HTML fetch starts.`;
+        return `${urlCountLabel(matched)} will be indexed after filters. URL rows appear when HTML fetch starts.`;
       }
-      return "Sitemap discovery running. URLs appear here as they are saved.";
+      return "Applying path filters to the sitemap URL list…";
     }
     if (cp === "seeding_urls" || cp === "urls_discovered") {
       return "Saving the URL list. Rows should appear shortly.";
@@ -283,9 +323,11 @@ export default function KnowledgeWebsitePage() {
       });
       setUrlPreviewWarning(data.discovery_warning ?? null);
       if (data.discovery_mode === "sitemap") {
-        setUrlPreviewLine(
-          `From sitemap: about ${data.filtered_url_count} URL(s) match your filters${data.truncated ? " (preview capped)" : ""}.`,
-        );
+        const hint =
+          data.discovery_warning && data.discovery_warning.includes("Found ")
+            ? data.discovery_warning
+            : `About ${data.filtered_url_count} URL(s) will be indexed after path filters${data.truncated ? " (preview capped)" : ""}.`;
+        setUrlPreviewLine(hint);
       } else if (data.discovery_mode === "sitemap_unreachable" || data.discovery_mode === "sitemap_invalid") {
         setUrlPreviewLine(data.message ?? "Could not read sitemap XML for this URL.");
       } else {
@@ -1038,7 +1080,7 @@ function WebsiteSourceRow({
   const crawlRatioVerb =
     source.latest_job_phase === "complete" && source.latest_job_status === "succeeded"
       ? "indexed"
-      : "fetched";
+      : "pages fetched";
 
   const jobFailed =
     source.status === "failed" ||

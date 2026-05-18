@@ -6,10 +6,12 @@ Streaming uses ``stream_mode="custom"`` for token and status events.
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Annotated, Any, Literal, TypedDict
 from uuid import UUID
 
+import structlog
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langgraph.graph import END, START, StateGraph
@@ -42,6 +44,8 @@ from app.domains.conversations.service import get_conversation
 from app.domains.runtime.shopify_lc_tools import tools_by_name
 
 MAX_TOOL_ROUNDS = MAX_SHOPIFY_TOOL_ROUNDS
+
+_log = structlog.get_logger("agent.graph")
 
 
 class ChatGraphState(TypedDict, total=False):
@@ -98,6 +102,9 @@ def _route_after_model(state: ChatGraphState) -> Literal["escalation", "shopify_
         return "escalation"
 
     if names & _bound_tool_name_set(state):
+        return "shopify_tools"
+    # Model emitted tool calls we cannot run — still resolve them so the next model turn does not hang.
+    if names:
         return "shopify_tools"
     return "__end__"
 
@@ -249,15 +256,38 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
 
     for tc in ai.tool_calls or []:
         name, args, tc_id = tool_call_parts(tc)
+        if not name:
+            continue
         if name not in by_name:
+            tool_messages.append(
+                ToolMessage(
+                    content=json.dumps({"error": "tool_not_available", "tool": name}),
+                    tool_call_id=tc_id,
+                    name=name,
+                )
+            )
             continue
         if is_shopify_tool_name(name):
             if name not in shopify_names:
+                tool_messages.append(
+                    ToolMessage(
+                        content=json.dumps({"error": "shopify_tool_disabled", "tool": name}),
+                        tool_call_id=tc_id,
+                        name=name,
+                    )
+                )
                 continue
             writer({"type": "status", "text": shopify_tool_status_message(name)})
         elif is_knowledge_tool_name(name):
             writer({"type": "status", "text": knowledge_tool_status_message(name)})
         else:
+            tool_messages.append(
+                ToolMessage(
+                    content=json.dumps({"error": "unsupported_tool", "tool": name}),
+                    tool_call_id=tc_id,
+                    name=name,
+                )
+            )
             continue
         out = await invoke_shopify_tool_with_timeout(
             bound,
@@ -358,14 +388,22 @@ async def stream_chat_graph(
     }
 
     final_state: dict[str, Any] = {}
-    async for mode, chunk in graph.astream(initial, stream_mode=["custom", "updates"]):
-        if mode == "custom" and isinstance(chunk, dict):
-            if chunk.get("type") in ("token", "status"):
-                yield chunk
-        elif mode == "updates" and isinstance(chunk, dict):
-            for node_out in chunk.values():
-                if isinstance(node_out, dict):
-                    final_state.update(node_out)
+    try:
+        async for mode, chunk in graph.astream(initial, stream_mode=["custom", "updates"]):
+            if mode == "custom" and isinstance(chunk, dict):
+                if chunk.get("type") in ("token", "status"):
+                    yield chunk
+            elif mode == "updates" and isinstance(chunk, dict):
+                for node_out in chunk.values():
+                    if isinstance(node_out, dict):
+                        final_state.update(node_out)
+    except Exception:
+        _log.exception("chat.graph_failed")
+        fallback = str(fallback_message or "").strip()
+        if fallback:
+            final_state.setdefault("final_response", fallback)
+            final_state["fallback_used"] = True
+            yield {"type": "token", "text": fallback}
 
     ai = _last_ai_message(final_state.get("messages") or messages)
     answer = str(final_state.get("final_response") or "").strip()

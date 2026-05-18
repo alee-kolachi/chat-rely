@@ -89,6 +89,7 @@ type PlaygroundPreviewMessage = {
   feedbackVote?: 1 | -1 | null;
   streamPhase?: AssistantStreamPhase;
   errorMessage?: string | null;
+  statusLine?: string | null;
 };
 
 type PlaygroundThreadCacheEntry = {
@@ -591,6 +592,19 @@ function PlaygroundPreviewConversation({
         throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
       }
     }
+    setPreviewMessages((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      if (last.from !== "assistant") return prev;
+      if (last.streamPhase === "done" || last.streamPhase === "error") return prev;
+      const next = [...prev];
+      next[next.length - 1] = {
+        ...last,
+        streamPhase: "done",
+        statusLine: null,
+      };
+      return next;
+    });
   }
 
   async function handleSendMessage() {
@@ -1007,6 +1021,7 @@ function PlaygroundPreviewConversation({
                             text={msg.text}
                             phase={phase}
                             errorMessage={msg.errorMessage}
+                            statusLine={msg.statusLine}
                             brandColorHex={brandColorHex}
                           />
                         </div>
