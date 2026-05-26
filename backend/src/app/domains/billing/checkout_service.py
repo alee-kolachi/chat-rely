@@ -12,10 +12,12 @@ from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.domains.billing.customers import ensure_stripe_customer_for_user, fetch_auth_user_email
 from app.domains.billing.price_map import canonical_plan_slug, monthly_price_id_for_slug, paid_checkout_slugs
+from app.domains.billing.return_url import resolve_billing_app_base_url
 from app.domains.billing.stripe_client import configure_stripe
 from app.domains.billing.subscription_sync import (
     _stripe_obj_to_dict,
     sync_subscription_from_checkout_session_payload,
+    sync_user_subscription_from_stripe,
     user_id_from_checkout_session_payload,
 )
 
@@ -28,6 +30,7 @@ async def create_subscription_checkout_session(
     interval: str = "month",
     return_context: str = "account",
     agent_id: UUID | None = None,
+    return_origin: str | None = None,
 ) -> str:
     if interval.lower() != "month":
         raise AppError(
@@ -73,7 +76,7 @@ async def create_subscription_checkout_session(
     if not prow:
         raise AppError(code="plan.not_found", message="Plan not found", status_code=404)
 
-    base = settings.billing_app_base_url.rstrip("/")
+    base = resolve_billing_app_base_url(settings, return_origin=return_origin)
     agent_q = f"&agentId={agent_id}" if agent_id else ""
     ctx = return_context.strip().lower()
     if ctx == "onboarding":
@@ -250,8 +253,16 @@ async def change_subscription_plan(
             details={"stripe": str(exc)[:400]},
         ) from exc
 
+    await sync_user_subscription_from_stripe(db, user_id=user_id)
 
-async def create_billing_portal_session(db: AsyncSession, *, user_id: UUID) -> str:
+
+async def create_billing_portal_session(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    return_context: str = "plan",
+    return_origin: str | None = None,
+) -> str:
     """
     Stripe Customer Portal — payment methods, invoices, cancellation (configurable in Stripe Dashboard).
     """
@@ -269,8 +280,12 @@ async def create_billing_portal_session(db: AsyncSession, *, user_id: UUID) -> s
             status_code=503,
         )
 
-    base = settings.billing_app_base_url.rstrip("/")
-    return_url = f"{base}/account/billing?portal=return"
+    base = resolve_billing_app_base_url(settings, return_origin=return_origin)
+    ctx = return_context.strip().lower()
+    if ctx == "billing":
+        return_url = f"{base}/account/billing?portal=return"
+    else:
+        return_url = f"{base}/account/plan?portal=return"
 
     try:
         session = stripe.billing_portal.Session.create(

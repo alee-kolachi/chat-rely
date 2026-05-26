@@ -131,6 +131,8 @@ class Settings(BaseSettings):
     stripe_price_growth_monthly: str | None = None
     """Origin for Checkout return URLs, e.g. http://localhost:3000"""
     billing_app_base_url: str = "http://localhost:3000"
+    """Optional comma-separated extra origins allowed for Stripe return URLs (production)."""
+    billing_app_extra_origins: str | None = None
     """Optional shared secret for POST /api/v1/billing/internal/charge-overage (cron)."""
     billing_internal_secret: str | None = None
 

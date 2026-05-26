@@ -305,6 +305,9 @@ async def upsert_user_subscription_from_stripe(
     )
 
 
+_ACTIVE_STRIPE_STATUSES = frozenset({"active", "trialing", "past_due"})
+
+
 async def move_user_to_free_after_stripe_subscription_deleted(
     db: AsyncSession,
     *,
@@ -315,7 +318,7 @@ async def move_user_to_free_after_stripe_subscription_deleted(
     ps, pe = _month_period(datetime.now(tz=UTC))
     meta = {"previous_stripe_subscription_id": deleted_stripe_subscription_id}
 
-    await db.execute(
+    result = await db.execute(
         text(
             """
             update public.subscriptions s
@@ -341,6 +344,191 @@ async def move_user_to_free_after_stripe_subscription_deleted(
             "sid": deleted_stripe_subscription_id,
         },
     )
+    if (result.rowcount or 0) > 0:
+        return
+
+    await db.execute(
+        text(
+            """
+            update public.subscriptions s
+            set
+              plan_id = cast(:fid as uuid),
+              status = 'active'::subscription_status,
+              provider_subscription_id = null,
+              cancel_at_period_end = false,
+              current_period_start = :ps,
+              current_period_end = :pe,
+              metadata = coalesce(s.metadata, '{}'::jsonb) || cast(:meta as jsonb),
+              updated_at = now()
+            from (
+              select id from public.subscriptions
+              where user_id = cast(:uid as uuid)
+              order by created_at desc
+              limit 1
+            ) pick
+            where s.id = pick.id
+            """
+        ),
+        {
+            "fid": str(fid),
+            "ps": ps,
+            "pe": pe,
+            "meta": json.dumps(meta),
+            "uid": str(user_id),
+        },
+    )
+
+
+async def sync_user_subscription_from_stripe(db: AsyncSession, *, user_id: UUID) -> dict[str, str]:
+    """
+    Pull the latest Stripe subscription for this workspace into public.subscriptions.
+
+    Used after Customer Portal return and as a webhook fallback (e.g. localhost).
+    """
+    configure_stripe()
+    settings = get_settings()
+    if not (settings.stripe_secret_key or "").strip():
+        raise AppError(
+            code="stripe.not_configured",
+            message="Stripe is not configured",
+            status_code=503,
+        )
+
+    from app.domains.billing.customers import ensure_stripe_customer_for_user, fetch_auth_user_email
+
+    row = (
+        await db.execute(
+            text(
+                """
+                select provider_customer_id, provider_subscription_id
+                from public.subscriptions
+                where user_id = cast(:uid as uuid)
+                order by created_at desc
+                limit 1
+                """
+            ),
+            {"uid": str(user_id)},
+        )
+    ).mappings().first()
+
+    customer_id = (
+        str(row["provider_customer_id"]).strip()
+        if row and row.get("provider_customer_id")
+        else ""
+    )
+    stored_sub_id = (
+        str(row["provider_subscription_id"]).strip()
+        if row and row.get("provider_subscription_id")
+        else ""
+    )
+
+    if not customer_id:
+        email = await fetch_auth_user_email(db, user_id)
+        customer_id = await ensure_stripe_customer_for_user(db, user_id=user_id, email=email) or ""
+
+    best_sub: dict[str, Any] | None = None
+
+    if customer_id:
+        try:
+            listed = stripe.Subscription.list(
+                customer=customer_id,
+                status="all",
+                limit=20,
+                expand=["data.items.data.price"],
+            )
+        except stripe.StripeError as exc:
+            raise AppError(
+                code="stripe.subscription_list_failed",
+                message="Could not list subscriptions from Stripe",
+                status_code=502,
+                details={"stripe": str(exc)[:400]},
+            ) from exc
+
+        data = listed.get("data") if isinstance(listed, dict) else getattr(listed, "data", None)
+        for sub in data or []:
+            sub_dict = _stripe_obj_to_dict(sub)
+            st = str(sub_dict.get("status") or "").strip().lower()
+            if st in _ACTIVE_STRIPE_STATUSES:
+                best_sub = sub_dict
+                break
+
+    if best_sub is None and stored_sub_id:
+        try:
+            retrieved = await fetch_stripe_subscription(stored_sub_id)
+            sub_dict = _stripe_obj_to_dict(retrieved)
+            st = str(sub_dict.get("status") or "").strip().lower()
+            if st in _ACTIVE_STRIPE_STATUSES:
+                best_sub = sub_dict
+            elif st == "canceled":
+                await move_user_to_free_after_stripe_subscription_deleted(
+                    db, user_id=user_id, deleted_stripe_subscription_id=stored_sub_id
+                )
+                return {"outcome": "downgraded_to_free", "reason": "subscription_canceled"}
+        except stripe.InvalidRequestError:
+            await move_user_to_free_after_stripe_subscription_deleted(
+                db, user_id=user_id, deleted_stripe_subscription_id=stored_sub_id
+            )
+            return {"outcome": "downgraded_to_free", "reason": "subscription_not_found"}
+
+    if best_sub is None:
+        if stored_sub_id:
+            await move_user_to_free_after_stripe_subscription_deleted(
+                db, user_id=user_id, deleted_stripe_subscription_id=stored_sub_id
+            )
+            return {"outcome": "downgraded_to_free", "reason": "no_active_subscription"}
+        return {"outcome": "unchanged", "reason": "no_stripe_subscription"}
+
+    sub_id = str(best_sub.get("id") or "").strip()
+    cust_id = _stripe_id_field(best_sub.get("customer")) or customer_id
+    meta = best_sub.get("metadata") if isinstance(best_sub.get("metadata"), dict) else {}
+    plan_id = await resolve_plan_id_for_stripe_subscription(db, best_sub)
+    if plan_id is None:
+        slug = canonical_plan_slug(str(meta.get("plan_slug") or ""))
+        if slug:
+            r = await db.execute(
+                text("select id from public.plans where slug = :slug and is_active = true limit 1"),
+                {"slug": slug},
+            )
+            prow = r.mappings().first()
+            if prow:
+                plan_id = UUID(str(prow["id"]))
+    if plan_id is None:
+        raise AppError(
+            code="billing.plan_unresolved",
+            message="Could not map Stripe subscription to a plan",
+            status_code=502,
+        )
+
+    cps, cpe = _extract_subscription_period_bounds(best_sub)
+    status = str(best_sub.get("status") or "active").strip().lower()
+    cape = bool(best_sub.get("cancel_at_period_end"))
+
+    # User canceled in Stripe (immediate or at period end) — workspace should be on Free.
+    if cape or status == "canceled":
+        await move_user_to_free_after_stripe_subscription_deleted(
+            db, user_id=user_id, deleted_stripe_subscription_id=sub_id
+        )
+        return {
+            "outcome": "downgraded_to_free",
+            "reason": "subscription_canceled" if status == "canceled" else "cancellation_scheduled",
+        }
+
+    await upsert_user_subscription_from_stripe(
+        db,
+        user_id=user_id,
+        stripe_customer_id=cust_id,
+        stripe_subscription_id=sub_id,
+        plan_id=plan_id,
+        status=status,
+        current_period_start=cps,
+        current_period_end=cpe,
+        cancel_at_period_end=cape,
+    )
+    return {
+        "outcome": "synced",
+        "status": status,
+        "cancel_at_period_end": "true" if cape else "false",
+    }
 
 
 async def fetch_stripe_subscription(subscription_id: str) -> Any:

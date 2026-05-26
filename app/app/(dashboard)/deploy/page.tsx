@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DeployPageHeaderActions } from "@/components/deploy/deploy-page-header-actions";
 import { DeployShopifyStatus } from "@/components/deploy/deploy-shopify-status";
 import { DeployWidgetEmbedSnippet } from "@/components/deploy/deploy-widget-embed-snippet";
 
@@ -13,22 +14,7 @@ export default function DeployPage() {
               Connect Shopify and embed the chat widget on your storefront or any website.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <a
-              href="https://www.shopify.com"
-              target="_blank"
-              rel="noreferrer"
-              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors"
-            >
-              Open Shopify
-            </a>
-            <Link
-              href="/actions#shopify-integration"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex cursor-pointer rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
-            >
-              Connect store
-            </Link>
-          </div>
+          <DeployPageHeaderActions />
         </header>
 
         <DeployShopifyStatus />

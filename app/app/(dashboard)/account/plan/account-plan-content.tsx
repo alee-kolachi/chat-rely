@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import type { MeContextPayload } from "@/components/layout/me-context-provider";
 import { useMeContext } from "@/components/layout/me-context-provider";
+import { getAppSiteOrigin } from "@/lib/app-site-origin";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { buildPlanEntitlementSections } from "@/lib/plan-entitlements";
 
@@ -51,6 +52,8 @@ export function AccountPlanContent() {
   const [planChangeBanner, setPlanChangeBanner] = useState<string | null>(null);
   const planActionsRef = useRef<HTMLDivElement | null>(null);
   const didStartCheckoutPollRef = useRef(false);
+  const didStartPortalSyncRef = useRef(false);
+  const didStripeMountSyncRef = useRef(false);
 
   const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -122,7 +125,11 @@ export function AccountPlanContent() {
     try {
       const res = await backendFetch<{ url: string }>("/api/v1/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ plan_slug: planSlug, interval: "month" }),
+        body: JSON.stringify({
+          plan_slug: planSlug,
+          interval: "month",
+          return_origin: getAppSiteOrigin(),
+        }),
       });
       window.location.href = res.url;
     } catch (e) {
@@ -148,6 +155,13 @@ export function AccountPlanContent() {
         body: JSON.stringify({ plan_slug: planSlug, proration_behavior: "create_prorations" }),
       });
 
+      try {
+        await backendFetch("/api/v1/billing/sync", { method: "POST" });
+        await refresh();
+      } catch {
+        // Webhook may still apply; polling below covers lag.
+      }
+
       setPlanChangeBanner(`Updating to ${formatPlanLabel(planSlug)}… Stripe usually finishes within a minute.`);
 
       const startPlanSlug = ctx?.plan.slug ?? null;
@@ -171,7 +185,10 @@ export function AccountPlanContent() {
     setBusySlug("portal");
     setLoadError(null);
     try {
-      const res = await backendFetch<{ url: string }>("/api/v1/billing/portal", { method: "POST" });
+      const res = await backendFetch<{ url: string }>("/api/v1/billing/portal", {
+        method: "POST",
+        body: JSON.stringify({ return_context: "plan", return_origin: getAppSiteOrigin() }),
+      });
       window.location.href = res.url;
     } catch (e) {
       const msg =
@@ -260,6 +277,80 @@ export function AccountPlanContent() {
     };
   }, [searchParams, ctx]);
 
+  // Pull Stripe subscription state when opening Plan (covers missed portal return / webhooks).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ctx?.subscription.provider_subscription_id?.trim()) return;
+    if (didStripeMountSyncRef.current) return;
+    didStripeMountSyncRef.current = true;
+
+    void (async () => {
+      try {
+        await backendFetch("/api/v1/billing/sync", { method: "POST" });
+        await refresh();
+      } catch {
+        // Non-fatal; user can use Refresh or return from portal.
+      }
+    })();
+  }, [ctx?.subscription.provider_subscription_id]);
+
+  // After Stripe Customer Portal (cancel / payment methods), sync subscription and refresh UI.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const q = searchParams.get("portal");
+    if (q !== "return") return;
+    if (!ctx) return;
+    if (didStartPortalSyncRef.current) return;
+
+    didStartPortalSyncRef.current = true;
+    const startPlanSlug = ctx.plan.slug;
+
+    setPlanChangeBanner("Syncing your subscription from Stripe…");
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        await backendFetch("/api/v1/billing/sync", { method: "POST" });
+        await refresh();
+      } catch (e) {
+        if (!cancelled) {
+          const msg =
+            e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not sync subscription";
+          setLoadError(msg);
+        }
+      }
+
+      if (cancelled) return;
+
+      await pollUntilPlanApplied({ startPlanSlug, timeoutMs: 60_000, intervalMs: 3_000 });
+      if (cancelled) return;
+
+      let latest: MeContextPayload | null = null;
+      try {
+        latest = await backendFetch<MeContextPayload>("/api/v1/me/context");
+        await refresh();
+      } catch {
+        latest = null;
+      }
+
+      if (latest?.plan.slug === "free") {
+        setPlanChangeBanner("Your workspace is on the Free plan.");
+      } else if (latest && latest.plan.slug !== startPlanSlug) {
+        setPlanChangeBanner(`Your plan is now ${formatPlanLabel(latest.plan.slug)}.`);
+      } else if (latest?.subscription.cancel_at_period_end) {
+        setPlanChangeBanner(
+          `Cancellation is scheduled. You keep ${latest.plan.name} until ${formatDate(latest.subscription.current_period_end)}, then move to Free.`,
+        );
+      } else {
+        setPlanChangeBanner("Billing updated. Refresh if plan details still look out of date.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, ctx]);
+
   return (
     <div className="ds-app-shell p-6 pb-16 md:p-8 md:pb-20">
       <div className="mx-auto w-full max-w-5xl">
@@ -272,9 +363,16 @@ export function AccountPlanContent() {
               </p>
             </div>
             {ctx ? (
-              <span className="ds-app-kicker border-ds-primary/35 text-ds-primary inline-flex w-fit items-center rounded-full border bg-white px-3 py-1.5 font-semibold shadow-sm">
-                {ctx.plan.name}
-              </span>
+              <div className="flex flex-col items-end gap-1">
+                <span className="ds-app-kicker border-ds-primary/35 text-ds-primary inline-flex w-fit items-center rounded-full border bg-white px-3 py-1.5 font-semibold shadow-sm">
+                  {ctx.plan.name}
+                </span>
+                {ctx.plan.slug === "standard" && hasStripeSubscription ? (
+                  <span className="text-ds-on-surface-variant max-w-[14rem] text-right text-[11px] leading-snug">
+                    Stripe may label this plan &quot;Growth&quot; (legacy name) — same tier.
+                  </span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </section>
@@ -394,6 +492,12 @@ export function AccountPlanContent() {
                 <p className="text-ds-on-surface-variant text-sm">
                   {formatDate(ctx.subscription.current_period_start)} – {formatDate(ctx.subscription.current_period_end)}
                 </p>
+                {ctx.subscription.cancel_at_period_end ? (
+                  <p className="mt-2 rounded-ds-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Cancellation scheduled — you keep {ctx.plan.name} until{" "}
+                    {formatDate(ctx.subscription.current_period_end)}, then your workspace moves to Free.
+                  </p>
+                ) : null}
                 <div className="mt-5 space-y-3">
                   <div className="rounded-ds-lg bg-ds-sidebar/80 p-3 ring-1 ring-ds-outline/60">
                     <p className="ds-app-body-muted font-medium">Plan price</p>
@@ -526,8 +630,8 @@ export function AccountPlanContent() {
                       Cancel / switch to Free
                     </p>
                     <p className="ds-app-body-muted mb-3">
-                      Cancelling moves you to the Free plan after this billing period ends (manage in Stripe&apos;s
-                      portal).
+                      Cancelling in Stripe moves this workspace to the Free plan. When you are done, use the
+                      &quot;Return to …&quot; link at the top of Stripe to come back here (we sync automatically).
                     </p>
                     <button
                       type="button"

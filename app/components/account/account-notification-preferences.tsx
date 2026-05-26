@@ -6,11 +6,6 @@ import type { MeProfile } from "@/components/account/user-profile-context";
 
 const PREFS = [
   {
-    key: "daily_leads_report",
-    title: "Receive email with daily leads",
-    description: "Get a summary of all collected lead information once per day.",
-  },
-  {
     key: "daily_conversations_report",
     title: "Receive email with daily conversations",
     description: "A full report of all interactions your chatbot had today.",
@@ -29,7 +24,7 @@ export function AccountNotificationPreferences({
     const d: Record<string, boolean> = {};
     for (const p of PREFS) {
       const v = initial[p.key];
-      d[p.key] = typeof v === "boolean" ? v : p.key === "daily_leads_report";
+      d[p.key] = typeof v === "boolean" ? v : false;
     }
     return d;
   });
@@ -41,7 +36,7 @@ export function AccountNotificationPreferences({
     const prefs = profile.notification_preferences ?? {};
     for (const p of PREFS) {
       const v = prefs[p.key];
-      next[p.key] = typeof v === "boolean" ? v : p.key === "daily_leads_report";
+      next[p.key] = typeof v === "boolean" ? v : false;
     }
     setDraft(next);
   }, [profile.id, profile.updated_at, profile.notification_preferences]);

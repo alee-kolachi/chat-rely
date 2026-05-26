@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from app.domains.billing.checkout_service import (
     create_subscription_checkout_session,
     finalize_subscription_checkout_session,
 )
+from app.domains.billing.subscription_sync import sync_user_subscription_from_stripe
 from app.domains.billing.overage import charge_conversation_overage_for_user_period
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -28,6 +29,7 @@ class CheckoutRequest(BaseModel):
     interval: str = Field(default="month", pattern="^month$")
     return_context: str = Field(default="account", pattern="^(account|onboarding|marketing)$")
     agent_id: UUID | None = None
+    return_origin: str | None = Field(default=None, max_length=256)
 
 
 @router.post("/checkout")
@@ -43,6 +45,7 @@ async def billing_checkout(
         interval=body.interval,
         return_context=body.return_context,
         agent_id=body.agent_id,
+        return_origin=body.return_origin,
     )
     await db.commit()
     return {"url": url}
@@ -89,15 +92,39 @@ async def billing_subscription_change(
     return {"status": "ok"}
 
 
+class PortalRequest(BaseModel):
+    return_context: str = Field(default="plan", pattern="^(plan|billing)$")
+    return_origin: str | None = Field(default=None, max_length=256)
+
+
 @router.post("/portal")
 async def billing_customer_portal(
+    request: Request,
+    body: PortalRequest = PortalRequest(),
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Redirect URL for Stripe Customer Portal (invoices, payment methods, cancel subscription)."""
-    url = await create_billing_portal_session(db, user_id=user.user_id)
+    return_context = body.return_context
+    url = await create_billing_portal_session(
+        db,
+        user_id=user.user_id,
+        return_context=return_context,
+        return_origin=body.return_origin or request.headers.get("origin"),
+    )
     await db.commit()
     return {"url": url}
+
+
+@router.post("/sync")
+async def billing_sync_subscription(
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Apply the workspace's Stripe subscription state to the database (webhook fallback)."""
+    result = await sync_user_subscription_from_stripe(db, user_id=user.user_id)
+    await db.commit()
+    return result
 
 
 class InternalOverageRequest(BaseModel):

@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMeContext } from "@/components/layout/me-context-provider";
+import { getAppSiteOrigin } from "@/lib/app-site-origin";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 
 function formatDate(iso: string): string {
@@ -15,9 +17,12 @@ function formatDate(iso: string): string {
 }
 
 export function AccountBillingClient() {
+  const searchParams = useSearchParams();
   const { data: ctx, loading, error, refresh } = useMeContext();
   const [portalError, setPortalError] = useState<string | null>(null);
   const [portalBusy, setPortalBusy] = useState(false);
+  const [syncBanner, setSyncBanner] = useState<string | null>(null);
+  const didStartPortalSyncRef = useRef(false);
 
   const subscriptionSummary = useMemo(() => {
     if (!ctx) return null;
@@ -31,11 +36,39 @@ export function AccountBillingClient() {
     };
   }, [ctx]);
 
+  useEffect(() => {
+    if (searchParams.get("portal") !== "return") return;
+    if (loading || !ctx) return;
+    if (didStartPortalSyncRef.current) return;
+    didStartPortalSyncRef.current = true;
+
+    void (async () => {
+      setSyncBanner("Syncing your subscription from Stripe…");
+      try {
+        await backendFetch("/api/v1/billing/sync", { method: "POST" });
+        await refresh();
+        setSyncBanner("Subscription status updated.");
+      } catch (e) {
+        const msg =
+          e instanceof BackendApiError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : "Could not sync subscription";
+        setPortalError(msg);
+        setSyncBanner(null);
+      }
+    })();
+  }, [searchParams, loading, ctx, refresh]);
+
   async function openStripePortal() {
     setPortalBusy(true);
     setPortalError(null);
     try {
-      const res = await backendFetch<{ url: string }>("/api/v1/billing/portal", { method: "POST" });
+      const res = await backendFetch<{ url: string }>("/api/v1/billing/portal", {
+        method: "POST",
+        body: JSON.stringify({ return_context: "billing", return_origin: getAppSiteOrigin() }),
+      });
       window.location.href = res.url;
     } catch (e) {
       const msg =
@@ -65,6 +98,11 @@ export function AccountBillingClient() {
           <p className="text-sm text-rose-600">{error}</p>
         ) : (
           <>
+            {syncBanner ? (
+              <div className="rounded-ds-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                {syncBanner}
+              </div>
+            ) : null}
             {subscriptionSummary ? (
               <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
                 <h2 className="ds-app-section-title">Current subscription</h2>

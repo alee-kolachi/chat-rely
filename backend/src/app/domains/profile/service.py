@@ -46,26 +46,17 @@ async def update_me_profile(
 
     await _ensure_profile(db, user_id)
 
-    if "full_name" in data or "avatar_url" in data:
-        sets: list[str] = []
-        params: dict[str, object] = {"user_id": str(user_id)}
-        if "full_name" in data:
-            sets.append("full_name = :full_name")
-            params["full_name"] = data["full_name"]
-        if "avatar_url" in data:
-            sets.append("avatar_url = :avatar_url")
-            params["avatar_url"] = data["avatar_url"]
-        if sets:
-            await db.execute(
-                text(
-                    f"""
-                    update public.profiles
-                    set {", ".join(sets)}
-                    where id = cast(:user_id as uuid)
-                    """
-                ),
-                params,
-            )
+    if "full_name" in data:
+        await db.execute(
+            text(
+                """
+                update public.profiles
+                set full_name = :full_name
+                where id = cast(:user_id as uuid)
+                """
+            ),
+            {"user_id": str(user_id), "full_name": data["full_name"]},
+        )
 
     if "email" in data and data["email"] is not None:
         new_email = str(data["email"]).strip().lower()
