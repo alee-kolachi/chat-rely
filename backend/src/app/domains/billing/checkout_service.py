@@ -213,6 +213,8 @@ async def change_subscription_plan(
             select provider_subscription_id
             from public.subscriptions
             where user_id = cast(:uid as uuid)
+              and coalesce(trim(provider_subscription_id), '') <> ''
+              and status in ('trialing', 'active', 'past_due')
             order by created_at desc
             limit 1
             """

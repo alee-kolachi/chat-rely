@@ -55,7 +55,8 @@ export function VerifyEmailClient() {
       <div className="border-ds-outline w-full max-w-md rounded-ds-xl border bg-ds-surface p-8 shadow-md">
         <h1 className="text-ds-on-surface text-2xl font-bold tracking-tight">Check your email</h1>
         <p className="text-ds-on-surface-variant mt-3 text-sm leading-relaxed">
-          We sent you a verification link. Open it to confirm your account and finish setup.
+          We sent a verification link to your inbox. Open it to confirm your account, then log in to finish
+          setup.
         </p>
         <label className="ds-app-body-muted mt-6 block font-semibold uppercase tracking-wide">
           Email

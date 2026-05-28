@@ -74,7 +74,7 @@ export function ChatRelySignupScreen() {
     const password = String(formData.get("password") ?? "");
 
     const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -91,7 +91,16 @@ export function ChatRelySignupScreen() {
     }
 
     clearChatrelyClientAccountCaches();
-    router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+
+    const needsEmailVerification =
+      !data.session && Boolean(data.user) && !data.user.email_confirmed_at;
+
+    if (needsEmailVerification) {
+      router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+      return;
+    }
+
+    router.push("/onboarding");
   }
 
   return (

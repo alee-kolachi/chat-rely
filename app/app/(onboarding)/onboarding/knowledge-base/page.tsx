@@ -6,6 +6,7 @@ import { ExternalLink } from "lucide-react";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { getOnboardingAgentId, onboardingHref, saveOnboardingAgentId } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import {
   buildWebsiteUrl,
   displayPathFromUrl,
@@ -130,6 +131,10 @@ function KnowledgeBaseOnboardingPageInner() {
   const pagesListRef = useRef<HTMLUListElement>(null);
   const resumeHydratedRef = useRef(false);
   const agentId = useResolvedOnboardingAgentId();
+  const { snapshot: indexingJob } = useOnboardingIndexingStatus(
+    crawlPhase === "active" ? agentId : null,
+    2500,
+  );
 
   const step1BackHref = useMemo(
     () => onboardingHref("/onboarding", agentId),
@@ -459,16 +464,31 @@ function KnowledgeBaseOnboardingPageInner() {
                             aria-hidden
                           />
                           <span className="font-medium text-ds-on-surface">
-                            {revealingMore
-                              ? "Finding more pages…"
-                              : visiblePages.length > 0
-                                ? "Still crawling your site…"
-                                : "Crawling your site…"}
+                            {indexingJob.headline ||
+                              (revealingMore
+                                ? "Finding more pages…"
+                                : visiblePages.length > 0
+                                  ? "Still crawling your site…"
+                                  : "Crawling your site…")}
                           </span>
+                          {indexingJob.pct > 0 ? (
+                            <span className="ml-auto text-xs font-semibold tabular-nums">{indexingJob.pct}%</span>
+                          ) : null}
                         </div>
+                        {indexingJob.pct > 0 ? (
+                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ds-outline/70">
+                            <div
+                              className="bg-ds-primary h-full rounded-full transition-[width] duration-500 ease-out"
+                              style={{ width: `${indexingJob.pct}%` }}
+                            />
+                          </div>
+                        ) : null}
+                        {indexingJob.detail ? (
+                          <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">{indexingJob.detail}</p>
+                        ) : null}
                         <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                          This keeps running in the background. Continue setup and we&apos;ll keep learning from your
-                          site.
+                          You can continue setup while we read your site. Step 4 unlocks testing once at least one
+                          page is indexed.
                         </p>
                       </div>
                     ) : null}

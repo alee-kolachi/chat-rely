@@ -1,6 +1,10 @@
+"use client";
+
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { OnboardingIndexingBanner } from "@/components/onboarding/onboarding-indexing-banner";
+import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import { cn } from "@/lib/utils";
 
 export const onboardingMenuItems = [
@@ -43,12 +47,14 @@ export function OnboardingFrame({
   /** Docked at the bottom of the main column (inside scrolling layout) so the bar stays tappable on mobile. */
   footer?: ReactNode;
 }) {
+  const { snapshot, showBanner } = useOnboardingIndexingStatus(linkAgentId);
+
   return (
     <div className="bg-white text-ds-on-surface flex h-dvh max-h-dvh min-h-0 w-full max-w-[100vw] flex-col">
       <aside className="bg-ds-sidebar border-ds-outline fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r md:flex">
         <div className="border-ds-outline flex h-14 items-center border-b px-3">
           <ChatRelyWordmark
-            href="/dashboard"
+            href={onboardingNavHref("/onboarding", linkAgentId)}
             iconClassName="h-6 w-auto"
             textClassName="text-lg font-semibold text-ds-on-surface"
           />
@@ -100,8 +106,11 @@ export function OnboardingFrame({
 
       <div className="flex min-h-0 flex-1 flex-row overflow-x-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:ml-64">
-          <header className="bg-ds-surface border-ds-outline sticky top-0 z-20 flex h-14 min-h-14 shrink-0 items-center border-b px-4 sm:px-6">
-            <span className="text-ds-on-surface-variant text-sm font-medium">{stepLabel}</span>
+          <header className="bg-ds-surface border-ds-outline sticky top-0 z-20 shrink-0 border-b">
+            <div className="flex h-14 min-h-14 items-center px-4 sm:px-6">
+              <span className="text-ds-on-surface-variant text-sm font-medium">{stepLabel}</span>
+            </div>
+            {showBanner ? <OnboardingIndexingBanner snapshot={snapshot} compact /> : null}
           </header>
 
           <main className="onboarding-main-surface flex min-h-0 flex-1 flex-col">

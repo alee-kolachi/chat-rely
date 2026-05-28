@@ -128,6 +128,75 @@ def test_me_onboarding_gate(client: TestClient, monkeypatch: pytest.MonkeyPatch)
     assert response.json() == {"onboarding_completed": False}
 
 
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        (
+            {
+                "has_completed": True,
+                "has_active_agent": True,
+                "has_any_session": True,
+                "has_post_onboarding_agent": True,
+            },
+            True,
+        ),
+        (
+            {
+                "has_completed": False,
+                "has_active_agent": True,
+                "has_any_session": True,
+                "has_post_onboarding_agent": True,
+            },
+            False,
+        ),
+        (
+            {
+                "has_completed": False,
+                "has_active_agent": True,
+                "has_any_session": False,
+                "has_post_onboarding_agent": True,
+            },
+            False,
+        ),
+        (
+            {
+                "has_completed": False,
+                "has_active_agent": True,
+                "has_any_session": False,
+                "has_post_onboarding_agent": False,
+            },
+            True,
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_user_dashboard_onboarding_completed_rules(
+    row: dict[str, bool],
+    expected: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from uuid import UUID
+
+    from app.domains.bootstrap import service as bootstrap_service
+
+    class _Result:
+        def mappings(self) -> "_Result":
+            return self
+
+        def one(self) -> dict[str, bool]:
+            return row
+
+    class _Db:
+        async def execute(self, *_: Any, **__: Any) -> _Result:
+            return _Result()
+
+    completed = await bootstrap_service.user_dashboard_onboarding_completed(
+        _Db(),  # type: ignore[arg-type]
+        UUID("00000000-0000-0000-0000-000000000123"),
+    )
+    assert completed is expected
+
+
 def test_me_context_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_auth(monkeypatch)
 

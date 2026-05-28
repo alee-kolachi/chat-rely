@@ -6,6 +6,7 @@ import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { chatSseStream } from "@/lib/chat-sse";
 import { applyChatSseEvent } from "@/lib/chat-stream-handlers";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import { cn } from "@/lib/utils";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
@@ -64,28 +65,6 @@ function checklistDone(checklist: OnboardingStatusPayload["checklist"], key: str
   return row?.status === "done";
 }
 
-function indexingState(job: Record<string, unknown> | null | undefined): {
-  running: boolean;
-  label: string;
-  pct: number;
-} {
-  if (!job) return { running: false, label: "", pct: 0 };
-  const status = String(job.status ?? "").toLowerCase();
-  const running = status === "queued" || status === "running";
-  const total = Number(job.pages_total) || 0;
-  const processed = Number(job.pages_processed) || 0;
-  const pct =
-    total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : running ? 15 : status === "succeeded" ? 100 : 0;
-  const label = running
-    ? total > 0
-      ? `Reading your site (${processed} of ${total} pages so far)`
-      : "Reading your site in the background"
-    : status === "failed"
-      ? "Website import had an issue. You can still test with partial knowledge"
-      : "";
-  return { running, label, pct };
-}
-
 function newPreviewVisitorId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `onboarding-preview-${crypto.randomUUID()}`;
@@ -95,6 +74,7 @@ function newPreviewVisitorId(): string {
 
 export default function AgentPreviewOnboardingPage() {
   const agentId = useResolvedOnboardingAgentId();
+  const { snapshot: indexing } = useOnboardingIndexingStatus(agentId, 2500);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const visitorIdRef = useRef(newPreviewVisitorId());
   const [input, setInput] = useState("");
@@ -111,15 +91,17 @@ export default function AgentPreviewOnboardingPage() {
   const siteName = siteDisplayName(onboardingStatus);
   const siteUrl = onboardingStatus?.website_url ?? null;
   const siteIcon = faviconUrl(siteUrl);
-  const indexing = indexingState(onboardingStatus?.indexing_job);
 
   const welcomeMessage = useMemo(() => {
     const who = agentName.trim() || "your support agent";
     if (indexing.running) {
-      return `Hi! I'm ${who}. I'm still learning from ${siteName}. Try a question and see how I do.`;
+      return `Hi! I'm ${who}. I'm still reading ${siteName}. Wait until at least one page is indexed, then ask a real customer question.`;
+    }
+    if (indexing.failed) {
+      return `Hi! I'm ${who}. Site import hit a snag, but you can still try a question about ${siteName}.`;
     }
     return `Hi! I'm ${who}. Ask me something your customers would. I'll use what we know about ${siteName}.`;
-  }, [agentName, siteName, indexing.running]);
+  }, [agentName, siteName, indexing.running, indexing.failed]);
 
   const [messages, setMessages] = useState<PreviewMessage[]>([]);
 
@@ -130,9 +112,9 @@ export default function AgentPreviewOnboardingPage() {
   const checklist = useMemo(() => {
     const cl = onboardingStatus?.checklist ?? [];
     const knowledgeDone =
-      checklistDone(cl, "website_connected") ||
       checklistDone(cl, "pages_indexed") ||
-      Boolean(siteUrl);
+      indexing.succeeded ||
+      indexing.readyForPreview;
     const shopifyDone = Boolean(shopify?.connected);
     const appearanceDone = checklistDone(cl, "appearance_configured");
     return [
@@ -141,7 +123,12 @@ export default function AgentPreviewOnboardingPage() {
       { label: "Agent tone and appearance set", done: appearanceDone },
       { label: "Try at least one real question", done: askedRealQuestion },
     ];
-  }, [onboardingStatus, siteUrl, shopify?.connected, askedRealQuestion]);
+  }, [onboardingStatus, shopify?.connected, askedRealQuestion, indexing.succeeded, indexing.readyForPreview]);
+
+  const previewContinueLabel = indexing.running && !indexing.readyForPreview
+    ? `Reading site (${indexing.pct}%)…`
+    : "Continue";
+  const previewContinueDisabled = indexing.running && !indexing.readyForPreview;
 
   const appearanceToneHref = useMemo(() => {
     if (!agentId) return "/onboarding/appearance-tone";
@@ -208,7 +195,7 @@ export default function AgentPreviewOnboardingPage() {
     el.scrollTop = el.scrollHeight;
   }, [messages, isSending]);
 
-  const canSend = Boolean(agentId && input.trim() && !isSending);
+  const canSend = Boolean(agentId && input.trim() && !isSending && indexing.readyForPreview);
 
   async function handleSend(event: FormEvent) {
     event.preventDefault();
@@ -297,8 +284,11 @@ export default function AgentPreviewOnboardingPage() {
         <OnboardingStickyFooter
           backHref={connectionBackHref}
           backLabel="Back"
-          primaryHref={appearanceToneHref}
-          primaryLabel="Continue"
+          primaryHref={previewContinueDisabled ? undefined : appearanceToneHref}
+          primaryAsButton={previewContinueDisabled}
+          onPrimaryClick={() => {}}
+          primaryDisabled={previewContinueDisabled}
+          primaryLabel={previewContinueLabel}
         />
       }
     >
@@ -328,21 +318,15 @@ export default function AgentPreviewOnboardingPage() {
                     widget.
                   </p>
 
-                  {indexing.running ? (
-                    <div className="border-ds-primary/25 bg-ds-primary/10 mt-5 rounded-ds-lg border px-4 py-3">
-                      <p className="text-ds-on-surface text-sm font-medium">{indexing.label}</p>
-                      <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
-                        Answers may be incomplete until import finishes. You can keep going; import continues in the
-                        background.
+                  {!indexing.readyForPreview && indexing.headline ? (
+                    <div className="border-ds-outline mt-5 rounded-ds-lg border bg-white px-4 py-3">
+                      <p className="text-ds-on-surface text-sm font-medium">
+                        Wait before testing your agent
                       </p>
-                      {indexing.pct > 0 ? (
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ds-outline/70">
-                          <div
-                            className="bg-ds-primary h-full rounded-full transition-all"
-                            style={{ width: `${indexing.pct}%` }}
-                          />
-                        </div>
-                      ) : null}
+                      <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
+                        Answers stay generic until we finish reading your site. Progress updates in the bar
+                        above.
+                      </p>
                     </div>
                   ) : null}
 
@@ -418,7 +402,7 @@ export default function AgentPreviewOnboardingPage() {
                           <span
                             className={`size-2 shrink-0 rounded-full ${indexing.running ? "bg-amber-300" : "bg-emerald-400"}`}
                           />
-                          {indexing.running ? "Still learning your site" : "Ready to test"}
+                          {indexing.running ? "Still reading your site" : indexing.succeeded ? "Ready to test" : "Partial knowledge"}
                         </p>
                       </div>
                     </div>
@@ -474,9 +458,17 @@ export default function AgentPreviewOnboardingPage() {
                         <input
                           value={input}
                           onChange={(e) => setInput(e.target.value)}
-                          placeholder={agentId ? "Ask a question…" : "Complete previous steps first"}
+                          placeholder={
+                            !indexing.readyForPreview
+                              ? indexing.running
+                                ? `Reading site (${indexing.pct}%)…`
+                                : "Add your website on step 2 first"
+                              : agentId
+                                ? "Ask a question…"
+                                : "Complete previous steps first"
+                          }
                           className="border-ds-outline focus:border-ds-primary min-h-11 min-w-0 flex-1 rounded-full border bg-ds-sidebar px-4 text-sm outline-none focus:ring-2 focus:ring-ds-primary/15 sm:min-h-12"
-                          disabled={!agentId || isSending}
+                          disabled={!agentId || isSending || !indexing.readyForPreview}
                         />
                         <button
                           type="submit"

@@ -5,6 +5,7 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, DisconnectionError
 
 from app.core.errors import AppError
 from app.core.logging import setup_logging
@@ -31,30 +32,45 @@ async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
                 )
             )
         ).mappings().first()
-        if row is None:
-            return None
+        if row is not None:
+            await db.execute(
+                text(
+                    """
+                    update public.indexing_jobs
+                    set status = 'running',
+                        phase = case
+                          when phase::text = 'embedding_queued' then 'embedding'::public.indexing_job_phase
+                          else 'crawling'::public.indexing_job_phase
+                        end,
+                        progress_pct = case
+                          when phase::text = 'embedding_queued' then greatest(progress_pct, 26)
+                          else greatest(progress_pct, 5)
+                        end,
+                        started_at = coalesce(started_at, now())
+                    where id = :job_id and status = 'queued'
+                    """
+                ),
+                {"job_id": str(row["id"])},
+            )
+            await db.commit()
+            return UUID(str(row["id"])), UUID(str(row["user_id"]))
 
-        await db.execute(
-            text(
-                """
-                update public.indexing_jobs
-                set status = 'running',
-                    phase = case
-                      when phase::text = 'embedding_queued' then 'embedding'::public.indexing_job_phase
-                      else 'crawling'::public.indexing_job_phase
-                    end,
-                    progress_pct = case
-                      when phase::text = 'embedding_queued' then greatest(progress_pct, 26)
-                      else greatest(progress_pct, 5)
-                    end,
-                    started_at = coalesce(started_at, now())
-                where id = :job_id and status = 'queued'
-                """
-            ),
-            {"job_id": str(row["id"])},
-        )
-        await db.commit()
-        return UUID(str(row["id"])), UUID(str(row["user_id"]))
+        resume = (
+            await db.execute(
+                text(
+                    """
+                    select id, user_id
+                    from public.indexing_jobs
+                    where status = 'running' and phase::text = 'embedding'
+                    order by updated_at asc
+                    limit 1
+                    """
+                )
+            )
+        ).mappings().first()
+        if resume is not None:
+            return UUID(str(resume["id"])), UUID(str(resume["user_id"]))
+        return None
 
 
 async def _persist_surrogate_safe(job_id: UUID, user_id: UUID, exc: BaseException) -> None:
@@ -89,7 +105,12 @@ async def run_worker_loop(poll_interval_seconds: float = 2.0) -> None:
     init_engine(settings)
     init_session_factory()
     while True:
-        fetched = await _fetch_next_job_id()
+        try:
+            fetched = await _fetch_next_job_id()
+        except (DBAPIError, DisconnectionError, OSError) as exc:
+            log.warning("indexing_worker_db_poll_failed", error=str(exc))
+            await asyncio.sleep(poll_interval_seconds)
+            continue
         if fetched is None:
             await asyncio.sleep(poll_interval_seconds)
             continue

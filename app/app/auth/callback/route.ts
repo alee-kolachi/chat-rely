@@ -48,6 +48,17 @@ export async function GET(request: NextRequest) {
   }
 
   const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) {
+    await supabase.auth.signOut();
+    const login = new URL("/login", requestUrl.origin);
+    login.searchParams.set("error", userError?.message ?? "Sign-in could not be verified.");
+    return NextResponse.redirect(login);
+  }
+
+  const {
     data: { session },
   } = await supabase.auth.getSession();
   let onboardingCompleted = true;

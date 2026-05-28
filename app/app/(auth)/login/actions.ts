@@ -8,7 +8,7 @@ import {
 } from "@/lib/auth-session-preference";
 import { postBootstrapMeServer } from "@/lib/server-bootstrap-me";
 import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { createServerSupabaseClient, getValidatedServerAuth } from "@/lib/supabase-server";
 
 export type LoginFormState = { error?: string } | undefined;
 
@@ -32,18 +32,13 @@ export async function loginWithEmailPassword(
     return { error: error.message };
   }
 
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
-
-  if (sessionError || !session?.access_token) {
+  const auth = await getValidatedServerAuth({ loginRememberMe: remember });
+  if (!auth) {
     return {
-      error:
-        sessionError?.message ??
-        "Login succeeded but the session could not be saved. Check Supabase URL and keys.",
+      error: "Login succeeded but the session could not be saved. Check Supabase URL and keys.",
     };
   }
+  const { session } = auth;
 
   const cookieStore = await cookies();
   if (remember) {

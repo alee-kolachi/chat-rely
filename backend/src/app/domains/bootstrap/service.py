@@ -15,13 +15,19 @@ from app.domains.bootstrap.schemas import (
     SubscriptionDTO,
     UsageSnapshotDTO,
 )
+from app.domains.plans.subscription_queries import ACTIVE_SUBSCRIPTION_ORDER_BY
 log = structlog.get_logger(__name__)
+
+# Guided onboarding foundation migration (phase 7). Agents created after this without a
+# completed session must finish onboarding; older agents with no session stay legacy-exempt.
+_ONBOARDING_FOUNDATION_EPOCH = datetime(2026, 4, 29, 21, 30, 0, tzinfo=UTC)
 
 
 async def user_dashboard_onboarding_completed(db: AsyncSession, user_id: UUID) -> bool:
     """
     Dashboard is allowed when the user finished the guided onboarding flow, or when they have
-    active agent(s) but no onboarding_sessions rows (accounts created before onboarding existed).
+    active agent(s) but no onboarding_sessions rows and every active agent predates onboarding
+    (accounts created before guided onboarding existed).
     """
     row = (
         await db.execute(
@@ -44,16 +50,28 @@ async def user_dashboard_onboarding_completed(db: AsyncSession, user_id: UUID) -
                     select 1
                     from public.onboarding_sessions s2
                     where s2.user_id = cast(:user_id as uuid)
-                  ) as has_any_session
+                  ) as has_any_session,
+                  exists (
+                    select 1
+                    from public.agents a3
+                    where a3.user_id = cast(:user_id as uuid)
+                      and a3.archived_at is null
+                      and a3.created_at >= :onboarding_epoch
+                  ) as has_post_onboarding_agent
                 """
             ),
-            {"user_id": str(user_id)},
+            {
+                "user_id": str(user_id),
+                "onboarding_epoch": _ONBOARDING_FOUNDATION_EPOCH,
+            },
         )
     ).mappings().one()
     has_completed = bool(row["has_completed"])
     has_active_agent = bool(row["has_active_agent"])
     has_any_session = bool(row["has_any_session"])
-    return has_completed or (has_active_agent and not has_any_session)
+    has_post_onboarding_agent = bool(row["has_post_onboarding_agent"])
+    legacy_exempt = has_active_agent and not has_any_session and not has_post_onboarding_agent
+    return has_completed or legacy_exempt
 
 
 def _month_period(now: datetime) -> tuple[datetime, datetime]:
@@ -136,7 +154,7 @@ async def _fetch_active_subscription_and_plan(
 ) -> tuple[SubscriptionDTO, PlanDTO] | None:
     result = await db.execute(
         text(
-            """
+            f"""
             select
               s.id as subscription_id,
               s.user_id,
@@ -159,7 +177,7 @@ async def _fetch_active_subscription_and_plan(
             join public.plans p on p.id = s.plan_id
             where s.user_id = :user_id
               and s.status in ('trialing', 'active', 'past_due')
-            order by s.current_period_end desc
+            order by {ACTIVE_SUBSCRIPTION_ORDER_BY}
             limit 1
             """
         ),
@@ -262,7 +280,7 @@ async def _fetch_context_profile_subscription_plan(
 ) -> tuple[ProfileDTO, SubscriptionDTO, PlanDTO] | None:
     result = await db.execute(
         text(
-            """
+            f"""
             with active_subscription as (
               select
                 s.id as subscription_id,
@@ -277,7 +295,7 @@ async def _fetch_context_profile_subscription_plan(
               from public.subscriptions s
               where s.user_id = :user_id
                 and s.status in ('trialing', 'active', 'past_due')
-              order by s.current_period_end desc
+              order by {ACTIVE_SUBSCRIPTION_ORDER_BY}
               limit 1
             )
             select
@@ -286,7 +304,7 @@ async def _fetch_context_profile_subscription_plan(
               p.avatar_url,
               p.timezone,
               p.email_notifications_enabled,
-              coalesce(p.notification_preferences, '{}'::jsonb) as notification_preferences,
+              coalesce(p.notification_preferences, '{{}}'::jsonb) as notification_preferences,
               p.created_at as profile_created_at,
               p.updated_at as profile_updated_at,
               s.subscription_id,

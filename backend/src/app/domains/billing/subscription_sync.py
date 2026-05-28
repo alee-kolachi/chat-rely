@@ -232,11 +232,17 @@ async def upsert_user_subscription_from_stripe(
     cancel_at_period_end: bool,
 ) -> None:
     db_status = stripe_subscription_status_to_db(status)
-    result = await db.execute(
-        text(
-            """
-            update public.subscriptions s
-            set
+    params = {
+        "cust": stripe_customer_id,
+        "sub": stripe_subscription_id,
+        "plan": str(plan_id),
+        "st": db_status,
+        "cps": current_period_start,
+        "cpe": current_period_end,
+        "cape": cancel_at_period_end,
+        "uid": str(user_id),
+    }
+    update_set = """
               provider_customer_id = :cust,
               provider_subscription_id = :sub,
               plan_id = cast(:plan as uuid),
@@ -245,6 +251,58 @@ async def upsert_user_subscription_from_stripe(
               current_period_end = :cpe,
               cancel_at_period_end = :cape,
               updated_at = now()
+    """
+
+    result = await db.execute(
+        text(
+            f"""
+            update public.subscriptions s
+            set {update_set}
+            where s.user_id = cast(:uid as uuid)
+              and s.provider_subscription_id = :sub
+            returning s.id
+            """
+        ),
+        params,
+    )
+    row = result.mappings().first()
+    if row:
+        await _cancel_orphan_local_subscriptions(
+            db, user_id=user_id, keep_subscription_id=UUID(str(row["id"]))
+        )
+        return
+
+    result = await db.execute(
+        text(
+            f"""
+            update public.subscriptions s
+            set {update_set}
+            where s.id = (
+              select id
+              from public.subscriptions
+              where user_id = cast(:uid as uuid)
+                and coalesce(trim(provider_subscription_id), '') = ''
+                and status in ('trialing', 'active', 'past_due')
+              order by created_at asc
+              limit 1
+            )
+            returning s.id
+            """
+        ),
+        params,
+    )
+    row = result.mappings().first()
+    if row:
+        await _cancel_orphan_local_subscriptions(
+            db, user_id=user_id, keep_subscription_id=UUID(str(row["id"]))
+        )
+        return
+
+    result = await db.execute(
+        text(
+            f"""
+            update public.subscriptions s
+            set {update_set}
             from (
               select id from public.subscriptions
               where user_id = cast(:uid as uuid)
@@ -252,23 +310,19 @@ async def upsert_user_subscription_from_stripe(
               limit 1
             ) pick
             where s.id = pick.id
+            returning s.id
             """
         ),
-        {
-            "cust": stripe_customer_id,
-            "sub": stripe_subscription_id,
-            "plan": str(plan_id),
-            "st": db_status,
-            "cps": current_period_start,
-            "cpe": current_period_end,
-            "cape": cancel_at_period_end,
-            "uid": str(user_id),
-        },
+        params,
     )
-    if (result.rowcount or 0) > 0:
+    row = result.mappings().first()
+    if row:
+        await _cancel_orphan_local_subscriptions(
+            db, user_id=user_id, keep_subscription_id=UUID(str(row["id"]))
+        )
         return
 
-    await db.execute(
+    ins = await db.execute(
         text(
             """
             insert into public.subscriptions (
@@ -290,18 +344,34 @@ async def upsert_user_subscription_from_stripe(
               :cust,
               :sub
             )
+            returning id
             """
         ),
-        {
-            "uid": str(user_id),
-            "plan": str(plan_id),
-            "st": db_status,
-            "cps": current_period_start,
-            "cpe": current_period_end,
-            "cape": cancel_at_period_end,
-            "cust": stripe_customer_id,
-            "sub": stripe_subscription_id,
-        },
+        params,
+    )
+    ins_row = ins.mappings().first()
+    if ins_row:
+        await _cancel_orphan_local_subscriptions(
+            db, user_id=user_id, keep_subscription_id=UUID(str(ins_row["id"]))
+        )
+
+
+async def _cancel_orphan_local_subscriptions(
+    db: AsyncSession, *, user_id: UUID, keep_subscription_id: UUID
+) -> None:
+    """Cancel leftover local-only rows after Stripe checkout or sync."""
+    await db.execute(
+        text(
+            """
+            update public.subscriptions
+            set status = 'canceled', updated_at = now()
+            where user_id = cast(:uid as uuid)
+              and id != cast(:keep as uuid)
+              and status in ('trialing', 'active', 'past_due')
+              and coalesce(trim(provider_subscription_id), '') = ''
+            """
+        ),
+        {"uid": str(user_id), "keep": str(keep_subscription_id)},
     )
 
 
@@ -403,6 +473,7 @@ async def sync_user_subscription_from_stripe(db: AsyncSession, *, user_id: UUID)
                 select provider_customer_id, provider_subscription_id
                 from public.subscriptions
                 where user_id = cast(:uid as uuid)
+                  and coalesce(trim(provider_subscription_id), '') <> ''
                 order by created_at desc
                 limit 1
                 """
@@ -410,6 +481,22 @@ async def sync_user_subscription_from_stripe(db: AsyncSession, *, user_id: UUID)
             {"uid": str(user_id)},
         )
     ).mappings().first()
+
+    if not row:
+        row = (
+            await db.execute(
+                text(
+                    """
+                    select provider_customer_id, provider_subscription_id
+                    from public.subscriptions
+                    where user_id = cast(:uid as uuid)
+                    order by created_at desc
+                    limit 1
+                    """
+                ),
+                {"uid": str(user_id)},
+            )
+        ).mappings().first()
 
     customer_id = (
         str(row["provider_customer_id"]).strip()

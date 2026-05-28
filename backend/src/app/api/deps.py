@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_state import get_token_verifier
@@ -24,8 +25,9 @@ def get_db(session: AsyncSession = Depends(get_db_session)) -> AsyncSession:
     return session
 
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
 ) -> AuthContext:
     settings = get_settings()
     if credentials is None:
@@ -37,9 +39,18 @@ def get_current_user(
 
     claims = get_token_verifier().verify_token(credentials.credentials)
     try:
-        return AuthContext(user_id=UUID(str(claims["sub"])), claims=claims)
+        auth = AuthContext(user_id=UUID(str(claims["sub"])), claims=claims)
     except (TypeError, ValueError) as exc:
         raise AuthError("Token subject is not a valid UUID") from exc
+
+    row = await db.execute(
+        text("select 1 from auth.users where id = cast(:user_id as uuid)"),
+        {"user_id": str(auth.user_id)},
+    )
+    if row.first() is None:
+        raise AuthError("User account no longer exists")
+
+    return auth
 
 
 def require_admin(auth: AuthContext = Depends(get_current_user)) -> AuthContext:

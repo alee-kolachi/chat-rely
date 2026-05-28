@@ -205,6 +205,7 @@ async def save_preferences(db: AsyncSession, user_id: UUID, payload: OnboardingP
 
 
 async def finish_onboarding(db: AsyncSession, user_id: UUID, payload: OnboardingFinishRequest) -> None:
+    await _ensure_session(db, user_id, payload.agent_id, current_step=6)
     await db.execute(
         text(
             """

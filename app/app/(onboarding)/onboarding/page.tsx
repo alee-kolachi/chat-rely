@@ -167,7 +167,7 @@ export default function OnboardingPage() {
         .slice(0, 100) || "";
     try {
       const created = await withTimeout(
-        backendFetch<{ id: string }>("/api/v1/agents", {
+        backendFetch<{ agent_id: string }>("/api/v1/onboarding/start", {
           method: "POST",
           body: JSON.stringify({
             name: agentName.trim(),
@@ -176,7 +176,7 @@ export default function OnboardingPage() {
         }),
         12_000
       );
-      goToStep2(created.id);
+      goToStep2(created.agent_id);
     } catch (e) {
       let err: unknown = e;
       if (isPlanAgentLimitError(err)) {
@@ -195,7 +195,7 @@ export default function OnboardingPage() {
         const retrySlug = `${slug || "agent"}-${Date.now().toString(36)}`.slice(0, 120);
         try {
           const created = await withTimeout(
-            backendFetch<{ id: string }>("/api/v1/agents", {
+            backendFetch<{ agent_id: string }>("/api/v1/onboarding/start", {
               method: "POST",
               body: JSON.stringify({
                 name: agentName.trim(),
@@ -204,7 +204,7 @@ export default function OnboardingPage() {
             }),
             12_000
           );
-          goToStep2(created.id);
+          goToStep2(created.agent_id);
           return;
         } catch (e2) {
           err = e2;

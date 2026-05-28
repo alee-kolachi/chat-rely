@@ -42,6 +42,8 @@ export function ChatRelyLoginScreen() {
   const nextParam = searchParams.get("next");
   const nextHiddenValue =
     nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "";
+  const oauthCallbackError = searchParams.get("error");
+  const googleOrOAuthError = errorMessage ?? oauthCallbackError;
 
   async function handleGoogleSignIn() {
     setErrorMessage(null);
@@ -91,14 +93,14 @@ export function ChatRelyLoginScreen() {
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={isGoogleLoading}
-                className={`border-ds-outline hover:bg-ds-neutral flex w-full items-center justify-center gap-3 rounded-ds-md border bg-ds-surface px-4 py-2.5 text-sm font-medium shadow-sm transition-colors ${errorMessage ? "mb-2" : "mb-6"}`}
+                className={`border-ds-outline hover:bg-ds-neutral flex w-full items-center justify-center gap-3 rounded-ds-md border bg-ds-surface px-4 py-2.5 text-sm font-medium shadow-sm transition-colors ${googleOrOAuthError ? "mb-2" : "mb-6"}`}
               >
                 <GoogleGlyph className="size-5" />
                 {isGoogleLoading ? "Redirecting to Google..." : "Sign in with Google"}
               </button>
-              {errorMessage ? (
+              {googleOrOAuthError ? (
                 <p className="text-sm text-red-600 mb-4" role="alert">
-                  {errorMessage}
+                  {googleOrOAuthError}
                 </p>
               ) : null}
 

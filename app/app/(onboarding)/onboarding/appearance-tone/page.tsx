@@ -65,12 +65,7 @@ export default function AppearanceToneOnboardingPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const [agent, status] = await Promise.all([
-          backendFetch<AgentPayload>(`/api/v1/agents/${agentId}`),
-          backendFetch<OnboardingStatusPayload>(
-            `/api/v1/onboarding/status?agent_id=${encodeURIComponent(agentId)}`,
-          ),
-        ]);
+        const agent = await backendFetch<AgentPayload>(`/api/v1/agents/${agentId}`);
         if (cancelled) return;
         const behavior = agent.behavior_settings ?? {};
         const savedTone = normalizeTone(readBehaviorString(behavior, "tone"));
@@ -82,10 +77,24 @@ export default function AppearanceToneOnboardingPage() {
         setTone(savedTone);
         setHex(savedColor.replace("#", ""));
         setSelectedPreset(presetIndex >= 0 ? presetIndex : 0);
-        const icon = faviconServiceUrl(status.website_url);
-        setWebsiteLogoUrl(icon || null);
       } catch {
-        if (!cancelled) setError("Could not load your agent settings.");
+        if (!cancelled) {
+          setError("Could not load your agent settings.");
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const status = await backendFetch<OnboardingStatusPayload>(
+          `/api/v1/onboarding/status?agent_id=${encodeURIComponent(agentId)}`,
+        );
+        if (!cancelled) {
+          const icon = faviconServiceUrl(status.website_url);
+          setWebsiteLogoUrl(icon || null);
+        }
+      } catch {
+        /* website logo is optional */
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -109,14 +118,13 @@ export default function AppearanceToneOnboardingPage() {
     setIsSaving(true);
     setError(null);
     try {
-      await backendFetch(`/api/v1/agents/${agentId}`, {
+      await backendFetch("/api/v1/onboarding/preferences", {
         method: "PATCH",
         body: JSON.stringify({
-          behavior_settings: {
-            tone,
-            brand_color: previewBrandColor,
-            widget_position: "bottom_right",
-          },
+          agent_id: agentId,
+          tone,
+          brand_color: previewBrandColor,
+          widget_position: "bottom_right",
         }),
       });
       router.push(`/onboarding/pricing?agentId=${encodeURIComponent(agentId)}`);

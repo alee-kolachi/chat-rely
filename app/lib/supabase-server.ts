@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type Session, type User } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 import {
   CHATRELY_AUTH_SHORT_LIVED_COOKIE,
@@ -75,4 +75,34 @@ export async function createServerSupabaseClient(options?: CreateServerSupabaseO
       },
     },
   });
+}
+
+export type ValidatedServerAuth = {
+  user: User;
+  session: Session;
+};
+
+/**
+ * Validates the session with Supabase Auth (network call). Unlike `getSession()`, this
+ * returns null when the user was deleted in the dashboard but cookies still hold a JWT.
+ */
+export async function getValidatedServerAuth(
+  options?: CreateServerSupabaseOptions,
+): Promise<ValidatedServerAuth | null> {
+  const supabase = await createServerSupabaseClient(options);
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) {
+    return null;
+  }
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) {
+    return null;
+  }
+  return { user, session };
 }

@@ -67,10 +67,24 @@ export async function proxy(request: NextRequest) {
   });
 
   const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    await supabase.auth.signOut();
+    const landing = new URL("/", request.url);
+    const landingRedirect = NextResponse.redirect(landing);
+    copyCookies(supabaseResponse, landingRedirect);
+    return landingRedirect;
+  }
+
+  const {
     data: { session },
   } = await supabase.auth.getSession();
 
   if (!session?.access_token) {
+    await supabase.auth.signOut();
     const landing = new URL("/", request.url);
     const landingRedirect = NextResponse.redirect(landing);
     copyCookies(supabaseResponse, landingRedirect);
