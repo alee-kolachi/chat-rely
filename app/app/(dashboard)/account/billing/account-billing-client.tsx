@@ -7,17 +7,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { getAppSiteOrigin } from "@/lib/app-site-origin";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
-  } catch {
-    return iso;
-  }
-}
+import { formatLocaleDate } from "@/lib/format-locale-datetime";
+import { useClientMounted } from "@/lib/use-client-mounted";
 
 export function AccountBillingClient() {
   const searchParams = useSearchParams();
+  const localeReady = useClientMounted();
   const { data: ctx, loading, error, refresh } = useMeContext();
   const [portalError, setPortalError] = useState<string | null>(null);
   const [portalBusy, setPortalBusy] = useState(false);
@@ -117,7 +112,7 @@ export function AccountBillingClient() {
                   </div>
                   <div className="flex justify-between gap-4">
                     <dt className="text-ds-on-surface-variant">Current period ends</dt>
-                    <dd className="text-ds-on-surface">{formatDate(subscriptionSummary.periodEnd)}</dd>
+                    <dd className="text-ds-on-surface">{formatLocaleDate(subscriptionSummary.periodEnd, localeReady)}</dd>
                   </div>
                   {subscriptionSummary.cancelAtPeriodEnd ? (
                     <p className="text-amber-800 bg-amber-50 border-ds-outline rounded-ds-md border px-3 py-2 text-xs">

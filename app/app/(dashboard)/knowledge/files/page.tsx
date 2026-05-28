@@ -28,25 +28,14 @@ import { KnowledgeFilesTableSkeleton } from "@/components/knowledge/knowledge-li
 import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { formatLocaleDateTime } from "@/lib/format-locale-datetime";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
 type FileUploadResult = {
   status: "succeeded" | "failed";
   error_message?: string | null;
 };
-
-function formatUpdatedAt(value: string | null): string {
-  if (!value) return "Not indexed yet";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "Not indexed yet";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function fileNameFromRow(row: FileSourceRow): string {
   const fromPath = row.storage_path?.split("/").pop();
@@ -67,6 +56,7 @@ function sourceStatusPill(status: string): { label: string; tone: "success" | "d
 }
 
 export default function KnowledgeFilesPage() {
+  const localeReady = useClientMounted();
   const searchParams = useSearchParams();
   const highlightSourceId = searchParams.get("source")?.trim() ?? null;
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
@@ -231,8 +221,6 @@ export default function KnowledgeFilesPage() {
         body: form,
       });
       const failed = (uploadRes.results ?? []).filter((item) => item.status === "failed");
-      await loadFileSources?.({ silent: true });
-      await refreshUsage({ silent: true });
       if (failed.length > 0) {
         const first = failed[0]?.error_message ?? "One or more files failed to upload.";
         setError(`${failed.length} file${failed.length === 1 ? "" : "s"} failed: ${first}`);
@@ -250,6 +238,10 @@ export default function KnowledgeFilesPage() {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+    if (selectedAgentId) {
+      void loadFileSources?.({ silent: true });
+      void refreshUsage({ silent: true });
     }
   }
 
@@ -423,7 +415,7 @@ export default function KnowledgeFilesPage() {
                           {row.character_count.toLocaleString()}
                         </td>
                         <td className="ds-app-body-muted px-4 py-4">
-                          {formatUpdatedAt(row.last_indexed_at)}
+                          {formatLocaleDateTime(row.last_indexed_at, localeReady)}
                         </td>
                         <td className="px-5 py-4 text-right sm:px-6">
                           <div className="relative inline-flex">

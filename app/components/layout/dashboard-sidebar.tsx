@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -22,6 +22,7 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
 type NavChild = { href?: string; label: string; action?: "logout" };
@@ -67,36 +68,44 @@ function hasActiveChild(pathname: string, children: NavChild[]) {
 const collapsedRailItemClass =
   "flex w-full min-h-10 shrink-0 items-center justify-center rounded-lg border border-transparent p-2 text-sm transition-all text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface";
 
+function buildOpenSectionsForPath(pathname: string): Record<string, boolean> {
+  const nextOpenSections: Record<string, boolean> = {};
+  navItems.forEach((item) => {
+    if (item.children) nextOpenSections[item.href] = hasActiveChild(pathname, item.children);
+  });
+  return nextOpenSections;
+}
+
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const localeReady = useClientMounted();
+  const [uiReady, setUiReady] = useState(false);
   const { data: meData, loading: meLoading } = useMeContext();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() =>
+    buildOpenSectionsForPath(pathname)
+  );
   const [collapsedFlyoutHref, setCollapsedFlyoutHref] = useState<string | null>(null);
   const flyoutContainerRef = useRef<HTMLDivElement>(null);
 
-  const sidebarNavItems = useMemo(
-    () =>
-      navItems.filter(
-        (item) =>
-          item.href !== "/analytics" ||
-          (!meLoading && planAllowsAnalyticsPage(meData?.plan.slug))
-      ),
-    [meData?.plan, meLoading]
-  );
+  const showAnalyticsNav =
+    uiReady && !meLoading && planAllowsAnalyticsPage(meData?.plan.slug);
+
+  const collapsedForUi = uiReady && isCollapsed;
 
   useEffect(() => {
-    const savedCollapsed = window.localStorage.getItem("dashboard-sidebar-collapsed");
-    queueMicrotask(() => setIsCollapsed(savedCollapsed === "true"));
-  }, []);
+    if (!localeReady) return;
+    const timeoutId = window.setTimeout(() => {
+      setUiReady(true);
+      const savedCollapsed = window.localStorage.getItem("dashboard-sidebar-collapsed");
+      setIsCollapsed(savedCollapsed === "true");
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [localeReady]);
 
   useEffect(() => {
-    const nextOpenSections: Record<string, boolean> = {};
-    sidebarNavItems.forEach((item) => {
-      if (item.children) nextOpenSections[item.href] = hasActiveChild(pathname, item.children);
-    });
-    queueMicrotask(() => setOpenSections((prev) => ({ ...nextOpenSections, ...prev })));
-  }, [pathname, sidebarNavItems]);
+    setOpenSections((prev) => ({ ...buildOpenSectionsForPath(pathname), ...prev }));
+  }, [pathname]);
 
   useEffect(() => {
     queueMicrotask(() => setCollapsedFlyoutHref(null));
@@ -135,15 +144,16 @@ export function DashboardSidebar() {
 
   return (
     <aside
+      suppressHydrationWarning
       className={cn(
         "border-ds-outline bg-ds-sidebar hidden min-h-0 shrink-0 flex-col overflow-hidden border-r transition-[width] duration-200 md:flex",
-        isCollapsed ? "w-20" : "w-64"
+        collapsedForUi ? "w-20" : "w-64"
       )}
     >
       <div className="border-ds-outline flex h-14 items-center justify-between border-b px-3 md:h-16">
         <ChatRelyWordmark
           href="/dashboard"
-          showText={!isCollapsed}
+          showText={!collapsedForUi}
           className="min-w-0 overflow-hidden"
           iconClassName="h-5 w-auto"
           textClassName="text-lg font-semibold text-ds-on-surface"
@@ -151,29 +161,31 @@ export function DashboardSidebar() {
         <button
           type="button"
           onClick={toggleSidebar}
+          suppressHydrationWarning
           className="text-ds-on-surface-variant hover:bg-ds-outline/70 hover:text-ds-on-surface rounded-md p-2 transition-colors"
-          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsedForUi ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <IconCollapse className={cn("size-4 transition-transform", isCollapsed && "rotate-180")} />
+          <IconCollapse className={cn("size-4 transition-transform", collapsedForUi && "rotate-180")} />
         </button>
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain p-2">
-        {sidebarNavItems.map((item) => {
+        {navItems.map((item) => {
+          const isAnalyticsItem = item.href === "/analytics";
           const itemActive = isRouteActive(pathname, item.href);
           const childActive = item.children ? hasActiveChild(pathname, item.children) : false;
           const sectionOpen = item.children ? openSections[item.href] : false;
           const showAsActive = itemActive || childActive;
 
-          const flyoutOpen = isCollapsed && item.children && collapsedFlyoutHref === item.href;
+          const flyoutOpen = collapsedForUi && item.children && collapsedFlyoutHref === item.href;
 
           return (
             <div
               key={item.href}
-              ref={isCollapsed && item.children && collapsedFlyoutHref === item.href ? flyoutContainerRef : undefined}
-              className="group relative"
+              ref={collapsedForUi && item.children && collapsedFlyoutHref === item.href ? flyoutContainerRef : undefined}
+              className={cn("group relative", isAnalyticsItem && !showAnalyticsNav && "hidden")}
             >
-              {item.children && !isCollapsed ? (
+              {item.children && !collapsedForUi ? (
                 <button
                   type="button"
                   onClick={() => toggleSection(item.href)}
@@ -193,7 +205,7 @@ export function DashboardSidebar() {
                     )}
                   />
                 </button>
-              ) : item.children && isCollapsed ? (
+              ) : item.children && collapsedForUi ? (
                 <button
                   type="button"
                   onClick={() => setCollapsedFlyoutHref((prev) => (prev === item.href ? null : item.href))}
@@ -210,20 +222,20 @@ export function DashboardSidebar() {
               ) : (
                 <Link
                   href={item.href}
-                  title={isCollapsed ? item.label : undefined}
+                  title={collapsedForUi ? item.label : undefined}
                   className={cn(
-                    isCollapsed
+                    collapsedForUi
                       ? collapsedRailItemClass
                       : "flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
                     showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
                   )}
                 >
                   {item.icon("size-5 shrink-0")}
-                  {!isCollapsed && <span className="truncate">{item.label}</span>}
+                  {!collapsedForUi && <span className="truncate">{item.label}</span>}
                 </Link>
               )}
 
-              {isCollapsed && !item.children && (
+              {collapsedForUi && !item.children && (
                 <div className="bg-ds-primary text-ds-on-primary pointer-events-none absolute top-1/2 left-full z-20 ml-2 -translate-y-1/2 rounded-md px-2 py-1 text-xs opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
                   {item.label}
                 </div>
@@ -262,7 +274,7 @@ export function DashboardSidebar() {
                 </div>
               )}
 
-              {!isCollapsed && item.children && sectionOpen && (
+              {!collapsedForUi && item.children && sectionOpen && (
                 <div className="border-ds-outline/70 mt-1 ml-7 flex flex-col gap-1 border-l pl-3">
                   {item.children.map((child) => {
                     const baseChildClass =

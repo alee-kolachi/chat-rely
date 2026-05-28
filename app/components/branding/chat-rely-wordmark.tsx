@@ -40,7 +40,7 @@ export function ChatRelyWordmark({
 
   if (href) {
     return (
-      <Link href={href} className={merged}>
+      <Link href={href} className={merged} suppressHydrationWarning>
         {icon}
         {label}
       </Link>
@@ -48,7 +48,7 @@ export function ChatRelyWordmark({
   }
 
   return (
-    <span className={merged}>
+    <span className={merged} suppressHydrationWarning>
       {icon}
       {label}
     </span>

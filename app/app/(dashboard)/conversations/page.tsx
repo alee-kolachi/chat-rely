@@ -6,10 +6,14 @@ import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
+import { formatLocaleDateTime, formatLocaleTime } from "@/lib/format-locale-datetime";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
 /** Used only when SSE connection fails (fallback). */
 const POLL_FALLBACK_MS = 15_000;
+/** Clear queue spinner if live stream is slow; REST fetch still runs first. */
+const WORKSPACE_LOAD_TIMEOUT_MS = 12_000;
 
 function startOfLocalDayIso(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -62,13 +66,14 @@ function ConversationMessagesSkeleton() {
 }
 
 function ConversationsPageContent() {
+  const localeReady = useClientMounted();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const conversationFromUrl = searchParams.get("conversation");
   const agentFromUrl = searchParams.get("agent");
   const trainingTopicFromUrl = searchParams.get("training_topic");
-  const { selectedAgentId } = useDashboardAgent();
+  const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -95,9 +100,14 @@ function ConversationsPageContent() {
   const skipNextMessagesRefreshRef = useRef(false);
   const messagesRequestIdRef = useRef(0);
   const messagesByConversationRef = useRef<Record<string, ConversationMessage[]>>({});
+  const conversationsCountRef = useRef(0);
   useLayoutEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
+
+  useEffect(() => {
+    conversationsCountRef.current = conversations.length;
+  }, [conversations.length]);
 
   const cacheMessages = useCallback((conversationId: string, nextMessages: ConversationMessage[]) => {
     messagesByConversationRef.current = {
@@ -334,13 +344,6 @@ function ConversationsPageContent() {
     void fetchSummaryState(conversationId, { silent: true });
   }
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      void loadConversations();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [loadConversations]);
-
   const refreshMessages = useCallback(
     async (conversationId: string, opts?: { silent?: boolean }) => {
       const silent = Boolean(opts?.silent);
@@ -397,8 +400,31 @@ function ConversationsPageContent() {
   }, [selectedConversationId, refreshMessages]);
 
   useEffect(() => {
+    const agentId = (agentFromUrl ?? "").trim() || selectedAgentId;
+    if (!agentId) {
+      if (!agentsLoading) {
+        setLoading(false);
+      }
+      return;
+    }
+
     const ac = new AbortController();
     let fallbackId: ReturnType<typeof setInterval> | null = null;
+    let loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    void loadConversations({ silent: conversationsCountRef.current > 0 });
+
+    loadingTimeoutId = window.setTimeout(() => {
+      setLoading((current) => {
+        if (!current) return current;
+        setError(
+          (prev) =>
+            prev ??
+            "Live updates are slow. The list below is from your last fetch; refresh if it looks empty."
+        );
+        return false;
+      });
+    }, WORKSPACE_LOAD_TIMEOUT_MS);
 
     const applyWorkspace = (data: {
       conversations: Conversation[];
@@ -408,6 +434,7 @@ function ConversationsPageContent() {
       } | null;
     }) => {
       setConversations(data.conversations);
+      setLoading(false);
       if (data.detail) {
         const visible = data.detail.messages.filter(isRenderableTranscriptMessage);
         cacheMessages(data.detail.conversation.id, visible);
@@ -486,12 +513,14 @@ function ConversationsPageContent() {
 
     return () => {
       ac.abort();
+      if (loadingTimeoutId) window.clearTimeout(loadingTimeoutId);
       if (fallbackId) window.clearInterval(fallbackId);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [
     agentFromUrl,
     selectedAgentId,
+    agentsLoading,
     statusFilter,
     dateFrom,
     dateTo,
@@ -660,7 +689,7 @@ function ConversationsPageContent() {
               </div>
             ) : null}
             <div className="divide-ds-outline min-h-0 flex-1 divide-y overflow-y-auto overscroll-contain">
-              {loading ? (
+              {loading && conversations.length === 0 ? (
                 <p className="text-ds-on-surface-variant p-4 text-sm">Loading conversations…</p>
               ) : null}
               {!loading && conversations.length === 0 ? (
@@ -679,7 +708,7 @@ function ConversationsPageContent() {
                   <div className="mb-1 flex items-start justify-between gap-2">
                     <p className="ds-app-card-title">{item.id.slice(0, 8)}</p>
                     <span className="ds-app-caption shrink-0">
-                      {new Date(item.last_activity_at || item.updated_at).toLocaleTimeString()}
+                      {formatLocaleTime(item.last_activity_at || item.updated_at, localeReady)}
                     </span>
                   </div>
                   <p className="ds-app-body-muted line-clamp-1">
@@ -757,7 +786,8 @@ function ConversationsPageContent() {
                   <h4 className="text-ds-on-surface text-sm font-semibold">Conversation summary</h4>
                   {selectedSummary?.computed_at ? (
                     <span className="text-ds-on-surface-variant text-[11px]">
-                      Generated {new Date(selectedSummary.computed_at).toLocaleString()}
+                      Generated{" "}
+                      {formatLocaleDateTime(selectedSummary.computed_at, localeReady, undefined, "—")}
                       {selectedSummary.stale ? " · thread updated" : ""}
                     </span>
                   ) : null}
@@ -841,7 +871,7 @@ function ConversationsPageContent() {
                           message.role === "user" ? "text-ds-on-primary/80" : "text-ds-on-surface-variant"
                         )}
                       >
-                        {new Date(message.created_at).toLocaleTimeString()}
+                        {formatLocaleTime(message.created_at, localeReady)}
                       </div>
                     </div>
                   </div>

@@ -3,22 +3,15 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { useMeContext } from "@/components/layout/me-context-provider";
-
-function formatPeriod(s: string, e: string): string {
-  try {
-    const a = new Date(s);
-    const b = new Date(e);
-    return `${a.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} – ${b.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
-  } catch {
-    return `${s} – ${e}`;
-  }
-}
+import { formatLocaleDate, formatLocaleNumber } from "@/lib/format-locale-datetime";
+import { useClientMounted } from "@/lib/use-client-mounted";
 
 function formatThrottleTier(tier: string): string {
   return tier.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export default function UsagePage() {
+  const localeReady = useClientMounted();
   const { data: ctx, error, loading } = useMeContext();
 
   const snap = ctx?.usage_snapshot;
@@ -44,7 +37,18 @@ export default function UsagePage() {
               {snap ? (
                 <>
                   {" "}
-                  · Current period: {formatPeriod(snap.period_start, snap.period_end)}
+                  · Current period:{" "}
+                  {formatLocaleDate(snap.period_start, localeReady, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}{" "}
+                  –{" "}
+                  {formatLocaleDate(snap.period_end, localeReady, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
                 </>
               ) : null}
             </p>
@@ -76,9 +80,9 @@ export default function UsagePage() {
                   </>
                 ) : (
                   <>
-                    <span>{used.toLocaleString()}</span>
+                    <span>{formatLocaleNumber(used, localeReady)}</span>
                     <span className="text-ds-on-surface-variant text-base font-normal">
-                      / {included.toLocaleString()} included
+                      / {formatLocaleNumber(included, localeReady)} included
                     </span>
                   </>
                 )}
@@ -109,7 +113,7 @@ export default function UsagePage() {
                 {beyondIncluded > 0 ? (
                   <div className="flex justify-between gap-4">
                     <dt className="text-ds-on-surface-variant">Above included allowance</dt>
-                    <dd className="font-medium tabular-nums">{beyondIncluded.toLocaleString()}</dd>
+                    <dd className="font-medium tabular-nums">{formatLocaleNumber(beyondIncluded, localeReady)}</dd>
                   </div>
                 ) : null}
               </dl>

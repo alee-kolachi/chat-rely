@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useNotifications } from "@/components/layout/notifications-context";
 import { formatNotificationTime } from "@/lib/notifications";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
 export default function NotificationsPage() {
+  const localeReady = useClientMounted();
   const { notifications, markRead, markAllRead } = useNotifications();
 
   return (
@@ -60,7 +62,7 @@ export default function NotificationsPage() {
                         </span>
                       </div>
                       <span className="ds-app-body-muted shrink-0">
-                        {formatNotificationTime(notification.created_at)}
+                        {formatNotificationTime(notification.created_at, localeReady)}
                       </span>
                     </div>
                     <p className="text-ds-on-surface-variant text-sm leading-relaxed">{notification.body}</p>

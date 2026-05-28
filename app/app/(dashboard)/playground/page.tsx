@@ -608,13 +608,18 @@ function PlaygroundPreviewConversation({
   }
 
   async function handleSendMessage() {
-    if (!agentId || !messageInput.trim() || isSending || historyThreadLoading) return;
+    const draft = (messageInputRef.current?.value ?? messageInput).trim();
+    if (!agentId || !draft || isSending || historyThreadLoading) return;
     stickToBottomRef.current = true;
     // `blockThreadSyncRef` is otherwise updated in layout after commit; without this, an in-flight
     // poll can finish between optimistic updates and that effect and overwrite the transcript.
     blockThreadSyncRef.current = true;
-    const userMessage = messageInput.trim();
+    const userMessage = draft;
     setMessageInput("");
+    if (messageInputRef.current) {
+      messageInputRef.current.value = "";
+      resizePlaygroundComposer(messageInputRef.current);
+    }
     setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
     setIsSending(true);
     setChatError(null);
@@ -1098,6 +1103,8 @@ function PlaygroundPreviewConversation({
                 onKeyDown={(e) => {
                   if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
                   e.preventDefault();
+                  const draft = (messageInputRef.current?.value ?? messageInput).trim();
+                  if (!draft || isSending || historyThreadLoading) return;
                   void handleSendMessage();
                 }}
               />

@@ -11,6 +11,7 @@ import {
   IconQuote,
   IconRefresh,
 } from "@/components/knowledge/knowledge-icons";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
 export type KnowledgeWebsiteUsage = {
@@ -54,10 +55,12 @@ export function DataSourcesSidebar({
   usage,
   usageLoading = false,
 }: DataSourcesSidebarProps) {
+  const localeReady = useClientMounted();
   const shared = useKnowledgeDataSources();
   const resolvedAgentId = agentId ?? shared?.agentId;
   const resolvedUsage = usage ?? shared?.usage ?? null;
-  const resolvedUsageLoading = usage === undefined ? (shared?.usageLoading ?? usageLoading) : usageLoading;
+  const resolvedUsageLoading =
+    !localeReady || (usage === undefined ? (shared?.usageLoading ?? usageLoading) : usageLoading);
 
   const persistedUsedBytes = resolvedUsage?.used_storage_bytes ?? 0;
   const shownUsedBytes = persistedUsedBytes;
@@ -128,7 +131,10 @@ export function DataSourcesSidebar({
   const qaCount = resolvedUsage?.total_qa_pairs ?? 0;
   const snippetCount = resolvedUsage?.total_snippets ?? 0;
   const fileCount = resolvedUsage?.total_files ?? 0;
-  const websitePages = resolvedUsage?.total_links ?? 0;
+  const websiteSources = shared?.websiteSources ?? null;
+  const sourceLinkPages =
+    websiteSources?.reduce((sum, source) => sum + Math.max(0, source.link_count ?? 0), 0) ?? 0;
+  const websitePages = Math.max(resolvedUsage?.total_links ?? 0, sourceLinkPages);
 
   return (
     <aside

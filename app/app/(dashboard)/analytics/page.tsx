@@ -22,6 +22,8 @@ import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
+import { formatLocaleDateTime, formatLocaleNumber } from "@/lib/format-locale-datetime";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import {
   buildTimeSeriesChartModel,
   CHART_VB_H,
@@ -77,14 +79,15 @@ function formatAvgResponse(ms: number | null | undefined): string {
   return `${Math.round(ms)}ms`;
 }
 
-function formatKpiNumber(n: number): string {
-  return n.toLocaleString();
+function formatKpiNumber(n: number, localeReady: boolean): string {
+  return formatLocaleNumber(n, localeReady);
 }
 
 const DONUT_R = 40;
 const DONUT_C = 2 * Math.PI * DONUT_R;
 
 export default function AnalyticsPage() {
+  const localeReady = useClientMounted();
   const router = useRouter();
   const { data: meData, loading: meContextLoading } = useMeContext();
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
@@ -257,7 +260,7 @@ export default function AnalyticsPage() {
     return [
       {
         label: "Total chats",
-        value: data ? formatKpiNumber(started) : "-",
+        value: data ? formatKpiNumber(started, localeReady) : "-",
         delta: "-",
         positive: true,
       },
@@ -280,7 +283,7 @@ export default function AnalyticsPage() {
         positive: true,
       },
     ];
-  }, [data]);
+  }, [data, localeReady]);
 
   const showFullAnalytics = data?.analytics_tier === "full";
 
@@ -508,7 +511,7 @@ export default function AnalyticsPage() {
                     <div>
                       <p className="ds-app-card-title">{intent.label}</p>
                       <p className="ds-app-body-muted">
-                        {formatKpiNumber(intent.count)} conversations
+                        {formatKpiNumber(intent.count, localeReady)} conversations
                       </p>
                     </div>
                     <span className="ds-app-body-muted font-semibold">-</span>
@@ -686,19 +689,19 @@ export default function AnalyticsPage() {
               <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
                 <p className="ds-app-body-muted font-medium">Thumbs up</p>
                 <p className="ds-app-metric-value mt-1 text-xl">
-                  {formatKpiNumber(data.message_feedback.thumbs_up_count)}
+                  {formatKpiNumber(data.message_feedback.thumbs_up_count, localeReady)}
                 </p>
               </div>
               <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
                 <p className="ds-app-body-muted font-medium">Open thumbs down</p>
                 <p className="ds-app-metric-value mt-1 text-xl">
-                  {formatKpiNumber(data.message_feedback.thumbs_down_unresolved_count)}
+                  {formatKpiNumber(data.message_feedback.thumbs_down_unresolved_count, localeReady)}
                 </p>
               </div>
               <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
                 <p className="ds-app-body-muted font-medium">Resolved thumbs down</p>
                 <p className="ds-app-metric-value mt-1 text-xl">
-                  {formatKpiNumber(data.message_feedback.thumbs_down_resolved_count)}
+                  {formatKpiNumber(data.message_feedback.thumbs_down_resolved_count, localeReady)}
                 </p>
               </div>
             </div>
@@ -735,7 +738,7 @@ export default function AnalyticsPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-ds-on-surface text-sm leading-snug">{row.content_preview}</p>
                       <p className="text-ds-on-surface-variant mt-1 text-[11px]">
-                        {new Date(row.feedback_at).toLocaleString()}
+                        {formatLocaleDateTime(row.feedback_at, localeReady)}
                       </p>
                       <Link
                         href={`/conversations?conversation=${encodeURIComponent(row.conversation_id)}`}
@@ -771,7 +774,7 @@ export default function AnalyticsPage() {
                       <span className="text-ds-on-surface line-clamp-2 text-sm">{row.content_preview}</span>
                       {row.resolved_at ? (
                         <span className="mt-1 block">
-                          Resolved {new Date(row.resolved_at).toLocaleString()}
+                          Resolved {formatLocaleDateTime(row.resolved_at, localeReady)}
                         </span>
                       ) : null}
                     </li>

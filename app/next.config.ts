@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
         destination: "/onboarding/knowledge-base",
         permanent: false,
       },
+      { source: "/profile", destination: "/account/profile", permanent: true },
+      { source: "/account", destination: "/account/profile", permanent: true },
     ];
   },
   async rewrites() {

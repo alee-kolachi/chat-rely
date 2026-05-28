@@ -15,7 +15,8 @@ export type NotificationsListResponse = {
 };
 
 /** Relative time for notification lists (compact). */
-export function formatNotificationTime(iso: string): string {
+export function formatNotificationTime(iso: string, localeReady = true): string {
+  if (!localeReady) return "—";
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return "";
   const diff = Math.max(0, Date.now() - t);

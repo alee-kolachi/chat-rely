@@ -6,16 +6,18 @@ import { usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 import { useNotifications } from "@/components/layout/notifications-context";
 import { formatNotificationTime } from "@/lib/notifications";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
 const MENU_LIMIT = 8;
 
 export function NotificationsMenu() {
   const pathname = usePathname();
+  const localeReady = useClientMounted();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
-  const hasUnread = unreadCount > 0;
+  const hasUnread = localeReady && unreadCount > 0;
   const onNotificationsPage = pathname === "/notifications" || pathname.startsWith("/notifications/");
   const preview = notifications.slice(0, MENU_LIMIT);
 
@@ -49,7 +51,7 @@ export function NotificationsMenu() {
         aria-haspopup="menu"
       >
         <IconBell className="size-[1.1rem]" />
-        {unreadCount > 0 ? (
+        {hasUnread ? (
           <span className="bg-ds-primary text-ds-on-primary absolute -top-1 -right-1 min-w-[1.05rem] rounded-full px-1 text-center text-[10px] font-bold leading-4 tabular-nums">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
@@ -91,7 +93,7 @@ export function NotificationsMenu() {
                   <div className="mb-1 flex items-start justify-between gap-2">
                     <p className="ds-app-card-title">{notification.title}</p>
                     <span className="ds-app-caption shrink-0">
-                      {formatNotificationTime(notification.created_at)}
+                      {formatNotificationTime(notification.created_at, localeReady)}
                     </span>
                   </div>
                   <p className="ds-app-body-muted line-clamp-2">

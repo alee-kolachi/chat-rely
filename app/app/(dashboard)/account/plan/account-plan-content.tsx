@@ -8,7 +8,13 @@ import type { MeContextPayload } from "@/components/layout/me-context-provider";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { getAppSiteOrigin } from "@/lib/app-site-origin";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import {
+  formatLocaleCurrency,
+  formatLocaleDate,
+  formatLocaleNumber,
+} from "@/lib/format-locale-datetime";
 import { buildPlanEntitlementSections } from "@/lib/plan-entitlements";
+import { useClientMounted } from "@/lib/use-client-mounted";
 
 /** Tier order used for upgrade vs downgrade (matches billing price map). */
 const PAID_ORDER = ["hobby", "standard", "pro"] as const;
@@ -22,18 +28,6 @@ function formatPlanLabel(slug: string): string {
   return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
-function formatMoney(cents: number): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
-  } catch {
-    return iso;
-  }
-}
-
 function formatThrottleTier(tier: string): string {
   return tier.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -45,7 +39,8 @@ const resourceMetricValueClass = "text-ds-on-surface text-sm font-semibold tabul
 
 export function AccountPlanContent() {
   const searchParams = useSearchParams();
-  const { data: ctx, error, refresh } = useMeContext();
+  const localeReady = useClientMounted();
+  const { data: ctx, error, loading, refresh } = useMeContext();
   const { agents, agentsLoading } = useDashboardAgent();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busySlug, setBusySlug] = useState<string | null>(null);
@@ -339,7 +334,7 @@ export function AccountPlanContent() {
         setPlanChangeBanner(`Your plan is now ${formatPlanLabel(latest.plan.slug)}.`);
       } else if (latest?.subscription.cancel_at_period_end) {
         setPlanChangeBanner(
-          `Cancellation is scheduled. You keep ${latest.plan.name} until ${formatDate(latest.subscription.current_period_end)}, then move to Free.`,
+          `Cancellation is scheduled. You keep ${latest.plan.name} until ${formatLocaleDate(latest.subscription.current_period_end, true)}, then move to Free.`,
         );
       } else {
         setPlanChangeBanner("Billing updated. Refresh if plan details still look out of date.");
@@ -401,7 +396,7 @@ export function AccountPlanContent() {
           </div>
         ) : null}
 
-        {!ctx && !(loadError || error) ? (
+        {!ctx && (loading || !(loadError || error)) ? (
           <p className="text-ds-on-surface-variant mt-6 text-sm">Loading…</p>
         ) : null}
 
@@ -415,15 +410,15 @@ export function AccountPlanContent() {
                   <div className={resourceMetricRowClass}>
                     <p className="ds-app-card-title">AI agents</p>
                     <p className={resourceMetricValueClass}>
-                      {agentsLoading ? "…" : agents.length.toLocaleString()} /{" "}
-                      {ctx.plan.max_agents.toLocaleString()}
+                      {agentsLoading ? "…" : formatLocaleNumber(agents.length, localeReady)} /{" "}
+                      {formatLocaleNumber(ctx.plan.max_agents, localeReady)}
                     </p>
                   </div>
                   <div className={resourceMetricRowClass}>
                     <p className="ds-app-card-title">Conversations (this cycle)</p>
                     <p className={resourceMetricValueClass}>
-                      {(ctx.usage_snapshot?.conversations_used ?? 0).toLocaleString()} /{" "}
-                      {ctx.plan.included_conversations.toLocaleString()}
+                      {formatLocaleNumber(ctx.usage_snapshot?.conversations_used ?? 0, localeReady)} /{" "}
+                      {formatLocaleNumber(ctx.plan.included_conversations, localeReady)}
                     </p>
                   </div>
                   {ctx.usage_snapshot ? (
@@ -490,24 +485,27 @@ export function AccountPlanContent() {
               >
                 <h2 className="ds-app-section-title mb-3 text-base">Current cycle</h2>
                 <p className="text-ds-on-surface-variant text-sm">
-                  {formatDate(ctx.subscription.current_period_start)} – {formatDate(ctx.subscription.current_period_end)}
+                  {formatLocaleDate(ctx.subscription.current_period_start, localeReady)} –{" "}
+                  {formatLocaleDate(ctx.subscription.current_period_end, localeReady)}
                 </p>
                 {ctx.subscription.cancel_at_period_end ? (
                   <p className="mt-2 rounded-ds-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                     Cancellation scheduled — you keep {ctx.plan.name} until{" "}
-                    {formatDate(ctx.subscription.current_period_end)}, then your workspace moves to Free.
+                    {formatLocaleDate(ctx.subscription.current_period_end, localeReady)}, then your workspace moves to Free.
                   </p>
                 ) : null}
                 <div className="mt-5 space-y-3">
                   <div className="rounded-ds-lg bg-ds-sidebar/80 p-3 ring-1 ring-ds-outline/60">
                     <p className="ds-app-body-muted font-medium">Plan price</p>
-                    <p className="ds-app-metric-value mt-1 text-xl">{formatMoney(ctx.plan.monthly_price_cents)}/mo</p>
+                    <p className="ds-app-metric-value mt-1 text-xl">
+                      {formatLocaleCurrency(ctx.plan.monthly_price_cents, localeReady)}/mo
+                    </p>
                   </div>
                   {ctx.usage_snapshot && ctx.usage_snapshot.estimated_overage_cents > 0 ? (
                     <div className="rounded-ds-lg bg-ds-sidebar/80 p-3 ring-1 ring-ds-outline/60">
                       <p className="ds-app-body-muted font-medium">Estimated conversation overage</p>
                       <p className="ds-app-metric-value mt-1 text-xl">
-                        {formatMoney(ctx.usage_snapshot.estimated_overage_cents)}
+                        {formatLocaleCurrency(ctx.usage_snapshot.estimated_overage_cents, localeReady)}
                       </p>
                     </div>
                   ) : null}

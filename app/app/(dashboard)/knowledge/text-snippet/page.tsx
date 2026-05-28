@@ -26,22 +26,12 @@ import {
 import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { formatLocaleDateTime } from "@/lib/format-locale-datetime";
+import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
-function formatUpdatedAt(value: string | null): string {
-  if (!value) return "Not indexed yet";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "Not indexed yet";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export default function KnowledgeTextSnippetPage() {
+  const localeReady = useClientMounted();
   const searchParams = useSearchParams();
   const highlightSourceId = searchParams.get("source")?.trim() ?? null;
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
@@ -174,9 +164,8 @@ export default function KnowledgeTextSnippetPage() {
           }),
         });
       }
-      await loadSnippetSources?.({ silent: true });
-      await refreshUsage({ silent: true });
       resetForm();
+      setCreateExpanded(false);
     } catch (e) {
       if (e instanceof BackendApiError && e.code === "knowledge.storage_budget_exhausted") {
         setError(
@@ -187,6 +176,10 @@ export default function KnowledgeTextSnippetPage() {
       }
     } finally {
       setSaving(false);
+    }
+    if (selectedAgentId) {
+      void loadSnippetSources?.({ silent: true });
+      void refreshUsage({ silent: true });
     }
   }
 
@@ -455,7 +448,7 @@ export default function KnowledgeTextSnippetPage() {
                           {snippet.character_count.toLocaleString()}
                         </td>
                         <td className="ds-app-body-muted px-4 py-4">
-                          {formatUpdatedAt(snippet.last_indexed_at)}
+                          {formatLocaleDateTime(snippet.last_indexed_at, localeReady)}
                         </td>
                         <td className="px-5 py-4 text-right sm:px-6">
                           <div className="relative inline-flex">
