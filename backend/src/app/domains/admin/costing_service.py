@@ -28,6 +28,7 @@ from app.domains.admin.costing import (
     embedding_pricing_status,
     unknown_models_warning,
 )
+from app.domains.plans.subscription_queries import ACTIVE_SUBSCRIPTION_ORDER_BY
 from app.domains.admin.schemas import (
     AdminConversationCost,
     AdminCostByAgentRow,
@@ -544,13 +545,18 @@ async def _period_costs(
         (
             await db.execute(
                 text(
-                    """
-                    select coalesce(sum(p.monthly_price_cents), 0)::int as v
-                    from public.subscriptions s
-                    join public.plans p on p.id = s.plan_id
-                    where s.status in ('active', 'trialing')
-                      and s.current_period_start < :period_end
-                      and s.current_period_end >= :period_start
+                    f"""
+                    select coalesce(sum(monthly_price_cents), 0)::int as v
+                    from (
+                      select distinct on (s.user_id)
+                        p.monthly_price_cents
+                      from public.subscriptions s
+                      join public.plans p on p.id = s.plan_id
+                      where s.status in ('active', 'trialing')
+                        and s.current_period_start < :period_end
+                        and s.current_period_end >= :period_start
+                      order by s.user_id, {ACTIVE_SUBSCRIPTION_ORDER_BY}
+                    ) per_user
                     """
                 ),
                 {"period_start": period_start, "period_end": period_end},
@@ -729,7 +735,7 @@ async def _user_costing_rows(
           from public.subscriptions s
           join public.plans p on p.id = s.plan_id
           where s.status in ('active', 'trialing')
-          order by s.user_id, s.current_period_end desc
+          order by s.user_id, {ACTIVE_SUBSCRIPTION_ORDER_BY}
         ),
         llm_costs as (
           select m.user_id, coalesce(sum({llm_expr}), 0.0)::float as cost

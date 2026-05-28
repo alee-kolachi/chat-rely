@@ -53,6 +53,8 @@ def _make_overview() -> AdminOverview:
         gross_margin_mtd_usd=335.0,
         gross_margin_mtd_pct=96.26,
         pricing_unknown_models=["weird-model-1"],
+        embedding_model="text-embedding-3-small",
+        embedding_model_priced=True,
     )
 
 

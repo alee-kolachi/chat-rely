@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.core.settings import Settings, get_settings
+from app.domains.plans.subscription_queries import ACTIVE_SUBSCRIPTION_ORDER_BY
 from app.domains.admin.costing import (
     build_embedding_cost_usd_expr,
     build_llm_cost_usd_expr,
@@ -105,7 +106,8 @@ async def list_admin_users(
             p.monthly_price_cents
           from public.subscriptions s
           join public.plans p on p.id = s.plan_id
-          order by s.user_id, s.current_period_end desc
+          where s.status in ('active', 'trialing')
+          order by s.user_id, {ACTIVE_SUBSCRIPTION_ORDER_BY}
         ),
         agent_counts as (
           select user_id, count(*)::int as n from public.agents group by user_id

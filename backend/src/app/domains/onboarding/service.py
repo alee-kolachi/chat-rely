@@ -101,6 +101,15 @@ async def _set_checklist_status(
     )
 
 
+async def _ensure_agent_owned(db: AsyncSession, user_id: UUID, agent_id: UUID) -> None:
+    row = await db.execute(
+        text("select 1 from public.agents where id = :agent_id and user_id = :user_id"),
+        {"agent_id": str(agent_id), "user_id": str(user_id)},
+    )
+    if row.scalar_one_or_none() is None:
+        raise AppError(code="agents.not_found", message="Agent not found", status_code=404)
+
+
 async def start_onboarding(db: AsyncSession, user_id: UUID, payload: OnboardingStartRequest) -> OnboardingStartResponse:
     agent = await create_agent(db, user_id, AgentCreateRequest(name=payload.name, slug=payload.slug))
     await _ensure_session(db, user_id, agent.id, current_step=1)
@@ -113,6 +122,7 @@ async def start_onboarding(db: AsyncSession, user_id: UUID, payload: OnboardingS
 async def submit_website(
     db: AsyncSession, user_id: UUID, payload: OnboardingWebsiteRequest
 ) -> OnboardingWebsiteResponse:
+    await _ensure_agent_owned(db, user_id, payload.agent_id)
     source = await create_source_website(db, user_id, payload)
     _, job = await enqueue_index_website_source_queued(db, source.id, user_id)
     final_job = await get_latest_job(db, source.id, user_id)
@@ -185,6 +195,7 @@ async def create_source_website(db: AsyncSession, user_id: UUID, payload: Onboar
 
 
 async def save_preferences(db: AsyncSession, user_id: UUID, payload: OnboardingPreferencesRequest) -> None:
+    await _ensure_agent_owned(db, user_id, payload.agent_id)
     behavior_settings: dict[str, str] = {}
     if payload.tone is not None:
         behavior_settings["tone"] = payload.tone
@@ -205,6 +216,7 @@ async def save_preferences(db: AsyncSession, user_id: UUID, payload: OnboardingP
 
 
 async def finish_onboarding(db: AsyncSession, user_id: UUID, payload: OnboardingFinishRequest) -> None:
+    await _ensure_agent_owned(db, user_id, payload.agent_id)
     await _ensure_session(db, user_id, payload.agent_id, current_step=6)
     await db.execute(
         text(
@@ -221,6 +233,7 @@ async def finish_onboarding(db: AsyncSession, user_id: UUID, payload: Onboarding
 
 
 async def get_onboarding_status(db: AsyncSession, user_id: UUID, agent_id: UUID) -> OnboardingStatusResponse:
+    await _ensure_agent_owned(db, user_id, agent_id)
     session_row = (
         await db.execute(
             text(

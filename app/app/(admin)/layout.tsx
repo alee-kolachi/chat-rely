@@ -1,14 +1,11 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { createServerSupabaseClient, getValidatedServerAuth } from "@/lib/supabase-server";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) notFound();
+  const auth = await getValidatedServerAuth();
+  if (!auth) notFound();
 
   const base = (
     process.env.BACKEND_INTERNAL_URL ||
@@ -20,7 +17,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   let res: Response;
   try {
     res = await fetch(`${base}/api/v1/admin/me`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${auth.session.access_token}` },
       cache: "no-store",
     });
   } catch {

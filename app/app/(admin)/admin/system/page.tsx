@@ -1,5 +1,6 @@
+import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import { AdminKpiCard } from "@/components/admin/admin-kpi-card";
-import { getAdminSystemHealth, type AdminSystemHealth } from "@/lib/admin/api";
+import { AdminApiError, getAdminSystemHealth, type AdminSystemHealth } from "@/lib/admin/api";
 import { formatRelative, isStale } from "@/lib/admin/relative-time";
 import { cn } from "@/lib/utils";
 
@@ -7,7 +8,15 @@ const STALE_INDEXING_MS = 30 * 60 * 1000;
 const STALE_MAINTENANCE_MS = 6 * 60 * 60 * 1000;
 
 export default async function AdminSystemPage() {
-  const health = await getAdminSystemHealth();
+  let health;
+  try {
+    health = await getAdminSystemHealth();
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return <AdminApiErrorPanel title="Could not load system health" message={err.message} />;
+    }
+    throw err;
+  }
   const unknown = health.pricing_configured.unknown_models_in_messages;
 
   return (

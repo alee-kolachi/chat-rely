@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import { AdminKpiCard } from "@/components/admin/admin-kpi-card";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
-import { getAdminOverview, type AdminOverview } from "@/lib/admin/api";
+import { AdminApiError, getAdminOverview, type AdminOverview } from "@/lib/admin/api";
 import { formatCostUsd, formatMarginPct } from "@/lib/admin/cost-format";
 import { formatRelative, isStale } from "@/lib/admin/relative-time";
 
@@ -12,47 +13,66 @@ export const dynamic = "force-dynamic";
 const INDEXING_STALL_MS = 10 * 60 * 1_000;
 
 export default async function AdminOverviewPage() {
-  const overview = await getAdminOverview();
+  try {
+    const overview = await getAdminOverview();
 
-  return (
-    <div className="flex flex-col gap-6 p-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-ds-on-surface text-2xl font-semibold">Overview</h1>
-        <p className="text-ds-on-surface-variant text-sm">
-          Platform-wide pulse: signups, MRR, conversation volume, indexing queue health, and
-          recent activity. All numbers cross-tenant.
-        </p>
-      </header>
+    return (
+      <div className="flex flex-col gap-6 p-6">
+        <header className="flex flex-col gap-2">
+          <h1 className="text-ds-on-surface text-2xl font-semibold">Overview</h1>
+          <p className="text-ds-on-surface-variant text-sm">
+            Platform-wide pulse: signups, MRR, conversation volume, indexing queue health, and
+            recent activity. All numbers cross-tenant.
+          </p>
+        </header>
 
-      {overview.pricing_unknown_models.length > 0 && (
-        <PricingGapsHint models={overview.pricing_unknown_models} />
-      )}
+        {(overview.pricing_unknown_models.length > 0 || !overview.embedding_model_priced) && (
+          <PricingGapsHint overview={overview} />
+        )}
 
-      <KpiRow overview={overview} />
+        <KpiRow overview={overview} />
 
-      <CostingSummaryCard overview={overview} />
+        <CostingSummaryCard overview={overview} />
 
-      <RecentActivity overview={overview} />
+        <RecentActivity overview={overview} />
 
-      <WorkerHeartbeats overview={overview} />
+        <WorkerHeartbeats overview={overview} />
 
-      <RecentStripeEvents overview={overview} />
-    </div>
-  );
+        <RecentStripeEvents overview={overview} />
+      </div>
+    );
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return <AdminApiErrorPanel title="Could not load overview" message={err.message} />;
+    }
+    throw err;
+  }
 }
 
-function PricingGapsHint({ models }: { models: string[] }) {
+function PricingGapsHint({ overview }: { overview: AdminOverview }) {
+  const lines: string[] = [];
+  if (overview.pricing_unknown_models.length > 0) {
+    lines.push(
+      `${overview.pricing_unknown_models.length} LLM model${
+        overview.pricing_unknown_models.length === 1 ? "" : "s"
+      } in messages are not priced in env: ${overview.pricing_unknown_models
+        .map((m) => `'${m}'`)
+        .join(", ")}.`,
+    );
+  }
+  if (!overview.embedding_model_priced) {
+    lines.push(
+      `Embedding model '${overview.embedding_model}' is missing from EMBEDDING_PRICE_PER_MILLION_USD, so embedding cost shows as $0.`,
+    );
+  }
   return (
     <div className="border-amber-200/60 bg-amber-50/60 text-amber-900 flex flex-col gap-1 rounded-md border px-4 py-3 text-sm">
       <strong className="text-amber-900">Pricing gaps</strong>
-      <p className="text-amber-900/90 text-[13px]">
-        {models.length} model
-        {models.length === 1 ? "" : "s"} appearing in <code>messages.model</code> are not
-        priced in env: {models.map((m) => `'${m}'`).join(", ")}. They count $0 in the
-        costing roll-ups until added to{" "}
-        <code>LLM_INPUT_PRICE_PER_MILLION_USD</code> /{" "}
-        <code>LLM_OUTPUT_PRICE_PER_MILLION_USD</code>.
-      </p>
+      {lines.map((line) => (
+        <p key={line} className="text-amber-900/90 text-[13px]">
+          {line}
+        </p>
+      ))}
       <Link
         href="/admin/system"
         className="text-amber-900 hover:text-amber-950 mt-1 text-[12px] font-medium underline"

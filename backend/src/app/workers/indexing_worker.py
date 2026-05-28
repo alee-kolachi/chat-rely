@@ -33,7 +33,7 @@ async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
             )
         ).mappings().first()
         if row is not None:
-            await db.execute(
+            claim = await db.execute(
                 text(
                     """
                     update public.indexing_jobs
@@ -53,6 +53,8 @@ async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
                 {"job_id": str(row["id"])},
             )
             await db.commit()
+            if (claim.rowcount or 0) == 0:
+                return None
             return UUID(str(row["id"])), UUID(str(row["user_id"]))
 
         resume = (

@@ -36,7 +36,9 @@ export function useOnboardingIndexingStatus(agentId: string | null | undefined, 
       });
       return;
     }
-    void refresh();
+    queueMicrotask(() => {
+      void refresh();
+    });
     const timer = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void refresh();

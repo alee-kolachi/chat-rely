@@ -1150,6 +1150,13 @@ def _validate_source_payload(payload: KnowledgeSourceCreateRequest) -> None:
 async def create_source(db: AsyncSession, user_id: UUID, payload: KnowledgeSourceCreateRequest) -> KnowledgeSourceDTO:
     _validate_source_payload(payload)
 
+    agent_check = await db.execute(
+        text("select id from public.agents where id = :agent_id and user_id = :user_id"),
+        {"agent_id": str(payload.agent_id), "user_id": str(user_id)},
+    )
+    if agent_check.mappings().first() is None:
+        raise AppError(code="agents.not_found", message="Agent not found", status_code=404)
+
     src_status = (payload.status or "pending").strip() or "pending"
     raw_for_insert = (payload.raw_text or "").strip() if payload.type == "text_snippet" else None
 

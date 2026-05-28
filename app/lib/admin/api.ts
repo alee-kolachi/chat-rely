@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { getValidatedServerAuth } from "@/lib/supabase-server";
 
 // Admin pages are server components; we fetch directly from the internal backend URL using the
 // signed-in user's bearer token. Mirrors the bootstrap call already done in `(admin)/layout.tsx`.
@@ -27,18 +27,15 @@ export class AdminApiError extends Error {
 }
 
 async function adminFetch<T>(path: string): Promise<T> {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+  const auth = await getValidatedServerAuth();
+  if (!auth) {
     throw new AdminApiError("No active Supabase session", 401, "auth.no_session");
   }
   const url = `${getAdminBackendBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
   let res: Response;
   try {
     res = await fetch(url, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${auth.session.access_token}` },
       cache: "no-store",
     });
   } catch {
@@ -524,6 +521,8 @@ export type AdminOverview = {
   gross_margin_mtd_usd: number;
   gross_margin_mtd_pct: number | null;
   pricing_unknown_models: string[];
+  embedding_model: string;
+  embedding_model_priced: boolean;
 };
 
 // ----- Agents
@@ -953,12 +952,24 @@ export type ListAdminStripeEventsParams = {
   page_size?: number;
 };
 
+function normalizeAdminDatetimeFilter(value: string | null | undefined): string | undefined {
+  const raw = (value ?? "").trim();
+  if (!raw) return undefined;
+  const isoLike = raw.includes("T") ? raw : `${raw}T00:00:00`;
+  const parsed =
+    isoLike.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(isoLike)
+      ? new Date(isoLike)
+      : new Date(`${isoLike}Z`);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return parsed.toISOString();
+}
+
 export async function listAdminStripeEvents(
   params: ListAdminStripeEventsParams = {}
 ): Promise<AdminStripeEventListResponse> {
   const q = buildQuery({
     event_type: params.event_type ?? undefined,
-    processed_after: params.processed_after ?? undefined,
+    processed_after: normalizeAdminDatetimeFilter(params.processed_after ?? undefined),
     page: params.page,
     page_size: params.page_size,
   });

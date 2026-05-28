@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.settings import Settings, get_settings
 from app.domains.admin.costing import build_llm_cost_usd_expr
 from app.domains.admin.costing_service import get_platform_costing_overview
+from app.domains.plans.subscription_queries import ACTIVE_SUBSCRIPTION_ORDER_BY
 from app.domains.admin.schemas import (
     AdminConversationListItem,
     AdminIndexingJobRow,
@@ -45,16 +46,13 @@ async def get_admin_overview(
         await db.execute(
             text(
                 f"""
-                with sub_users as (
-                  select s.user_id
-                  from public.subscriptions s
-                  where s.status in ('active', 'trialing')
-                ),
-                mrr as (
-                  select coalesce(sum(p.monthly_price_cents), 0)::bigint as cents
+                with active_subs as (
+                  select distinct on (s.user_id)
+                    s.user_id, p.monthly_price_cents
                   from public.subscriptions s
                   join public.plans p on p.id = s.plan_id
                   where s.status in ('active', 'trialing')
+                  order by s.user_id, {ACTIVE_SUBSCRIPTION_ORDER_BY}
                 )
                 select
                   (select count(*)::int from auth.users) as total_users,
@@ -66,8 +64,11 @@ async def get_admin_overview(
                     select count(*)::int from auth.users u
                     where u.created_at >= now() - interval '7 days'
                   ) as signups_last_7d,
-                  (select count(*)::int from sub_users) as active_subscriptions,
-                  ((select cents from mrr)::float / 100.0) as mrr_usd,
+                  (select count(*)::int from active_subs) as active_subscriptions,
+                  (
+                    select coalesce(sum(monthly_price_cents), 0)::bigint
+                    from active_subs
+                  ) as mrr_cents,
                   (
                     select count(*)::int from public.conversations c
                     where c.started_at >= date_trunc('day', now() at time zone 'UTC')
@@ -95,7 +96,7 @@ async def get_admin_overview(
         signups_today=int(kpi_row["signups_today"]),
         signups_last_7d=int(kpi_row["signups_last_7d"]),
         active_subscriptions=int(kpi_row["active_subscriptions"]),
-        mrr_usd=float(kpi_row["mrr_usd"] or 0.0),
+        mrr_usd=float(kpi_row["mrr_cents"] or 0) / 100.0,
         conversations_today=int(kpi_row["conversations_today"]),
         conversations_mtd=int(kpi_row["conversations_mtd"]),
         indexing_queue_depth=int(kpi_row["indexing_queue_depth"]),
@@ -277,4 +278,6 @@ async def get_admin_overview(
         gross_margin_mtd_usd=cur.gross_margin_usd,
         gross_margin_mtd_pct=cur.gross_margin_pct,
         pricing_unknown_models=list(platform_costing.unknown_models),
+        embedding_model=platform_costing.embedding_model,
+        embedding_model_priced=platform_costing.embedding_model_priced,
     )

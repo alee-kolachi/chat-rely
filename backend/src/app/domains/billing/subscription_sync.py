@@ -590,15 +590,11 @@ async def sync_user_subscription_from_stripe(db: AsyncSession, *, user_id: UUID)
     status = str(best_sub.get("status") or "active").strip().lower()
     cape = bool(best_sub.get("cancel_at_period_end"))
 
-    # User canceled in Stripe (immediate or at period end) — workspace should be on Free.
-    if cape or status == "canceled":
+    if status == "canceled":
         await move_user_to_free_after_stripe_subscription_deleted(
             db, user_id=user_id, deleted_stripe_subscription_id=sub_id
         )
-        return {
-            "outcome": "downgraded_to_free",
-            "reason": "subscription_canceled" if status == "canceled" else "cancellation_scheduled",
-        }
+        return {"outcome": "downgraded_to_free", "reason": "subscription_canceled"}
 
     await upsert_user_subscription_from_stripe(
         db,

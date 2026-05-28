@@ -53,7 +53,7 @@ export default async function AdminConversationDetailPage({
   }
 
   const showByModel =
-    costBreakdown !== null && costBreakdown.by_model.length > 1;
+    costBreakdown !== null && costBreakdown.by_model.length > 0;
   const costEvents = costBreakdown?.cost_events ?? [];
   const showEventLedger = costEvents.length > 0;
 

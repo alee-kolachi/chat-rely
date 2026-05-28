@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import { AdminDataTable, AdminPagination, type AdminColumn } from "@/components/admin/admin-data-table";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import {
@@ -8,6 +9,7 @@ import {
   marginToneClass,
 } from "@/lib/admin/cost-format";
 import {
+  AdminApiError,
   listAdminUsers,
   type AdminUserListItem,
   type AdminUserSortBy,
@@ -61,13 +63,21 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: S
     : "signed_up_at";
   const sortDir: "asc" | "desc" = sortDirRaw === "asc" ? "asc" : "desc";
 
-  const data = await listAdminUsers({
-    q: q || null,
-    sort_by: sortBy,
-    sort_dir: sortDir,
-    page,
-    page_size: pageSize,
-  });
+  let data;
+  try {
+    data = await listAdminUsers({
+      q: q || null,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+      page,
+      page_size: pageSize,
+    });
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return <AdminApiErrorPanel title="Could not load users" message={err.message} />;
+    }
+    throw err;
+  }
 
   const buildHref = (overrides: Record<string, string | number | null | undefined>) => {
     const params = new URLSearchParams();

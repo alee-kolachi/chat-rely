@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import {
   AdminDataTable,
   AdminPagination,
@@ -7,6 +8,7 @@ import {
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import { AdminTabs } from "@/components/admin/admin-tabs";
 import {
+  AdminApiError,
   listAdminStripeEvents,
   listAdminSubscriptions,
   listAdminUsageSnapshots,
@@ -78,13 +80,25 @@ async function SubscriptionsTab({ sp }: { sp: ParsedSp }) {
   const page = Math.max(1, Number(pickString(sp.page) ?? "1") || 1);
   const pageSize = Math.max(1, Math.min(200, Number(pickString(sp.page_size) ?? "50") || 50));
 
-  const data = await listAdminSubscriptions({
-    user_email: userEmail || null,
-    plan_slug: planSlug || null,
-    status: status || null,
-    page,
-    page_size: pageSize,
-  });
+  let data;
+  try {
+    data = await listAdminSubscriptions({
+      user_email: userEmail || null,
+      plan_slug: planSlug || null,
+      status: status || null,
+      page,
+      page_size: pageSize,
+    });
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return (
+        <BillingShell tab="subscriptions">
+          <AdminApiErrorPanel title="Could not load subscriptions" message={err.message} />
+        </BillingShell>
+      );
+    }
+    throw err;
+  }
 
   const buildHref = (overrides: Record<string, string | number | null | undefined>) => {
     const params = new URLSearchParams({ tab: "subscriptions" });
@@ -405,12 +419,24 @@ async function StripeEventsTab({ sp }: { sp: ParsedSp }) {
   const page = Math.max(1, Number(pickString(sp.page) ?? "1") || 1);
   const pageSize = Math.max(1, Math.min(200, Number(pickString(sp.page_size) ?? "50") || 50));
 
-  const data = await listAdminStripeEvents({
-    event_type: eventType || null,
-    processed_after: processedAfter || null,
-    page,
-    page_size: pageSize,
-  });
+  let data;
+  try {
+    data = await listAdminStripeEvents({
+      event_type: eventType || null,
+      processed_after: processedAfter || null,
+      page,
+      page_size: pageSize,
+    });
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return (
+        <BillingShell tab="events">
+          <AdminApiErrorPanel title="Could not load Stripe events" message={err.message} />
+        </BillingShell>
+      );
+    }
+    throw err;
+  }
 
   const buildHref = (overrides: Record<string, string | number | null | undefined>) => {
     const params = new URLSearchParams({ tab: "events" });

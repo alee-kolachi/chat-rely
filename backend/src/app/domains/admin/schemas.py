@@ -395,6 +395,8 @@ class AdminOverview(BaseModel):
     gross_margin_mtd_usd: float = 0.0
     gross_margin_mtd_pct: float | None = None
     pricing_unknown_models: list[str] = Field(default_factory=list)
+    embedding_model: str = ""
+    embedding_model_priced: bool = True
 
 
 # ----- Agents --------------------------------------------------------------------

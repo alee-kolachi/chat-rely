@@ -2,7 +2,10 @@
 
 import { useEffect, useRef } from "react";
 
-import { clearChatrelyClientAccountCaches } from "@/lib/clear-client-account-caches";
+import {
+  CHATRELY_LAST_AUTH_USER_ID_KEY,
+  clearChatrelyClientAccountCaches,
+} from "@/lib/clear-client-account-caches";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
 /**
@@ -18,7 +21,12 @@ export function PostAuthCacheReset() {
     const onUserId = (id: string | null) => {
       if (!id || id === lastUserIdRef.current) return;
       lastUserIdRef.current = id;
-      clearChatrelyClientAccountCaches();
+      if (typeof window === "undefined") return;
+      const stored = window.sessionStorage.getItem(CHATRELY_LAST_AUTH_USER_ID_KEY);
+      if (stored && stored !== id) {
+        clearChatrelyClientAccountCaches();
+      }
+      window.sessionStorage.setItem(CHATRELY_LAST_AUTH_USER_ID_KEY, id);
     };
 
     void supabase.auth.getUser().then(({ data }) => {

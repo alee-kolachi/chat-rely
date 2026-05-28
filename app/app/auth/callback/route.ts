@@ -11,7 +11,9 @@ export async function GET(request: NextRequest) {
   const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 
   if (!code) {
-    return NextResponse.redirect(new URL(safeNext, requestUrl.origin));
+    const login = new URL("/login", requestUrl.origin);
+    login.searchParams.set("error", "Sign-in link was invalid or expired. Try again.");
+    return NextResponse.redirect(login);
   }
 
   const supabaseUrl = resolveSupabaseUrlFromHost(request.headers.get("host"));

@@ -4,9 +4,6 @@ import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { rewriteLoopbackServiceUrlForPageHost } from "@/lib/resolve-loopback-service-url-for-lan";
 
 const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000";
-let cachedAccessToken: string | null = null;
-let tokenCacheInitialized = false;
-let tokenCacheInitPromise: Promise<void> | null = null;
 
 export class BackendApiError extends Error {
   status: number;
@@ -26,6 +23,25 @@ export class BackendApiError extends Error {
     this.code = code;
     this.details = details;
     this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+export async function getAccessToken(): Promise<string | null> {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const supabase = createBrowserSupabaseClient();
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
+    if (error || !session?.access_token) {
+      return null;
+    }
+    return session.access_token;
+  } catch {
+    return null;
   }
 }
 
@@ -75,42 +91,6 @@ export function getBackendBaseUrl(): string {
   }
 
   return "";
-}
-
-async function initTokenCache(): Promise<void> {
-  if (typeof window === "undefined" || tokenCacheInitialized) {
-    return;
-  }
-  if (tokenCacheInitPromise) {
-    await tokenCacheInitPromise;
-    return;
-  }
-  tokenCacheInitPromise = (async () => {
-    try {
-      const supabase = createBrowserSupabaseClient();
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-      cachedAccessToken = error ? null : session?.access_token ?? null;
-      supabase.auth.onAuthStateChange((_event, nextSession) => {
-        cachedAccessToken = nextSession?.access_token ?? null;
-      });
-    } catch {
-      cachedAccessToken = null;
-    } finally {
-      tokenCacheInitialized = true;
-    }
-  })();
-  await tokenCacheInitPromise;
-}
-
-export async function getAccessToken() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  await initTokenCache();
-  return cachedAccessToken;
 }
 
 function sleep(ms: number): Promise<void> {

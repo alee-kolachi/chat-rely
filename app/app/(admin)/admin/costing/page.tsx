@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import {
   AdminDataTable,
   type AdminColumn,
@@ -12,6 +13,7 @@ import {
   type MarginTone,
 } from "@/lib/admin/cost-format";
 import {
+  AdminApiError,
   getCostingLeaderboard,
   getPlatformCostingOverview,
   type AdminCostByModelRow,
@@ -23,47 +25,54 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function AdminCostingPage() {
-  const [overview, worstMargin, topSpend] = await Promise.all([
-    getPlatformCostingOverview(),
-    getCostingLeaderboard("worst_margin", 20),
-    getCostingLeaderboard("top_spend", 20),
-  ]);
+  try {
+    const [overview, worstMargin, topSpend] = await Promise.all([
+      getPlatformCostingOverview(),
+      getCostingLeaderboard("worst_margin", 20),
+      getCostingLeaderboard("top_spend", 20),
+    ]);
 
-  return (
-    <div className="flex flex-col gap-6 p-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-ds-on-surface text-2xl font-semibold">Costing</h1>
-        <p className="text-ds-on-surface-variant text-sm">
-          Platform-wide LLM and embedding spend, revenue, and margin. Numbers refresh every{" "}
-          {overview.cache_ttl_seconds}s; last refreshed{" "}
-          {new Date(overview.cached_at).toLocaleString()}.
-        </p>
-      </header>
+    return (
+      <div className="flex flex-col gap-6 p-6">
+        <header className="flex flex-col gap-2">
+          <h1 className="text-ds-on-surface text-2xl font-semibold">Costing</h1>
+          <p className="text-ds-on-surface-variant text-sm">
+            Platform-wide LLM and embedding spend, revenue, and margin. Numbers refresh every{" "}
+            {overview.cache_ttl_seconds}s; last refreshed{" "}
+            {new Date(overview.cached_at).toLocaleString()}.
+          </p>
+        </header>
 
-      {(overview.unknown_models.length > 0 || !overview.embedding_model_priced) && (
-        <PricingGapsBanner overview={overview} />
-      )}
+        {(overview.unknown_models.length > 0 || !overview.embedding_model_priced) && (
+          <PricingGapsBanner overview={overview} />
+        )}
 
-      <KpiRow current={overview.current} prior={overview.prior} />
+        <KpiRow current={overview.current} prior={overview.prior} />
 
-      <ByModelTable rows={overview.by_model} totalLlmCost={overview.current.llm_cost_usd} />
+        <ByModelTable rows={overview.by_model} totalLlmCost={overview.current.llm_cost_usd} />
 
-      <LeaderboardSection
-        title="Worst margin (MTD)"
-        subtitle="Users where revenue minus our cost is most negative — investigate before they churn or before we keep losing money."
-        rows={worstMargin.items}
-        emptyMessage="No users with computable margin yet."
-        showMargin
-      />
+        <LeaderboardSection
+          title="Worst margin (MTD)"
+          subtitle="Users where revenue minus our cost is most negative — investigate before they churn or before we keep losing money."
+          rows={worstMargin.items}
+          emptyMessage="No users with computable margin yet."
+          showMargin
+        />
 
-      <LeaderboardSection
-        title="Top spenders (MTD)"
-        subtitle="Users by total LLM + embedding cost. Useful for capacity planning."
-        rows={topSpend.items}
-        emptyMessage="No usage recorded this month."
-      />
-    </div>
-  );
+        <LeaderboardSection
+          title="Top spenders (MTD)"
+          subtitle="Users by total LLM + embedding cost. Useful for capacity planning."
+          rows={topSpend.items}
+          emptyMessage="No usage recorded this month."
+        />
+      </div>
+    );
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return <AdminApiErrorPanel title="Could not load costing" message={err.message} />;
+    }
+    throw err;
+  }
 }
 
 // ---------- KPI cards ----------------------------------------------------------

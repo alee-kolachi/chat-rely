@@ -1,9 +1,12 @@
 "use client";
 
+export const CHATRELY_LAST_AUTH_USER_ID_KEY = "chatrely:last-auth-user-id";
+
 /** Remove persisted dashboard / onboarding / playground state so a new login never reuses the prior account's ids. */
 export function clearChatrelyClientAccountCaches() {
   if (typeof window === "undefined") return;
   try {
+    window.sessionStorage.removeItem(CHATRELY_LAST_AUTH_USER_ID_KEY);
     window.localStorage.removeItem("chatrely:dashboard:selected-agent-id");
     window.localStorage.removeItem("chatrely.onboarding.agentId");
     const lsRemove: string[] = [];
