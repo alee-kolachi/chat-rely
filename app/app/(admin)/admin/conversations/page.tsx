@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appButtonClassName } from "@/lib/button-styles";
 import { AdminDataTable, AdminPagination, type AdminColumn } from "@/components/admin/admin-data-table";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import { formatCostUsd } from "@/lib/admin/cost-format";
@@ -282,7 +283,7 @@ export default async function AdminConversationsPage({
         <div className="col-span-full flex items-center gap-3">
           <button
             type="submit"
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-md px-4 py-2 text-sm font-medium"
+            className={appButtonClassName()}
           >
             Apply filters
           </button>

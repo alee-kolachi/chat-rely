@@ -8,12 +8,18 @@ import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
 import { formatLocaleDateTime, formatLocaleTime } from "@/lib/format-locale-datetime";
 import { useClientMounted } from "@/lib/use-client-mounted";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 /** Used only when SSE connection fails (fallback). */
 const POLL_FALLBACK_MS = 15_000;
 /** Clear queue spinner if live stream is slow; REST fetch still runs first. */
 const WORKSPACE_LOAD_TIMEOUT_MS = 12_000;
+
+/** Same-origin proxy with a long server timeout (summary LLM can take up to ~60s). */
+function conversationSummaryPath(conversationId: string): string {
+  return `/api/dashboard/conversations/${conversationId}/summary`;
+}
 
 function startOfLocalDayIso(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -253,7 +259,7 @@ function ConversationsPageContent() {
         message_count: number;
         stale: boolean;
         model: string;
-      }>(`/api/v1/conversations/${conversationId}/summary`);
+      }>(conversationSummaryPath(conversationId), { sameOrigin: true });
       setSummaryByConversation((prev) => ({
         ...prev,
         [conversationId]: {
@@ -288,8 +294,9 @@ function ConversationsPageContent() {
         message_count: number;
         stale: boolean;
         model: string;
-      }>(`/api/v1/conversations/${conversationId}/summary`, {
+      }>(conversationSummaryPath(conversationId), {
         method: "POST",
+        sameOrigin: true,
         body: JSON.stringify({ regenerate }),
       });
       setSummaryByConversation((prev) => ({
@@ -680,7 +687,10 @@ function ConversationsPageContent() {
                 </label>
                 <button
                   type="button"
-                  className="border-ds-outline ds-app-body-muted hover:bg-ds-sidebar hover:text-ds-on-surface rounded-ds-md border bg-white px-3 py-2 font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
+                  className={appButtonClassName("default", {
+                    size: "sm",
+                    className: "ds-app-body-muted hover:text-ds-on-surface",
+                  })}
                   onClick={() => clearFilters()}
                   disabled={activeFilterCount === 0}
                 >
@@ -744,7 +754,7 @@ function ConversationsPageContent() {
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
-                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-3 py-1.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                  className={appButtonClassName("default", { size: "sm" })}
                   onClick={() => handleSummaryButtonClick()}
                   disabled={!selectedConversationId || summaryGenerating || summaryLoading}
                 >
@@ -761,7 +771,7 @@ function ConversationsPageContent() {
                 {canReopen ? (
                   <button
                     type="button"
-                    className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-3 py-1.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                    className={appButtonClassName("default", { size: "sm" })}
                     onClick={() => void updateStatus("open")}
                     disabled={statusUpdating}
                   >
@@ -771,7 +781,7 @@ function ConversationsPageContent() {
                 {canResolve ? (
                   <button
                     type="button"
-                    className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-3 py-1.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                    className={appButtonClassName("default", { size: "sm" })}
                     onClick={() => void updateStatus("resolved")}
                     disabled={statusUpdating}
                   >
@@ -787,7 +797,7 @@ function ConversationsPageContent() {
                   {selectedSummary?.computed_at ? (
                     <span className="text-ds-on-surface-variant text-[11px]">
                       Generated{" "}
-                      {formatLocaleDateTime(selectedSummary.computed_at, localeReady, undefined, "—")}
+                      {formatLocaleDateTime(selectedSummary.computed_at, localeReady, undefined, "-")}
                       {selectedSummary.stale ? " · thread updated" : ""}
                     </span>
                   ) : null}
@@ -888,7 +898,7 @@ function ConversationsPageContent() {
                 />
                 <button
                   type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover shrink-0 rounded-ds-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+                  className={appButtonClassName("default", { className: "shrink-0" })}
                   onClick={() => void handleReply()}
                   disabled={!selectedConversationId || sending || !reply.trim()}
                 >

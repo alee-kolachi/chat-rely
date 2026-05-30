@@ -4,7 +4,7 @@ const FOOTER_LINKS = [
   { label: "Pricing", href: "/pricing" },
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
-  { label: "Contact", href: "mailto:support@chatrely.com", external: true },
+  { label: "Contact", href: "/contact" },
 ] as const;
 
 type MarketingSiteFooterProps = {

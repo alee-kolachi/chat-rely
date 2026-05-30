@@ -7,6 +7,8 @@ import pytest
 from app.agent.model_routing import (
     ClassifierResult,
     is_likely_greeting_or_small_talk,
+    message_looks_like_order_question,
+    message_looks_like_order_reference,
     resolve_turn_model_sync,
     should_run_classifier,
 )
@@ -34,6 +36,33 @@ def test_greeting_skips_classifier() -> None:
     assert not is_likely_greeting_or_small_talk(
         "Where is my order #1234 and why was it marked delivered when I never got it?"
     )
+
+
+def test_bare_order_number_not_greeting() -> None:
+    assert message_looks_like_order_reference("8842")
+    assert message_looks_like_order_reference("#8842")
+    assert not message_looks_like_order_reference("Hi")
+    assert not is_likely_greeting_or_small_talk("8842")
+
+
+def test_order_question_detection() -> None:
+    assert message_looks_like_order_question("Where is my order #8842?")
+    assert message_looks_like_order_question("8842")
+    assert not message_looks_like_order_question("Do you sell hoodies?")
+
+
+def test_multi_intent_order_and_catalog_detection() -> None:
+    from app.agent.model_routing import (
+        message_has_order_and_catalog_intents,
+        message_looks_like_catalog_question,
+    )
+
+    combined = "Where is order #1001 and do you sell boots?"
+    assert message_looks_like_order_question(combined)
+    assert message_looks_like_catalog_question(combined)
+    assert message_has_order_and_catalog_intents(combined)
+    assert not message_has_order_and_catalog_intents("Where is my order #8842?")
+    assert not message_has_order_and_catalog_intents("Do you sell boots?")
 
 
 def test_should_run_classifier_hobby_never() -> None:

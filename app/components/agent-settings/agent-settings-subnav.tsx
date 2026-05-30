@@ -16,7 +16,7 @@ const tabs: Array<{ key: AgentSettingsTabKey; href: string; label: string }> = [
 
 export function AgentSettingsSubnav({ active }: AgentSettingsSubnavProps) {
   return (
-    <div className="border-ds-outline bg-ds-surface/95 border-b backdrop-blur-sm">
+    <div className="bg-ds-surface/95 backdrop-blur-sm">
       <nav className="mx-auto flex h-14 max-w-5xl items-end gap-6 overflow-x-auto px-6 md:gap-8 md:px-8">
         {tabs.map((tab) => (
           <Link
@@ -25,8 +25,8 @@ export function AgentSettingsSubnav({ active }: AgentSettingsSubnavProps) {
             className={cn(
               "mb-0 shrink-0 border-b-2 border-transparent px-0.5 pb-3 text-sm transition-colors",
               tab.key === active
-                ? "text-ds-primary border-ds-primary font-semibold"
-                : "text-ds-on-surface-variant hover:text-ds-on-surface font-medium"
+                ? "border-ds-primary text-ds-primary font-semibold"
+                : "text-ds-on-surface-variant hover:text-ds-primary font-medium"
             )}
           >
             {tab.label}

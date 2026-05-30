@@ -27,6 +27,7 @@ import {
   CHART_VB_W,
 } from "@/lib/dashboard-chart-model";
 import { cn } from "@/lib/utils";
+import { appButtonClassName } from "@/lib/button-styles";
 
 type DashboardPayload = {
   range_from: string;
@@ -187,15 +188,9 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="ds-app-page-title">Dashboard</h1>
-            <p className="ds-app-page-description ds-app-page-description--wide">
+            <p className="ds-app-body-muted mt-1">
               A quick pulse on agent activity and support outcomes.
             </p>
-            <Link
-              href="/pricing"
-              className="text-ds-primary mt-2 inline-flex text-sm font-semibold hover:underline"
-            >
-              Plan limits &amp; feature comparison
-            </Link>
           </div>
           <DashboardRangePicker
             preset={preset}
@@ -245,10 +240,7 @@ export default function DashboardPage() {
                 Share your widget to start collecting chats. Metrics appear here as conversations come in.
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                <a
-                  href="/deploy"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors"
-                >
+                <a href="/deploy" className={appButtonClassName()}>
                   Open deploy settings
                 </a>
               </div>
@@ -457,7 +449,7 @@ export default function DashboardPage() {
                 </div>
                 <Link
                   href={conversationsHref}
-                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar mt-5 block rounded-ds-md border bg-white px-4 py-2.5 text-center text-sm font-semibold transition-colors"
+                  className={appButtonClassName("default", { className: "mt-5 block w-full text-center" })}
                 >
                   Open conversations
                 </Link>
@@ -566,7 +558,7 @@ export default function DashboardPage() {
                 </div>
                 <Link
                   href="/knowledge/text-snippet"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover mt-5 inline-flex w-fit rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+                  className={appButtonClassName("default", { className: "mt-5 inline-flex w-fit" })}
                 >
                   Improve knowledge base
                 </Link>

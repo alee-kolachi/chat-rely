@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appButtonClassName } from "@/lib/button-styles";
 import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import { AdminDataTable, AdminPagination, type AdminColumn } from "@/components/admin/admin-data-table";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
@@ -218,7 +219,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: S
         <input type="hidden" name="page_size" value={String(pageSize)} />
         <button
           type="submit"
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-md px-4 py-2 text-sm font-medium"
+          className={appButtonClassName()}
         >
           Search
         </button>

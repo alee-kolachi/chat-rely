@@ -7,20 +7,43 @@ declare global {
   }
 }
 
+type StoredMessage = { role: "user" | "assistant"; text: string };
+type ThreadRecord = {
+  id: string;
+  visitorId: string;
+  messages: StoredMessage[];
+  preview: string;
+  updatedAt: number;
+};
+type WidgetStore = {
+  visitorId: string;
+  activeConversationId: string | null;
+  threads: ThreadRecord[];
+};
+
+const DEFAULT_ACCENT = "#8A05FF";
+const EMPTY_REPLY_FALLBACK =
+  "I'm not sure about that right now. Try asking in another way, or contact our support team if you need more help.";
+const WIDGET_STYLES_ID = "chatrely-widget-styles";
+
+const ICON_REFRESH =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>';
+const ICON_LIST =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>';
+const ICON_SEND =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>';
+const ICON_CHEVRON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
+const ICON_CLOSE =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+
 function getEmbedLoaderScript(): HTMLScriptElement | null {
   const direct = document.currentScript;
-  if (direct instanceof HTMLScriptElement) {
-    return direct;
-  }
+  if (direct instanceof HTMLScriptElement) return direct;
   const byAttr = document.querySelector("script[data-chatrely-agent-key]");
-  if (byAttr instanceof HTMLScriptElement) {
-    return byAttr;
-  }
+  if (byAttr instanceof HTMLScriptElement) return byAttr;
   const nodes = document.querySelectorAll<HTMLScriptElement>("script[src*='widget']");
-  if (nodes.length) {
-    return nodes[nodes.length - 1] ?? null;
-  }
-  return null;
+  return nodes.length ? (nodes[nodes.length - 1] ?? null) : null;
 }
 
 function resolveApiBase(script: HTMLScriptElement): string {
@@ -40,29 +63,63 @@ function resolveAgentKey(script: HTMLScriptElement): string {
   const win = window.__CHATRELY_WIDGET__;
   const fromWin = (win?.agentKey ?? "").trim();
   if (fromWin) return fromWin;
-  const attr = (script.getAttribute("data-chatrely-agent-key") ?? "").trim();
-  return attr;
+  return (script.getAttribute("data-chatrely-agent-key") ?? "").trim();
 }
 
-function visitorStorageKey(agentKey: string): string {
-  return `chatrely:vid:${agentKey.slice(0, 24)}`;
+function widgetStoreKey(agentKey: string): string {
+  return `chatrely:widget-store:${agentKey.slice(0, 24)}`;
 }
 
-function getOrCreateVisitorId(agentKey: string): string {
-  const key = visitorStorageKey(agentKey);
+function newVisitorId(): string {
   try {
-    const existing = window.localStorage?.getItem(key);
-    if (existing) return existing;
-    const id = crypto.randomUUID();
-    window.localStorage?.setItem(key, id);
-    return id;
+    return crypto.randomUUID();
   } catch {
     return `anon-${Math.random().toString(36).slice(2, 14)}`;
   }
 }
 
-const EMPTY_REPLY_FALLBACK =
-  "I'm not sure about that right now. Try asking in another way, or contact our support team if you need more help.";
+function readWidgetStore(agentKey: string): WidgetStore {
+  try {
+    const raw = window.localStorage?.getItem(widgetStoreKey(agentKey));
+    if (!raw) return { visitorId: newVisitorId(), activeConversationId: null, threads: [] };
+    const parsed = JSON.parse(raw) as Partial<WidgetStore>;
+    return {
+      visitorId: typeof parsed.visitorId === "string" && parsed.visitorId.trim() ? parsed.visitorId : newVisitorId(),
+      activeConversationId:
+        typeof parsed.activeConversationId === "string" || parsed.activeConversationId === null
+          ? parsed.activeConversationId
+          : null,
+      threads: Array.isArray(parsed.threads)
+        ? parsed.threads.filter(
+            (t): t is ThreadRecord =>
+              !!t &&
+              typeof t === "object" &&
+              typeof (t as ThreadRecord).id === "string" &&
+              typeof (t as ThreadRecord).visitorId === "string" &&
+              Array.isArray((t as ThreadRecord).messages)
+          )
+        : [],
+    };
+  } catch {
+    return { visitorId: newVisitorId(), activeConversationId: null, threads: [] };
+  }
+}
+
+function writeWidgetStore(agentKey: string, store: WidgetStore): void {
+  try {
+    window.localStorage?.setItem(widgetStoreKey(agentKey), JSON.stringify(store));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function ensureWidgetStyles(): void {
+  if (document.getElementById(WIDGET_STYLES_ID)) return;
+  const styleEl = document.createElement("style");
+  styleEl.id = WIDGET_STYLES_ID;
+  styleEl.textContent = cssText;
+  document.head.appendChild(styleEl);
+}
 
 function normalizeHexColor(input: string | null | undefined, fallback: string): string {
   if (!input) return fallback;
@@ -71,21 +128,70 @@ function normalizeHexColor(input: string | null | undefined, fallback: string): 
   return fallback;
 }
 
-/** Minimal safe markdown: escape HTML, then **bold** and newlines. */
+function brandChromeClasses(hex: string): {
+  lightBg: boolean;
+  headerText: string;
+  headerIcon: string;
+  headerIconHover: string;
+  headerIconHoverBg: string;
+  headerIconActiveBg: string;
+  userText: string;
+  launcherIcon: string;
+} {
+  const h = hex.replace("#", "");
+  if (h.length !== 6 || !/^[0-9A-Fa-f]{6}$/.test(h)) {
+    return {
+      lightBg: false,
+      headerText: "#ffffff",
+      headerIcon: "rgba(255,255,255,0.9)",
+      headerIconHover: "#ffffff",
+      headerIconHoverBg: "rgba(255,255,255,0.15)",
+      headerIconActiveBg: "rgba(255,255,255,0.2)",
+      userText: "#ffffff",
+      launcherIcon: "#ffffff",
+    };
+  }
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  const lightBg = yiq >= 175;
+  return {
+    lightBg,
+    headerText: lightBg ? "#0f172a" : "#ffffff",
+    headerIcon: lightBg ? "#64748b" : "rgba(255,255,255,0.9)",
+    headerIconHover: lightBg ? "#0f172a" : "#ffffff",
+    headerIconHoverBg: lightBg ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.15)",
+    headerIconActiveBg: lightBg ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.2)",
+    userText: lightBg ? "#0f172a" : "#ffffff",
+    launcherIcon: lightBg ? "#0f172a" : "#ffffff",
+  };
+}
+
 function renderAssistantHtml(raw: string): string {
   const esc = raw
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-  const withBold = esc.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  return withBold.replace(/\n/g, "<br>");
+  return esc.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br>");
 }
 
-function poweredByChatRelyHtml(): string {
-  const logo =
-    '<svg class="cr-powered-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="24" height="24" rx="7" fill="#0f172a"/><rect x="6" y="9" width="3" height="6" rx="0.5" fill="#831C91"/><rect x="10.5" y="9" width="3" height="6" rx="0.5" fill="#831C91"/><rect x="15" y="9" width="3" height="6" rx="0.5" fill="#831C91"/></svg>';
-  return `<span class="cr-powered-row">${logo}<span class="cr-powered-text">Powered by <strong>ChatRely</strong></span></span>`;
+function poweredByChatRelyHtml(apiBase: string): string {
+  const logoUrl = `${apiBase.replace(/\/$/, "")}/chat-rely.svg`;
+  return `<a class="cr-powered-link" href="https://chatrely.com" target="_blank" rel="noopener noreferrer"><img class="cr-powered-logo" src="${logoUrl}" alt="" width="4931" height="3503" /><span class="cr-powered-text">Powered by <strong>ChatRely</strong></span></a>`;
+}
+
+function threadPreview(messages: StoredMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const text = messages[i]?.text?.trim();
+    if (text) return text;
+  }
+  return "No messages yet";
+}
+
+function isVisitorMismatchError(message: string): boolean {
+  return message.toLowerCase().includes("does not belong to this visitor");
 }
 
 function mountMessageFeedback(
@@ -111,11 +217,10 @@ function mountMessageFeedback(
   down.innerHTML =
     '<svg class="cr-feedback-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
   let current: 1 | -1 | null = null;
-  /** undefined = no successful sync yet for this bubble */
   let acked: 1 | -1 | null | undefined = undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const syncVisibility = () => {
+  const syncVisibility = (): void => {
     if (current === null) {
       up.hidden = false;
       down.hidden = false;
@@ -138,7 +243,6 @@ function mountMessageFeedback(
       } else if (desired === acked) {
         return;
       }
-
       const snap = desired;
       try {
         if (desired === null) {
@@ -156,7 +260,7 @@ function mountMessageFeedback(
         }
         acked = desired;
       } catch {
-        const roll = hasAcked ? acked : null;
+        const roll: 1 | -1 | null = hasAcked ? (acked ?? null) : null;
         if (current === snap) {
           current = roll;
           syncVisibility();
@@ -172,12 +276,8 @@ function mountMessageFeedback(
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => void flush(), 450);
   };
-  up.addEventListener("click", () => {
-    apply(current === 1 ? null : 1);
-  });
-  down.addEventListener("click", () => {
-    apply(current === -1 ? null : -1);
-  });
+  up.addEventListener("click", () => apply(current === 1 ? null : 1));
+  down.addEventListener("click", () => apply(current === -1 ? null : -1));
   syncVisibility();
   row.append(up, down);
   wrap.appendChild(row);
@@ -186,98 +286,17 @@ function mountMessageFeedback(
 async function boot(): Promise<void> {
   const script = getEmbedLoaderScript();
   if (!script) {
-    console.warn(
-      "[ChatRely] Could not find the loader <script> (try removing async or set data-chatrely-agent-key on the tag)."
-    );
+    console.warn("[ChatRely] Could not find the loader <script>.");
     return;
   }
   const agentKey = resolveAgentKey(script);
   const apiBase = resolveApiBase(script);
   if (!agentKey || !apiBase) {
-    console.warn("[ChatRely] Missing data-chatrely-agent-key or API base (data-chatrely-api-base / __CHATRELY_WIDGET__).");
+    console.warn("[ChatRely] Missing data-chatrely-agent-key or API base.");
     return;
   }
 
-  const host = document.createElement("div");
-  host.id = "chatrely-widget-host";
-  const shadow = host.attachShadow({ mode: "open" });
-  const sheet = new CSSStyleSheet();
-  sheet.replaceSync(cssText);
-  shadow.adoptedStyleSheets = [sheet];
-
-  const root = document.createElement("div");
-  root.className = "cr-root";
-  shadow.append(root);
-
-  const launcher = document.createElement("button");
-  launcher.type = "button";
-  launcher.className = "cr-launcher";
-  launcher.setAttribute("aria-label", "Open chat");
-  launcher.innerHTML =
-    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3C7.03 3 3 6.58 3 11c0 2.13 1.05 4.07 2.76 5.5L4 21l4.67-1.55A9.9 9.9 0 0 0 12 19c4.97 0 9-3.58 9-8s-4.03-8-9-8Z" fill="currentColor"/></svg>';
-
-  const panel = document.createElement("div");
-  panel.className = "cr-panel";
-  panel.hidden = true;
-
-  const header = document.createElement("div");
-  header.className = "cr-panel-header";
-
-  const headerMain = document.createElement("div");
-  headerMain.className = "cr-panel-header-main";
-
-  const avatarWrap = document.createElement("div");
-  avatarWrap.className = "cr-avatar-wrap";
-  const avatarImg = document.createElement("img");
-  avatarImg.className = "cr-avatar-img";
-  avatarImg.alt = "";
-  avatarImg.style.display = "none";
-  const avatarFallback = document.createElement("span");
-  avatarFallback.className = "cr-avatar-fallback";
-
-  const titleEl = document.createElement("div");
-  titleEl.className = "cr-panel-title";
-
-  headerMain.append(avatarWrap);
-  avatarWrap.append(avatarImg, avatarFallback);
-  headerMain.append(titleEl);
-  header.append(headerMain);
-
-  const messages = document.createElement("div");
-  messages.className = "cr-messages";
-
-  const escalateRow = document.createElement("div");
-  escalateRow.className = "cr-escalate-row";
-  escalateRow.style.display = "none";
-
-  const composer = document.createElement("div");
-  composer.className = "cr-composer";
-  const attachWrap = document.createElement("div");
-  attachWrap.className = "cr-attach-wrap";
-  attachWrap.style.display = "none";
-  const attachBtn = document.createElement("button");
-  attachBtn.type = "button";
-  attachBtn.className = "cr-attach";
-  attachBtn.setAttribute("aria-label", "Add attachment");
-  attachBtn.title = "Attachments coming soon";
-  attachBtn.disabled = true;
-  attachBtn.innerHTML =
-    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M17.5 12.5v-5a5.5 5.5 0 1 0-11 0v9a4 4 0 0 0 8 0V9a2.5 2.5 0 0 0-5 0v6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  attachWrap.appendChild(attachBtn);
-  const input = document.createElement("input");
-  input.className = "cr-input";
-  input.autocomplete = "off";
-  input.placeholder = "Message…";
-  const send = document.createElement("button");
-  send.type = "button";
-  send.className = "cr-send";
-  send.textContent = "Send";
-  composer.append(attachWrap, input, send);
-
-  panel.append(header, escalateRow, messages, composer);
-  root.append(launcher, panel);
-
-  document.body.appendChild(host);
+  ensureWidgetStyles();
 
   let cfg: Awaited<ReturnType<typeof fetchWidgetConfig>>;
   try {
@@ -287,152 +306,325 @@ async function boot(): Promise<void> {
     return;
   }
 
-  let poweredByEl: HTMLDivElement | null = null;
-  function hidePoweredByLine(): void {
-    if (poweredByEl) {
-      poweredByEl.style.display = "none";
-    }
-  }
+  const brandHex = cfg.brand_color ? normalizeHexColor(cfg.brand_color, DEFAULT_ACCENT) : null;
+  const accent = brandHex ?? DEFAULT_ACCENT;
+  const chrome = brandChromeClasses(accent);
+  const hasBrand = Boolean(brandHex);
+  const bottomLeft = cfg.widget_position === "bottom_left";
 
-  if (!cfg.hide_powered_by_chatrely) {
-    poweredByEl = document.createElement("div");
-    poweredByEl.className = "cr-powered";
-    poweredByEl.innerHTML = poweredByChatRelyHtml();
-    panel.appendChild(poweredByEl);
-  }
+  const host = document.createElement("div");
+  host.id = "chatrely-widget-host";
+  host.style.setProperty("--cr-accent", accent);
+  host.style.setProperty("--cr-user-text", chrome.userText);
+  host.style.setProperty("--cr-header-text", chrome.headerText);
+  host.style.setProperty("--cr-header-icon", chrome.headerIcon);
+  host.style.setProperty("--cr-header-icon-hover", chrome.headerIconHover);
+  host.style.setProperty("--cr-header-icon-hover-bg", chrome.headerIconHoverBg);
+  host.style.setProperty("--cr-header-icon-active-bg", chrome.headerIconActiveBg);
+  host.style.setProperty("--cr-launcher-icon", chrome.launcherIcon);
 
-  titleEl.textContent = cfg.name || "Chat";
-  const accent = normalizeHexColor(cfg.brand_color, "#111827");
-  root.style.setProperty("--cr-accent", accent);
-  root.classList.add(cfg.widget_position === "bottom_left" ? "cr-root--bl" : "cr-root--br");
+  const root = document.createElement("div");
+  root.className = `cr-root${bottomLeft ? " cr-root--bl" : " cr-root--br"}`;
+  host.append(root);
 
-  const initial = (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
-  avatarFallback.textContent = initial;
+  const launcher = document.createElement("button");
+  launcher.type = "button";
+  launcher.className = "cr-launcher";
+  launcher.setAttribute("aria-label", "Open chat");
+  launcher.setAttribute("aria-expanded", "false");
+  launcher.style.background = accent;
+
+  const launcherInitial =
+    (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
+
+  const launcherLogo = document.createElement("img");
+  launcherLogo.className = "cr-launcher-logo";
+  launcherLogo.alt = "";
+  launcherLogo.hidden = true;
+
+  const launcherFallback = document.createElement("span");
+  launcherFallback.className = "cr-launcher-fallback";
+  launcherFallback.style.color = chrome.launcherIcon;
+  launcherFallback.textContent = launcherInitial;
+
+  const launcherClose = document.createElement("span");
+  launcherClose.className = "cr-launcher-close";
+  launcherClose.innerHTML = ICON_CLOSE;
+
+  launcher.append(launcherLogo, launcherFallback, launcherClose);
 
   if (cfg.avatar_url) {
-    avatarImg.src = cfg.avatar_url;
-    avatarImg.onload = () => {
-      avatarImg.style.display = "block";
-      avatarFallback.style.display = "none";
+    launcherFallback.hidden = true;
+    launcherLogo.referrerPolicy = "no-referrer";
+    launcherLogo.src = cfg.avatar_url;
+    launcherLogo.onload = () => {
+      launcherLogo.hidden = false;
+      launcherFallback.hidden = true;
     };
-    avatarImg.onerror = () => {
-      avatarImg.style.display = "none";
-      avatarFallback.style.display = "flex";
+    launcherLogo.onerror = () => {
+      launcherLogo.hidden = true;
+      launcherFallback.hidden = false;
     };
   }
 
-  if (cfg.attachments_ui_enabled) {
-    attachWrap.style.display = "flex";
+  const panel = document.createElement("div");
+  panel.className = "cr-panel";
+
+  const header = document.createElement("div");
+  header.className = `cr-panel-header${hasBrand ? " cr-panel-header--brand" : ""}`;
+  if (hasBrand) header.style.backgroundColor = accent;
+
+  const headerMain = document.createElement("div");
+  headerMain.className = "cr-panel-header-main";
+
+  const headerAvatarWrap = document.createElement("div");
+  headerAvatarWrap.className = "cr-avatar-wrap";
+  const headerAvatarImg = document.createElement("img");
+  headerAvatarImg.className = "cr-avatar-img";
+  headerAvatarImg.alt = "";
+  headerAvatarImg.style.display = "none";
+  const headerAvatarFallback = document.createElement("span");
+  headerAvatarFallback.className = "cr-avatar-fallback";
+  headerAvatarFallback.textContent = (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
+  headerAvatarWrap.append(headerAvatarImg, headerAvatarFallback);
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "cr-panel-title";
+  titleEl.textContent = cfg.name || "Chat";
+
+  headerMain.append(headerAvatarWrap, titleEl);
+
+  const headerActions = document.createElement("div");
+  headerActions.className = "cr-header-actions";
+
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "cr-header-btn";
+  resetBtn.innerHTML = ICON_REFRESH;
+  resetBtn.setAttribute("aria-label", "Reset conversation and start a new chat thread");
+  resetBtn.title = "Reset and start a new thread";
+
+  const historyBtn = document.createElement("button");
+  historyBtn.type = "button";
+  historyBtn.className = "cr-header-btn";
+  historyBtn.innerHTML = ICON_LIST;
+  historyBtn.setAttribute("aria-label", "Browse conversations");
+  historyBtn.title = "Browse conversations";
+
+  headerActions.append(resetBtn, historyBtn);
+  header.append(headerMain, headerActions);
+
+  const body = document.createElement("div");
+  body.className = "cr-body";
+
+  const messages = document.createElement("div");
+  messages.className = "cr-messages";
+
+  const historyView = document.createElement("div");
+  historyView.className = "cr-history cr-view--hidden";
+
+  body.append(messages, historyView);
+
+  const composer = document.createElement("div");
+  composer.className = "cr-composer";
+
+  const composerRow = document.createElement("div");
+  composerRow.className = "cr-composer-row";
+
+  const input = document.createElement("textarea");
+  input.className = "cr-input";
+  input.autocomplete = "off";
+  input.placeholder = "Message…";
+  input.rows = 1;
+
+  const send = document.createElement("button");
+  send.type = "button";
+  send.className = "cr-send";
+  send.innerHTML = ICON_SEND;
+  send.setAttribute("aria-label", "Send");
+  send.disabled = true;
+
+  composerRow.append(input, send);
+
+  const poweredByEl = document.createElement("div");
+  poweredByEl.className = "cr-powered";
+  if (!cfg.hide_powered_by_chatrely) {
+    poweredByEl.innerHTML = poweredByChatRelyHtml(apiBase);
+  } else {
+    poweredByEl.hidden = true;
   }
 
-  if (cfg.human_escalation_available) {
-    escalateRow.style.display = "flex";
-    const escBtn = document.createElement("button");
-    escBtn.type = "button";
-    escBtn.className = "cr-escalate";
-    escBtn.textContent = "Talk to a human";
-    escalateRow.appendChild(escBtn);
+  const composerHint = document.createElement("p");
+  composerHint.className = "cr-composer-hint cr-view--hidden";
+  composerHint.textContent = "Choose a conversation above to load it, or use Back to chat.";
 
-    escBtn.addEventListener("click", () => {
-      void sendEscalation();
-    });
+  composer.append(composerRow, composerHint, poweredByEl);
+  panel.append(header, body, composer);
+  root.append(launcher, panel);
+  document.body.appendChild(host);
+
+  if (cfg.avatar_url) {
+    headerAvatarImg.referrerPolicy = "no-referrer";
+    headerAvatarImg.src = cfg.avatar_url;
+    headerAvatarImg.onload = () => {
+      headerAvatarImg.style.display = "block";
+      headerAvatarFallback.style.display = "none";
+    };
+    headerAvatarImg.onerror = () => {
+      headerAvatarImg.style.display = "none";
+      headerAvatarFallback.style.display = "flex";
+    };
   }
 
-  const visitorId = getOrCreateVisitorId(agentKey);
-  let conversationId: string | null = null;
+  let store = readWidgetStore(agentKey);
+  let visitorId = store.visitorId;
+  let conversationId = store.activeConversationId;
+  let chatMessages: StoredMessage[] = [];
+  let historyOpen = false;
   let sending = false;
+  let panelOpen = false;
 
-  function appendMessage(role: "user" | "assistant" | "err", text: string, html?: boolean): void {
-    const el = document.createElement("div");
-    el.className = `cr-msg cr-msg--${role}`;
-    if (role === "assistant" && html) {
-      el.innerHTML = text;
+  if (conversationId) {
+    const thread = store.threads.find((t) => t.id === conversationId);
+    if (thread) {
+      visitorId = thread.visitorId;
+      chatMessages = [...thread.messages];
     } else {
-      el.textContent = text;
+      conversationId = null;
+      store.activeConversationId = null;
+      writeWidgetStore(agentKey, store);
     }
-    messages.appendChild(el);
+  }
+
+  function updatePoweredByVisibility(): void {
+    poweredByEl.hidden = Boolean(cfg.hide_powered_by_chatrely);
+  }
+
+  function persistStore(): void {
+    if (conversationId) {
+      const preview = threadPreview(chatMessages);
+      const idx = store.threads.findIndex((t) => t.id === conversationId);
+      const row: ThreadRecord = {
+        id: conversationId,
+        visitorId,
+        messages: [...chatMessages],
+        preview,
+        updatedAt: Date.now(),
+      };
+      if (idx >= 0) store.threads[idx] = row;
+      else store.threads.unshift(row);
+      store.threads.sort((a, b) => b.updatedAt - a.updatedAt);
+      store.threads = store.threads.slice(0, 20);
+    }
+    store.visitorId = visitorId;
+    store.activeConversationId = conversationId;
+    writeWidgetStore(agentKey, store);
+  }
+
+  function createBubbleAvatar(): HTMLDivElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cr-avatar-wrap cr-avatar-wrap--bubble";
+    if (cfg.avatar_url) {
+      const img = document.createElement("img");
+      img.className = "cr-avatar-img";
+      img.alt = "";
+      img.referrerPolicy = "no-referrer";
+      img.src = cfg.avatar_url;
+      img.onerror = () => {
+        wrap.textContent = headerAvatarFallback.textContent || "?";
+        wrap.style.display = "flex";
+        wrap.style.alignItems = "center";
+        wrap.style.justifyContent = "center";
+        wrap.style.fontWeight = "700";
+        wrap.style.fontSize = "12px";
+        wrap.style.color = accent;
+      };
+      wrap.appendChild(img);
+    } else {
+      wrap.textContent = headerAvatarFallback.textContent || "?";
+      wrap.style.display = "flex";
+      wrap.style.alignItems = "center";
+      wrap.style.justifyContent = "center";
+      wrap.style.fontWeight = "700";
+      wrap.style.fontSize = "12px";
+      wrap.style.color = accent;
+    }
+    return wrap;
+  }
+
+  function scrollMessages(): void {
+    if (historyOpen) return;
     messages.scrollTop = messages.scrollHeight;
   }
 
-  const greeting = (cfg.greeting_message || "").trim();
-  if (greeting) {
-    appendMessage("assistant", renderAssistantHtml(greeting), true);
+  function clearMessagesDom(): void {
+    messages.innerHTML = "";
   }
 
-  function setOpen(next: boolean): void {
-    panel.hidden = !next;
-    launcher.setAttribute("aria-expanded", next ? "true" : "false");
-  }
-
-  launcher.addEventListener("click", () => setOpen(panel.hidden));
-
-  async function sendEscalation(): Promise<void> {
-    if (sending) return;
-    input.value = "";
-    sending = true;
-    send.disabled = true;
-    const msg = "I'd like to speak with a human agent.";
-    appendMessage("user", msg);
-    hidePoweredByLine();
-    const wrap = document.createElement("div");
-    wrap.className = "cr-msg-wrap";
-    const assistantEl = document.createElement("div");
-    assistantEl.className = "cr-msg cr-msg--assistant";
-    assistantEl.innerHTML = "";
-    wrap.appendChild(assistantEl);
-    messages.appendChild(wrap);
-
-    try {
-      for await (const ev of streamChat(apiBase, agentKey, {
-        message: msg,
-        conversation_id: conversationId,
-        visitor_id: visitorId,
-        request_human: true,
-        locale: navigator.language,
-      })) {
-        if (ev.type === "start") {
-          conversationId = ev.conversation_id;
-        } else if (ev.type === "token") {
-          const prev = assistantEl.getAttribute("data-plain") || "";
-          const nextPlain = prev + ev.text;
-          assistantEl.setAttribute("data-plain", nextPlain);
-          assistantEl.innerHTML = renderAssistantHtml(nextPlain);
-          messages.scrollTop = messages.scrollHeight;
-        } else if (ev.type === "done") {
-          conversationId = ev.conversation_id;
-          if (typeof ev.response === "string" && ev.response) {
-            assistantEl.innerHTML = renderAssistantHtml(ev.response);
-            assistantEl.removeAttribute("data-plain");
-          }
-          const mid =
-            typeof (ev as { assistant_message_id?: unknown }).assistant_message_id === "string"
-              ? (ev as { assistant_message_id: string }).assistant_message_id
-              : null;
-          if (cfg.message_feedback_enabled && mid) {
-            mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
-          }
-        } else if (ev.type === "error") {
-          wrap.remove();
-          appendMessage("err", ev.message || "Something went wrong.");
-        }
-      }
-    } catch (e) {
-      wrap.remove();
-      appendMessage("err", e instanceof Error ? e.message : "Network error.");
-    } finally {
-      sending = false;
-      send.disabled = false;
+  function renderChatMessages(): void {
+    clearMessagesDom();
+    for (const msg of chatMessages) {
+      if (msg.role === "user") appendUserMessage(msg.text, false);
+      else appendAssistantMessage(msg.text, true, false);
     }
+    updatePoweredByVisibility();
+    scrollMessages();
   }
 
-  async function sendMessage(): Promise<void> {
-    const text = input.value.trim();
-    if (!text || sending) return;
-    sending = true;
-    send.disabled = true;
-    input.value = "";
-    appendMessage("user", text);
-    hidePoweredByLine();
+  function appendUserMessage(text: string, record = true): void {
+    if (record) {
+      chatMessages.push({ role: "user", text });
+      persistStore();
+      updatePoweredByVisibility();
+    }
+    const row = document.createElement("div");
+    row.className = "cr-msg-row cr-msg-row--user";
+    const bubble = document.createElement("div");
+    bubble.className = "cr-msg cr-msg--user";
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    scrollMessages();
+  }
+
+  function appendAssistantMessage(text: string, html = true, record = true): HTMLDivElement {
+    if (record) {
+      chatMessages.push({ role: "assistant", text });
+      persistStore();
+    }
+    const row = document.createElement("div");
+    row.className = "cr-msg-row cr-msg-row--assistant";
+    row.appendChild(createBubbleAvatar());
+    const col = document.createElement("div");
+    col.className = "cr-msg-col";
+    const bubble = document.createElement("div");
+    bubble.className = "cr-msg cr-msg--assistant";
+    if (html) bubble.innerHTML = renderAssistantHtml(text);
+    else bubble.textContent = text;
+    col.appendChild(bubble);
+    row.appendChild(col);
+    messages.appendChild(row);
+    scrollMessages();
+    return bubble;
+  }
+
+  function appendError(text: string): void {
+    const row = document.createElement("div");
+    row.className = "cr-msg-row";
+    const bubble = document.createElement("div");
+    bubble.className = "cr-msg cr-msg--err";
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    scrollMessages();
+  }
+
+  function createAssistantStreamWrap(): { row: HTMLDivElement; wrap: HTMLDivElement; assistantEl: HTMLDivElement } {
+    const row = document.createElement("div");
+    row.className = "cr-msg-row cr-msg-row--assistant";
+    row.appendChild(createBubbleAvatar());
+    const col = document.createElement("div");
+    col.className = "cr-msg-col";
     const wrap = document.createElement("div");
     wrap.className = "cr-msg-wrap";
     const assistantEl = document.createElement("div");
@@ -443,13 +635,117 @@ async function boot(): Promise<void> {
       '<span class="cr-thinking-dot"></span><span class="cr-thinking-dot"></span><span class="cr-thinking-dot"></span>';
     assistantEl.appendChild(dotsEl);
     wrap.appendChild(assistantEl);
-    messages.appendChild(wrap);
+    col.appendChild(wrap);
+    row.appendChild(col);
+    messages.appendChild(row);
+    scrollMessages();
+    return { row, wrap, assistantEl };
+  }
 
+  function renderHistory(): void {
+    historyView.innerHTML = "";
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "cr-history-back";
+    back.innerHTML = `${ICON_CHEVRON} Back to chat`;
+    back.addEventListener("click", () => setHistoryOpen(false));
+
+    const heading = document.createElement("div");
+    heading.className = "cr-history-heading";
+    heading.innerHTML = "<h4>Conversations</h4><p>Your recent chats in this browser.</p>";
+    historyView.append(back, heading);
+
+    if (!store.threads.length) {
+      const empty = document.createElement("p");
+      empty.className = "cr-history-empty";
+      empty.textContent = "No conversations yet.";
+      historyView.appendChild(empty);
+      return;
+    }
+
+    const list = document.createElement("ul");
+    list.className = "cr-history-list";
+    for (const row of store.threads) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "cr-history-item";
+      if (conversationId === row.id) btn.classList.add("cr-history-item--active");
+      const when = new Date(row.updatedAt).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      btn.innerHTML = `<div class="cr-history-item-top"><span class="cr-history-item-id">${row.id.slice(0, 8)}…</span><span class="cr-history-item-when">${when}</span></div><p class="cr-history-item-preview">${row.preview.replace(/</g, "&lt;")}</p>`;
+      btn.addEventListener("click", () => {
+        conversationId = row.id;
+        visitorId = row.visitorId;
+        chatMessages = [...row.messages];
+        store.activeConversationId = conversationId;
+        store.visitorId = visitorId;
+        writeWidgetStore(agentKey, store);
+        setHistoryOpen(false);
+        renderChatMessages();
+      });
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+    historyView.appendChild(list);
+  }
+
+  function setHistoryOpen(next: boolean): void {
+    historyOpen = next;
+    historyBtn.classList.toggle("cr-header-btn--active", next);
+    historyBtn.setAttribute("aria-label", next ? "Close conversations list" : "Browse conversations");
+    historyBtn.title = next ? "Back to chat" : "Browse conversations";
+    messages.classList.toggle("cr-view--hidden", next);
+    historyView.classList.toggle("cr-view--hidden", !next);
+    composerRow.classList.toggle("cr-view--hidden", next);
+    composerHint.classList.toggle("cr-view--hidden", !next);
+    if (next) renderHistory();
+  }
+
+  function resetChat(): void {
+    if (conversationId && chatMessages.length) persistStore();
+    visitorId = newVisitorId();
+    conversationId = null;
+    chatMessages = [];
+    store.visitorId = visitorId;
+    store.activeConversationId = null;
+    writeWidgetStore(agentKey, store);
+    clearMessagesDom();
+    setHistoryOpen(false);
+    const greeting = (cfg.greeting_message || "").trim();
+    if (greeting) appendAssistantMessage(greeting, true, false);
+    updatePoweredByVisibility();
+  }
+
+  function setPanelOpen(next: boolean): void {
+    panelOpen = next;
+    panel.classList.toggle("cr-panel--open", next);
+    launcher.classList.toggle("cr-launcher--open", next);
+    launcher.setAttribute("aria-expanded", next ? "true" : "false");
+    launcher.setAttribute("aria-label", next ? "Close chat" : "Open chat");
+  }
+
+  function clearStaleConversation(): void {
+    conversationId = null;
+    store.activeConversationId = null;
+    writeWidgetStore(agentKey, store);
+  }
+
+  async function streamAssistantReply(
+    userText: string,
+    streamWrap: { row: HTMLDivElement; wrap: HTMLDivElement; assistantEl: HTMLDivElement },
+    retrying: boolean
+  ): Promise<void> {
+    const { row, wrap, assistantEl } = streamWrap;
+    const dotsEl = assistantEl.querySelector(".cr-thinking-dots");
     const hideDots = (): void => {
-      dotsEl.hidden = true;
+      if (dotsEl instanceof HTMLElement) dotsEl.hidden = true;
     };
-
-    let statusEl: HTMLDivElement | null = null;
+    let statusEl: HTMLParagraphElement | null = null;
     const clearStatus = (): void => {
       statusEl?.remove();
       statusEl = null;
@@ -464,50 +760,63 @@ async function boot(): Promise<void> {
       }
       statusEl.textContent = trimmed;
       hideDots();
-      messages.scrollTop = messages.scrollHeight;
+      scrollMessages();
     };
 
     let gotDone = false;
     try {
       for await (const ev of streamChat(apiBase, agentKey, {
-        message: text,
+        message: userText,
         conversation_id: conversationId,
         visitor_id: visitorId,
         locale: navigator.language,
       })) {
-        if (ev.type === "status") {
-          showStatus(ev.text);
-        } else if (ev.type === "token") {
+        if (ev.type === "status") showStatus(ev.text);
+        else if (ev.type === "token") {
           hideDots();
           clearStatus();
           const prev = assistantEl.getAttribute("data-plain") || "";
           const nextPlain = prev + ev.text;
           assistantEl.setAttribute("data-plain", nextPlain);
           assistantEl.innerHTML = renderAssistantHtml(nextPlain);
-          messages.scrollTop = messages.scrollHeight;
+          scrollMessages();
         } else if (ev.type === "done") {
           gotDone = true;
           if (ev.conversation_id) conversationId = ev.conversation_id;
           hideDots();
           clearStatus();
-          const reply = typeof ev.response === "string" ? ev.response : "";
-          const plain = assistantEl.getAttribute("data-plain") || "";
-          const finalReply = reply.trim() || plain.trim() || EMPTY_REPLY_FALLBACK;
-          assistantEl.setAttribute("data-plain", finalReply);
-          assistantEl.innerHTML = renderAssistantHtml(finalReply);
-          const mid =
-            typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
-          if (cfg.message_feedback_enabled && mid) {
-            mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
-          }
+          const reply =
+            (typeof ev.response === "string" ? ev.response : "").trim() ||
+            (assistantEl.getAttribute("data-plain") || "").trim() ||
+            EMPTY_REPLY_FALLBACK;
+          assistantEl.innerHTML = renderAssistantHtml(reply);
+          chatMessages.push({ role: "assistant", text: reply });
+          persistStore();
+          const mid = typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
+          if (cfg.message_feedback_enabled && mid) mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
         } else if (ev.type === "error") {
-          wrap.remove();
-          appendMessage("err", ev.message || "Something went wrong.");
+          if (!retrying && isVisitorMismatchError(ev.message || "")) {
+            clearStaleConversation();
+            row.remove();
+            await streamAssistantReply(userText, createAssistantStreamWrap(), true);
+            return;
+          }
+          row.remove();
+          appendError(ev.message || "Something went wrong.");
+          return;
         }
       }
     } catch (e) {
-      wrap.remove();
-      appendMessage("err", e instanceof Error ? e.message : "Network error.");
+      const msg = e instanceof Error ? e.message : "Network error.";
+      if (!retrying && isVisitorMismatchError(msg)) {
+        clearStaleConversation();
+        row.remove();
+        await streamAssistantReply(userText, createAssistantStreamWrap(), true);
+        return;
+      }
+      row.remove();
+      appendError(msg);
+      return;
     } finally {
       hideDots();
       clearStatus();
@@ -515,17 +824,47 @@ async function boot(): Promise<void> {
         const plain = (assistantEl.getAttribute("data-plain") || "").trim();
         if (plain) {
           assistantEl.innerHTML = renderAssistantHtml(plain);
-        } else {
-          wrap.remove();
-          appendMessage("err", "Something went wrong. Try again.");
+          chatMessages.push({ role: "assistant", text: plain });
+          persistStore();
+        } else if (row.isConnected) {
+          row.remove();
+          appendError("Something went wrong. Try again.");
         }
       }
-      sending = false;
-      send.disabled = false;
     }
   }
 
+  async function sendMessage(): Promise<void> {
+    const text = input.value.trim();
+    if (!text || sending) return;
+    sending = true;
+    send.disabled = true;
+    input.value = "";
+    input.style.height = "auto";
+    appendUserMessage(text);
+    const streamWrap = createAssistantStreamWrap();
+    try {
+      await streamAssistantReply(text, streamWrap, false);
+    } finally {
+      sending = false;
+      send.disabled = !input.value.trim();
+    }
+  }
+
+  const greeting = (cfg.greeting_message || "").trim();
+  if (chatMessages.length) renderChatMessages();
+  else if (greeting) appendAssistantMessage(greeting, true, false);
+  updatePoweredByVisibility();
+
+  resetBtn.addEventListener("click", resetChat);
+  historyBtn.addEventListener("click", () => setHistoryOpen(!historyOpen));
+  launcher.addEventListener("click", () => setPanelOpen(!panelOpen));
   send.addEventListener("click", () => void sendMessage());
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+    send.disabled = sending || !input.value.trim();
+  });
   input.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" && !ev.shiftKey) {
       ev.preventDefault();

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import { IconChevron, IconSearch, IconTrash } from "@/components/knowledge/knowledge-icons";
 import type { KnowledgeSortKey } from "@/components/knowledge/use-sort-preference";
@@ -291,7 +292,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar cursor-pointer rounded-ds-md border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+            className={appButtonClassName("default", { className: "cursor-pointer" })}
           >
             {cancelLabel}
           </button>
@@ -303,7 +304,7 @@ export function ConfirmDialog({
               "cursor-pointer rounded-ds-md px-4 py-2 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-60",
               destructive
                 ? "bg-rose-600 text-white hover:opacity-90"
-                : "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
+                : appButtonClassName()
             )}
           >
             {busy ? "Working…" : confirmLabel}

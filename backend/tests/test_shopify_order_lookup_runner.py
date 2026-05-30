@@ -34,6 +34,69 @@ async def test_order_lookup_falls_back_to_email_only(monkeypatch: pytest.MonkeyP
     assert payload["lookup_meta"]["not_found"] is False
 
 
+def test_normalize_order_reference_accepts_digits_and_hash() -> None:
+    assert tool_runners._normalize_order_reference("1041") == "#1041"
+    assert tool_runners._normalize_order_reference("#1041") == "#1041"
+    assert tool_runners._normalize_order_reference("  #1041  ") == "#1041"
+
+
+def test_normalize_order_reference_rejects_malformed_input() -> None:
+    assert tool_runners._normalize_order_reference("#1001' OR '1'='1") is None
+    assert tool_runners._normalize_order_reference("1001; DROP") is None
+    assert tool_runners._normalize_order_reference("not-an-order") is None
+    assert tool_runners._normalize_order_reference("") is None
+
+
+@pytest.mark.asyncio
+async def test_order_lookup_rejects_malformed_order_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def _fake_shopify_graphql(**kwargs):
+        q = str((kwargs.get("variables") or {}).get("q") or "")
+        calls.append(q)
+        return {"data": {"orders": {"edges": [{"node": {"name": "#1001"}}] * 10}}}
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_order_lookup(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        order_name_or_number="#1001' OR '1'='1",
+    )
+    payload = json.loads(out)
+    assert calls == []
+    assert payload["lookup_meta"]["not_found"] is True
+    assert payload["lookup_meta"]["result_count"] == 0
+    assert payload["lookup_meta"]["invalid_order_reference"] is True
+
+
+@pytest.mark.asyncio
+async def test_order_lookup_malformed_order_falls_back_to_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def _fake_shopify_graphql(**kwargs):
+        q = str((kwargs.get("variables") or {}).get("q") or "")
+        calls.append(q)
+        if q == "email:test@example.com":
+            return {"data": {"orders": {"edges": [{"node": {"name": "#1041"}}]}}}
+        return {"data": {"orders": {"edges": []}}}
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_order_lookup(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        order_name_or_number="#1001' OR '1'='1",
+        customer_email="test@example.com",
+    )
+    payload = json.loads(out)
+    assert calls == ["email:test@example.com"]
+    assert payload["lookup_meta"]["result_count"] == 1
+    assert payload["lookup_meta"]["not_found"] is False
+
+
 @pytest.mark.asyncio
 async def test_order_lookup_reports_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _fake_shopify_graphql(**kwargs):

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useNotifications } from "@/components/layout/notifications-context";
 import { formatNotificationTime } from "@/lib/notifications";
 import { useClientMounted } from "@/lib/use-client-mounted";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 export default function NotificationsPage() {
@@ -24,7 +25,7 @@ export default function NotificationsPage() {
             <button
               type="button"
               onClick={() => void markAllRead()}
-              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar cursor-pointer self-start rounded-ds-md border bg-white px-4 py-2 text-sm font-semibold shadow-sm transition-colors sm:self-auto"
+              className={appButtonClassName("default", { className: "cursor-pointer self-start sm:self-auto" })}
             >
               Mark all read
             </button>

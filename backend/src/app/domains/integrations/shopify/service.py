@@ -62,6 +62,25 @@ def invalidate_shopify_connection_cache(agent_id: UUID) -> None:
     _shopify_not_connected_until.pop(agent_id, None)
 
 
+def _prime_shopify_connection_cache(
+    agent_id: UUID,
+    *,
+    shop_domain: str,
+    access_token: str,
+    token_response: dict[str, Any],
+) -> None:
+    """Populate positive cache after OAuth so reconnect wins over stale negative entries."""
+    expires_at = _token_expires_at_from_response(token_response)
+    has_refresh = bool(token_response.get("refresh_token"))
+    _shopify_not_connected_until.pop(agent_id, None)
+    _shopify_conn_cache[agent_id] = _ShopifyConnCacheEntry(
+        shop_domain=shop_domain,
+        access_token=access_token,
+        token_expires_at=expires_at,
+        has_refresh_token=has_refresh,
+    )
+
+
 def is_shopify_disconnected_cached(agent_id: UUID) -> bool:
     """True when a recent probe found no connected store (skip DB on hot path)."""
     neg_ttl = float(get_settings().runtime_shopify_disconnected_cache_ttl_seconds)
@@ -391,7 +410,14 @@ async def handle_oauth_callback(
     except Exception:
         log.warning("shopify.stripe_customer_failed", user_id=str(user_id), exc_info=True)
     await db.commit()
-    invalidate_shopify_connection_cache(agent_id)
+    async with _shopify_conn_lock(agent_id):
+        invalidate_shopify_connection_cache(agent_id)
+        _prime_shopify_connection_cache(
+            agent_id,
+            shop_domain=shop_domain,
+            access_token=token,
+            token_response=data,
+        )
     from app.domains.actions.service import invalidate_shopify_actions_runtime_cache
 
     invalidate_shopify_actions_runtime_cache(user_id=user_id, agent_id=agent_id)
@@ -405,7 +431,9 @@ async def delete_connection(db: AsyncSession, *, user_id: UUID, agent_id: UUID) 
         {"agent_id": str(agent_id)},
     )
     await db.commit()
-    invalidate_shopify_connection_cache(agent_id)
+    async with _shopify_conn_lock(agent_id):
+        invalidate_shopify_connection_cache(agent_id)
+        mark_shopify_disconnected_cached(agent_id)
     from app.domains.actions.service import invalidate_shopify_actions_runtime_cache
 
     invalidate_shopify_actions_runtime_cache(user_id=user_id, agent_id=agent_id)

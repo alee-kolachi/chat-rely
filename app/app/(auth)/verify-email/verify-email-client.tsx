@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
+import { appButtonClassName } from "@/lib/button-styles";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
 export function VerifyEmailClient() {
@@ -74,13 +75,13 @@ export function VerifyEmailClient() {
             type="button"
             disabled={busy}
             onClick={() => void resend()}
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover w-full rounded-ds-md px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+            className={appButtonClassName("primary", { className: "w-full" })}
           >
             {busy ? "Sending…" : "Resend verification email"}
           </button>
           <Link
             href="/login"
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex w-full justify-center rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold"
+            className={appButtonClassName("default", { className: "w-full" })}
           >
             Back to login
           </Link>

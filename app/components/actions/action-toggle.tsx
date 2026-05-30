@@ -8,6 +8,8 @@ type ActionToggleProps = {
   checked?: boolean;
   defaultChecked?: boolean;
   disabled?: boolean;
+  /** Saving in progress — shows feedback and blocks extra clicks. */
+  pending?: boolean;
   label?: string;
   size?: "sm" | "md";
   className?: string;
@@ -18,6 +20,7 @@ export function ActionToggle({
   checked: checkedProp,
   defaultChecked = false,
   disabled,
+  pending = false,
   label,
   size = "sm",
   className,
@@ -26,7 +29,7 @@ export function ActionToggle({
   const [internal, setInternal] = useState(defaultChecked);
   const isControlled = checkedProp !== undefined;
   const checked = isControlled ? Boolean(checkedProp) : internal;
-  const isDisabled = Boolean(disabled);
+  const isDisabled = Boolean(disabled) || pending;
 
   const dims =
     size === "md"
@@ -38,7 +41,10 @@ export function ActionToggle({
       type="button"
       role="switch"
       aria-checked={checked}
-      aria-label={label ?? "Toggle action"}
+      aria-busy={pending}
+      aria-label={
+        pending ? `${label ?? "Toggle action"}, saving` : (label ?? "Toggle action")
+      }
       disabled={isDisabled}
       onClick={() => {
         if (isDisabled) return;
@@ -50,11 +56,23 @@ export function ActionToggle({
         "inline-flex shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-primary",
         dims.track,
         checked ? "justify-end bg-ds-primary" : "justify-start bg-ds-outline",
-        isDisabled && "cursor-not-allowed opacity-50",
+        pending && "cursor-wait opacity-90",
+        isDisabled && !pending && "cursor-not-allowed opacity-50",
         className
       )}
     >
-      <span aria-hidden className={cn("block rounded-full bg-white shadow-sm", dims.thumb)} />
+      <span
+        aria-hidden
+        className={cn(
+          "relative block rounded-full bg-white shadow-sm",
+          dims.thumb,
+          pending && "animate-pulse"
+        )}
+      >
+        {pending ? (
+          <span className="border-ds-primary/30 absolute inset-0 rounded-full border-2 border-t-ds-primary animate-spin" />
+        ) : null}
+      </span>
     </button>
   );
 }

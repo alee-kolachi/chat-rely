@@ -49,10 +49,7 @@ export const shopifyActions: ShopifyAction[] = [
     status: "live",
     enabled: true,
     icon: "search",
-    scopes: [
-      { name: "read_products", granted: true },
-      { name: "read_product_listings", granted: true },
-    ],
+    scopes: [{ name: "read_products", granted: false }],
     triggerExamples: [
       "Do you have the navy linen shirt in medium?",
       "What running shoes are under $120?",
@@ -118,8 +115,8 @@ export const shopifyActions: ShopifyAction[] = [
     enabled: true,
     icon: "package",
     scopes: [
-      { name: "read_orders", granted: true },
-      { name: "read_fulfillments", granted: true },
+      { name: "read_orders", granted: false },
+      { name: "read_fulfillments", granted: false },
     ],
     triggerExamples: [
       "Where is order #8842?",
@@ -130,25 +127,18 @@ export const shopifyActions: ShopifyAction[] = [
       "Call when the user asks about order status, tracking, delivery dates, or carrier info.",
     configFields: [
       {
-        type: "multi",
-        key: "lookupKeys",
-        label: "Lookup keys",
-        options: ["order_number", "email", "phone"],
-        defaultValue: ["order_number", "email"],
-        help: "Identifiers the agent can use to find an order.",
+        type: "text",
+        key: "lookupIdentifiers",
+        label: "Lookup identifiers",
+        defaultValue: "Order number, customer email",
+        help: "What the agent sends to Shopify. Phone lookup is not supported.",
       },
       {
-        type: "multi",
-        key: "statusesToSurface",
-        label: "Statuses to surface",
-        options: ["paid", "fulfilled", "in_transit", "delivered", "refunded", "cancelled"],
-        defaultValue: ["paid", "fulfilled", "in_transit", "delivered"],
-      },
-      {
-        type: "toggle",
-        key: "includeTrackingLink",
-        label: "Include tracking link in response",
-        defaultValue: true,
+        type: "text",
+        key: "statusAndTracking",
+        label: "Status and tracking",
+        defaultValue: "From Shopify when available",
+        help: "Fulfillment, payment status, and tracking links come from live order data. Status filters and tracking toggles are not configurable yet.",
       },
     ],
     testFields: [
@@ -168,29 +158,20 @@ export const shopifyActions: ShopifyAction[] = [
   {
     id: "inventory-check",
     label: "Inventory Check",
-    description: "Real-time stock levels per variant and location.",
+    description: "Real-time total stock per variant.",
     longDescription:
-      "Returns live inventory counts across warehouses and storefronts. Coming soon while we finalize multi-location syncing.",
+      "Returns total on-hand quantity per variant from Shopify. Quantities are store-wide totals, not broken down by warehouse or retail location.",
     status: "coming-soon",
     enabled: false,
     icon: "box",
-    scopes: [
-      { name: "read_inventory", granted: false },
-      { name: "read_locations", granted: false },
-    ],
+    scopes: [{ name: "read_inventory", granted: false }],
     triggerExamples: [
       "How many of these are left in size large?",
-      "Is this in stock at your downtown store?",
+      "Is the navy hoodie in stock?",
     ],
     triggerGuidance:
       "Call after a product has been identified and the user wants exact stock numbers.",
     configFields: [
-      {
-        type: "toggle",
-        key: "perLocation",
-        label: "Show stock per location",
-        defaultValue: true,
-      },
       {
         type: "number",
         key: "lowStockThreshold",
@@ -204,20 +185,20 @@ export const shopifyActions: ShopifyAction[] = [
       { key: "sku", label: "SKU", placeholder: "SH-1024" },
     ],
     exampleInput: { sku: "SH-1024" },
-    exampleOutput: { sku: "SH-1024", total: 42, locations: { downtown: 12, warehouse: 30 } },
+    exampleOutput: { sku: "SH-1024", variant: "Large", inventoryQuantity: 42 },
   },
   {
     id: "refund-status",
     label: "Refund and Return Status",
-    description: "Surface the state of a customer's return or refund request.",
+    description: "Return and refund progress (requires additional Shopify scopes).",
     longDescription:
-      "Lets the agent answer questions about ongoing returns: whether the label was used, the item received, and the refund issued.",
-    status: "live",
+      "Return and refund progress in chat. Coming soon.",
+    status: "coming-soon",
     enabled: false,
     icon: "refund",
     scopes: [
-      { name: "read_returns", granted: true },
-      { name: "read_refunds", granted: true },
+      { name: "read_orders", granted: false },
+      { name: "read_returns", granted: false },
     ],
     triggerExamples: [
       "Did you receive my return?",
@@ -254,15 +235,15 @@ export const shopifyActions: ShopifyAction[] = [
   {
     id: "cart-recovery",
     label: "Abandoned Cart Recovery",
-    description: "Resume the customer's last unfinished checkout.",
+    description: "Resume unfinished checkouts (requires read_checkouts scope).",
     longDescription:
-      "Looks up the most recent abandoned cart for the current shopper and lets the agent offer a one-click resume link.",
-    status: "live",
+      "Resume links for abandoned checkouts. Coming soon.",
+    status: "coming-soon",
     enabled: false,
     icon: "cart",
     scopes: [
-      { name: "read_checkouts", granted: true },
-      { name: "read_customers", granted: true },
+      { name: "read_checkouts", granted: false },
+      { name: "read_customers", granted: false },
     ],
     triggerExamples: [
       "I had a cart yesterday, can you bring it back?",
@@ -307,8 +288,8 @@ export const shopifyActions: ShopifyAction[] = [
     enabled: false,
     icon: "person",
     scopes: [
-      { name: "read_customers", granted: true },
-      { name: "read_orders", granted: true },
+      { name: "read_customers", granted: false },
+      { name: "read_orders", granted: false },
     ],
     triggerExamples: [
       "Can you see what I've bought before?",

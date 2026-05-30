@@ -19,7 +19,7 @@ import {
   type AssistantStreamPhase,
 } from "@/components/chat/StreamingAssistantMessage";
 import { chatSseStream } from "@/lib/chat-sse";
-import { applyChatSseEvent } from "@/lib/chat-stream-handlers";
+import { applyChatSseEvent, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
@@ -37,11 +37,22 @@ import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } f
 import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
 import { InfoHint } from "@/components/ui/info-hint";
+import { IsoGridPanelBackground } from "@/components/marketing/iso-grid-panel-background";
+import {
+  CREATIVITY_BANDS,
+  normalizeCreativity,
+  type CreativityLevel,
+} from "@/lib/agent-settings";
+import { useActionEnableToggle } from "@/hooks/use-action-enable-toggle";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
 
 const PLAYGROUND_CREATIVITY_HINT =
   "How varied replies are. Conservative stays close to your knowledge; Creative allows more flexible wording.";
+
+const PLAYGROUND_AGENT_TYPE_HINT =
+  "Brand Support: on-brand shop answers, warm and direct. General AI: flexible helper for any question. Customer Support: resolves issues step by step with a calm tone. Custom: you write the full system prompt.";
 
 /** Uses global `.ds-app-field` (design-system tokens + focus ring). */
 const fieldControlClass = cn("ds-app-field");
@@ -69,18 +80,6 @@ const playgroundComposerClass = cn(fieldControlClass, "playground-composer-input
 /** Matches agent-settings form labels (not uppercase kickers). */
 const settingsFieldLabelClass = "ds-app-label mb-1.5 block";
 const fieldControlPointerClass = cn(fieldControlClass, "cursor-pointer");
-
-function actionsConfigDirty(
-  draft: Record<string, boolean>,
-  base: Record<string, boolean> | null
-): boolean {
-  if (!base) return false;
-  const keys = new Set([...Object.keys(draft), ...Object.keys(base)]);
-  for (const k of keys) {
-    if (Boolean(draft[k]) !== Boolean(base[k])) return true;
-  }
-  return false;
-}
 
 type PlaygroundPreviewMessage = {
   from: "user" | "assistant";
@@ -113,27 +112,6 @@ const PLAYGROUND_AGENT_TYPES = [
   { value: "customer_support", label: "Customer Support Agent" },
   { value: "custom", label: "Custom Prompt" },
 ] as const;
-
-function normalizeCreativity(raw: unknown): 0 | 0.5 | 1 {
-  const n =
-    typeof raw === "number"
-      ? raw
-      : typeof raw === "string"
-        ? Number.parseFloat(raw)
-        : Number.NaN;
-  if (n === 0 || n === 0.5 || n === 1) return n;
-  if (!Number.isFinite(n)) return 0.5;
-  const snapped = Math.round(n * 2) / 2;
-  if (snapped <= 0) return 0;
-  if (snapped >= 1) return 1;
-  return 0.5;
-}
-
-function creativityBandLabel(value: number): string {
-  if (value <= 0) return "Conservative";
-  if (value >= 1) return "Creative";
-  return "Balanced";
-}
 
 function languagePreviewLabel(raw: string | null): string | null {
   if (!raw) return null;
@@ -284,7 +262,7 @@ function PlaygroundPreviewConversation({
   languageRaw: string | null;
   agentType: string;
   systemPrompt: string;
-  creativity: number;
+  creativity: CreativityLevel;
   saveError: string | null;
   websiteLogoUrl: string | null;
   websiteLogoPending: boolean;
@@ -590,6 +568,9 @@ function PlaygroundPreviewConversation({
       });
       if (ev.type === "error") {
         throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
+      }
+      if (chatStreamTerminalEvent(ev)) {
+        setIsSending(false);
       }
     }
     setPreviewMessages((prev) => {
@@ -916,7 +897,7 @@ function PlaygroundPreviewConversation({
             <button
               type="button"
               className={cn(
-                "ds-app-body-muted hover:text-ds-on-surface hover:bg-ds-outline/40 -mx-1 mb-4 flex w-fit cursor-pointer items-center gap-2 rounded-ds-md px-2 py-1.5 font-semibold tracking-wide uppercase transition-colors",
+                "ds-app-body-muted hover:text-ds-on-surface hover:bg-ds-outline/40 -mx-1 mb-4 flex w-fit cursor-pointer items-center gap-2 rounded-ds-md px-2 py-1.5 text-sm font-semibold transition-colors",
                 historyThreadLoading && "pointer-events-none opacity-45"
               )}
               onClick={() => setHistoryOpen(false)}
@@ -981,7 +962,7 @@ function PlaygroundPreviewConversation({
             )}
           </div>
         ) : (
-          <div className="space-y-5 p-5 sm:p-8">
+          <div className="space-y-5 px-4 py-5 sm:px-5 sm:py-8">
             {historyThreadLoading ? (
               <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
             ) : null}
@@ -1089,7 +1070,7 @@ function PlaygroundPreviewConversation({
           </>
         ) : (
           <div className="flex flex-col gap-2">
-            <div className="flex items-end gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <textarea
                 ref={messageInputRef}
                 rows={1}
@@ -1111,10 +1092,13 @@ function PlaygroundPreviewConversation({
               <button
                 type="button"
                 className={cn(
-                  "mb-0.5 cursor-pointer shrink-0 rounded-ds-md p-3 transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
+                  "inline-flex size-11 shrink-0 items-center justify-center active:scale-[0.98]",
                   hasBrand && chrome
-                    ? cn(chrome.fabIconClass, "hover:opacity-90")
-                    : "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
+                    ? cn(
+                        chrome.fabIconClass,
+                        "cursor-pointer rounded-ds-md transition-colors hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
+                      )
+                    : appButtonClassName("default", { className: "cursor-pointer" })
                 )}
                 style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
                 onClick={() => void handleSendMessage()}
@@ -1137,7 +1121,7 @@ function PlaygroundPreviewConversation({
 
 type PlaygroundFormBaseline = {
   systemPrompt: string;
-  creativity: number;
+  creativity: CreativityLevel;
   agentType: string;
 };
 
@@ -1166,11 +1150,9 @@ export default function PlaygroundPage() {
   const shopifyConnected = Boolean(shopifyConnection?.connected);
   const setTopbarExtras = useSetDashboardTopbarExtras();
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [creativity, setCreativity] = useState<number>(0.5);
+  const [creativity, setCreativity] = useState<CreativityLevel>(0.5);
   const [agentType, setAgentType] = useState<string>("brand_support");
   const [baseline, setBaseline] = useState<PlaygroundFormBaseline | null>(null);
-  const [actionDraft, setActionDraft] = useState<Record<string, boolean>>({});
-  const [actionBaseline, setActionBaseline] = useState<Record<string, boolean> | null>(null);
   const [shopifyActionsOpen, setShopifyActionsOpen] = useState(true);
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -1182,8 +1164,15 @@ export default function PlaygroundPage() {
     return faviconServiceUrl(raw) || null;
   }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
   const hydratedAgentIdRef = useRef<string | null>(null);
-  const actionsHydratedForAgentIdRef = useRef<string | null>(null);
-  const shopifyConnPrevRef = useRef<boolean | undefined>(undefined);
+
+  const { resolveEnabled, isTogglePending, toggleEnabled } = useActionEnableToggle(
+    selectedAgentId || undefined,
+    refreshIntegrations,
+    (message) => {
+      if (!selectedAgentId) return;
+      setSaveError({ agentId: selectedAgentId, message });
+    }
+  );
 
   /* Hydrate playground form when the selected agent changes (not when the agent list reference refreshes). */
   useEffect(() => {
@@ -1194,9 +1183,6 @@ export default function PlaygroundPage() {
         setSystemPrompt("");
         setCreativity(0.5);
         setAgentType("brand_support");
-        setActionDraft({});
-        setActionBaseline(null);
-        actionsHydratedForAgentIdRef.current = null;
       });
       return;
     }
@@ -1222,69 +1208,8 @@ export default function PlaygroundPage() {
       setAgentType(at);
       setBaseline({ systemPrompt: sp, creativity: cr, agentType: at });
       setSaveError(null);
-      setActionDraft({});
-      setActionBaseline(null);
-      actionsHydratedForAgentIdRef.current = null;
     });
   }, [selectedAgentId, agents]);
-
-  /* Load action toggles from catalog; deferred until Save. Re-sync when agent or Shopify connection changes. */
-  useEffect(() => {
-    if (!selectedAgentId || !actionsCatalog) return;
-
-    const buildDraft = (includeShopify: boolean) => {
-      const d: Record<string, boolean> = {};
-      const human = actionsCatalog.entries.find((e) => e.action_key === "human.escalate");
-      if (human) {
-        d["human.escalate"] = Boolean(human.enabled && human.status === "live");
-      }
-      if (includeShopify) {
-        for (const e of actionsCatalog.entries) {
-          if (e.provider === "shopify") {
-            d[e.action_key] = Boolean(e.enabled && e.status === "live");
-          }
-        }
-      }
-      return d;
-    };
-
-    if (actionsHydratedForAgentIdRef.current !== selectedAgentId) {
-      const draft = buildDraft(shopifyConnected);
-      queueMicrotask(() => {
-        setActionDraft(draft);
-        setActionBaseline(draft);
-      });
-      actionsHydratedForAgentIdRef.current = selectedAgentId;
-      shopifyConnPrevRef.current = shopifyConnected;
-      return;
-    }
-
-    const prevConn = shopifyConnPrevRef.current;
-    shopifyConnPrevRef.current = shopifyConnected;
-    if (prevConn === false && shopifyConnected) {
-      queueMicrotask(() => {
-        setActionDraft((prev) => {
-          const next = { ...prev };
-          for (const e of actionsCatalog.entries) {
-            if (e.provider === "shopify") {
-              next[e.action_key] = Boolean(e.enabled && e.status === "live");
-            }
-          }
-          return next;
-        });
-        setActionBaseline((prev) => {
-          if (!prev) return prev;
-          const next = { ...prev };
-          for (const e of actionsCatalog.entries) {
-            if (e.provider === "shopify") {
-              next[e.action_key] = Boolean(e.enabled && e.status === "live");
-            }
-          }
-          return next;
-        });
-      });
-    }
-  }, [selectedAgentId, actionsCatalog, shopifyConnected]);
 
   const humanEscalationEntry = useMemo(
     () => actionsCatalog?.entries.find((e) => e.action_key === "human.escalate"),
@@ -1310,10 +1235,7 @@ export default function PlaygroundPage() {
         creativity !== baseline.creativity ||
         agentType !== baseline.agentType)
   );
-  const actionsDirty = actionsConfigDirty(actionDraft, actionBaseline);
-  const isDirty = Boolean(
-    selectedAgentId && baseline && (formFieldsDirty || actionsDirty)
-  );
+  const isDirty = Boolean(selectedAgentId && baseline && formFieldsDirty);
 
   const showPlaygroundSettingsSkeleton =
     agentsLoading || Boolean(selectedAgentId && baseline === null);
@@ -1337,28 +1259,6 @@ export default function PlaygroundPage() {
         body: JSON.stringify({ system_prompt: systemPrompt, behavior_settings }),
       });
       await refreshAgents();
-
-      if (actionBaseline) {
-        const keys = new Set([
-          ...Object.keys(actionDraft),
-          ...Object.keys(actionBaseline),
-        ]);
-        for (const actionKey of keys) {
-          const next = Boolean(actionDraft[actionKey]);
-          const prev = Boolean(actionBaseline[actionKey]);
-          if (next !== prev) {
-            await backendFetch(
-              `/api/v1/agents/${selectedAgentId}/actions/${encodeURIComponent(actionKey)}`,
-              {
-                method: "PATCH",
-                body: JSON.stringify({ enabled: next }),
-              }
-            );
-          }
-        }
-        await refreshIntegrations();
-        setActionBaseline({ ...actionDraft });
-      }
 
       const cr = normalizeCreativity(updated.behavior_settings?.creativity);
       const atRaw = updated.behavior_settings?.agent_type;
@@ -1392,9 +1292,6 @@ export default function PlaygroundPage() {
     agentType,
     selectedAgent,
     refreshAgents,
-    actionBaseline,
-    actionDraft,
-    refreshIntegrations,
   ]);
 
   const handleSaveRef = useRef(handleSave);
@@ -1416,7 +1313,9 @@ export default function PlaygroundPage() {
             </div>
             <button
               type="button"
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer inline-flex items-center justify-center rounded-ds-md px-4 py-2.5 text-sm font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+              className={appButtonClassName("default", {
+                className: "cursor-pointer inline-flex active:scale-[0.98]",
+              })}
               onClick={() => void handleSaveRef.current()}
               disabled={!selectedAgentId || isSaving}
             >
@@ -1458,10 +1357,11 @@ export default function PlaygroundPage() {
         </button>
       </div>
 
-      <div className="dot-grid flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row xl:items-stretch">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-ds-surface xl:flex-row xl:items-stretch">
+        <IsoGridPanelBackground id="playground-iso-grid" />
         <section
           className={cn(
-            "border-ds-outline flex w-full min-h-0 flex-col overflow-hidden border-b bg-white",
+            "border-ds-outline relative z-10 flex w-full min-h-0 flex-col overflow-hidden border-b bg-white",
             "xl:w-[420px] xl:shrink-0 xl:border-r xl:border-b-0",
             mobileTab === "settings" ? "flex-1 xl:flex-none" : "hidden xl:flex"
           )}
@@ -1483,25 +1383,37 @@ export default function PlaygroundPage() {
 
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <label className={cn(settingsFieldLabelClass, "mb-0")}>
+                <p id="playground-creativity-label" className={cn(settingsFieldLabelClass, "mb-0")}>
                   Creativity
-                </label>
+                </p>
                 <InfoHint text={PLAYGROUND_CREATIVITY_HINT} labelFor="Creativity" className="ml-0" />
               </div>
-              <input
-                className="accent-ds-primary w-full cursor-pointer"
-                type="range"
-                min="0"
-                max="1"
-                step="0.5"
-                value={creativity}
-                onChange={(e) => setCreativity(Number.parseFloat(e.target.value))}
-              />
-              <div className="ds-app-kicker flex justify-between font-medium">
-                <span>Conservative</span>
-                <span className="text-ds-on-surface font-semibold">{creativityBandLabel(creativity)}</span>
-                <span>Creative</span>
+              <div
+                role="radiogroup"
+                aria-labelledby="playground-creativity-label"
+                className="bg-ds-sidebar border-ds-outline flex flex-col gap-1 rounded-ds-md border p-1 sm:flex-row sm:gap-0"
+              >
+                {CREATIVITY_BANDS.map((band) => (
+                  <button
+                    key={band.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={creativity === band.value}
+                    onClick={() => setCreativity(band.value)}
+                    className={cn(
+                      "w-full rounded-ds-sm px-3 py-2.5 text-sm font-medium transition-all sm:flex-1",
+                      creativity === band.value
+                        ? "bg-white text-ds-on-surface shadow-sm"
+                        : "text-ds-on-surface-variant hover:text-ds-on-surface"
+                    )}
+                  >
+                    {band.label}
+                  </button>
+                ))}
               </div>
+              <p className="ds-app-body-muted text-sm">
+                Preview uses this right away. Save to apply on your live widget.
+              </p>
             </div>
 
             <div className="space-y-4">
@@ -1557,10 +1469,9 @@ export default function PlaygroundPage() {
                               <p className={cn(onboardingType.hint, "mt-0.5")}>{e.description}</p>
                             </div>
                             <ToggleSwitch
-                              checked={Boolean(actionDraft[e.action_key])}
-                              onCheckedChange={(next) =>
-                                setActionDraft((prev) => ({ ...prev, [e.action_key]: next }))
-                              }
+                              checked={resolveEnabled(e.action_key, Boolean(e.enabled))}
+                              disabled={isTogglePending(e.action_key) || integrationsLoading}
+                              onCheckedChange={(next) => void toggleEnabled(e.action_key, next)}
                             />
                           </div>
                         ))}
@@ -1577,10 +1488,12 @@ export default function PlaygroundPage() {
                     <span className="ds-app-card-title">Escalate to human</span>
                   </div>
                   <ToggleSwitch
-                    checked={Boolean(actionDraft["human.escalate"])}
-                    onCheckedChange={(next) =>
-                      setActionDraft((prev) => ({ ...prev, "human.escalate": next }))
-                    }
+                    checked={resolveEnabled(
+                      "human.escalate",
+                      Boolean(humanEscalationEntry?.enabled)
+                    )}
+                    disabled={isTogglePending("human.escalate") || integrationsLoading}
+                    onCheckedChange={(next) => void toggleEnabled("human.escalate", next)}
                   />
                 </div>
               ) : humanEscalationEntry?.status === "blocked_by_plan" ? (
@@ -1594,9 +1507,15 @@ export default function PlaygroundPage() {
             </div>
 
             <div className="space-y-2">
-              <label className={settingsFieldLabelClass}>
-                Agent type
-              </label>
+              <div className="flex items-center gap-2">
+                <label className={cn(settingsFieldLabelClass, "mb-0")}>Agent type</label>
+                <InfoHint
+                  text={PLAYGROUND_AGENT_TYPE_HINT}
+                  labelFor="Agent type"
+                  placement="right"
+                  className="ml-0"
+                />
+              </div>
               <select
                 className={fieldControlPointerClass}
                 value={agentType}
@@ -1621,7 +1540,7 @@ export default function PlaygroundPage() {
                 {agentType === "custom" ? (
                   <button
                     type="button"
-                    className="text-ds-on-surface-variant hover:text-ds-interactive-hover ds-app-kicker inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
+                    className="text-ds-on-surface-variant hover:text-ds-interactive-hover inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-xs font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
                     disabled={!baseline || systemPrompt === baseline.systemPrompt}
                     onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
                   >
@@ -1653,7 +1572,9 @@ export default function PlaygroundPage() {
                 </div>
                 <button
                   type="button"
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex shrink-0 cursor-pointer items-center justify-center rounded-ds-md px-4 py-2.5 text-sm font-semibold tracking-wide uppercase transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45"
+                  className={appButtonClassName("default", {
+                    className: "inline-flex shrink-0 cursor-pointer active:scale-[0.98]",
+                  })}
                   onClick={() => void handleSave()}
                   disabled={!selectedAgentId || isSaving}
                 >
@@ -1668,7 +1589,7 @@ export default function PlaygroundPage() {
 
         <section
           className={cn(
-            "min-w-0 flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
+            "relative z-10 min-w-0 flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
             "xl:items-center xl:justify-start xl:self-start xl:min-h-0 xl:p-12 xl:pt-10 xl:pb-12",
             mobileTab === "preview" ? "" : "hidden xl:flex"
           )}

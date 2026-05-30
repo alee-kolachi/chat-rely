@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check } from "lucide-react";
+import { AnalyticsPlanNotice } from "@/components/analytics/analytics-plan-notice";
 import {
   AnalyticsCountryListSkeleton,
   AnalyticsIntentListSkeleton,
@@ -21,7 +22,7 @@ import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/d
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
-import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
+import { planAllowsAnalyticsPage, analyticsAccessTierForPlanSlug } from "@/lib/analytics-plan-access";
 import { formatLocaleDateTime, formatLocaleNumber } from "@/lib/format-locale-datetime";
 import { useClientMounted } from "@/lib/use-client-mounted";
 import {
@@ -30,6 +31,7 @@ import {
   CHART_VB_W,
 } from "@/lib/dashboard-chart-model";
 import { messageFeedbackEnabledForPlanSlug } from "@/lib/widget-branding";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 type MessageFeedbackPayload = {
@@ -287,6 +289,12 @@ export default function AnalyticsPage() {
 
   const showFullAnalytics = data?.analytics_tier === "full";
 
+  const analyticsTierForNotice =
+    data?.analytics_tier ??
+    (planAllowsAnalyticsPage(meData?.plan.slug)
+      ? analyticsAccessTierForPlanSlug(meData?.plan.slug)
+      : "none");
+
   const resolveFeedback = useCallback(
     async (messageId: string) => {
       if (!selectedAgentId) return;
@@ -476,16 +484,6 @@ export default function AnalyticsPage() {
             </div>
           </article>
         </section>
-
-        {data?.analytics_tier === "basic" && !showPanelSkeleton ? (
-          <p className="text-ds-on-surface-variant text-sm leading-relaxed">
-            Your plan includes core KPIs and the conversation trend.{" "}
-            <Link href="/pricing" className="text-ds-primary font-semibold hover:underline">
-              View plans
-            </Link>{" "}
-            for intents, geography, sentiment, and quality metrics (Standard and Pro).
-          </p>
-        ) : null}
 
         {showFullAnalytics ? (
           <>
@@ -751,7 +749,10 @@ export default function AnalyticsPage() {
                       type="button"
                       disabled={resolvingId === row.message_id}
                       onClick={() => void resolveFeedback(row.message_id)}
-                      className="border-ds-outline text-ds-on-surface inline-flex shrink-0 items-center gap-1.5 rounded-ds-md border bg-white px-3 py-2 text-xs font-semibold shadow-sm hover:bg-ds-sidebar/60 disabled:opacity-50"
+                      className={appButtonClassName("default", {
+                        size: "sm",
+                        className: "inline-flex shrink-0 items-center gap-1.5 text-xs",
+                      })}
                     >
                       <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
                       Mark resolved
@@ -785,6 +786,10 @@ export default function AnalyticsPage() {
           </section>
         ) : null}
           </>
+        ) : null}
+
+        {!showPanelSkeleton && analyticsTierForNotice !== "none" ? (
+          <AnalyticsPlanNotice plan={meData?.plan} analyticsTier={analyticsTierForNotice} />
         ) : null}
       </div>
     </div>

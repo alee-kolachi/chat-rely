@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { appButtonClassName } from "@/lib/button-styles";
 import {
   AdminDataTable,
   AdminPagination,
@@ -218,7 +219,7 @@ async function SourcesTab({
         <div className="col-span-full flex items-center gap-3">
           <button
             type="submit"
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-md px-4 py-2 text-sm font-medium"
+            className={appButtonClassName()}
           >
             Apply filters
           </button>
@@ -420,7 +421,7 @@ async function IndexingJobsTab({
         <div className="col-span-full flex items-center gap-3">
           <button
             type="submit"
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-md px-4 py-2 text-sm font-medium"
+            className={appButtonClassName()}
           >
             Apply filters
           </button>

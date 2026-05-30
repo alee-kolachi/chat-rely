@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LoginTypingPreview } from "@/components/auth/login-typing-preview";
 import { CHAT_RELY_LOGO_PATH, ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { IsoGridPanelBackground } from "@/components/marketing/iso-grid-panel-background";
 import { MarketingAuthHeader } from "@/components/marketing/marketing-auth-header";
 import { MarketingSiteFooter } from "@/components/marketing/marketing-site-footer";
+import { appButtonClassName } from "@/lib/button-styles";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { loginWithEmailPassword } from "@/app/(auth)/login/actions";
 
@@ -168,7 +170,7 @@ export function ChatRelyLoginScreen() {
                 <button
                   type="submit"
                   disabled={isAuthPending}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover mt-2 w-full rounded-ds-md py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  className={appButtonClassName("primary", { className: "mt-2 w-full py-3" })}
                 >
                   {isAuthPending ? "Logging in..." : "Log in"}
                 </button>
@@ -188,28 +190,29 @@ export function ChatRelyLoginScreen() {
             </div>
           </div>
 
-          <div className="dot-grid border-ds-outline hidden flex-1 items-center justify-center border-l p-12 lg:flex">
-            <div className="w-full max-w-sm">
-              <div className="border-ds-outline flex h-[400px] flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-xl shadow-zinc-200/50">
-                <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
+          <div className="border-ds-outline relative hidden flex-1 items-center justify-center overflow-hidden border-l bg-ds-surface p-12 lg:flex">
+            <IsoGridPanelBackground id="login-iso-grid" />
+            <div className="relative z-10 w-full max-w-sm">
+              <div className="border-ds-outline flex h-[480px] flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-xl shadow-zinc-200/50">
+                <div className="bg-ds-primary flex items-center justify-between px-6 py-4">
                   <div className="flex items-center gap-3">
                     <div className="border-ds-outline flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white">
                       {/* eslint-disable-next-line @next/next/no-img-element -- static SVG from /public */}
                       <img src={CHAT_RELY_LOGO_PATH} alt="" className="h-5 w-auto object-contain" />
                     </div>
                     <div>
-                      <div className="ds-app-card-title text-ds-primary">ChatRely Assistant</div>
+                      <div className="ds-app-card-title !text-white">ChatRely Assistant</div>
                       <div className="flex items-center gap-1.5">
-                        <span className="size-1.5 rounded-full bg-green-500" />
-                        <span className="ds-app-caption">
+                        <span className="size-1.5 rounded-full bg-emerald-300" />
+                        <span className="ds-app-caption !text-white/85">
                           Always active
                         </span>
                       </div>
                     </div>
                   </div>
                   <div className="flex gap-1.5">
-                    <span className="size-1.5 rounded-full bg-zinc-200" />
-                    <span className="size-1.5 rounded-full bg-zinc-200" />
+                    <span className="size-1.5 rounded-full bg-white/35" />
+                    <span className="size-1.5 rounded-full bg-white/35" />
                   </div>
                 </div>
                 <div className="flex flex-grow flex-col justify-end space-y-5 p-6">
@@ -228,11 +231,6 @@ export function ChatRelyLoginScreen() {
                     </span>
                   </div>
                 </div>
-              </div>
-              <div className="mt-8 text-center">
-                <p className="ds-app-kicker font-bold opacity-80">
-                  Automate your customer experience
-                </p>
               </div>
             </div>
           </div>

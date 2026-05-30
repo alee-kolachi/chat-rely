@@ -11,48 +11,36 @@ export function DeployShopifyStatus() {
   const shop = data?.shop_domain;
 
   return (
-    <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="ds-app-section-title">Shopify integration</p>
-          <p className="text-ds-on-surface-variant mt-1 text-sm">
-            Store:{" "}
-            <span className="text-ds-on-surface font-semibold">
-              {loading ? "…" : connected && shop ? shop : "Not connected"}
-            </span>
+          <p className="ds-app-section-title">Shopify store</p>
+          <p className="ds-app-body-muted mt-1">
+            {loading ? "…" : connected && shop ? shop : "Not connected"}
           </p>
         </div>
         <span
-          className={`ds-app-kicker rounded-ds-md px-2 py-1 font-semibold ${
-            connected ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"
+          className={`rounded-ds-md px-2 py-1 text-xs font-semibold ${
+            connected ? "bg-emerald-100 text-emerald-800" : "bg-ds-sidebar text-ds-on-surface-variant"
           }`}
         >
-          {loading ? "…" : connected ? "Connected" : "Disconnected"}
+          {loading ? "…" : connected ? "Connected" : "Not connected"}
         </span>
       </div>
-      <div
-        className={`mt-4 rounded-ds-md border p-3 text-sm leading-relaxed ${
-          connected ? "border-emerald-200 bg-emerald-50/90 text-emerald-950" : "border-ds-outline bg-ds-sidebar/40 text-ds-on-surface"
-        }`}
-      >
-        {connected ? (
-          <>
-            OAuth is linked for this agent. Configure AI actions under{" "}
-            <Link href="/actions#shopify-integration" className="text-ds-primary font-semibold underline-offset-2 hover:underline">
-              Actions & integrations
-            </Link>
-            .
-          </>
-        ) : (
-          <>
-            Connect your Shopify store from{" "}
-            <Link href="/actions#shopify-integration" className="text-ds-primary font-semibold underline-offset-2 hover:underline">
-              Actions & integrations
-            </Link>{" "}
-            to enable catalog and order tools.
-          </>
-        )}
-      </div>
+      {!connected ? (
+        <p className="ds-app-body-muted text-sm">
+          This agent has no Shopify store linked. Connect in{" "}
+          <Link href="/actions#shopify-integration" className="text-ds-primary font-semibold hover:underline">
+            Actions &amp; integrations
+          </Link>
+          .
+        </p>
+      ) : (
+        <p className="ds-app-body-muted text-sm">
+          Storefront password and Shopify admin access are separate. Catalog tools keep working if the shop is
+          password-protected.
+        </p>
+      )}
     </section>
   );
 }

@@ -1,7 +1,9 @@
 from typing import Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.domains.runtime.schemas import ensure_non_whitespace_message
 
 
 class PublicWidgetAgentContext(BaseModel):
@@ -55,6 +57,11 @@ class PublicWidgetChatRequest(BaseModel):
     request_human: bool = False
     locale: str | None = None
     country_code: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def _message_not_whitespace_only(cls, value: str) -> str:
+        return ensure_non_whitespace_message(value)
 
 
 class PublicWidgetMessageFeedbackRequest(BaseModel):

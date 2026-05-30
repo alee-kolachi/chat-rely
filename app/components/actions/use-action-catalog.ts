@@ -10,13 +10,14 @@ export function useActionCatalog(agentId: string | undefined) {
   const [loading, setLoading] = useState(() => Boolean(agentId));
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     if (!agentId) {
       setData(null);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const res = await backendFetch<ApiActionCatalogResponse>(
@@ -25,9 +26,9 @@ export function useActionCatalog(agentId: string | undefined) {
       setData(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load actions");
-      setData(null);
+      if (!silent) setData(null);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [agentId]);
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import { AgentSettingsSubnav, type AgentSettingsTabKey } from "@/components/agent-settings/agent-settings-subnav";
 
@@ -62,8 +63,8 @@ export function AgentSettingsHeader() {
     <header className="mb-6 space-y-3">
       <div>
         <h1 className="ds-app-page-title">Agent Settings</h1>
-        <p className="ds-app-page-description ds-app-page-description--wide mt-2">
-          Configure how the selected chatbot looks, sounds, and behaves on your site. Tune model and prompt in{" "}
+        <p className="ds-app-page-description ds-app-page-description--wide">
+          Configure how the selected chatbot looks, sounds, and behaves on your site. Reply style and tools are in{" "}
           <Link href="/playground" className="text-ds-primary font-semibold hover:underline">
             Playground
           </Link>
@@ -89,12 +90,7 @@ export function AgentSettingsHeader() {
             type="button"
             onClick={handleSaveName}
             disabled={!dirty || isSavingName}
-            className={cn(
-              "rounded-ds-lg px-4 py-2 text-sm font-semibold shadow-sm transition-colors",
-              dirty && !isSavingName
-                ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
-                : "bg-ds-outline/40 text-ds-on-surface-variant cursor-not-allowed"
-            )}
+            className={appButtonClassName()}
           >
             {isSavingName ? "Saving..." : "Rename"}
           </button>
@@ -115,7 +111,7 @@ export function AgentSettingsEmptyState() {
       </p>
       <Link
         href="/onboarding"
-        className="bg-ds-primary text-ds-on-primary mt-5 inline-flex items-center justify-center rounded-ds-lg px-4 py-2 text-sm font-semibold shadow-sm hover:bg-ds-primary-hover"
+        className={appButtonClassName("default", { className: "mt-5" })}
       >
         Continue onboarding
       </Link>

@@ -3,6 +3,7 @@ export type WidgetConfig = {
   name: string;
   brand_color: string | null;
   widget_position: "bottom_right" | "bottom_left";
+  greeting_message?: string | null;
   human_escalation_available?: boolean;
   avatar_url?: string | null;
   attachments_ui_enabled?: boolean;
@@ -13,6 +14,7 @@ export type WidgetConfig = {
 export type ChatSseEvent =
   | { type: "status"; text: string }
   | { type: "token"; text: string }
+  | { type: "start"; conversation_id?: string }
   | ({
       type: "done";
       conversation_id?: string;

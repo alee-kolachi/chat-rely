@@ -5,6 +5,7 @@ import { backendFetch } from "@/lib/backend-api";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { AgentSettingsShell } from "@/components/agent-settings/agent-settings-shell";
 import { mergeBehaviorSettings, readRateLimit } from "@/lib/agent-settings";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 export default function AgentSettingsRateLimitsPage() {
@@ -174,12 +175,7 @@ function RateLimitsForm() {
               type="button"
               onClick={handleSave}
               disabled={!dirty || isSaving || !valid}
-              className={cn(
-                "rounded-ds-lg px-5 py-2 text-sm font-semibold shadow-sm transition-colors",
-                dirty && !isSaving && valid
-                  ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
-                  : "bg-ds-outline/40 text-ds-on-surface-variant cursor-not-allowed"
-              )}
+              className={appButtonClassName()}
             >
               {isSaving ? "Saving..." : "Save changes"}
             </button>

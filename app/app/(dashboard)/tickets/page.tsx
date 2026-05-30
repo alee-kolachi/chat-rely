@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 type TicketRow = {
@@ -128,7 +129,7 @@ function TicketsPageContent() {
           </div>
           <button
             type="button"
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors"
+            className={appButtonClassName()}
             onClick={() => void load()}
           >
             Refresh
@@ -182,12 +183,11 @@ function TicketsPageContent() {
                   <Link
                     key={value || "all"}
                     href={href}
-                    className={cn(
-                      "rounded-ds-md px-2.5 py-1 text-xs font-semibold transition-colors",
-                      active
-                        ? "bg-ds-primary text-ds-on-primary"
-                        : "text-ds-on-surface-variant hover:bg-ds-sidebar ring-1 ring-ds-outline"
-                    )}
+                    className={appButtonClassName("segment", {
+                      size: "sm",
+                      selected: active,
+                      className: "text-xs",
+                    })}
                   >
                     {label}
                   </Link>

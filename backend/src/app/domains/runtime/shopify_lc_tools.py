@@ -15,20 +15,40 @@ from app.domains.integrations.shopify.tool_runners import (
 )
 
 
-class ProductSearchInput(BaseModel):
-    query: str = Field(
-        description=(
-            "Shopify Admin product search query (keywords, SKU, tag). "
-            "For broad ‘what do you sell / browse the catalog’ questions, use exactly: published_status:published"
+def _product_search_max_results_from_config(config: dict[str, Any] | None) -> int:
+    """Read maxResults (dashboard) or max_results from agent_actions.config; clamp 1–20."""
+    if not config:
+        return 5
+    raw = config.get("maxResults", config.get("max_results", 5))
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 5
+    return max(1, min(n, 20))
+
+
+def _make_product_search_input(default_max_results: int) -> type[BaseModel]:
+    class ProductSearchInput(BaseModel):
+        query: str = Field(
+            description=(
+                "Shopify Admin product search query (keywords, SKU, tag). "
+                "For follow-ups, resolve the product from the thread and pass brand or name keywords only "
+                "(e.g. Timberland), not pronouns or phrases like \"the one\". "
+                "For broad ‘what do you sell / browse the catalog’ questions, use exactly: published_status:published"
+            )
         )
-    )
-    max_results: int = Field(default=5, ge=1, le=20)
+        max_results: int = Field(default=default_max_results, ge=1, le=20)
+
+    return ProductSearchInput
 
 
 class OrderLookupInput(BaseModel):
     order_name_or_number: str = Field(
         default="",
-        description="Order number as shown to the customer (e.g. 1001 or #1001). Leave empty if using email only.",
+        description=(
+            "Order number as shown to the customer (e.g. 1001, #1001, or a bare numeric message like 8842). "
+            "Leave empty only when searching by email alone."
+        ),
     )
     customer_email: str | None = Field(default=None, description="Customer email to narrow order search.")
 
@@ -47,12 +67,30 @@ def build_shopify_langchain_tools(
     shop_domain: str,
     access_token: str,
     enabled_action_keys: set[str],
+    *,
+    action_configs: dict[str, dict[str, Any]] | None = None,
 ) -> list[StructuredTool]:
     tools: list[StructuredTool] = []
 
     if "shopify.product_search" in enabled_action_keys:
+        product_search_description = (
+            "Search the merchant's Shopify catalog for products, variants, SKUs, and prices. "
+            "Use for catalog browsing, product discovery, recommendations, and pricing — "
+            "not for stock quantity or whether an item is in stock (use shopify_inventory_check). "
+            "When lookup_meta.not_found is true, tell the shopper the item is not in this store's catalog — "
+            "do not invent availability or prices."
+        )
+        if "shopify.order_lookup" not in enabled_action_keys:
+            product_search_description += (
+                " Do not use for order status, tracking, shipping, or fulfillment questions — "
+                "Order Lookup is not enabled for this chat."
+            )
 
-        async def _product_search(query: str, max_results: int = 5) -> str:
+        product_cfg = (action_configs or {}).get("shopify.product_search") or {}
+        default_max_results = _product_search_max_results_from_config(product_cfg)
+        product_search_input = _make_product_search_input(default_max_results)
+
+        async def _product_search(query: str, max_results: int = default_max_results) -> str:
             return await run_product_search(
                 shop_domain=shop_domain,
                 access_token=access_token,
@@ -64,11 +102,8 @@ def build_shopify_langchain_tools(
             StructuredTool.from_function(
                 coroutine=_product_search,
                 name="shopify_product_search",
-                description=(
-                    "Search the merchant's Shopify catalog for products, variants, SKUs, and prices. "
-                    "Use when shoppers ask what you sell, availability, recommendations, or pricing."
-                ),
-                args_schema=ProductSearchInput,
+                description=product_search_description,
+                args_schema=product_search_input,
             )
         )
 
@@ -87,7 +122,8 @@ def build_shopify_langchain_tools(
                 coroutine=_order_lookup,
                 name="shopify_order_lookup",
                 description=(
-                    "Look up order status, fulfillment, and tracking using order number and/or customer email."
+                    "Look up order status, fulfillment, and tracking using order number and/or customer email. "
+                    "Call when the customer asks about an order or sends only an order number (digits or #digits)."
                 ),
                 args_schema=OrderLookupInput,
             )
@@ -108,7 +144,10 @@ def build_shopify_langchain_tools(
                 coroutine=_inventory,
                 name="shopify_inventory_check",
                 description=(
-                    "Check inventory quantities for product variants using SKU or product search terms."
+                    "Check live stock for product variants: in stock, out of stock, quantity on hand. "
+                    "Use when shoppers ask about inventory, stock levels, or how many are left. "
+                    "Pass SKU if known; otherwise product name or keywords as product_query. "
+                    "Do not use for general catalog browsing (use shopify_product_search)."
                 ),
                 args_schema=InventoryInput,
             )
@@ -129,7 +168,9 @@ def build_shopify_langchain_tools(
                 coroutine=_customer,
                 name="shopify_customer_context",
                 description=(
-                    "Load customer profile and recent order history by email for personalization and support."
+                    "Load customer profile and recent order history by email for personalization and support. "
+                    "When lookup_meta.not_found is true, tell the shopper you could not find an account for that "
+                    "email in this store. Do not invent order history or lifetime value."
                 ),
                 args_schema=CustomerContextInput,
             )

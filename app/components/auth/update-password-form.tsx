@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updatePasswordWithSession } from "@/app/(auth)/update-password/actions";
+import { appButtonClassName } from "@/lib/button-styles";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
 export function UpdatePasswordForm() {
@@ -74,7 +75,7 @@ export function UpdatePasswordForm() {
       <button
         type="submit"
         disabled={isPending}
-        className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover w-full rounded-ds-md py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+        className={appButtonClassName("primary", { className: "w-full py-3" })}
       >
         {isPending ? "Saving…" : "Update password"}
       </button>

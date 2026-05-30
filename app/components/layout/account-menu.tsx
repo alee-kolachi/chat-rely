@@ -84,7 +84,7 @@ export function AccountMenu() {
                 role="menuitem"
                 onClick={() => setOpen(false)}
                 className={cn(
-                  "text-ds-on-surface hover:bg-ds-sidebar/80 block px-3 py-2.5 text-sm font-medium",
+                  "text-ds-on-surface hover:bg-ds-sidebar/80 hover:text-ds-primary block px-3 py-2.5 text-sm font-medium transition-colors",
                   active && "bg-ds-primary/8 text-ds-primary"
                 )}
               >
@@ -93,7 +93,7 @@ export function AccountMenu() {
             );
           })}
           <div className="border-ds-outline/80 border-t p-1">
-            <LogoutButton className="text-ds-on-surface hover:bg-ds-sidebar/80 w-full rounded-ds-md px-2 py-2.5 text-left text-sm font-medium" />
+            <LogoutButton className="text-ds-on-surface hover:bg-ds-sidebar/80 hover:text-ds-primary w-full rounded-ds-md px-2 py-2.5 text-left text-sm font-medium transition-colors" />
           </div>
         </div>
       ) : null}

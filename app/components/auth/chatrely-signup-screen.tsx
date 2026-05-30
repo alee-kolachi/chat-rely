@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { SignupTypingPreview } from "@/components/auth/signup-typing-preview";
 import { CHAT_RELY_LOGO_PATH, ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { IsoGridPanelBackground } from "@/components/marketing/iso-grid-panel-background";
 import { MarketingAuthHeader } from "@/components/marketing/marketing-auth-header";
 import { MarketingSiteFooter } from "@/components/marketing/marketing-site-footer";
 import { clearChatrelyClientAccountCaches } from "@/lib/clear-client-account-caches";
+import { appButtonClassName } from "@/lib/button-styles";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
 function IconClose({ className }: { className?: string }) {
@@ -188,7 +190,7 @@ export function ChatRelySignupScreen() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover mt-4 w-full rounded-ds-md py-3 text-sm font-semibold transition-colors"
+                  className={appButtonClassName("primary", { className: "mt-4 w-full py-3" })}
                 >
                   {isSubmitting ? "Creating account..." : "Create account"}
                 </button>
@@ -218,7 +220,8 @@ export function ChatRelySignupScreen() {
             </div>
           </div>
 
-          <div className="dot-grid border-ds-outline relative hidden flex-1 items-center justify-center overflow-hidden border-l p-12 lg:flex">
+          <div className="border-ds-outline relative hidden flex-1 items-center justify-center overflow-hidden border-l bg-ds-surface p-12 lg:flex">
+            <IsoGridPanelBackground id="signup-iso-grid" />
             <div className="border-ds-outline relative z-10 flex h-[480px] w-full max-w-lg scale-110 flex-col overflow-hidden rounded-ds-lg border bg-ds-surface shadow-xl shadow-zinc-300/50">
               <div className="bg-ds-neutral border-ds-outline flex items-center gap-2 border-b px-4 py-3">
                 <div className="flex gap-1.5">

@@ -2,29 +2,61 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-_HUMAN_INTENT = re.compile(
-    r"(?i)\b("
-    r"talk\s+to\s+((a|an)\s+)?human|"
-    r"speak\s+(to|with)\s+((a|an)\s+)?(human|person|representative|agent|someone)|"
-    r"human\s+(representative|agent|support)|"
-    r"real\s+person|"
-    r"live\s+(agent|person|representative|support)|"
-    r"connect\s+me\s+with\s+((a|an)\s+)?(human|person|someone|support|agent)|"
-    r"(need|want)\s+to\s+talk\s+to\s+((a|an)\s+)?(human|person|agent|someone)|"
-    r"can\s+i\s+speak\s+to\s+((a|an)\s+)?(human|person|agent|someone)|"
-    r"get\s+me\s+((a|an)\s+)?(human|person|agent)|"
-    r"escalate\s+to\s+((a|an)\s+)?(human|agent|person)"
-    r")\b"
-)
+
+def _normalize_message(text: str) -> str:
+    return " ".join((text or "").strip().casefold().split())
+
+
+def _human_intent_phrases() -> tuple[str, ...]:
+    """Phrases equivalent to legacy escalation regex (substring match, no regex)."""
+    phrases: list[str] = []
+    articles = ("", "a ", "an ")
+
+    def add(*parts: str) -> None:
+        phrases.append(" ".join(p for p in parts if p))
+
+    for art in articles:
+        add("talk", "to", f"{art}human".strip())
+    for prep in ("to", "with"):
+        for art in articles:
+            for target in ("human", "person", "representative", "agent", "someone"):
+                add("speak", prep, f"{art}{target}".strip())
+    for role in ("representative", "agent", "support"):
+        add("human", role)
+    add("real", "person")
+    for role in ("agent", "person", "representative", "support"):
+        add("live", role)
+    for art in articles:
+        for target in ("human", "person", "someone", "support", "agent"):
+            add("connect", "me", "with", f"{art}{target}".strip())
+    for verb in ("need", "want"):
+        for art in articles:
+            for target in ("human", "person", "agent", "someone"):
+                add(verb, "to", "talk", "to", f"{art}{target}".strip())
+    for art in articles:
+        for target in ("human", "person", "agent", "someone"):
+            add("can", "i", "speak", "to", f"{art}{target}".strip())
+    for art in articles:
+        for target in ("human", "person", "agent"):
+            add("get", "me", f"{art}{target}".strip())
+    for art in articles:
+        for target in ("human", "agent", "person"):
+            add("escalate", "to", f"{art}{target}".strip())
+    return tuple(phrases)
+
+
+_HUMAN_INTENT_PHRASES = _human_intent_phrases()
 
 
 def message_requests_human(text: str) -> bool:
-    return bool(_HUMAN_INTENT.search((text or "").strip()))
+    normalized = _normalize_message(text)
+    if not normalized:
+        return False
+    return any(phrase in normalized for phrase in _HUMAN_INTENT_PHRASES)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,6 +157,10 @@ def visitor_empty_reply_fallback() -> str:
         "I'm not sure about that right now. "
         "Try asking in another way, or contact our support team if you need more help."
     )
+
+
+def visitor_non_substantive_reply() -> str:
+    return "I didn't catch a question. What can I help you with?"
 
 
 @dataclass(frozen=True)

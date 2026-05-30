@@ -182,5 +182,9 @@ async def update_agent(db: AsyncSession, user_id: UUID, agent_id: UUID, payload:
         raise AppError(code="agent.not_found", message="Agent not found", status_code=404)
 
     await db.commit()
+    if any(k in updates for k in ("behavior_settings", "system_prompt", "model")):
+        from app.domains.runtime.service import invalidate_agent_runtime_config_cache
+
+        await invalidate_agent_runtime_config_cache(user_id=user_id, agent_id=agent_id)
     return AgentDTO.model_validate(row)
 

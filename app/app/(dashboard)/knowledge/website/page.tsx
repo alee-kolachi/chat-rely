@@ -29,6 +29,7 @@ import {
 } from "@/components/knowledge/knowledge-data-sources-context";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 type SourceType = "crawl" | "sitemap" | "individual";
@@ -652,10 +653,6 @@ export default function KnowledgeWebsitePage() {
                       onChange={(e) => setUrlInput(e.target.value)}
                     />
                   </div>
-                  <p className="ds-app-body-muted mt-2">
-                    For Shopify, prefer your <strong className="text-ds-on-surface">sitemap.xml</strong> under Sitemap
-                    to reduce duplicate pages. Include/exclude path rules apply to crawled or sitemap URLs.
-                  </p>
                 </div>
 
                 {supportsAdvancedOptions ? (
@@ -724,7 +721,7 @@ export default function KnowledgeWebsitePage() {
                   <button
                     type="button"
                     disabled={submitting || !selectedAgentId}
-                    className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer rounded-ds-md px-6 py-2.5 text-sm font-semibold transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    className={appButtonClassName()}
                     onClick={() => void handleSubmit()}
                   >
                     {submitting ? "Working…" : submitLabel}
@@ -885,7 +882,7 @@ function PathRuleBlock({
         />
         <button
           type="button"
-          className="border-ds-outline text-ds-on-surface-variant hover:bg-ds-sidebar cursor-pointer rounded-ds-lg border bg-white px-5 py-2 text-sm font-medium transition-colors"
+          className={appButtonClassName()}
           onClick={() => {
             const p = pattern.trim();
             if (!p) return;

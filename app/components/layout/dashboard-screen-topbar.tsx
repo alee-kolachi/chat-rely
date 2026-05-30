@@ -8,6 +8,7 @@ import { AccountMenu } from "@/components/layout/account-menu";
 import { NotificationsMenu } from "@/components/layout/notifications-menu";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { cn } from "@/lib/utils";
+import { appButtonClassName } from "@/lib/button-styles";
 import { DashboardCreateAgentModal } from "./dashboard-create-agent-modal";
 import { useDashboardAgent } from "./dashboard-agent-context";
 
@@ -101,10 +102,10 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
                 disabled={atAgentLimit}
                 title={createTitle}
                 aria-label={createTitle}
-                className={cn(
-                  "border-ds-outline bg-ds-surface text-ds-on-surface hover:bg-ds-sidebar shrink-0 rounded-lg border px-2.5 py-2 text-sm font-semibold transition-colors md:px-3",
-                  "disabled:cursor-not-allowed disabled:opacity-45"
-                )}
+                className={appButtonClassName("default", {
+                  size: "sm",
+                  className: "shrink-0 disabled:cursor-not-allowed",
+                })}
               >
                 <span className="md:hidden" aria-hidden>
                   +
@@ -129,10 +130,11 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
           <div className="shrink-0">
             <Link
               href="/account/plan"
-              className={cn(
-                "border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex h-9 max-w-[9.5rem] items-center truncate rounded-full border bg-white px-2.5 text-sm font-semibold shadow-sm transition-colors md:max-w-[15rem] md:px-3",
-                "focus-visible:ring-ds-primary focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-              )}
+              className={appButtonClassName("default", {
+                size: "sm",
+                className:
+                  "inline-flex h-9 max-w-[9.5rem] truncate md:max-w-[15rem]",
+              })}
               title={planChip}
             >
               {planChip}

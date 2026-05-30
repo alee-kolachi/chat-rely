@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { requestPasswordReset } from "@/app/(auth)/forgot-password/actions";
+import { appButtonClassName } from "@/lib/button-styles";
 
 export function ForgotPasswordForm() {
   const [state, formAction, isPending] = useActionState(requestPasswordReset, undefined);
@@ -36,7 +37,7 @@ export function ForgotPasswordForm() {
       <button
         type="submit"
         disabled={isPending}
-        className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover w-full rounded-ds-md py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+        className={appButtonClassName("primary", { className: "w-full py-3" })}
       >
         {isPending ? "Sending…" : "Send reset link"}
       </button>

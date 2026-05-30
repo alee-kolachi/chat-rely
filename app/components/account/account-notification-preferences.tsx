@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import type { MeProfile } from "@/components/account/user-profile-context";
+import { appButtonClassName } from "@/lib/button-styles";
 
 const PREFS = [
   {
@@ -90,7 +91,7 @@ export function AccountNotificationPreferences({
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-lg px-6 py-2 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
+          className={appButtonClassName()}
         >
           {saving ? "Saving…" : "Save preferences"}
         </button>

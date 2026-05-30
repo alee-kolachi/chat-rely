@@ -1,5 +1,6 @@
 """Canonical plan limit helpers (conversations / agents / actions / training)."""
 
+from app.domains.actions.service import cap_enabled_shopify_actions_for_runtime
 from app.domains.plans.plan_limits import (
     analytics_access_tier_for_plan_slug,
     message_feedback_enabled_for_plan_slug,
@@ -56,6 +57,23 @@ def test_message_feedback_enabled_for_plan_slug() -> None:
     assert message_feedback_enabled_for_plan_slug("hobby") is False
     assert message_feedback_enabled_for_plan_slug("free") is False
     assert message_feedback_enabled_for_plan_slug(None) is False
+
+
+def test_shopify_runtime_cap_prefers_catalog_priority_over_alphabetical() -> None:
+    """Hobby max 3: keep product_search + order_lookup, drop lower-priority tools."""
+    enabled = [
+        ("shopify.customer_context", {}, {}),
+        ("shopify.inventory_check", {}, {}),
+        ("shopify.order_lookup", {}, {}),
+        ("shopify.product_search", {}, {}),
+    ]
+    capped = cap_enabled_shopify_actions_for_runtime(enabled, max_n=3)
+    keys = [t[0] for t in capped]
+    assert keys == [
+        "shopify.product_search",
+        "shopify.order_lookup",
+        "shopify.inventory_check",
+    ]
 
 
 def test_analytics_access_tier_for_plan_slug() -> None:

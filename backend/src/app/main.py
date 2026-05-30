@@ -77,16 +77,23 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
     allowed_origins = [str(origin) for origin in settings.allowed_origins]
+    cors_kwargs: dict[str, Any] = {
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
     if settings.is_development and not allowed_origins:
-        allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+        # LAN dev hosts (e.g. http://192.168.x.x:3000) when NEXT_PUBLIC_BACKEND_URL points at loopback.
+        cors_kwargs["allow_origin_regex"] = (
+            r"https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+            r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?"
+        )
+    else:
+        cors_kwargs["allow_origins"] = allowed_origins or (
+            ["http://localhost:3000", "http://127.0.0.1:3000"] if settings.is_development else []
+        )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
     app.add_middleware(PublicWidgetCORSMiddleware)
     app.add_middleware(RateLimitMiddleware)
 

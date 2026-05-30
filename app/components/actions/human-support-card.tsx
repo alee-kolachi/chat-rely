@@ -4,12 +4,14 @@ import { ActionToggle } from "@/components/actions/action-toggle";
 import { actionKeyToSlug } from "@/lib/action-keys";
 import { StatusBadge } from "@/components/actions/status-badge";
 import type { ShopifyActionStatus } from "@/components/actions/shopify-actions-data";
+import { IconChevronRight } from "@/components/actions/action-icons";
 
 type HumanSupportCardProps = {
   entry: ApiActionCatalogEntry;
   badgeStatus: ShopifyActionStatus;
   enabled: boolean;
   toggleDisabled: boolean;
+  togglePending?: boolean;
   onToggle?: (next: boolean) => void | Promise<void>;
 };
 
@@ -18,35 +20,33 @@ export function HumanSupportCard({
   badgeStatus,
   enabled,
   toggleDisabled,
+  togglePending = false,
   onToggle,
 }: HumanSupportCardProps) {
   return (
-    <article className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h3 className="ds-app-card-title">{entry.label}</h3>
-            <p className="ds-app-body-muted mt-1.5 text-sm leading-relaxed">{entry.description}</p>
-          </div>
-          <ActionToggle
-            checked={enabled}
-            onChange={onToggle}
-            disabled={toggleDisabled}
-            label={`Enable ${entry.label}`}
-            className="mt-0.5 shrink-0"
-          />
+    <article className="border-ds-outline flex flex-col gap-3 rounded-ds-lg border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="ds-app-card-title">{entry.label}</h3>
+          <StatusBadge status={badgeStatus} />
         </div>
-      </div>
-
-      <div className="border-ds-outline/60 bg-ds-sidebar/30 flex items-center justify-between gap-3 border-t px-5 py-3">
-        <StatusBadge status={badgeStatus} />
+        <p className="text-ds-on-surface-variant mt-1 line-clamp-2 text-sm leading-snug">{entry.description}</p>
         <Link
           href={`/actions/${actionKeyToSlug(entry.action_key)}`}
-          className="text-ds-on-surface hover:text-ds-interactive-hover inline-flex shrink-0 items-center gap-1 text-sm font-semibold transition-colors"
+          className="text-ds-on-surface-variant hover:text-ds-interactive-hover mt-2 inline-flex items-center gap-0.5 text-xs font-semibold transition-colors"
         >
-          Configure
+          Details
+          <IconChevronRight className="size-3" />
         </Link>
       </div>
+      <ActionToggle
+        checked={enabled}
+        onChange={onToggle}
+        disabled={toggleDisabled}
+        pending={togglePending}
+        label={`Enable ${entry.label}`}
+        className="shrink-0 sm:ml-4"
+      />
     </article>
   );
 }

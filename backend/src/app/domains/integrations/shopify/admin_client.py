@@ -47,7 +47,32 @@ async def shopify_graphql(
 
 
 def compact_json(data: Any, limit: int = 12000) -> str:
-    s = json.dumps(data, ensure_ascii=False, default=str)
-    if len(s) > limit:
-        return s[: limit - 3] + "..."
-    return s
+    """Serialize tool payload to JSON, capped at ``limit`` bytes with an explicit truncation signal."""
+    full = json.dumps(data, ensure_ascii=False, default=str)
+    if len(full) <= limit:
+        return full
+
+    preview_room = max(0, limit - 256)
+    while preview_room > 0:
+        envelope: dict[str, Any] = {
+            "_truncated": True,
+            "_original_byte_length": len(full),
+            "_limit_bytes": limit,
+            "message": "Shopify tool result truncated; data may be incomplete.",
+            "preview": full[:preview_room],
+        }
+        out = json.dumps(envelope, ensure_ascii=False)
+        if len(out) <= limit:
+            return out
+        preview_room -= max(1, len(out) - limit)
+
+    return json.dumps(
+        {
+            "_truncated": True,
+            "_original_byte_length": len(full),
+            "_limit_bytes": limit,
+            "message": "Shopify tool result truncated; data may be incomplete.",
+            "preview": "",
+        },
+        ensure_ascii=False,
+    )

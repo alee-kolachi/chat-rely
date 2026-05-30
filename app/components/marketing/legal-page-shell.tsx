@@ -6,6 +6,7 @@ export const LEGAL_SUPPORT_EMAIL = "support@chatrely.com";
 
 const legalNav = [
   { label: "About", href: "/about" },
+  { label: "Contact", href: "/contact" },
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
 ] as const;
@@ -13,10 +14,12 @@ const legalNav = [
 export function LegalPageShell({
   title,
   description,
+  showLastUpdated = true,
   children,
 }: {
   title: string;
   description?: string;
+  showLastUpdated?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -27,7 +30,9 @@ export function LegalPageShell({
           {description ? (
             <p className="mt-3 text-base leading-relaxed text-ds-on-surface-variant">{description}</p>
           ) : null}
-          <p className="mt-4 text-sm text-ds-text-muted">Last updated: {LEGAL_LAST_UPDATED}</p>
+          {showLastUpdated ? (
+            <p className="mt-4 text-sm text-ds-text-muted">Last updated: {LEGAL_LAST_UPDATED}</p>
+          ) : null}
           <nav aria-label="Legal pages" className="mt-6 flex flex-wrap gap-2">
             {legalNav.map((item) => (
               <Link

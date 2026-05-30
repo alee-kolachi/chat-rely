@@ -8,6 +8,7 @@ import { IconShopifyBag } from "@/components/actions/action-icons";
 import { useShopifyConnection } from "@/components/integrations/use-shopify-connection";
 import type { MeContextPayload } from "@/components/layout/me-context-provider";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
+import { InfoHint } from "@/components/ui/info-hint";
 import {
   OnboardingMainColumn,
   onboardingSplitBody,
@@ -21,7 +22,9 @@ import {
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { SHOPIFY_ADMIN_STOREFRONT_HINT } from "@/lib/shopify-connection-copy";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 type RowState = "done" | "active" | "pending";
@@ -68,7 +71,7 @@ function progressPercent(connected: boolean, connectBusy: boolean, hasShopDraft:
 export default function ConnectionOnboardingPage() {
   const searchParams = useSearchParams();
   const agentId = useResolvedOnboardingAgentId();
-  const { data, loading, error, refresh } = useShopifyConnection(agentId || undefined);
+  const { data, loading, error } = useShopifyConnection(agentId || undefined);
 
   const [shopDraft, setShopDraft] = useState("");
   const [connectBusy, setConnectBusy] = useState(false);
@@ -124,18 +127,24 @@ export default function ConnectionOnboardingPage() {
   useEffect(() => {
     const q = searchParams.get("shopify");
     if (q === "connected") {
-      setBanner({ kind: "success", text: "Shopify is linked to your agent." });
-      void refresh();
+      queueMicrotask(() =>
+        setBanner({ kind: "success", text: "Shopify is linked to your agent." })
+      );
     }
     if (q === "error") {
-      setBanner({ kind: "error", text: searchParams.get("message") ?? "Could not link Shopify. Try again." });
+      queueMicrotask(() =>
+        setBanner({
+          kind: "error",
+          text: searchParams.get("message") ?? "Could not link Shopify. Try again.",
+        })
+      );
     }
-  }, [searchParams, refresh]);
+  }, [searchParams]);
 
   useEffect(() => {
     if (data?.connected && data.shop_domain) {
       const sub = data.shop_domain.replace(/\.myshopify\.com$/i, "");
-      setShopDraft((prev) => (prev.trim() ? prev : sub));
+      queueMicrotask(() => setShopDraft((prev) => (prev.trim() ? prev : sub)));
     }
   }, [data?.connected, data?.shop_domain]);
 
@@ -251,7 +260,10 @@ export default function ConnectionOnboardingPage() {
                           <IconShopifyBag className="size-6" aria-hidden />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-ds-on-surface text-sm font-semibold">Shopify</p>
+                          <p className="text-ds-on-surface inline-flex items-center text-sm font-semibold">
+                            Shopify
+                            <InfoHint text={SHOPIFY_ADMIN_STOREFRONT_HINT} labelFor="Shopify connection" />
+                          </p>
                           <p className="text-ds-on-surface-variant text-sm">Sign in with Shopify. No password shared here.</p>
                         </div>
                       </div>
@@ -265,7 +277,7 @@ export default function ConnectionOnboardingPage() {
                             type="button"
                             onClick={() => void startOAuth()}
                             disabled={connectBusy || !shopDraft.trim()}
-                            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar w-full min-h-11 rounded-ds-md border bg-white py-2.5 text-sm font-semibold transition-colors disabled:opacity-45"
+                            className={appButtonClassName("default", { className: "w-full min-h-11" })}
                           >
                             Link a different store
                           </button>
@@ -292,7 +304,9 @@ export default function ConnectionOnboardingPage() {
                               type="button"
                               onClick={() => void startOAuth()}
                               disabled={connectBusy || !agentId || !shopDraft.trim()}
-                              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover min-h-11 shrink-0 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:opacity-45 sm:min-w-[9.5rem]"
+                              className={appButtonClassName("default", {
+                                className: "min-h-11 shrink-0 sm:min-w-[9.5rem]",
+                              })}
                             >
                               {connectBusy ? "Opening Shopify…" : "Link Shopify"}
                             </button>

@@ -6,10 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
 from app.agent.graph import (
+    MAX_TOOL_ROUNDS,
+    _call_model_node,
     _route_after_model,
     _route_after_shopify_tools,
     append_escalation_tool_prompt,
@@ -114,7 +116,18 @@ def test_route_end_when_no_tools_enabled() -> None:
 
 def test_route_after_shopify_tools_loops_until_max_rounds() -> None:
     assert _route_after_shopify_tools({"model_round": 1}) == "call_model"
-    assert _route_after_shopify_tools({"model_round": 5}) == "__end__"
+    assert _route_after_shopify_tools({"model_round": MAX_TOOL_ROUNDS}) == "__end__"
+    assert (
+        _route_after_shopify_tools(
+            {
+                "model_round": MAX_TOOL_ROUNDS,
+                "messages": [
+                    ToolMessage(content='{"products":[]}', tool_call_id="tc1", name="shopify_product_search")
+                ],
+            }
+        )
+        == "call_model"
+    )
 
 
 def test_append_escalation_tool_prompt_only_when_enabled() -> None:
@@ -140,6 +153,68 @@ def test_handoff_reply_copy_is_visitor_clear() -> None:
     assert "importing" not in awaiting.lower()
     assert "importing" not in empty.lower()
     assert "support team" in empty
+
+
+@pytest.mark.asyncio
+async def test_call_model_synthesizes_from_tool_results_at_max_rounds() -> None:
+    tool_ai = AIMessage(
+        content="",
+        tool_calls=[{"id": "tc1", "name": "shopify_product_search", "args": {"query": "hoodie"}}],
+    )
+    tool_result = ToolMessage(
+        content='{"products":[{"title":"Blue Hoodie","price":"29.99"}]}',
+        tool_call_id="tc1",
+        name="shopify_product_search",
+    )
+    state = {
+        "messages": [HumanMessage(content="Do you have hoodies?"), tool_ai, tool_result],
+        "model": "gpt-4o-mini",
+        "temperature": 0.0,
+        "fallback_message": "Sorry, I am not fully sure.",
+        "model_round": MAX_TOOL_ROUNDS,
+        "usage_input_tokens": 10,
+        "usage_output_tokens": 5,
+    }
+
+    mock_llm = MagicMock()
+
+    async def _fake_astream(_messages):  # noqa: ANN001
+        yield AIMessage(content="Yes — we have the Blue Hoodie for $29.99.")
+
+    mock_llm.astream = _fake_astream
+    mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+    writer = MagicMock()
+    with patch("app.agent.graph.make_chat_model", return_value=mock_llm):
+        result = await _call_model_node(state, writer)
+
+    assert result["final_response"] == "Yes — we have the Blue Hoodie for $29.99."
+    assert result["fallback_used"] is False
+    assert result["model_round"] == MAX_TOOL_ROUNDS + 1
+    mock_llm.bind_tools.assert_not_called()
+    writer.assert_called_with({"type": "token", "text": "Yes — we have the Blue Hoodie for $29.99."})
+
+
+@pytest.mark.asyncio
+async def test_call_model_at_max_rounds_without_tool_results_uses_fallback() -> None:
+    state = {
+        "messages": [HumanMessage(content="Hi")],
+        "model": "gpt-4o-mini",
+        "temperature": 0.0,
+        "fallback_message": "Sorry, I am not fully sure.",
+        "model_round": MAX_TOOL_ROUNDS,
+        "usage_input_tokens": 1,
+        "usage_output_tokens": 2,
+    }
+    writer = MagicMock()
+
+    with patch("app.agent.graph.make_chat_model") as mock_make:
+        result = await _call_model_node(state, writer)
+
+    mock_make.assert_not_called()
+    assert result["final_response"] == "Sorry, I am not fully sure."
+    assert result["fallback_used"] is True
+    writer.assert_called_with({"type": "token", "text": "Sorry, I am not fully sure."})
 
 
 @pytest.mark.asyncio
@@ -268,3 +343,214 @@ def test_select_chunks_no_match_without_query_terms_in_candidates() -> None:
     )
     assert chunks == []
     assert mode == "no_match"
+
+
+def test_shopify_connected_no_tools_block_forbids_invented_catalog() -> None:
+    from app.domains.runtime.service import _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK
+
+    block = _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK.lower()
+    assert "tools disabled" in block or "no shopify tools" in block
+    assert "do not invent" in block
+    assert "live catalog" in block
+
+
+def test_shopify_runtime_block_without_order_lookup_forbids_product_search_for_orders() -> None:
+    from app.domains.runtime.service import build_shopify_tools_runtime_block
+
+    block = build_shopify_tools_runtime_block(has_order_lookup_tool=False).lower()
+    assert "order lookup is **not** enabled" in block or "not enabled" in block
+    assert "do **not** call `shopify_product_search`" in block
+    assert "shopify_order_lookup" not in block
+
+
+def test_shopify_runtime_block_with_order_lookup_mentions_order_tool() -> None:
+    from app.domains.runtime.service import build_shopify_tools_runtime_block
+
+    block = build_shopify_tools_runtime_block(has_order_lookup_tool=True)
+    assert "shopify_order_lookup" in block
+
+
+def test_product_search_tool_description_excludes_orders_when_order_lookup_disabled() -> None:
+    from app.domains.runtime.shopify_lc_tools import build_shopify_langchain_tools
+
+    tools = build_shopify_langchain_tools(
+        "test.myshopify.com",
+        "token",
+        {"shopify.product_search"},
+    )
+    assert len(tools) == 1
+    desc = (tools[0].description or "").lower()
+    assert "do not use for order" in desc
+    assert "order lookup is not enabled" in desc
+    assert "lookup_meta.not_found" in desc
+
+
+def test_shopify_runtime_block_mentions_product_search_not_found() -> None:
+    from app.domains.runtime.service import build_shopify_tools_runtime_block
+
+    block = build_shopify_tools_runtime_block(has_order_lookup_tool=False)
+    assert "lookup_meta.not_found" in block
+    assert "not in this store" in block.lower()
+
+
+def test_agent_system_prompt_without_order_lookup_warns_on_order_questions() -> None:
+    from app.domains.runtime.prompts.system import build_agent_system_prompt_for_tools
+
+    prompt = build_agent_system_prompt_for_tools(
+        "",
+        has_knowledge_tool=False,
+        has_shopify_tools=True,
+        has_order_lookup_tool=False,
+    ).lower()
+    assert "order lookup is not enabled" in prompt
+    assert "do not call `shopify_product_search`" in prompt
+    assert "shopify_order_lookup" not in prompt
+
+
+def test_agent_system_prompt_multi_intent_calls_all_tools() -> None:
+    from app.domains.runtime.prompts.system import build_agent_system_prompt_for_tools
+
+    prompt = build_agent_system_prompt_for_tools(
+        "",
+        has_knowledge_tool=False,
+        has_shopify_tools=True,
+        has_order_lookup_tool=True,
+    ).lower()
+    assert "multiple topics" in prompt
+    assert "same" in prompt and "turn" in prompt
+
+
+def test_multi_intent_user_prompt_keeps_product_search_when_order_lookup_disabled() -> None:
+    from app.domains.runtime.prompts.user import build_multi_intent_shopify_user_prompt
+
+    prompt = build_multi_intent_shopify_user_prompt(
+        "Where is order #1001 and do you sell boots?",
+        has_order_lookup_tool=False,
+        has_product_search_tool=True,
+    ).lower()
+    assert "more than one topic" in prompt
+    assert "shopify_product_search" in prompt
+    assert "order lookup is **not** enabled" in prompt
+    assert "do **not** use `shopify_product_search` for order status" in prompt
+
+
+def test_shopify_runtime_block_mentions_multi_intent() -> None:
+    from app.domains.runtime.service import build_shopify_tools_runtime_block
+
+    block = build_shopify_tools_runtime_block(has_order_lookup_tool=True).lower()
+    assert "multiple topics" in block
+    assert "same" in block and "turn" in block
+
+
+def test_shopify_turn_user_prompt_includes_order_follow_up_when_thread_had_lookup() -> None:
+    from app.domains.runtime.prompts.user import build_shopify_turn_user_prompt
+
+    prompt = build_shopify_turn_user_prompt(
+        "What city is it shipping to?",
+        thread_has_prior_turns=True,
+        thread_had_order_lookup=True,
+    )
+    assert "already looked up an order" in prompt
+    assert "do not ask for the order number again" in prompt
+    assert "What city is it shipping to?" in prompt
+
+
+def test_order_follow_up_detection_for_shipping_city() -> None:
+    from app.agent.model_routing import message_looks_like_order_follow_up
+
+    assert message_looks_like_order_follow_up("What city is it shipping to?")
+    assert not message_looks_like_order_follow_up("#1001")
+
+
+@pytest.mark.asyncio
+async def test_shopify_tools_node_dedupes_same_tool_same_args_in_one_batch() -> None:
+    from app.agent.graph import _shopify_tools_node
+
+    call_count = 0
+
+    async def _run(**kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        return '{"products":[]}'
+
+    tool = StructuredTool.from_function(
+        coroutine=_run,
+        name="shopify_product_search",
+        description="test",
+    )
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {"id": "tc1", "name": "shopify_product_search", "args": {"query": "#1001"}},
+            {"id": "tc2", "name": "shopify_product_search", "args": {"query": "#1001"}},
+        ],
+    )
+    state = {
+        "messages": [ai],
+        "bound_tools": [tool],
+        "shopify_tool_names": {"shopify_product_search"},
+        "model_round": 1,
+        "tools_invoked": [],
+        "tool_result_cache": {},
+        "turn_context": {},
+    }
+
+    result = await _shopify_tools_node(state, MagicMock())
+
+    assert call_count == 1
+    assert result["tools_invoked"] == ["shopify_product_search"]
+    assert len(result["messages"]) == 2
+    assert result["messages"][0].content == result["messages"][1].content
+
+
+@pytest.mark.asyncio
+async def test_shopify_tools_node_reuses_cache_across_rounds() -> None:
+    from app.agent.graph import _shopify_tools_node
+
+    call_count = 0
+
+    async def _run(**kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        return '{"products":[{"title":"Boot"}]}'
+
+    tool = StructuredTool.from_function(
+        coroutine=_run,
+        name="shopify_product_search",
+        description="test",
+    )
+    args = {"query": "order 1001"}
+    first_ai = AIMessage(
+        content="",
+        tool_calls=[{"id": "tc1", "name": "shopify_product_search", "args": args}],
+    )
+    base_state = {
+        "bound_tools": [tool],
+        "shopify_tool_names": {"shopify_product_search"},
+        "model_round": 1,
+        "turn_context": {},
+    }
+
+    first = await _shopify_tools_node(
+        {**base_state, "messages": [first_ai], "tools_invoked": [], "tool_result_cache": {}},
+        MagicMock(),
+    )
+    second_ai = AIMessage(
+        content="",
+        tool_calls=[{"id": "tc2", "name": "shopify_product_search", "args": args}],
+    )
+    second = await _shopify_tools_node(
+        {
+            **base_state,
+            "messages": [second_ai],
+            "tools_invoked": list(first["tools_invoked"]),
+            "tool_result_cache": dict(first["tool_result_cache"]),
+            "model_round": 2,
+        },
+        MagicMock(),
+    )
+
+    assert call_count == 1
+    assert first["tools_invoked"] == ["shopify_product_search"]
+    assert second["tools_invoked"] == ["shopify_product_search"]
+    assert second["messages"][0].content == '{"products":[{"title":"Boot"}]}'

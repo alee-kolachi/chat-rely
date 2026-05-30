@@ -18,6 +18,35 @@ export type AgentRateLimit = {
   limit_message?: string;
 };
 
+/** Discrete creativity levels stored in `behavior_settings.creativity` (maps to LLM temperature). */
+export type CreativityLevel = 0 | 0.5 | 1;
+
+export const CREATIVITY_BANDS: ReadonlyArray<{ value: CreativityLevel; label: string }> = [
+  { value: 0, label: "Conservative" },
+  { value: 0.5, label: "Balanced" },
+  { value: 1, label: "Creative" },
+] as const;
+
+export function normalizeCreativity(raw: unknown): CreativityLevel {
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number.parseFloat(raw)
+        : Number.NaN;
+  if (n === 0 || n === 0.5 || n === 1) return n;
+  if (!Number.isFinite(n)) return 0.5;
+  const snapped = Math.round(n * 2) / 2;
+  if (snapped <= 0) return 0;
+  if (snapped >= 1) return 1;
+  return 0.5;
+}
+
+export function creativityBandLabel(value: number): string {
+  const match = CREATIVITY_BANDS.find((b) => b.value === normalizeCreativity(value));
+  return match?.label ?? "Balanced";
+}
+
 export type AgentBehaviorSettings = {
   tone?: AgentTone | string;
   tone_description?: string;
@@ -26,7 +55,7 @@ export type AgentBehaviorSettings = {
   greeting_message?: string;
   language?: string;
   rate_limit?: AgentRateLimit;
-  creativity?: number;
+  creativity?: CreativityLevel | number;
   agent_type?: string;
 } & Record<string, unknown>;
 

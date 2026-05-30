@@ -4,9 +4,10 @@ import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, us
 import { StreamingAssistantMessage, type AssistantStreamPhase } from "@/components/chat/StreamingAssistantMessage";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { chatSseStream } from "@/lib/chat-sse";
-import { applyChatSseEvent } from "@/lib/chat-stream-handlers";
+import { applyChatSseEvent, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
@@ -251,6 +252,9 @@ export default function AgentPreviewOnboardingPage() {
         } else if (ev.type === "error") {
           throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
         }
+        if (chatStreamTerminalEvent(ev)) {
+          setIsSending(false);
+        }
       }
     } catch (e) {
       if (ac.signal.aborted) return;
@@ -473,7 +477,9 @@ export default function AgentPreviewOnboardingPage() {
                         <button
                           type="submit"
                           disabled={!canSend}
-                          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover min-h-11 shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold disabled:opacity-40 sm:min-h-12"
+                          className={appButtonClassName("default", {
+                            className: "min-h-11 shrink-0 rounded-full sm:min-h-12",
+                          })}
                         >
                           Send
                         </button>

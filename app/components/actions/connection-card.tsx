@@ -1,3 +1,6 @@
+import { InfoHint } from "@/components/ui/info-hint";
+import { appButtonClassName } from "@/lib/button-styles";
+import { SHOPIFY_ADMIN_STOREFRONT_HINT } from "@/lib/shopify-connection-copy";
 import { cn } from "@/lib/utils";
 import { IconShopifyBag, IconCheck } from "./action-icons";
 
@@ -31,7 +34,6 @@ function formatSynced(iso: string | null | undefined): string {
 export function ConnectionCard({
   connected,
   shopDomain,
-  scopes = [],
   lastSyncedAt,
   busy,
   connectEnabled = true,
@@ -46,8 +48,8 @@ export function ConnectionCard({
     return (
       <section
         className={cn(
-          "border-ds-outline flex flex-col gap-4 rounded-ds-lg border bg-ds-sidebar/30 p-5",
-          !embedded && "md:flex-row md:flex-wrap md:items-end md:justify-between"
+          "flex flex-col gap-3",
+          !embedded && "border-ds-outline rounded-ds-lg border bg-ds-sidebar/30 p-5 md:flex-row md:flex-wrap md:items-end md:justify-between"
         )}
       >
         {!embedded ? (
@@ -56,39 +58,39 @@ export function ConnectionCard({
               <IconShopifyBag className="size-6" />
             </div>
             <div className="min-w-0">
-              <h2 className="ds-app-section-title">Shopify</h2>
+              <h2 className="ds-app-section-title inline-flex items-center">
+                Shopify
+                <InfoHint text={SHOPIFY_ADMIN_STOREFRONT_HINT} labelFor="Shopify connection" />
+              </h2>
               <p className="ds-app-body-muted mt-1">
-                Connect your store so actions can read products, orders, and inventory.
+                Connect your store so the agent can read products, orders, and inventory.
               </p>
             </div>
           </div>
         ) : null}
-        <div className={cn("flex w-full flex-col gap-2", !embedded && "sm:w-auto sm:min-w-[280px]")}>
-          <label className="ds-app-kicker font-semibold">
-            Store subdomain
-          </label>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              type="text"
-              value={shopDraft}
-              onChange={(e) => onShopDraftChange(e.target.value)}
-              placeholder="your-store"
-              className="border-ds-outline text-ds-on-surface flex-1 rounded-ds-md border bg-white px-3 py-2 text-sm shadow-sm"
-              disabled={busy || !connectEnabled}
-            />
-            <button
-              type="button"
-              onClick={() => void onConnect()}
-              disabled={busy || !connectEnabled || !shopDraft.trim()}
-              className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
-            >
-              Connect Shopify
-            </button>
-          </div>
-          <p className="ds-app-body-muted">
-            Use your myshopify subdomain (for <span className="font-medium">store.myshopify.com</span>, enter{" "}
-            <span className="font-medium">store</span>).
+        {embedded ? (
+          <p className="text-ds-on-surface-variant text-sm">
+            Shopify links are per agent. Connect this agent&apos;s store to turn on tools here.
           </p>
+        ) : null}
+        <div className={cn("flex w-full flex-col gap-2 sm:flex-row sm:items-center", !embedded && "sm:min-w-[320px] sm:flex-1")}>
+          <input
+            type="text"
+            value={shopDraft}
+            onChange={(e) => onShopDraftChange(e.target.value)}
+            placeholder="your-store.myshopify.com"
+            aria-label="Store URL"
+            className="border-ds-outline text-ds-on-surface ds-app-field min-w-0 flex-1 rounded-ds-md border bg-white px-3 py-2 text-sm"
+            disabled={busy || !connectEnabled}
+          />
+          <button
+            type="button"
+            onClick={() => void onConnect()}
+            disabled={busy || !connectEnabled || !shopDraft.trim()}
+            className={appButtonClassName("default", { className: "shrink-0" })}
+          >
+            Connect
+          </button>
         </div>
       </section>
     );
@@ -97,40 +99,23 @@ export function ConnectionCard({
   return (
     <section
       className={cn(
-        "border-ds-outline flex flex-col gap-5 rounded-ds-lg border bg-ds-sidebar/30 p-5",
-        !embedded && "md:flex-row md:items-center md:justify-between"
+        "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between",
+        !embedded && "border-ds-outline rounded-ds-lg border bg-ds-sidebar/30 p-5"
       )}
     >
-      <div className="flex items-start gap-4">
-        {!embedded ? (
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-ds-md bg-emerald-50 text-emerald-700">
-            <IconShopifyBag className="size-6" />
-          </div>
-        ) : null}
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {!embedded ? <h2 className="ds-app-section-title">Shopify</h2> : null}
-            <span className="ds-app-kicker inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700">
-              <IconCheck className="size-3" />
-              Connected
-            </span>
-          </div>
-          <p className="ds-app-body-muted mt-1">
-            <span className="text-ds-on-surface font-medium">{shopDomain ?? "-"}</span>
-            <span className="text-ds-outline mx-2">|</span>
-            Last synced {formatSynced(lastSyncedAt)}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {scopes.map((scope) => (
-              <span
-                key={scope}
-                className="border-ds-outline ds-app-caption rounded-md border bg-white px-2 py-0.5 font-medium"
-              >
-                {scope}
-              </span>
-            ))}
-          </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          {!embedded ? <h2 className="ds-app-section-title">Shopify</h2> : null}
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+            <IconCheck className="size-3" />
+            Connected
+          </span>
         </div>
+        <p className="ds-app-body-muted mt-1 text-sm">
+          <span className="text-ds-on-surface font-medium">{shopDomain ?? "-"}</span>
+          <span className="text-ds-outline mx-2">·</span>
+          Last synced {formatSynced(lastSyncedAt)}
+        </p>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
@@ -138,7 +123,7 @@ export function ConnectionCard({
           type="button"
           onClick={() => void onReconnect()}
           disabled={busy}
-          className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-45"
+          className={appButtonClassName("default", { size: "sm" })}
         >
           Reconnect
         </button>
@@ -146,7 +131,7 @@ export function ConnectionCard({
           type="button"
           onClick={() => void onDisconnect()}
           disabled={busy}
-          className="rounded-ds-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-45"
+          className="rounded-ds-md border border-red-200 bg-white px-3 py-1.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-45"
         >
           Disconnect
         </button>

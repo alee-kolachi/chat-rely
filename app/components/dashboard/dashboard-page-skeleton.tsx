@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { ChartAreaSkeleton, type ChartAreaSkeletonProps } from "@/components/dashboard/chart-area-skeleton";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 /** Loading and empty UI for the dashboard metrics screen. */
@@ -203,10 +204,7 @@ export function DashboardSourceSuggestionsPlanGate() {
         <span className="text-ds-on-surface font-medium">Pro</span>.
       </p>
       <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-        <Link
-          href="/account/plan"
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors"
-        >
+        <Link href="/account/plan" className={appButtonClassName()}>
           View plans
         </Link>
         <Link href="/pricing" className="text-ds-primary text-sm font-semibold hover:underline">

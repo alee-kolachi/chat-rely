@@ -82,26 +82,72 @@ RAG_EMBED_CACHE_TTL_SECONDS = 900
 RAG_EMBED_CACHE_MAX_ITEMS = 512
 
 # Appended to system message when Shopify tools are bound. Overrides RAG-only “use fallback” behavior.
-_SHOPIFY_TOOLS_RUNTIME_BLOCK = (
-    "\n\n--- Shopify tools (enabled for this chat) ---\n"
-    "You MUST call the relevant Shopify Admin tools when the shopper asks about **this store’s** catalog, "
-    "products, SKUs, prices, stock, orders, shipping/tracking, or customer-specific store records.\n"
-    "- **Products / catalog / “do you sell…” / availability**: call `shopify_product_search` with the customer’s "
-    "question text as `query` (include product name or keywords).\n"
-    "- **Order status / tracking / shipment**: call `shopify_order_lookup`. "
-    "Pass `order_name_or_number` if they gave an order # or name; pass `customer_email` if they gave email. "
-    "If neither exists yet, ask briefly for order number or email—then call the tool.\n"
-    "- **Inventory / stock quantity**: call `shopify_inventory_check`.\n"
-    "- **Customer history / past purchases**: call `shopify_customer_context` when you have their email.\n"
-    "**Inventory safety:** Never state that a product is unavailable, out of stock, or not carried until "
-    "you have results from the applicable Shopify tool (`shopify_product_search`, `shopify_inventory_check`, …). "
-    "If you have not called the tool yet, reply briefly (e.g. “Let me check our catalog…”) and call the tool — "
-    "do not deny inventory based on guesses or on knowledge-base excerpts alone.\n"
-    "Knowledge base excerpts (if present) are **supplementary** marketing/site context; they do **not** replace "
-    "live Shopify data for accurate SKU/order/inventory answers.\n"
-    "Do **not** reply with the canned fallback (“not fully sure…” / escalate-only) for store-specific questions "
-    "until you have **called the applicable tool(s)** at least once (unless the tool returned an error).\n"
+_SHOPIFY_CONNECTED_NO_TOOLS_BLOCK = (
+    "\n\n--- Live store catalog (Shopify connected, tools disabled) ---\n"
+    "Shopify is connected for this store, but no Shopify tools are enabled for this chat. "
+    "You cannot verify live catalog, prices, stock, orders, or customer records.\n"
+    "- Do not invent or imply specific products, prices, or inventory.\n"
+    "- For catalog questions (e.g. \"do you sell boots?\"), say you cannot check the live catalog "
+    "without enabled store tools. Use numbered knowledge excerpts only when they clearly apply; "
+    "otherwise give a brief next step.\n"
 )
+def build_shopify_tools_runtime_block(*, has_order_lookup_tool: bool) -> str:
+    """Runtime Shopify appendix; order lines only when Order Lookup is bound."""
+    scope = (
+        "catalog, products, SKUs, prices, stock, orders, shipping/tracking, or customer-specific store records"
+        if has_order_lookup_tool
+        else "catalog, products, SKUs, prices, stock, or customer-specific store records"
+    )
+    lines = [
+        "\n\n--- Shopify tools (enabled for this chat) ---\n",
+        f"You MUST call the relevant Shopify Admin tools when the shopper asks about **this store’s** {scope}.\n",
+        "- **Multiple topics in one message** (e.g. order status and “do you sell boots?”): call every applicable "
+        "enabled tool in the **same** turn, then answer each part briefly.\n",
+        "- **Products / catalog / “do you sell…” / pricing / recommendations**: call `shopify_product_search` with "
+        "product name or brand keywords in `query`. On follow-ups (“the Timberland one”, sizing for “that boot”), "
+        "resolve the product from the thread first—pass keywords like `Timberland`, not vague phrases. "
+        "If `lookup_meta.not_found` is true, say the item is **not in this store’s catalog** (e.g. iPhones when "
+        "the store sells other goods) — do not invent availability or prices. "
+        "Do not use product search for stock, quantity, or order/shipping/tracking questions.\n",
+    ]
+    if has_order_lookup_tool:
+        lines.append(
+            "- **Order status / tracking / shipment**: call `shopify_order_lookup`. "
+            "Pass `order_name_or_number` if they gave an order # or name; pass `customer_email` if they gave email. "
+            "If the whole message is only an order number (e.g. `8842` or `#8842`), treat it as the order # and "
+            "call `shopify_order_lookup` immediately — do not treat it as chitchat or ask them to rephrase. "
+            "If neither order # nor email exists yet, ask briefly for one—then call the tool.\n"
+        )
+    else:
+        lines.append(
+            "- **Order status / tracking / shipment**: Order Lookup is **not** enabled for this chat. "
+            "Do **not** call `shopify_product_search` for order, shipping, or tracking questions. "
+            "Tell the customer you cannot look up orders live and suggest contacting the store "
+            "(the merchant can enable Order Lookup in agent settings).\n"
+        )
+    lines.extend(
+        [
+            "- **Inventory / stock / in stock / out of stock / quantity on hand**: call `shopify_inventory_check` "
+            "(pass `sku` or `product_query`). Never use `shopify_product_search` for these questions.\n",
+            "- **Customer history / past purchases**: call `shopify_customer_context` when you have their email. "
+            "If `lookup_meta.not_found` is true, say you could not find a customer record for that email in this "
+            "store (common for new shoppers or test addresses) and offer to help another way.\n",
+            "**Inventory safety:** Never state that a product is unavailable, out of stock, or not carried until "
+            "you have results from the applicable Shopify tool (`shopify_product_search`, `shopify_inventory_check`, …). "
+            "When `shopify_product_search` returns `lookup_meta.not_found: true`, that **is** a tool result — tell the "
+            "shopper the item is not listed in this store’s catalog. "
+            "If you have not called the tool yet, reply briefly (e.g. “Let me check our catalog…”) and call the tool — "
+            "do not deny inventory based on guesses or on knowledge-base excerpts alone.\n",
+            "Knowledge base excerpts (if present) are **supplementary** marketing/site context; they do **not** replace "
+            "live Shopify data for accurate SKU/order/inventory answers.\n",
+        ]
+    )
+    if has_order_lookup_tool:
+        lines.append(
+            "Do **not** reply with the canned fallback (“not fully sure…” / escalate-only) for store-specific questions "
+            "until you have **called the applicable tool(s)** at least once (unless the tool returned an error).\n"
+        )
+    return "".join(lines)
 _TOOL_RAG_SUPPLEMENT_FOR_TOOLS = (
     "\n\n---\n"
     "Reminder: Shopify tools are enabled. If this question is about products or orders **in the connected store**, "
@@ -116,6 +162,13 @@ _kb_index_cache: OrderedDict[str, tuple[float, bool]] = OrderedDict()
 _kb_index_cache_lock = asyncio.Lock()
 _runtime_config_cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _runtime_config_cache_lock = asyncio.Lock()
+
+
+async def invalidate_agent_runtime_config_cache(*, user_id: UUID, agent_id: UUID) -> None:
+    """Drop cached agent runtime config so creativity / prompt changes apply on the next turn."""
+    key = f"{user_id}:{agent_id}"
+    async with _runtime_config_cache_lock:
+        _runtime_config_cache.pop(key, None)
 
 
 @dataclass(frozen=True)
@@ -192,15 +245,19 @@ async def _load_shopify_tools_fast(
     user_id: UUID,
     agent_id: UUID,
     conversation_id: UUID | None = None,
-) -> tuple[list[Any], dict[str, float]]:
-    """Load Shopify LangChain tools only (no router LLM)."""
+) -> tuple[list[Any], dict[str, float], bool]:
+    """Load Shopify LangChain tools only (no router LLM).
+
+    Returns ``(tools, timings, shopify_connected)`` where ``shopify_connected`` is true when the
+    agent has an active Shopify connection, even if no actions are enabled for this chat.
+    """
     timings: dict[str, float] = {}
     if is_shopify_disconnected_cached(agent_id):
         timings["load_connection_ms"] = 0.0
         timings["list_actions_ms"] = 0.0
         timings["build_tools_ms"] = 0.0
         timings["router_llm_ms"] = 0.0
-        return [], timings
+        return [], timings, False
 
     conn_pair = get_cached_shopify_connection(agent_id)
     sf = get_session_factory()
@@ -221,7 +278,7 @@ async def _load_shopify_tools_fast(
                 conversation_id=str(conversation_id) if conversation_id else None,
                 **{k: round(v, 2) for k, v in timings.items()},
             )
-            return [], timings
+            return [], timings, False
 
         t1 = time.perf_counter()
         enabled_shopify = await list_enabled_shopify_actions_for_runtime(
@@ -233,7 +290,13 @@ async def _load_shopify_tools_fast(
         tool_list: list[Any] = []
         if enabled_shopify:
             keys = {e[0] for e in enabled_shopify}
-            tool_list = build_shopify_langchain_tools(conn_pair[0], conn_pair[1], keys)
+            action_configs = {e[0]: e[1] for e in enabled_shopify}
+            tool_list = build_shopify_langchain_tools(
+                conn_pair[0],
+                conn_pair[1],
+                keys,
+                action_configs=action_configs,
+            )
         timings["build_tools_ms"] = (time.perf_counter() - t2) * 1000.0
         timings["router_llm_ms"] = 0.0
 
@@ -242,7 +305,7 @@ async def _load_shopify_tools_fast(
         conversation_id=str(conversation_id) if conversation_id else None,
         **{k: round(v, 2) for k, v in timings.items()},
     )
-    return tool_list, timings
+    return tool_list, timings, True
 
 
 def _resolve_runtime_model(model: str) -> str:

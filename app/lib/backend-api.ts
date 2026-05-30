@@ -103,17 +103,20 @@ export type BackendFetchOptions = RequestInit & {
    * Only applied for GET and HEAD to avoid duplicate side effects on POST/PUT/PATCH/DELETE.
    */
   networkRetries?: number;
+  /** Call this app origin (e.g. `/api/dashboard/...` route handlers), not `NEXT_PUBLIC_BACKEND_URL`. */
+  sameOrigin?: boolean;
 };
 
 export async function backendFetch<T>(path: string, init: BackendFetchOptions = {}): Promise<T> {
-  const { networkRetries = 0, ...requestInit } = init;
+  const { networkRetries = 0, sameOrigin = false, ...requestInit } = init;
   const method = (requestInit.method ?? "GET").toUpperCase();
   const allowNetworkRetry = method === "GET" || method === "HEAD";
   const maxAttempts = allowNetworkRetry ? 1 + Math.max(0, networkRetries) : 1;
 
   const token = await getAccessToken();
   const isFormDataBody = typeof FormData !== "undefined" && requestInit.body instanceof FormData;
-  const base = getBackendBaseUrl();
+  const base =
+    sameOrigin && typeof window !== "undefined" ? "" : getBackendBaseUrl();
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
 
   const hint =

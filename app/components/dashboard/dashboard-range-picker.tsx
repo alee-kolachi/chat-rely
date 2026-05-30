@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { appButtonClassName } from "@/lib/button-styles";
 
 export type RangePreset = "7d" | "30d" | "90d" | "365d" | "custom";
 
@@ -38,12 +39,10 @@ export function DashboardRangePicker({
             key={key}
             type="button"
             onClick={() => onPresetChange(key)}
-            className={cn(
-              "rounded-ds-md px-3 py-1.5 text-sm font-medium transition-colors",
-              preset === key
-                ? "bg-ds-primary text-ds-on-primary shadow-sm"
-                : "text-ds-on-surface-variant hover:text-ds-on-surface"
-            )}
+            className={appButtonClassName("segment", {
+              size: "sm",
+              selected: preset === key,
+            })}
           >
             {label}
           </button>
@@ -51,12 +50,10 @@ export function DashboardRangePicker({
         <button
           type="button"
           onClick={() => onPresetChange("custom")}
-          className={cn(
-            "rounded-ds-md px-3 py-1.5 text-sm font-medium transition-colors",
-            preset === "custom"
-              ? "bg-ds-primary text-ds-on-primary shadow-sm"
-              : "text-ds-on-surface-variant hover:text-ds-on-surface"
-          )}
+          className={appButtonClassName("segment", {
+            size: "sm",
+            selected: preset === "custom",
+          })}
         >
           Custom
         </button>

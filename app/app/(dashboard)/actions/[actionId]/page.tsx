@@ -13,9 +13,9 @@ import { getShopifyAction } from "@/components/actions/shopify-actions-data";
 import type { ShopifyActionStatus } from "@/components/actions/shopify-actions-data";
 import { useActionCatalog } from "@/components/actions/use-action-catalog";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
-import { useGuardedSubmit } from "@/hooks/use-guarded-submit";
-import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { useActionEnableToggle } from "@/hooks/use-action-enable-toggle";
 import { actionSlugToKey } from "@/lib/action-keys";
+import { appButtonClassName } from "@/lib/button-styles";
 
 function mapApiStatusForBadge(status: ApiActionCatalogEntry["status"]): ShopifyActionStatus {
   if (status === "live") return "live";
@@ -42,25 +42,18 @@ export default function ActionDetailPage() {
     : shopifyAction
       ? shopifyAction.status
       : "coming-soon";
-  const enabled = apiEntry?.enabled ?? false;
+  const { resolveEnabled, isTogglePending, toggleEnabled } = useActionEnableToggle(
+    selectedAgentId || undefined,
+    refresh,
+    (msg) => setBanner(msg)
+  );
+
+  const enabled = resolveEnabled(actionKey, apiEntry?.enabled ?? false);
+  const togglePending = isTogglePending(actionKey);
   const isComingSoon = badgeStatus === "coming-soon";
   const needsShopifyConnection = Boolean(
     shopifyAction && apiEntry && apiEntry.status === "live" && !apiEntry.scopes_satisfied
   );
-  const { submit: submitToggle, pending: togglePending } = useGuardedSubmit(async (next: boolean) => {
-    if (!selectedAgentId) return;
-    try {
-      await backendFetch(`/api/v1/agents/${selectedAgentId}/actions/${encodeURIComponent(actionKey)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled: next }),
-      });
-      await refresh();
-    } catch (e) {
-      const msg =
-        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not update action";
-      setBanner(msg);
-    }
-  });
 
   const toggleDisabled =
     !apiEntry ||
@@ -77,9 +70,9 @@ export default function ActionDetailPage() {
 
   const handleToggle = useCallback(
     (next: boolean) => {
-      void submitToggle(next);
+      void toggleEnabled(actionKey, next);
     },
-    [submitToggle]
+    [toggleEnabled, actionKey]
   );
 
   if (needsCatalog && missingAgent) {
@@ -167,6 +160,7 @@ export default function ActionDetailPage() {
                 checked={enabled}
                 onChange={(n) => void handleToggle(n)}
                 disabled={toggleDisabled}
+                pending={togglePending}
                 size="md"
                 label={`Enable ${apiEntry.label}`}
               />
@@ -208,6 +202,8 @@ export default function ActionDetailPage() {
   if (!shopifyAction) notFound();
 
   const action = shopifyAction;
+  const displayLabel = apiEntry?.label ?? action.label;
+  const displayDescription = apiEntry?.description ?? action.description;
 
   return (
     <div className="ds-app-shell p-6 pb-36 md:p-8 md:pb-40">
@@ -223,7 +219,7 @@ export default function ActionDetailPage() {
           <span className="text-ds-outline" aria-hidden>
             /
           </span>
-          <span className="text-ds-on-surface truncate">{action.label}</span>
+          <span className="text-ds-on-surface truncate">{displayLabel}</span>
         </nav>
 
         {banner ? (
@@ -239,11 +235,11 @@ export default function ActionDetailPage() {
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="ds-app-page-title">{action.label}</h1>
+                <h1 className="ds-app-page-title">{displayLabel}</h1>
                 <StatusBadge status={badgeStatus} />
               </div>
               <p className="ds-app-page-description ds-app-page-description--wide mt-2 max-w-2xl">
-                {action.description}
+                {displayDescription}
               </p>
             </div>
           </div>
@@ -253,8 +249,9 @@ export default function ActionDetailPage() {
               checked={enabled}
               onChange={(n) => void handleToggle(n)}
               disabled={toggleDisabled}
+              pending={togglePending}
               size="md"
-              label={`Enable ${action.label}`}
+              label={`Enable ${displayLabel}`}
             />
           </div>
         </header>
@@ -278,7 +275,7 @@ export default function ActionDetailPage() {
               <p className="font-semibold">Connect Shopify to use this action</p>
               <p className="mt-1 leading-relaxed text-slate-700">
                 This tool is available for your plan, but your agent needs a store connection that includes the
-                required OAuth scopes before you can enable it or run a test.
+                required store access from Shopify sign-in before you can enable it or run a test.
               </p>
               <Link
                 href="/actions#shopify-integration"
@@ -300,12 +297,12 @@ export default function ActionDetailPage() {
       <div className="border-ds-outline bg-ds-surface/95 fixed right-0 bottom-0 left-0 z-10 border-t backdrop-blur-sm pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 md:left-64">
         <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-6 md:px-8">
           <span className="ds-app-body-muted">
-            Toggle enables this action for chat immediately. Configuration below is optional.
+            Toggle enables this action for chat immediately.
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/actions"
-              className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-md border bg-white px-4 py-2 text-sm font-semibold transition-colors"
+              className={appButtonClassName()}
             >
               Back to actions
             </Link>

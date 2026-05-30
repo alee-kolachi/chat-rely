@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 function OnboardingBackChevron({ className }: { className?: string }) {
@@ -150,8 +151,10 @@ export function OnboardingStickyFooter({
     onPrimaryClick();
   };
 
-  const controlClass =
-    "touch-manipulation cursor-pointer inline-flex max-w-full min-h-11 min-w-[2.75rem] items-center justify-center rounded-ds-md px-4 py-2.5 text-sm font-semibold tracking-wide uppercase transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:px-5 sm:py-2.5";
+  const primaryButtonClass = appButtonClassName("primary", {
+    className:
+      "touch-manipulation max-w-full min-h-11 min-w-[2.75rem] tracking-wide uppercase sm:min-h-0 [-webkit-tap-highlight-color:transparent] relative isolate z-[1]",
+  });
   const backClass =
     "touch-manipulation text-ds-on-surface-variant hover:text-ds-on-surface ds-app-kicker inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-ds-md px-3 py-2 font-semibold transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:gap-2 sm:px-3";
 
@@ -188,28 +191,16 @@ export function OnboardingStickyFooter({
               event.preventDefault();
               runPrimaryAction();
             }}
-            className={cn(
-              controlClass,
-              "relative isolate z-[1] bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover",
-              "disabled:opacity-45 disabled:cursor-not-allowed",
-              primaryPending && "cursor-wait opacity-80"
-            )}
+            className={cn(primaryButtonClass, primaryPending && "cursor-wait opacity-80")}
           >
             {primaryLabel}
           </button>
         ) : primaryDisabled || !primaryHref ? (
-          <button
-            type="button"
-            disabled
-            className={cn(controlClass, "bg-ds-primary text-ds-on-primary cursor-not-allowed opacity-45")}
-          >
+          <button type="button" disabled className={primaryButtonClass}>
             {primaryLabel}
           </button>
         ) : (
-          <a
-            href={primaryHref}
-            className={cn(controlClass, "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover")}
-          >
+          <a href={primaryHref} className={primaryButtonClass}>
             {primaryLabel}
           </a>
         )}

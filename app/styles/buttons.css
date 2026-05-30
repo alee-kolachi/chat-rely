@@ -1,0 +1,132 @@
+/*
+ * Button components — imported after Tailwind so these classes are never purged.
+ * Used via appButtonClassName() / <AppButton> (class names are not static in TSX).
+ */
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.25rem;
+  padding: var(--ds-btn-padding-y) var(--ds-btn-padding-x);
+  font-family: inherit;
+  font-size: var(--ds-btn-font-size);
+  font-weight: var(--ds-btn-font-weight);
+  line-height: 1.25;
+  border-radius: var(--ds-btn-radius);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  appearance: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ds-btn:disabled,
+.ds-btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.ds-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--ds-ring-offset),
+    0 0 0 4px color-mix(in srgb, var(--ds-ring) 35%, transparent);
+}
+
+.ds-btn-sm {
+  min-height: 2rem;
+  padding: var(--ds-btn-sm-padding-y) var(--ds-btn-sm-padding-x);
+  font-size: var(--ds-btn-sm-font-size);
+}
+
+.ds-btn-default {
+  border: 1px solid var(--ds-btn-border);
+  background-color: var(--ds-btn-bg);
+  color: var(--ds-btn-color);
+  box-shadow: var(--ds-shadow-sm);
+}
+
+.ds-btn-default:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--ds-btn-bg-hover);
+  border-color: var(--ds-btn-border-hover);
+}
+
+.ds-btn-default:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--ds-muted);
+  border-color: var(--ds-btn-border-hover);
+}
+
+.ds-btn-primary {
+  border: 1px solid var(--ds-primary);
+  background-color: var(--ds-primary);
+  color: var(--ds-on-primary);
+  box-shadow: var(--ds-shadow-sm);
+}
+
+.ds-btn-primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--ds-primary-hover);
+  border-color: var(--ds-primary-hover);
+}
+
+.ds-btn-primary:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--ds-primary-active);
+  border-color: var(--ds-primary-active);
+}
+
+.ds-btn-ghost {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-on-surface-variant);
+  box-shadow: none;
+}
+
+.ds-btn-ghost:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--ds-muted);
+  color: var(--ds-on-surface);
+}
+
+.ds-btn-segment {
+  min-height: auto;
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: var(--ds-on-surface-variant);
+  box-shadow: none;
+  font-weight: 500;
+}
+
+.ds-btn-segment:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--ds-on-surface);
+  background-color: color-mix(in srgb, var(--ds-muted) 65%, transparent);
+}
+
+.ds-btn-segment.ds-btn-selected,
+.ds-btn-segment[aria-pressed="true"],
+.ds-btn-segment[data-selected="true"] {
+  border: 1px solid var(--ds-btn-border);
+  background-color: var(--ds-btn-bg);
+  color: var(--ds-on-surface);
+  box-shadow: var(--ds-shadow-sm);
+  font-weight: var(--ds-btn-font-weight);
+}
+
+/** @deprecated Use `.ds-btn-default` */
+.ds-btn-secondary {
+  border: 1px solid var(--ds-btn-border);
+  background-color: var(--ds-btn-bg);
+  color: var(--ds-btn-color);
+  box-shadow: var(--ds-shadow-sm);
+}
+
+.ds-btn-secondary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--ds-btn-bg-hover);
+  border-color: var(--ds-btn-border-hover);
+}

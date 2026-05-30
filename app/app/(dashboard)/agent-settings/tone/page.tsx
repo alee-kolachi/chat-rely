@@ -11,6 +11,7 @@ import {
   mergeBehaviorSettings,
   readBehaviorString,
 } from "@/lib/agent-settings";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 export default function AgentSettingsTonePage() {
@@ -154,12 +155,7 @@ function ToneForm() {
               type="button"
               onClick={handleSave}
               disabled={!dirty || isSaving}
-              className={cn(
-                "rounded-ds-lg px-5 py-2 text-sm font-semibold shadow-sm transition-colors",
-                dirty && !isSaving
-                  ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
-                  : "bg-ds-outline/40 text-ds-on-surface-variant cursor-not-allowed"
-              )}
+              className={appButtonClassName()}
             >
               {isSaving ? "Saving..." : "Save changes"}
             </button>

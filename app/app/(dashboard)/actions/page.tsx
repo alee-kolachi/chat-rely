@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { ActionCard } from "@/components/actions/action-card";
 import { IconShopifyBag } from "@/components/actions/action-icons";
 import type { ApiActionCatalogEntry } from "@/components/actions/action-catalog-types";
@@ -21,11 +22,15 @@ import { ConnectionCard } from "@/components/actions/connection-card";
 import { HumanSupportCard } from "@/components/actions/human-support-card";
 import { IntegrationRoadmapCard } from "@/components/actions/integration-roadmap-card";
 import { shopifyActions } from "@/components/actions/shopify-actions-data";
-import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
+import { useAgentIntegrationsBootstrap, invalidateAgentIntegrationsBootstrapCache } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
-import { useGuardedSubmit } from "@/hooks/use-guarded-submit";
+import { InfoHint } from "@/components/ui/info-hint";
+import { useActionEnableToggle } from "@/hooks/use-action-enable-toggle";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { shopifyActionSlugToKey } from "@/lib/shopify-action-keys";
+import { SHOPIFY_ADMIN_STOREFRONT_HINT } from "@/lib/shopify-connection-copy";
+import { partitionShopifyActionsForRuntime } from "@/lib/shopify-runtime-cap";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import type { ShopifyActionStatus } from "@/components/actions/shopify-actions-data";
 
@@ -39,8 +44,8 @@ const SHOPIFY_OAUTH_RETURN_TO = `/actions#${SHOPIFY_ANCHOR}`;
 
 const ROADMAP_ACTION_KEYS = ["email.bridge", "zendesk.tickets", "calendly.booking"] as const;
 
-const SECTION_PANEL =
-  "border-ds-outline scroll-mt-24 space-y-6 rounded-ds-xl border bg-white p-5 shadow-sm md:scroll-mt-20 md:p-6";
+const PANEL =
+  "border-ds-outline scroll-mt-24 overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm md:scroll-mt-20";
 
 function mapApiStatusForBadge(status: ApiActionCatalogEntry["status"]): ShopifyActionStatus {
   if (status === "live") return "live";
@@ -102,13 +107,14 @@ function ActionsPageContent() {
     const q = searchParams.get("shopify");
     if (q === "connected") {
       queueMicrotask(() => setBanner("Shopify connected successfully."));
-      void refreshIntegrations();
+      if (selectedAgentId) invalidateAgentIntegrationsBootstrapCache(selectedAgentId);
+      void refreshIntegrations({ force: true });
     }
     if (q === "error") {
       const msg = searchParams.get("message") ?? "Authorization failed.";
       queueMicrotask(() => setBanner(msg));
     }
-  }, [searchParams, refreshIntegrations]);
+  }, [searchParams, refreshIntegrations, selectedAgentId]);
 
   const merged = useMemo(() => {
     const entries = catalog?.entries ?? [];
@@ -137,28 +143,17 @@ function ActionsPageContent() {
     setChipIdx(idx);
   };
 
-  const { submit: submitToggle, pending: togglePending } = useGuardedSubmit(
-    async (actionKey: string, next: boolean) => {
-      if (!selectedAgentId) return;
-      try {
-        await backendFetch(`/api/v1/agents/${selectedAgentId}/actions/${encodeURIComponent(actionKey)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ enabled: next }),
-        });
-        await refreshIntegrations();
-      } catch (e) {
-        const msg =
-          e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not update action";
-        setBanner(msg);
-      }
-    }
+  const { resolveEnabled, isTogglePending, toggleEnabled } = useActionEnableToggle(
+    selectedAgentId || undefined,
+    refreshIntegrations,
+    (msg) => setBanner(msg)
   );
 
   const handleToggle = useCallback(
     (actionKey: string, next: boolean) => {
-      void submitToggle(actionKey, next);
+      void toggleEnabled(actionKey, next);
     },
-    [submitToggle]
+    [toggleEnabled]
   );
 
   const startOAuth = useCallback(async () => {
@@ -168,9 +163,7 @@ function ActionsPageContent() {
       return;
     }
     if (!shopDraft.trim()) {
-      setBanner(
-        "Enter your Shopify store subdomain (for example your-store for your-store.myshopify.com)."
-      );
+      setBanner("Enter your store name (the part before .myshopify.com).");
       return;
     }
     setConnectBusy(true);
@@ -215,34 +208,60 @@ function ActionsPageContent() {
     }
   }, [disconnect]);
 
-  const totalCount = merged.length;
-
   const human = catalog?.entries.find((e) => e.action_key === "human.escalate");
   const stubs = (catalog?.entries ?? []).filter((e) =>
     ROADMAP_ACTION_KEYS.includes(e.action_key as (typeof ROADMAP_ACTION_KEYS)[number])
   );
   const showIntegrationSkeleton = Boolean(selectedAgentId && integrationsLoading);
   const showShopifyGridSkeleton = Boolean(selectedAgentId && integrationsLoading);
-  const showFilteredEmpty = !showShopifyGridSkeleton && filtered.length === 0 && merged.length > 0;
+  const showShopifyConnectPrompt =
+    Boolean(selectedAgentId) && !integrationsLoading && !shopify?.connected;
+  const showFilteredEmpty =
+    !showShopifyGridSkeleton && !showShopifyConnectPrompt && filtered.length === 0 && merged.length > 0;
 
   const humanBadgeStatus = human ? mapApiStatusForBadge(human.status) : "coming-soon";
-  const humanEnabled = human?.enabled ?? false;
+  const humanEnabled = resolveEnabled("human.escalate", human?.enabled ?? false);
+  const humanTogglePending = isTogglePending("human.escalate");
   const humanToggleDisabled =
-    !human || human.status !== "live" || catalogBusy || !selectedAgentId;
+    !human || human.status !== "live" || catalogBusy || !selectedAgentId || humanTogglePending;
+
+  const liveMerged = useMemo(
+    () => merged.filter(({ api }) => (api?.status ?? "coming_soon") === "live"),
+    [merged]
+  );
+
+  const enabledLiveKeys = useMemo(() => {
+    return liveMerged
+      .filter(({ static: action, api }) => {
+        const actionKey = shopifyActionSlugToKey(action.id);
+        return resolveEnabled(actionKey, api?.enabled ?? false);
+      })
+      .map(({ static: action }) => shopifyActionSlugToKey(action.id));
+  }, [liveMerged, resolveEnabled]);
+
+  const planActionCap = catalog?.max_enabled_shopify_actions ?? 0;
+  const { inactiveKeys: runtimeInactiveKeys } = useMemo(
+    () => partitionShopifyActionsForRuntime(enabledLiveKeys, planActionCap),
+    [enabledLiveKeys, planActionCap]
+  );
+
+  const enabledCount = enabledLiveKeys.length;
+  const liveToolCount = liveMerged.length;
+  const exceedsRuntimeCap = planActionCap > 0 && enabledCount > planActionCap;
 
   return (
     <div className="ds-app-shell p-6 md:p-8">
-      <div className="w-full space-y-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
         <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="ds-app-page-title">Actions & integrations</h1>
-            <p className="ds-app-page-description ds-app-page-description--wide">
-              Connect external apps, then choose which tools your agent can use in chat.
+            <p className="ds-app-body-muted mt-1 max-w-xl">
+              Connect apps, then turn individual tools on or off for this agent.
             </p>
           </div>
           <button
             type="button"
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar self-start rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors md:self-auto disabled:pointer-events-none disabled:opacity-45"
+            className={appButtonClassName("default", { className: "self-start md:self-auto" })}
             onClick={() => {
               void refreshIntegrations();
             }}
@@ -278,151 +297,182 @@ function ActionsPageContent() {
           <p className="text-ds-on-surface-variant text-sm">Select an agent in the header to manage actions.</p>
         ) : null}
 
-        <div className="space-y-8">
-          <section id={SHOPIFY_ANCHOR} className={SECTION_PANEL}>
-            <div className="flex flex-wrap items-start gap-3 border-b border-ds-outline/70 pb-5">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-ds-md bg-[#95BF47]/15 text-[#5E8E3E]">
-                <IconShopifyBag className="size-6" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="ds-app-section-title text-lg md:text-xl">Shopify</h2>
-                <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                  Link your storefront, then turn on catalog and order tools for your agent.
+        <section id={SHOPIFY_ANCHOR} className={PANEL}>
+          <div className="border-ds-outline flex items-center gap-3 border-b px-5 py-4 md:px-6">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-ds-md bg-[#95BF47]/15 text-[#5E8E3E]">
+              <IconShopifyBag className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="ds-app-section-title inline-flex items-center">
+                Shopify
+                <InfoHint text={SHOPIFY_ADMIN_STOREFRONT_HINT} labelFor="Shopify connection" />
+              </h2>
+              <p className="text-ds-on-surface-variant text-sm">Products, orders, and inventory from your store.</p>
+            </div>
+          </div>
+
+          <div className="px-5 py-4 md:px-6">
+            <ConnectionCard
+              embedded
+              connected={Boolean(shopify?.connected)}
+              shopDomain={shopify?.shop_domain}
+              scopes={shopify?.scopes ?? []}
+              lastSyncedAt={shopify?.last_synced_at}
+              busy={connectBusy || shopifyBusy}
+              connectEnabled={connectUiReady}
+              shopDraft={shopDraft}
+              onShopDraftChange={setShopDraft}
+              onConnect={startOAuth}
+              onReconnect={reconnect}
+              onDisconnect={handleDisconnect}
+            />
+          </div>
+
+          <div className="border-ds-outline border-t px-5 py-3 md:px-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-ds-on-surface-variant text-sm">
+                <p>
+                  <span className="text-ds-on-surface font-semibold">{enabledCount}</span> of {liveToolCount} live
+                  tools enabled
+                  {planActionCap > 0 ? (
+                    <>
+                      {" "}
+                      · plan limit{" "}
+                      <span className="text-ds-on-surface font-semibold">{planActionCap}</span> active at a time
+                    </>
+                  ) : null}
                 </p>
+                {exceedsRuntimeCap ? (
+                  <p className="mt-1 text-xs font-medium text-amber-800">
+                    {runtimeInactiveKeys.size} enabled{" "}
+                    {runtimeInactiveKeys.size === 1 ? "action is" : "actions are"} inactive on your plan. The agent
+                    uses the highest-priority tools up to your limit.
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {FILTER_CHIPS.map((chip, idx) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => handleChipClick(chip, idx)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors",
+                      idx === chipIdx
+                        ? "border-ds-primary/45 text-ds-primary bg-ds-sidebar"
+                        : "text-ds-on-surface-variant hover:text-ds-on-surface border-transparent hover:bg-ds-outline/35"
+                    )}
+                  >
+                    {chip}
+                  </button>
+                ))}
               </div>
             </div>
+          </div>
 
-            <div className="space-y-3">
-              <h3 className="ds-app-card-title">Store connection</h3>
-              <ConnectionCard
-                embedded
-                connected={Boolean(shopify?.connected)}
-                shopDomain={shopify?.shop_domain}
-                scopes={shopify?.scopes ?? []}
-                lastSyncedAt={shopify?.last_synced_at}
-                busy={connectBusy || shopifyBusy}
-                connectEnabled={connectUiReady}
-                shopDraft={shopDraft}
-                onShopDraftChange={setShopDraft}
-                onConnect={startOAuth}
-                onReconnect={reconnect}
-                onDisconnect={handleDisconnect}
-              />
-            </div>
-
-            <div className="space-y-4 border-t border-ds-outline/70 pt-6">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <h3 className="ds-app-card-title">Agent actions</h3>
-                  <p className="ds-app-body-muted mt-0.5">
-                    {totalCount} tools available · enable what your plan supports
+          <div className="border-ds-outline border-t bg-ds-sidebar/20 px-5 py-4 md:px-6">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {showShopifyGridSkeleton ? (
+                <ShopifyActionsGridSkeleton count={shopifyActions.length} />
+              ) : showShopifyConnectPrompt ? (
+                <div className="col-span-full rounded-ds-lg border border-dashed border-ds-outline bg-white px-4 py-6 text-center text-sm">
+                  <p className="text-ds-on-surface-variant">
+                    This agent has no Shopify store linked. Connect a store above to turn on product, order, and
+                    inventory tools.
+                  </p>
+                  <p className="text-ds-on-surface-variant mt-2">
+                    After linking, open{" "}
+                    <Link href="/deploy" className="text-ds-primary font-semibold underline-offset-2 hover:underline">
+                      Deploy
+                    </Link>{" "}
+                    to add the chat widget.
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {FILTER_CHIPS.map((chip, idx) => (
-                    <button
-                      key={chip}
-                      type="button"
-                      onClick={() => handleChipClick(chip, idx)}
-                      className={cn(
-                        "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
-                        idx === chipIdx
-                          ? "border-ds-primary/45 text-ds-primary bg-ds-sidebar shadow-sm"
-                          : "text-ds-on-surface-variant hover:text-ds-on-surface border-transparent hover:bg-ds-outline/35"
-                      )}
-                    >
-                      {chip}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {showShopifyGridSkeleton ? (
-                  <ShopifyActionsGridSkeleton count={shopifyActions.length} />
-                ) : showFilteredEmpty ? (
-                  <p className="text-ds-on-surface-variant col-span-full rounded-ds-lg border border-dashed border-ds-outline bg-ds-surface/50 px-4 py-8 text-center text-sm">
-                    No actions match this filter. Try{" "}
-                    <button
-                      type="button"
-                      className="text-ds-primary font-semibold underline-offset-2 hover:underline"
-                      onClick={() => {
-                        setFilter("All");
-                        setChipIdx(0);
-                      }}
-                    >
-                      All
-                    </button>
-                    .
-                  </p>
-                ) : (
-                  filtered.map(({ static: action, api }) => {
-                    const badgeStatus = api ? mapApiStatusForBadge(api.status) : action.status;
-                    const enabled = api?.enabled ?? false;
-                    const toggleDisabled =
-                      !api ||
-                      api.status !== "live" ||
-                      !api.scopes_satisfied ||
-                      catalogBusy ||
-                      togglePending ||
-                      !selectedAgentId;
-                    const key = shopifyActionSlugToKey(action.id);
-                    return (
-                      <ActionCard
-                        key={action.id}
-                        action={action}
-                        badgeStatus={badgeStatus}
-                        enabled={enabled}
-                        toggleDisabled={toggleDisabled}
-                        onToggle={(next) => void handleToggle(key, next)}
-                      />
-                    );
-                  })
-                )}
-              </div>
+              ) : showFilteredEmpty ? (
+                <p className="text-ds-on-surface-variant col-span-full rounded-ds-lg border border-dashed border-ds-outline bg-white px-4 py-6 text-center text-sm">
+                  No actions match this filter.{" "}
+                  <button
+                    type="button"
+                    className="text-ds-primary font-semibold underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setFilter("All");
+                      setChipIdx(0);
+                    }}
+                  >
+                    Show all
+                  </button>
+                </p>
+              ) : (
+                filtered.map(({ static: action, api }) => {
+                  const badgeStatus = api ? mapApiStatusForBadge(api.status) : action.status;
+                  const key = shopifyActionSlugToKey(action.id);
+                  const enabled = resolveEnabled(key, api?.enabled ?? false);
+                  const actionTogglePending = isTogglePending(key);
+                  const toggleDisabled =
+                    !api ||
+                    api.status !== "live" ||
+                    !api.scopes_satisfied ||
+                    catalogBusy ||
+                    actionTogglePending ||
+                    !selectedAgentId;
+                  const runtimeInactive = enabled && runtimeInactiveKeys.has(key);
+                  return (
+                    <ActionCard
+                      key={action.id}
+                      action={action}
+                      badgeStatus={badgeStatus}
+                      enabled={enabled}
+                      toggleDisabled={toggleDisabled}
+                      togglePending={actionTogglePending}
+                      runtimeInactive={runtimeInactive}
+                      onToggle={(next) => void handleToggle(key, next)}
+                    />
+                  );
+                })
+              )}
             </div>
-          </section>
+          </div>
+        </section>
 
-          {showIntegrationSkeleton ? (
-            <IntegrationSectionsSkeleton />
-          ) : (
-            <>
-              {human ? (
-                <section id={HUMAN_ANCHOR} className={SECTION_PANEL}>
-                  <div className="border-b border-ds-outline/70 pb-5">
-                    <h2 className="ds-app-section-title text-lg md:text-xl">Human support</h2>
-                    <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                      Escalate chats to your team and set when visitors see a live response estimate.
-                    </p>
-                  </div>
+        {showIntegrationSkeleton ? (
+          <IntegrationSectionsSkeleton />
+        ) : (
+          <>
+            {human ? (
+              <section id={HUMAN_ANCHOR} className={PANEL}>
+                <div className="border-ds-outline border-b px-5 py-4 md:px-6">
+                  <h2 className="ds-app-section-title">Human handoff</h2>
+                  <p className="text-ds-on-surface-variant mt-0.5 text-sm">
+                    Let the agent escalate to your team when it cannot resolve a chat.
+                  </p>
+                </div>
+                <div className="px-5 py-4 md:px-6">
                   <HumanSupportCard
                     entry={human}
                     badgeStatus={humanBadgeStatus}
                     enabled={humanEnabled}
                     toggleDisabled={humanToggleDisabled}
+                    togglePending={humanTogglePending}
                     onToggle={(next) => void handleToggle("human.escalate", next)}
                   />
-                </section>
-              ) : null}
+                </div>
+              </section>
+            ) : null}
 
-              {stubs.length > 0 ? (
-                <section id={ROADMAP_ANCHOR} className={SECTION_PANEL}>
-                  <div className="border-b border-ds-outline/70 pb-5">
-                    <h2 className="ds-app-section-title text-lg md:text-xl">More integrations</h2>
-                    <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                      Zendesk, WhatsApp, email, and scheduling will appear here as they roll out.
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {stubs.map((entry) => (
-                      <IntegrationRoadmapCard key={entry.action_key} entry={entry} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </>
-          )}
-        </div>
+            {stubs.length > 0 ? (
+              <section id={ROADMAP_ANCHOR} className={PANEL}>
+                <div className="border-ds-outline border-b px-5 py-4 md:px-6">
+                  <h2 className="ds-app-section-title">Coming soon</h2>
+                </div>
+                <div className="grid grid-cols-1 gap-2 px-5 py-4 sm:grid-cols-2 md:px-6 lg:grid-cols-3">
+                  {stubs.map((entry) => (
+                    <IntegrationRoadmapCard key={entry.action_key} entry={entry} />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

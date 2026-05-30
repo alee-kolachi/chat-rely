@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import type { ShopifyActionStatus } from "./shopify-actions-data";
 
 const STATUS_LABEL: Record<ShopifyActionStatus, string> = {
-  live: "Live",
+  live: "Available",
   disabled: "Disabled",
   "coming-soon": "Coming soon",
 };
@@ -22,7 +22,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-widest uppercase",
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
         STATUS_CLASSES[status],
         className
       )}

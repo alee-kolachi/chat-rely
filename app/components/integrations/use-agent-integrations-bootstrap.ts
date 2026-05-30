@@ -27,13 +27,58 @@ type BootstrapCacheEntry = BootstrapPayload & {
 
 const bootstrapCache = new Map<string, BootstrapCacheEntry>();
 const bootstrapInflight = new Map<string, Promise<BootstrapPayload>>();
+type BootstrapCacheListener = (entry: BootstrapCacheEntry) => void;
+const bootstrapListeners = new Map<string, Set<BootstrapCacheListener>>();
 
 function cacheKey(agentId: string, includeWebsitePreview: boolean): string {
   return `${agentId}:${includeWebsitePreview ? "with-preview" : "core"}`;
 }
 
+function agentCachePrefix(agentId: string): string {
+  return `${agentId}:`;
+}
+
 function readCache(key: string): BootstrapCacheEntry | null {
   return bootstrapCache.get(key) ?? null;
+}
+
+function subscribeBootstrapCache(key: string, listener: BootstrapCacheListener): () => void {
+  let listeners = bootstrapListeners.get(key);
+  if (!listeners) {
+    listeners = new Set();
+    bootstrapListeners.set(key, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners!.delete(listener);
+    if (listeners!.size === 0) bootstrapListeners.delete(key);
+  };
+}
+
+function notifyBootstrapCache(key: string) {
+  const entry = readCache(key);
+  if (!entry) return;
+  bootstrapListeners.get(key)?.forEach((listener) => listener(entry));
+}
+
+/** Drop cached bootstrap payloads after Shopify connect/disconnect. */
+export function invalidateAgentIntegrationsBootstrapCache(agentId: string) {
+  const prefix = agentCachePrefix(agentId);
+  for (const key of Array.from(bootstrapCache.keys())) {
+    if (key.startsWith(prefix)) bootstrapCache.delete(key);
+  }
+}
+
+/** Keep action catalog in sync across playground (with-preview) and actions (core) cache keys. */
+function propagateCatalogForAgent(agentId: string, catalog: ApiActionCatalogResponse) {
+  const prefix = agentCachePrefix(agentId);
+  const updatedKeys: string[] = [];
+  for (const [key, entry] of bootstrapCache.entries()) {
+    if (!key.startsWith(prefix)) continue;
+    bootstrapCache.set(key, { ...entry, catalog, updatedAt: Date.now() });
+    updatedKeys.push(key);
+  }
+  for (const key of updatedKeys) notifyBootstrapCache(key);
 }
 
 async function fetchBootstrap(
@@ -73,7 +118,7 @@ export function useAgentIntegrationsBootstrap(
   const [loading, setLoading] = useState(() => Boolean(agentId && !initial));
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+  const refresh = useCallback(async (opts?: { silent?: boolean; force?: boolean }) => {
     if (!agentId) {
       setCatalog(null);
       setShopify(null);
@@ -82,8 +127,8 @@ export function useAgentIntegrationsBootstrap(
       return;
     }
     const nextKey = cacheKey(agentId, includeWebsitePreview);
-    const cached = readCache(nextKey);
-    const silent = opts?.silent === true || Boolean(cached);
+    const cached = opts?.force ? null : readCache(nextKey);
+    const silent = opts?.silent === true || (Boolean(cached) && !opts?.force);
     if (cached) {
       setCatalog(cached.catalog);
       setShopify(cached.shopify);
@@ -94,6 +139,7 @@ export function useAgentIntegrationsBootstrap(
     try {
       const res = await fetchBootstrap(agentId, includeWebsitePreview, nextKey);
       bootstrapCache.set(nextKey, { ...res, updatedAt: Date.now() });
+      propagateCatalogForAgent(agentId, res.catalog);
       setCatalog(res.catalog);
       setShopify(res.shopify);
       setWebsitePreview(res.website_preview ?? null);
@@ -108,6 +154,15 @@ export function useAgentIntegrationsBootstrap(
       if (!silent) setLoading(false);
     }
   }, [agentId, includeWebsitePreview]);
+
+  useEffect(() => {
+    if (!key) return;
+    return subscribeBootstrapCache(key, (entry) => {
+      setCatalog(entry.catalog);
+      setShopify(entry.shopify);
+      setWebsitePreview(entry.website_preview ?? null);
+    });
+  }, [key]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,7 +208,8 @@ export function useAgentIntegrationsBootstrap(
       `/api/v1/integrations/shopify?agent_id=${encodeURIComponent(agentId)}`,
       { method: "DELETE" }
     );
-    await refresh();
+    invalidateAgentIntegrationsBootstrapCache(agentId);
+    await refresh({ force: true });
   }, [agentId, refresh]);
 
   return { catalog, shopify, websitePreview, loading, error, refresh, disconnect };

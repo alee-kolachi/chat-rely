@@ -1,12 +1,38 @@
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
+import unicodedata
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 RuntimeChannel = Literal["api", "widget"]
 
 from app.domains.conversation_outcomes.schemas import TurnSignalsDTO
+
+
+def _normalize_chat_message_text(value: str) -> str:
+    trimmed = (value or "").strip()
+    without_format = "".join(
+        ch for ch in trimmed if unicodedata.category(ch) != "Cf"
+    )
+    return without_format.strip()
+
+
+def message_has_substantive_content(value: str) -> bool:
+    """True when the message contains letters or digits (not punctuation/whitespace alone)."""
+    normalized = _normalize_chat_message_text(value)
+    if not normalized:
+        return False
+    return any(ch.isalnum() for ch in normalized)
+
+
+def ensure_non_whitespace_message(value: str) -> str:
+    normalized = _normalize_chat_message_text(value)
+    if not normalized:
+        raise ValueError("Message must not be empty or whitespace only")
+    if not any(ch.isalnum() for ch in normalized):
+        raise ValueError("Message must include letters or numbers, not punctuation or whitespace only")
+    return value
 
 
 class RuntimeEscalationInfo(BaseModel):
@@ -37,6 +63,11 @@ class RuntimeChatRequest(BaseModel):
     locale: str | None = None
     #: ISO 3166-1 alpha-2 country from host page or checkout; stored on conversation metadata.
     country_code: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def _message_not_whitespace_only(cls, value: str) -> str:
+        return ensure_non_whitespace_message(value)
 
 
 class RuntimeChatResponse(BaseModel):

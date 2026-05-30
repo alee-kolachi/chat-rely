@@ -177,6 +177,9 @@ def build_system_prompt(
             "ANSWERING RULES\n"
             "- Match answers to what tools return or excerpts confirm. Do not blend the two in ways that create "
             "false confidence — if a tool returns live stock and an excerpt mentions an older price, flag the discrepancy.\n"
+            "- Shopify tools are authoritative for this store's catalog, products, prices, inventory, and orders. "
+            "Use excerpts only for policies, FAQs, returns, shipping rules, and static copy when clearly relevant — "
+            "never for catalog or product answers when Shopify tools are enabled.\n"
             "- Use the conversation thread to resolve follow-ups ('it', 'that order', 'the one you mentioned') "
             "and to stay consistent with what you already said — but only if your earlier answer was grounded "
             "in tool data or excerpts.\n"
@@ -229,6 +232,8 @@ def build_agent_system_prompt_for_tools(
     *,
     has_knowledge_tool: bool,
     has_shopify_tools: bool,
+    has_kb_excerpts: bool = False,
+    has_order_lookup_tool: bool = True,
     human_escalation_enabled: bool = False,
 ) -> str:
     """System prompt when the runtime uses a LangGraph agent with tool_choice=auto."""
@@ -240,6 +245,11 @@ def build_agent_system_prompt_for_tools(
         "Reply directly — without calling any tool — for greetings, simple chitchat, "
         "or questions you can answer confidently from the conversation thread alone.",
     ]
+    if has_order_lookup_tool:
+        parts.append(
+            "A lone order number (digits only, or # then digits) is **not** chitchat — call "
+            "`shopify_order_lookup` when that tool is enabled."
+        )
 
     if has_knowledge_tool:
         parts.append(
@@ -250,11 +260,31 @@ def build_agent_system_prompt_for_tools(
 
     if has_shopify_tools:
         parts.append(
-            "- Call Shopify tools (`shopify_product_search`, `shopify_order_lookup`, etc.) for anything "
-            "that requires live data: current stock levels, order status, tracking numbers, "
-            "product variants, pricing, and customer-specific store history. "
-            "Never estimate or approximate these — call the tool."
+            "- When one message asks about **multiple topics** (e.g. order status and a product question), "
+            "call every applicable enabled tool in the **same** turn, then answer each part briefly."
         )
+        shopify_line = (
+            "- Call Shopify tools for live store data. Use `shopify_inventory_check` for stock, inventory, "
+            "in stock, out of stock, or quantity on hand. Use `shopify_product_search` for catalog browsing, "
+            "product discovery, variants, and pricing — not for stock or order questions."
+        )
+        if has_order_lookup_tool:
+            shopify_line += (
+                " Use `shopify_order_lookup` for order status, tracking, and fulfillment — including when the "
+                "customer sends only an order number (e.g. 8842 or #8842)."
+            )
+        else:
+            shopify_line += (
+                " Order Lookup is not enabled — do not call `shopify_product_search` for order status, "
+                "tracking, or shipping; explain that live order lookup is unavailable."
+            )
+        shopify_line += (
+            " Never estimate stock, orders, or prices — call the tool when it is enabled."
+            " On follow-ups, resolve products from the thread and pass brand or name keywords to"
+            " `shopify_product_search`, not pronouns or phrases like \"the one\"."
+            " When `lookup_meta.not_found` is true, say the item is not in this store's catalog — do not invent availability."
+        )
+        parts.append(shopify_line)
 
     if has_knowledge_tool or has_shopify_tools:
         parts.append(
@@ -263,12 +293,16 @@ def build_agent_system_prompt_for_tools(
             "Do not describe the tool by name or explain your internal process."
         )
 
-    if has_knowledge_tool and has_shopify_tools:
+    if (has_knowledge_tool or has_kb_excerpts) and has_shopify_tools:
         parts.append(
-            "- Use Shopify tools for anything live: stock, orders, variants, and customer data. "
-            "Use the knowledge base for policies, FAQs, and general brand or product information. "
-            "If a tool result and a knowledge base excerpt conflict, surface the discrepancy clearly "
-            "rather than silently picking one."
+            "- **Source priority when both Shopify tools and knowledge-base content are available:** "
+            "Shopify tools are the source of truth for this connected store's live catalog, products, "
+            "prices, inventory, variants, orders, and customer-specific data — call them before answering. "
+            "Use knowledge-base content only for policies, FAQs, returns, shipping rules, and other static "
+            "copy when it clearly applies to this store. Do not use knowledge-base excerpts for product "
+            "catalog, availability, or pricing when Shopify tools are enabled. Indexed excerpts may come "
+            "from older or different pages; if they conflict with Shopify tool results, trust Shopify "
+            "for store data and mention the discrepancy only when relevant."
         )
 
     tool_abusive = (

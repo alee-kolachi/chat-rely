@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useShopifyConnection } from "@/components/integrations/use-shopify-connection";
+import { appButtonClassName } from "@/lib/button-styles";
 
 export function DeployPageHeaderActions() {
   const { selectedAgentId } = useDashboardAgent();
@@ -17,14 +18,14 @@ export function DeployPageHeaderActions() {
         href={shopifyHref}
         target="_blank"
         rel="noreferrer"
-        className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar inline-flex rounded-ds-md border bg-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors"
+        className={appButtonClassName()}
       >
         Open Shopify
       </a>
       {!loading && !connected ? (
         <Link
           href="/actions#shopify-integration"
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex cursor-pointer rounded-ds-md px-4 py-2.5 text-sm font-semibold transition-colors"
+          className={appButtonClassName()}
         >
           Connect store
         </Link>

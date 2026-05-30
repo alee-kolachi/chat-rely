@@ -5,9 +5,17 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from pydantic import ValidationError
+
 from app.core.errors import AppError
 from app.domains.conversations.schemas import ConversationDTO, MessageDTO
-from app.domains.runtime.schemas import RuntimeChatResponse
+from app.domains.public_widget.schemas import PublicWidgetChatRequest
+from app.domains.runtime.schemas import (
+    RuntimeChatRequest,
+    RuntimeChatResponse,
+    ensure_non_whitespace_message,
+    message_has_substantive_content,
+)
 
 
 class _DummyVerifier:
@@ -137,6 +145,57 @@ def test_runtime_chat_fallback_used(client: TestClient, monkeypatch: pytest.Monk
     assert response.json()["retrieval_count"] == 0
 
 
+def test_runtime_chat_request_rejects_whitespace_only_message() -> None:
+    with pytest.raises(ValidationError):
+        RuntimeChatRequest(
+            agent_id=uuid4(),
+            message="   ",
+        )
+
+
+def test_public_widget_chat_request_rejects_whitespace_only_message() -> None:
+    with pytest.raises(ValidationError):
+        PublicWidgetChatRequest(
+            message="\t\n",
+            visitor_id="visitor-1",
+        )
+
+
+def test_message_has_substantive_content() -> None:
+    assert message_has_substantive_content("Do you sell gift cards?")
+    assert message_has_substantive_content("8842")
+    assert message_has_substantive_content("#8842")
+    assert message_has_substantive_content("Hi")
+    assert not message_has_substantive_content("   ")
+    assert not message_has_substantive_content("???")
+    assert not message_has_substantive_content("...")
+    assert not message_has_substantive_content("\u200b\u200b")
+
+
+def test_runtime_chat_request_rejects_punctuation_only_message() -> None:
+    with pytest.raises(ValidationError):
+        RuntimeChatRequest(
+            agent_id=uuid4(),
+            message="???",
+        )
+
+
+def test_runtime_chat_request_accepts_bare_order_number() -> None:
+    req = RuntimeChatRequest(
+        agent_id=uuid4(),
+        message="8842",
+    )
+    assert req.message == "8842"
+
+
+def test_ensure_non_whitespace_message_rejects_invisible_only() -> None:
+    with pytest.raises(ValueError, match="empty or whitespace"):
+        ensure_non_whitespace_message("\u200b\u200b")
+
+
+def test_ensure_non_whitespace_message_rejects_punctuation_only() -> None:
+    with pytest.raises(ValueError, match="letters or numbers"):
+        ensure_non_whitespace_message("...")
 
 
 def test_list_conversations(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -300,4 +359,85 @@ def test_status_transition_invalid_value(client: TestClient, monkeypatch: pytest
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "request.validation_error"
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_short_circuits_non_substantive_without_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.agent.escalation import visitor_non_substantive_reply
+    from app.agent.service import stream_chat
+
+    llm_called = False
+
+    async def _fail_llm(*_: Any, **__: Any) -> Any:
+        nonlocal llm_called
+        llm_called = True
+        if False:
+            yield ""
+
+    monkeypatch.setattr("app.agent.service.stream_chat_graph", _fail_llm)
+    monkeypatch.setattr("app.agent.service.stream_llm_sse", _fail_llm)
+    monkeypatch.setattr("app.agent.service.refresh_plan_usage_snapshot_isolated", AsyncMock())
+    monkeypatch.setattr("app.agent.service._await_prior_turn_persist", AsyncMock())
+
+    conv_id = uuid4()
+    agent_id = uuid4()
+    config = {
+        "model": "gpt-4o-mini",
+        "creativity": 0.3,
+        "agent_type": "support",
+        "system_prompt": "",
+        "fallback_message": "",
+        "min_retrieval_similarity": 0.72,
+        "has_indexed_knowledge": False,
+        "tone": "",
+    }
+    conv = {"id": conv_id, "metadata": {}, "is_new": False}
+
+    async def _mock_db_call(coro: Any) -> Any:
+        return await coro(MagicMock())
+
+    monkeypatch.setattr("app.agent.service._db_call", _mock_db_call)
+    monkeypatch.setattr(
+        "app.agent.service._load_agent_runtime_config",
+        AsyncMock(return_value=config),
+    )
+    monkeypatch.setattr(
+        "app.agent.service._resolve_or_create_conversation",
+        AsyncMock(return_value=conv),
+    )
+    monkeypatch.setattr(
+        "app.agent.service.conversation_is_awaiting_human_team",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "app.agent.service._load_shopify_tools_fast",
+        AsyncMock(return_value=([], {}, False)),
+    )
+
+    payload = RuntimeChatRequest.model_construct(
+        agent_id=agent_id,
+        message="???",
+        visitor_id="visitor-1",
+        channel="api",
+    )
+
+    frames: list[str] = []
+    async for frame in stream_chat(uuid4(), payload):
+        frames.append(frame)
+
+    assert not llm_called
+    done_payload = None
+    for frame in frames:
+        if frame.startswith("event: done"):
+            for line in frame.split("\n"):
+                if line.startswith("data: "):
+                    done_payload = json.loads(line[6:])
+                    break
+    assert done_payload is not None
+    assert done_payload["response"] == visitor_non_substantive_reply()
+    assert done_payload["tools_invoked"] == []
 

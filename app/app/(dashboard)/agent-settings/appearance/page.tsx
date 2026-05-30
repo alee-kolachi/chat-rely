@@ -20,6 +20,7 @@ import {
 import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
 import { planHidesPoweredByChatrely } from "@/lib/widget-branding";
 import { faviconServiceUrl } from "@/lib/website-url";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 export default function AgentSettingsAppearancePage() {
@@ -193,19 +194,18 @@ function AppearanceForm() {
           </div>
 
           {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
-          {savedAt ? <p className="text-sm font-medium text-emerald-600">Saved.</p> : null}
+          {savedAt ? (
+            <p className="text-sm font-medium text-emerald-600">
+              Saved. Your live widget picks this up automatically. You do not need to change your embed code.
+            </p>
+          ) : null}
 
-          <div className="border-ds-outline flex justify-end gap-3 border-t pt-4">
+          <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={handleSave}
               disabled={!dirty || isSaving || !validHex}
-              className={cn(
-                "rounded-ds-lg px-5 py-2 text-sm font-semibold shadow-sm transition-colors",
-                dirty && !isSaving && validHex
-                  ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
-                  : "bg-ds-outline/40 text-ds-on-surface-variant cursor-not-allowed"
-              )}
+              className={appButtonClassName()}
             >
               {isSaving ? "Saving..." : "Save changes"}
             </button>

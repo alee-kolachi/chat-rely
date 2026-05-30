@@ -48,6 +48,19 @@ def thread_had_shopify_tools(history_rows: list[MessageDTO]) -> bool:
     return False
 
 
+def thread_had_order_lookup_tool(history_rows: list[MessageDTO]) -> bool:
+    for m in history_rows:
+        meta = m.metadata or {}
+        for n in meta.get("tools_invoked") or []:
+            if str(n) == "shopify_order_lookup":
+                return True
+        tcp = m.tool_call_payload or {}
+        for tc in tcp.get("tool_calls") or []:
+            if isinstance(tc, dict) and str(tc.get("name") or "") == "shopify_order_lookup":
+                return True
+    return False
+
+
 def tool_call_parts(tc: Any) -> tuple[str, dict[str, Any], str]:
     if isinstance(tc, dict):
         return (

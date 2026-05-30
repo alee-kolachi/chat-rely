@@ -10,6 +10,11 @@ export type StreamingAssistantPatch = {
   statusLine?: string | null;
 };
 
+/** Stream finished from the client's perspective; safe to re-enable the composer. */
+export function chatStreamTerminalEvent(ev: ChatSseEvent): boolean {
+  return ev.type === "done" || ev.type === "error";
+}
+
 export function applyChatSseEvent(
   ev: ChatSseEvent,
   current: {

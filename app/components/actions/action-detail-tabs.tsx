@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { chatSseStream } from "@/lib/chat-sse";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import { IconCheck, IconWarning, IconPlay, IconClock, IconShield } from "./action-icons";
 import type { ApiActionCatalogEntry } from "./action-catalog-types";
@@ -23,7 +24,7 @@ const ALL_TABS: { id: TabId; label: string }[] = [
 
 type ActionDetailTabsProps = {
   action: ShopifyAction;
-  /** Live catalog row — drives Permissions tab (OAuth scopes), not static demo flags. */
+  /** Live catalog row — drives Permissions tab (store access scopes), not static demo flags. */
   catalogEntry?: ApiActionCatalogEntry | null;
   selectedAgentId?: string | null;
 };
@@ -68,8 +69,10 @@ export function ActionDetailTabs({ action, catalogEntry, selectedAgentId }: Acti
       </div>
 
       <div className="p-6 md:p-8">
-        {activeTab === "overview" && <OverviewPanel action={action} />}
-        {activeTab === "configuration" && <ConfigurationPanel action={action} />}
+        {activeTab === "overview" && <OverviewPanel action={action} catalogEntry={catalogEntry} />}
+        {activeTab === "configuration" && (
+          <ConfigurationPanel action={action} catalogEntry={catalogEntry} />
+        )}
         {activeTab === "triggering" && <TriggeringPanel action={action} />}
         {activeTab === "permissions" && (
           <PermissionsPanel action={action} catalogEntry={catalogEntry} />
@@ -91,12 +94,20 @@ function SectionHeading({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
-function OverviewPanel({ action }: { action: ShopifyAction }) {
+function OverviewPanel({
+  action,
+  catalogEntry,
+}: {
+  action: ShopifyAction;
+  catalogEntry?: ApiActionCatalogEntry | null;
+}) {
+  const overviewCopy = catalogEntry?.description ?? action.description;
+
   return (
     <div className="space-y-8">
       <section>
         <SectionHeading title="What this action does" />
-        <p className="text-ds-on-surface text-sm leading-relaxed">{action.longDescription}</p>
+        <p className="text-ds-on-surface text-sm leading-relaxed">{overviewCopy}</p>
       </section>
 
       <section>
@@ -123,140 +134,93 @@ function CodeBlock({ label, json }: { label: string; json: Record<string, unknow
   );
 }
 
-function ConfigurationPanel({ action }: { action: ShopifyAction }) {
+function formatConfigPreviewValue(
+  field: ShopifyActionConfigField,
+  catalogEntry?: ApiActionCatalogEntry | null
+): string {
+  const cfg = (catalogEntry?.config ?? {}) as Record<string, unknown>;
+  if (field.key === "maxResults" && typeof cfg.maxResults === "number") {
+    return String(cfg.maxResults);
+  }
+  if (field.type === "multi") {
+    return field.defaultValue.join(", ");
+  }
+  if (field.type === "toggle") {
+    return field.defaultValue ? "On" : "Off";
+  }
+  return String(field.defaultValue);
+}
+
+function ConfigurationPanel({
+  action,
+  catalogEntry,
+}: {
+  action: ShopifyAction;
+  catalogEntry?: ApiActionCatalogEntry | null;
+}) {
+  const isComingSoon = catalogEntry
+    ? catalogEntry.status === "coming_soon"
+    : action.status === "coming-soon";
+  const savedMaxResults =
+    action.id === "product-search" &&
+    typeof (catalogEntry?.config as Record<string, unknown> | undefined)?.maxResults ===
+      "number"
+      ? ((catalogEntry?.config as Record<string, unknown>).maxResults as number)
+      : null;
+
   return (
     <div className="space-y-6">
       <SectionHeading
         title="Configuration"
-        hint="Optional. Turning the action on is enough for chat."
+        hint="Turn the action on above to use it in chat."
       />
-      <div className="grid grid-cols-1 gap-5">
-        {action.configFields.map((field) => (
-          <ConfigField key={field.key} field={field} />
-        ))}
+
+      <div className="border-ds-outline rounded-ds-md border bg-ds-sidebar/40 p-4 text-sm text-ds-on-surface-variant leading-relaxed">
+        {isComingSoon ? (
+          <p>
+            Settings for this action are not available yet. Enable it above once it launches.
+          </p>
+        ) : action.id === "order-lookup" ? (
+          <p>
+            Order Lookup uses fixed behavior in chat: order number or customer email, with status
+            and tracking from your Shopify store when available. Nothing on this tab is saved yet.
+          </p>
+        ) : action.id === "product-search" ? (
+          <p>
+            Product Search returns up to{" "}
+            {savedMaxResults ?? 5} products per lookup in chat
+            {savedMaxResults == null
+              ? " (built-in default). Set maxResults on the agent action via API to change it."
+              : " from your saved agent action config."}{" "}
+            Other fields below are built-in defaults and are not saved from this tab yet.
+          </p>
+        ) : (
+          <p>
+            Per-action settings for Shopify tools are not saved yet. Enable the action above to use
+            built-in defaults in chat.
+          </p>
+        )}
       </div>
+
+      {action.configFields.length > 0 ? (
+        <section>
+          <p className="ds-app-kicker text-ds-on-surface-variant mb-3">Built-in defaults (preview)</p>
+          <dl className="border-ds-outline divide-ds-outline divide-y rounded-ds-md border bg-white">
+            {action.configFields.map((field) => (
+              <div key={field.key} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+                <dt className="text-ds-on-surface text-sm font-semibold">{field.label}</dt>
+                <dd className="text-ds-on-surface-variant text-sm sm:text-right">
+                  {formatConfigPreviewValue(field, catalogEntry)}
+                  {field.help ? (
+                    <span className="mt-1 block text-xs leading-relaxed">{field.help}</span>
+                  ) : null}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
     </div>
-  );
-}
-
-function ConfigField({ field }: { field: ShopifyActionConfigField }) {
-  if (field.type === "text") {
-    return (
-      <div>
-        <label className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
-          {field.label}
-        </label>
-        <input type="text" defaultValue={field.defaultValue} className="ds-app-field rounded-ds-md" />
-        {field.help && (
-          <p className="ds-app-body-muted mt-1">{field.help}</p>
-        )}
-      </div>
-    );
-  }
-
-  if (field.type === "number") {
-    return (
-      <div>
-        <label className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
-          {field.label}
-        </label>
-        <input
-          type="number"
-          defaultValue={field.defaultValue}
-          min={field.min}
-          max={field.max}
-          className="ds-app-field w-32 max-w-full rounded-ds-md"
-        />
-        {field.help && (
-          <p className="ds-app-body-muted mt-1">{field.help}</p>
-        )}
-      </div>
-    );
-  }
-
-  if (field.type === "select") {
-    return (
-      <div>
-        <label className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
-          {field.label}
-        </label>
-        <select defaultValue={field.defaultValue} className="ds-app-field max-w-sm rounded-ds-md">
-          {field.options.map((opt) => (
-            <option key={opt}>{opt}</option>
-          ))}
-        </select>
-        {field.help && (
-          <p className="ds-app-body-muted mt-1">{field.help}</p>
-        )}
-      </div>
-    );
-  }
-
-  if (field.type === "multi") {
-    const defaultSet = new Set(field.defaultValue);
-    return (
-      <div>
-        <label className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
-          {field.label}
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {field.options.map((opt) => {
-            const isOn = defaultSet.has(opt);
-            return (
-              <span
-                key={opt}
-                className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                  isOn
-                    ? "border-ds-primary/45 text-ds-primary bg-white shadow-sm"
-                    : "border-ds-outline bg-ds-sidebar text-ds-on-surface-variant"
-                )}
-              >
-                {opt}
-              </span>
-            );
-          })}
-        </div>
-        {field.help && (
-          <p className="ds-app-body-muted mt-2">{field.help}</p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <p className="ds-app-card-title">{field.label}</p>
-        {field.help && (
-          <p className="ds-app-body-muted mt-1">{field.help}</p>
-        )}
-      </div>
-      <ToggleStub defaultChecked={field.defaultValue} />
-    </div>
-  );
-}
-
-function ToggleStub({ defaultChecked }: { defaultChecked: boolean }) {
-  const [checked, setChecked] = useState(defaultChecked);
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => setChecked((v) => !v)}
-      className={cn(
-        "flex h-5 w-9 items-center rounded-full p-[2px] transition-colors",
-        checked ? "bg-ds-primary" : "bg-ds-outline"
-      )}
-    >
-      <span
-        className={cn(
-          "h-4 w-4 rounded-full bg-white transition-transform",
-          checked ? "translate-x-4" : "translate-x-0"
-        )}
-      />
-    </button>
   );
 }
 
@@ -314,8 +278,8 @@ function PermissionsPanel({
     <div className="space-y-6">
       <section>
         <SectionHeading
-          title="Required Shopify scopes"
-          hint="Compared against scopes granted by your Shopify connection (live data)."
+          title="Required store access"
+          hint="Compared against permissions from your Shopify sign-in (live data)."
         />
         <div className="border-ds-outline rounded-ds-md divide-ds-outline divide-y border bg-white">
           {rows.map((scope) => (
@@ -343,7 +307,7 @@ function PermissionsPanel({
         <div className="rounded-ds-md flex items-start gap-3 border border-amber-200 bg-amber-50 p-4">
           <IconWarning className="mt-0.5 size-4 text-amber-700" />
           <div className="text-sm text-amber-900">
-            One or more scopes are missing. Reconnect Shopify to grant the required permissions
+            One or more permissions are missing. Reconnect Shopify to grant the required access
             before enabling this action.
             <button className="ml-2 font-semibold underline-offset-2 hover:underline">
               Reconnect now
@@ -370,12 +334,46 @@ function expectedToolNameForAction(actionId: string): string | null {
   return null;
 }
 
+function formatOrderLookupTestMessage(orderNumber: string): string {
+  const trimmed = orderNumber.trim();
+  const display = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  return `Where is order ${display}?`;
+}
+
 function buildTestMessage(action: ShopifyAction, values: Record<string, string>): string {
+  if (action.id === "order-lookup") {
+    const orderNumber = values.orderNumber?.trim();
+    if (orderNumber) return formatOrderLookupTestMessage(orderNumber);
+  }
+
   const lines = action.testFields
     .map((f) => values[f.key]?.trim())
     .filter((v): v is string => Boolean(v && v.length > 0));
   if (lines.length > 0) return lines.join("\n");
   return action.triggerExamples[0] ?? `Please test ${action.label.toLowerCase()}.`;
+}
+
+function findLatestToolMessageForTurn(
+  messages: ConversationApiMessage[],
+  testMessage: string,
+  expectedTool: string | null
+): ConversationApiMessage | undefined {
+  let lastUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg.role === "user" && msg.content?.trim() === testMessage.trim()) {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  const fromIdx = lastUserIdx >= 0 ? lastUserIdx + 1 : 0;
+  for (let i = messages.length - 1; i >= fromIdx; i -= 1) {
+    const msg = messages[i];
+    if (msg.role !== "tool") continue;
+    if (expectedTool && msg.tool_name !== expectedTool) continue;
+    return msg;
+  }
+  return undefined;
 }
 
 function parseMaybeJson(raw: string | undefined): unknown {
@@ -385,6 +383,18 @@ function parseMaybeJson(raw: string | undefined): unknown {
   } catch {
     return { raw };
   }
+}
+
+type LookupMeta = {
+  not_found?: boolean;
+  message?: string;
+};
+
+function extractLookupMeta(output: unknown): LookupMeta | null {
+  if (!output || typeof output !== "object") return null;
+  const meta = (output as Record<string, unknown>).lookup_meta;
+  if (!meta || typeof meta !== "object") return null;
+  return meta as LookupMeta;
 }
 
 function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; selectedAgentId?: string | null }) {
@@ -406,6 +416,7 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
     setError(null);
     setResult(null);
     const started = performance.now();
+    const testMessage = buildTestMessage(action, fieldValues);
     try {
       const data = {
         conversation_id: "",
@@ -416,8 +427,8 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
         method: "POST",
         body: JSON.stringify({
           agent_id: selectedAgentId,
-          message: buildTestMessage(action, fieldValues),
-          visitor_id: `action-test-${action.id}`,
+          message: testMessage,
+          visitor_id: `action-test-${action.id}-${Date.now()}`,
         }),
       })) {
         if (ev.type === "done") {
@@ -435,9 +446,7 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
         `/api/v1/conversations/${data.conversation_id}`
       );
       const expectedTool = expectedToolNameForAction(action.id);
-      const latestTool = [...conv.messages]
-        .reverse()
-        .find((m) => m.role === "tool" && (!expectedTool || m.tool_name === expectedTool));
+      const latestTool = findLatestToolMessageForTurn(conv.messages, testMessage, expectedTool);
       setResult({
         latencyMs: Math.round(performance.now() - started),
         output: parseMaybeJson(latestTool?.content),
@@ -452,6 +461,8 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
       setRunning(false);
     }
   }
+
+  const lookupMeta = result ? extractLookupMeta(result.output) : null;
 
   return (
     <div className="space-y-6">
@@ -486,7 +497,7 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
           type="button"
           onClick={runTest}
           disabled={running || !selectedAgentId}
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex items-center gap-2 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45"
+          className={appButtonClassName("default", { className: "inline-flex items-center gap-2" })}
         >
           <IconPlay className="size-4" />
           {running ? "Running..." : "Run test"}
@@ -498,7 +509,7 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
         </div>
       ) : null}
 
-      {result && (
+      {result ? (
         <div className="border-ds-outline rounded-ds-md overflow-hidden border">
           <div className="bg-ds-sidebar border-ds-outline flex items-center justify-between border-b px-3 py-2">
             <span className="text-ds-on-surface text-[10px] font-bold tracking-widest uppercase">
@@ -509,6 +520,12 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
               {result.latencyMs} ms
             </span>
           </div>
+          {lookupMeta?.not_found ? (
+            <div className="border-ds-outline border-b bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {lookupMeta.message ??
+                "No customer record for this email in your connected store."}
+            </div>
+          ) : null}
           <pre className="bg-white p-4 text-[12px] leading-relaxed text-ds-on-surface overflow-x-auto">
             <code>{JSON.stringify(result.output, null, 2)}</code>
           </pre>
@@ -517,7 +534,7 @@ function TestRunPanel({ action, selectedAgentId }: { action: ShopifyAction; sele
             <p className="mt-1">Assistant: {result.assistantResponse}</p>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

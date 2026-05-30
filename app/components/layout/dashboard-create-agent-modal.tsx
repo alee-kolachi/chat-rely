@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 function slugFromName(name: string) {
@@ -149,7 +150,7 @@ export function DashboardCreateAgentModal({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar cursor-pointer rounded-ds-md border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+            className={appButtonClassName("default", { className: "disabled:cursor-not-allowed" })}
           >
             Cancel
           </button>
@@ -157,7 +158,7 @@ export function DashboardCreateAgentModal({
             type="button"
             onClick={() => void submit()}
             disabled={busy || !name.trim()}
-            className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover cursor-pointer rounded-ds-md px-4 py-2 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+            className={appButtonClassName("default", { className: "disabled:cursor-not-allowed" })}
           >
             {busy ? "Creating…" : "Create agent"}
           </button>

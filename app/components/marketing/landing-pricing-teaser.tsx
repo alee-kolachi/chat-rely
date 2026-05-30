@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { PricingCards } from "@/components/marketing/pricing-sections";
+import { appButtonClassName } from "@/lib/button-styles";
 import { useSessionPresent } from "@/hooks/use-session-present";
 
 export function LandingPricingTeaser() {
@@ -11,10 +12,7 @@ export function LandingPricingTeaser() {
     <>
       <PricingCards variant="teaser" isAuthenticated={sessionReady && hasSession} />
       <div className="mt-10 flex flex-col items-center gap-3 text-center">
-        <Link
-          href="/pricing"
-          className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex min-h-11 items-center justify-center rounded-ds-lg px-6 py-2.5 text-sm font-semibold shadow-sm transition-colors"
-        >
+        <Link href="/pricing" className={appButtonClassName()}>
           Compare all plans &amp; features
         </Link>
         <p className="ds-app-body-muted max-w-md">

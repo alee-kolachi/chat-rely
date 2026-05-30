@@ -42,7 +42,7 @@ SHOPIFY_ACTIONS: tuple[StaticActionDefinition, ...] = (
         provider="shopify",
         action_key="shopify.inventory_check",
         label="Inventory Check",
-        description="Stock levels per variant using inventory levels.",
+        description="Total stock quantity per variant across the store.",
         code_ready=True,
         required_scopes=frozenset({"read_inventory"}),
         requires_shopify_connection=True,
@@ -129,3 +129,11 @@ def get_static_definition(action_key: str) -> StaticActionDefinition | None:
         if d.action_key == action_key:
             return d
     return None
+
+
+def shopify_runtime_priority(action_key: str) -> int:
+    """Lower rank = higher priority when plan caps enabled Shopify actions at runtime."""
+    for idx, definition in enumerate(SHOPIFY_ACTIONS):
+        if definition.action_key == action_key:
+            return idx
+    return len(SHOPIFY_ACTIONS)

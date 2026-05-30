@@ -58,12 +58,17 @@ class ChatGraphState(TypedDict, total=False):
     shopify_tool_names: set[str]
     model_round: int
     tools_invoked: list[str]
+    tool_result_cache: dict[str, str]
     escalation_occurred: bool
     fallback_used: bool
     usage_input_tokens: int
     usage_output_tokens: int
     final_response: str
     turn_context: dict[str, Any]
+
+
+def _tool_call_signature(name: str, args: dict[str, Any]) -> str:
+    return f"{name}:{json.dumps(args or {}, sort_keys=True, default=str)}"
 
 
 def _last_ai_message(messages: list[BaseMessage]) -> AIMessage | None:
@@ -109,15 +114,35 @@ def _route_after_model(state: ChatGraphState) -> Literal["escalation", "shopify_
     return "__end__"
 
 
+def _state_has_tool_messages(state: ChatGraphState) -> bool:
+    return any(isinstance(m, ToolMessage) for m in (state.get("messages") or []))
+
+
 def _route_after_shopify_tools(state: ChatGraphState) -> Literal["call_model", "__end__"]:
     if int(state.get("model_round") or 0) >= MAX_TOOL_ROUNDS:
+        # Allow one final model turn without tools to answer from collected tool results.
+        if _state_has_tool_messages(state):
+            return "call_model"
         return "__end__"
     return "call_model"
 
 
+def _pending_tool_status_message(ai: AIMessage) -> str:
+    for tc in ai.tool_calls or []:
+        name, _, _ = tool_call_parts(tc)
+        if is_shopify_tool_name(name):
+            return shopify_tool_status_message(name)
+        if is_knowledge_tool_name(name):
+            return knowledge_tool_status_message(name)
+        if name == ESCALATE_TO_HUMAN_TOOL_NAME:
+            return "Connecting you with our team…"
+    return "Checking…"
+
+
 async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[str, Any]:
     model_round = int(state.get("model_round") or 0)
-    if model_round >= MAX_TOOL_ROUNDS:
+    synthesize_only = model_round >= MAX_TOOL_ROUNDS and _state_has_tool_messages(state)
+    if model_round >= MAX_TOOL_ROUNDS and not synthesize_only:
         fallback_message = str(state.get("fallback_message") or "").strip()
         if fallback_message:
             writer({"type": "token", "text": fallback_message})
@@ -128,7 +153,7 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
             "usage_output_tokens": int(state.get("usage_output_tokens") or 0),
         }
 
-    tools = _collect_bound_tools(state)
+    tools = [] if synthesize_only else _collect_bound_tools(state)
     llm = make_chat_model(state["model"], temperature=float(state.get("temperature") or 0.0))
     if tools:
         llm = llm.bind_tools(tools)
@@ -136,15 +161,20 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
     parts: list[str] = []
     usage_in = int(state.get("usage_input_tokens") or 0)
     usage_out = int(state.get("usage_output_tokens") or 0)
-    last_chunk: BaseMessage | None = None
+    aggregated: AIMessage | None = None
+    # With tools bound, content often precedes tool_call chunks — buffer text so preambles
+    # are not streamed as tokens; emit a single status line when tools are invoked.
+    buffer_text = bool(tools)
 
     try:
         async for chunk in llm.astream(state["messages"]):
-            last_chunk = chunk
+            if isinstance(chunk, AIMessage):
+                aggregated = chunk if aggregated is None else aggregated + chunk
             delta = text_delta_from_stream_chunk(chunk)
             if delta:
                 parts.append(delta)
-                writer({"type": "token", "text": delta})
+                if not buffer_text:
+                    writer({"type": "token", "text": delta})
             in_t, out_t = usage_tokens_from_model_message(chunk)
             usage_in = max(usage_in, in_t)
             usage_out = max(usage_out, out_t)
@@ -156,9 +186,10 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
             details={"error": str(exc)[:500]},
         ) from exc
 
-    if last_chunk is not None and isinstance(last_chunk, AIMessage) and (last_chunk.tool_calls or []):
+    if aggregated is not None and (aggregated.tool_calls or []):
+        writer({"type": "status", "text": _pending_tool_status_message(aggregated)})
         return {
-            "messages": [last_chunk],
+            "messages": [aggregated],
             "model_round": model_round + 1,
             "fallback_used": False,
             "usage_input_tokens": usage_in,
@@ -166,6 +197,8 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
         }
 
     text = "".join(parts).strip()
+    if buffer_text and text:
+        writer({"type": "token", "text": text})
     fallback_message = state.get("fallback_message") or ""
     fallback_used = False
     if not text and fallback_message:
@@ -253,6 +286,7 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
 
     tool_messages: list[BaseMessage] = []
     invoked = list(state.get("tools_invoked") or [])
+    cache = dict(state.get("tool_result_cache") or {})
 
     for tc in ai.tool_calls or []:
         name, args, tc_id = tool_call_parts(tc)
@@ -289,20 +323,27 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
                 )
             )
             continue
-        out = await invoke_shopify_tool_with_timeout(
-            bound,
-            args,
-            tool_name=name,
-            conversation_id=conv_uuid,
-            round_idx=max(0, model_round - 1),
-        )
-        body = (out or "").strip()[:120_000] or '{"error": "empty_tool_result"}'
+        sig = _tool_call_signature(name, args)
+        cached = cache.get(sig)
+        if cached is not None:
+            body = cached
+        else:
+            out = await invoke_shopify_tool_with_timeout(
+                bound,
+                args,
+                tool_name=name,
+                conversation_id=conv_uuid,
+                round_idx=max(0, model_round - 1),
+            )
+            body = (out or "").strip()[:120_000] or '{"error": "empty_tool_result"}'
+            cache[sig] = body
+            invoked.append(name)
         tool_messages.append(ToolMessage(content=body, tool_call_id=tc_id, name=name))
-        invoked.append(name)
 
     return {
         "messages": tool_messages,
         "tools_invoked": invoked,
+        "tool_result_cache": cache,
         "usage_input_tokens": int(state.get("usage_input_tokens") or 0),
         "usage_output_tokens": int(state.get("usage_output_tokens") or 0),
     }
@@ -369,6 +410,7 @@ async def stream_chat_graph(
         "shopify_tool_names": shopify_names,
         "model_round": 0,
         "tools_invoked": [],
+        "tool_result_cache": {},
         "escalation_occurred": False,
         "fallback_used": False,
         "usage_input_tokens": 0,

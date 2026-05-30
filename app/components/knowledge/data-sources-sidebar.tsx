@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { IsoGridPanelBackground } from "@/components/marketing/iso-grid-panel-background";
 import { useKnowledgeDataSources } from "@/components/knowledge/knowledge-data-sources-context";
 import {
   IconArrowUp,
@@ -12,6 +13,7 @@ import {
   IconRefresh,
 } from "@/components/knowledge/knowledge-icons";
 import { useClientMounted } from "@/lib/use-client-mounted";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
 export type KnowledgeWebsiteUsage = {
@@ -110,14 +112,14 @@ export function DataSourcesSidebar({
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              className="border-ds-outline text-ds-on-surface cursor-pointer rounded-ds-md border bg-white px-3 py-1.5 text-sm font-semibold shadow-sm transition-colors hover:bg-ds-sidebar"
+              className={appButtonClassName("default", { size: "sm", className: "cursor-pointer" })}
             >
               Retrain
             </button>
             {showUpgrade ? (
               <Link
                 href="/pricing"
-                className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover inline-flex cursor-pointer rounded-ds-md px-3 py-1.5 text-sm font-semibold transition-colors"
+                className={appButtonClassName("default", { size: "sm", className: "cursor-pointer" })}
               >
                 Upgrade
               </Link>
@@ -139,10 +141,12 @@ export function DataSourcesSidebar({
   return (
     <aside
       className={cn(
-        "border-ds-outline bg-ds-sidebar sticky top-0 h-[calc(100vh-3.5rem)] w-[clamp(16rem,30vw,31.25rem)] min-w-[16rem] shrink-0 overflow-y-auto border-l p-6 md:p-8",
+        "border-ds-outline relative sticky top-0 h-[calc(100vh-3.5rem)] w-[clamp(16rem,30vw,31.25rem)] min-w-[16rem] shrink-0 overflow-y-auto overflow-x-hidden border-l p-6 md:p-8",
         className
       )}
     >
+      <IsoGridPanelBackground id="knowledge-data-sources-grid" />
+      <div className="relative z-10">
       <h2 className="ds-app-section-title mb-6 text-base">Data sources</h2>
       <div className="space-y-2">
         <div className="border-ds-outline divide-ds-outline/60 rounded-ds-md border bg-ds-surface shadow-sm">
@@ -235,6 +239,7 @@ export function DataSourcesSidebar({
             ) : null}
           </div>
         ) : null}
+      </div>
       </div>
     </aside>
   );

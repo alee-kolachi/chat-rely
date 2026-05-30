@@ -10,29 +10,30 @@
    `text-ds-danger`, etc.
    Prefer those over raw Tailwind palette names (`bg-zinc-50`, `text-gray-700`).
 
-   Composite patterns (optional): `.ds-btn-primary`, `.ds-btn-secondary`,
-   `.ds-link` in `globals.css` utilities — all read from the variables below.
+   Composite patterns (optional): `.ds-btn`, `.ds-btn-default`, `.ds-btn-primary`,
+   `.ds-btn-segment`, `.ds-link` — buttons in `styles/buttons.css`, `.ds-link` in `globals.css`.
+   Prefer `appButtonClassName()` from `lib/button-styles.ts` or `<AppButton>` /
+   `<AppButtonLink>` instead of one-off button classes.
    ============================================================================= */
 :root {
    /* -------------------------------------------------------------------------
      1) Brand / interactive (buttons, key CTAs, focus, links)
      ------------------------------------------------------------------------- */
-   --ds-primary: #831c91;
-   /* Purple + black brand: hover/active fills and link hovers use black, not dark purple */
-   --ds-primary-hover: #000000;
-   --ds-primary-active: #171717;
+   --ds-primary: #8a05ff;
+   --ds-primary-hover: #7304db;
+   --ds-primary-active: #6203bd;
    --ds-on-primary: #ffffff;
-   --ds-interactive: #831c91;
-   --ds-interactive-hover: #000000;
-   --ds-ring: #831c91;
+   --ds-interactive: #000000;
+   --ds-interactive-hover: #8a05ff;
+   --ds-ring: #8a05ff;
    --ds-ring-offset: #ffffff;
 
    /* -------------------------------------------------------------------------
      2) Secondary accents (non-primary emphasis — integrations, badges)
      ------------------------------------------------------------------------- */
    --ds-secondary: #000000;
-   --ds-tertiary: #8b5cf6;
-   --ds-accent-pink: #ec4899;
+   --ds-tertiary: #c896ff;
+   --ds-accent-pink: #d4a8ff;
 
    /* -------------------------------------------------------------------------
      3) Surfaces & chrome (page, panels, sidebar, subtle fills)
@@ -40,21 +41,21 @@
    --ds-neutral: #ffffff;
    --ds-surface: #ffffff;
    --ds-elevated: #ffffff;
-   --ds-sidebar: #f7f7f7;
-   --ds-muted: #f7f4f8;
+   --ds-sidebar: #ffffff;
+   --ds-muted: #f5f5f5;
 
    /* -------------------------------------------------------------------------
      4) Text hierarchy
      ------------------------------------------------------------------------- */
-   --ds-on-surface: #18181b;
-   --ds-on-surface-variant: #52525b;
-   --ds-text: #18181b;
-   --ds-text-muted: #71717a;
+   --ds-on-surface: #000000;
+   --ds-on-surface-variant: #4a4a4a;
+   --ds-text: #000000;
+   --ds-text-muted: #6b6b6b;
 
    /* -------------------------------------------------------------------------
      5) Borders & dividers
      ------------------------------------------------------------------------- */
-   --ds-outline: #e4e4e7;
+   --ds-outline: #e5e5e5;
 
    /* Elevations — classes `.shadow-ds-sm` … `.shadow-ds-xl` in globals.css */
    --ds-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
@@ -77,6 +78,23 @@
    --ds-radius-md: 0.5rem;
    --ds-radius-lg: 0.75rem;
    --ds-radius-xl: 1rem;
+
+   /* -------------------------------------------------------------------------
+     6b) Buttons (`.ds-btn*` utilities in globals.css)
+     ------------------------------------------------------------------------- */
+   --ds-btn-radius: var(--ds-radius-md);
+   --ds-btn-font-size: 0.875rem;
+   --ds-btn-font-weight: 600;
+   --ds-btn-padding-y: 0.625rem;
+   --ds-btn-padding-x: 1rem;
+   --ds-btn-border: #d1d5db;
+   --ds-btn-border-hover: #a3a3a3;
+   --ds-btn-bg: var(--ds-surface);
+   --ds-btn-bg-hover: var(--ds-muted);
+   --ds-btn-color: var(--ds-on-surface);
+   --ds-btn-sm-font-size: 0.8125rem;
+   --ds-btn-sm-padding-y: 0.375rem;
+   --ds-btn-sm-padding-x: 0.75rem;
 
    /* -------------------------------------------------------------------------
      7) Typography — Geist Sans (UI + headings), Geist Mono (code)

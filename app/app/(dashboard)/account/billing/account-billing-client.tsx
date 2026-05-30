@@ -8,6 +8,7 @@ import { useMeContext } from "@/components/layout/me-context-provider";
 import { getAppSiteOrigin } from "@/lib/app-site-origin";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { formatLocaleDate } from "@/lib/format-locale-datetime";
+import { appButtonClassName } from "@/lib/button-styles";
 import { useClientMounted } from "@/lib/use-client-mounted";
 
 export function AccountBillingClient() {
@@ -140,14 +141,14 @@ export function AccountBillingClient() {
                   type="button"
                   disabled={portalBusy}
                   onClick={() => void openStripePortal()}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-lg px-6 py-2.5 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
+                  className={appButtonClassName()}
                 >
                   {portalBusy ? "Opening…" : "Manage billing in Stripe"}
                 </button>
                 <button
                   type="button"
                   onClick={() => void refresh()}
-                  className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar rounded-ds-lg border bg-white px-4 py-2.5 text-sm font-semibold transition-colors"
+                  className={appButtonClassName()}
                 >
                   Refresh status
                 </button>

@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { backendFetch } from "@/lib/backend-api";
+import { invalidateAgentIntegrationsBootstrapCache } from "@/components/integrations/use-agent-integrations-bootstrap";
 
 export type ShopifyConnectionApi = {
   connected: boolean;
@@ -12,6 +14,7 @@ export type ShopifyConnectionApi = {
 };
 
 export function useShopifyConnection(agentId: string | undefined) {
+  const searchParams = useSearchParams();
   const [data, setData] = useState<ShopifyConnectionApi | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,8 +40,15 @@ export function useShopifyConnection(agentId: string | undefined) {
   }, [agentId]);
 
   useEffect(() => {
-    void refresh();
+    queueMicrotask(() => void refresh());
   }, [refresh]);
+
+  useEffect(() => {
+    if (!agentId) return;
+    if (searchParams.get("shopify") !== "connected") return;
+    invalidateAgentIntegrationsBootstrapCache(agentId);
+    queueMicrotask(() => void refresh());
+  }, [agentId, searchParams, refresh]);
 
   const disconnect = useCallback(async () => {
     if (!agentId) return;
@@ -46,6 +56,7 @@ export function useShopifyConnection(agentId: string | undefined) {
       `/api/v1/integrations/shopify?agent_id=${encodeURIComponent(agentId)}`,
       { method: "DELETE" }
     );
+    invalidateAgentIntegrationsBootstrapCache(agentId);
     await refresh();
   }, [agentId, refresh]);
 

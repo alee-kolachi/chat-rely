@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ApiActionCatalogEntry } from "@/components/actions/action-catalog-types";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { appButtonClassName } from "@/lib/button-styles";
 
 const AVAILABILITY = {
   manualOnly: "manual_only",
@@ -336,7 +337,7 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
         type="button"
         onClick={() => void save()}
         disabled={saving}
-        className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover mt-6 rounded-ds-md px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-45"
+        className={appButtonClassName("default", { className: "mt-6" })}
       >
         {saving ? "Saving…" : "Save"}
       </button>

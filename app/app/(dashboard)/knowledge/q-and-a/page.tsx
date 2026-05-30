@@ -27,6 +27,7 @@ import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { formatLocaleDateTime } from "@/lib/format-locale-datetime";
+import { appButtonClassName } from "@/lib/button-styles";
 import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
@@ -337,7 +338,7 @@ export default function KnowledgeQAndAPage() {
                 <button
                   type="button"
                   disabled={saving || !question.trim() || !answer.trim()}
-                  className="bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors enabled:active:scale-[0.98] disabled:opacity-50"
+                  className={appButtonClassName()}
                   onClick={() => void saveQa()}
                 >
                   {saving ? "Saving…" : editingId ? "Update Q&A" : "Save Q&A"}

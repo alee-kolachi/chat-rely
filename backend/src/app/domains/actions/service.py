@@ -18,6 +18,7 @@ from app.domains.actions.catalog_definitions import (
     StaticActionDefinition,
     all_static_definitions,
     get_static_definition,
+    shopify_runtime_priority,
 )
 from app.domains.actions.schemas import (
     ActionCatalogEntry,
@@ -375,6 +376,18 @@ async def patch_agent_action(
     )
 
 
+def cap_enabled_shopify_actions_for_runtime(
+    enabled: list[tuple[str, dict[str, Any], dict[str, Any]]],
+    *,
+    max_n: int,
+) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    """Apply plan cap, keeping highest-priority Shopify tools (catalog order, not alphabetical)."""
+    if max_n <= 0:
+        return []
+    ordered = sorted(enabled, key=lambda t: (shopify_runtime_priority(t[0]), t[0]))
+    return ordered[:max_n]
+
+
 async def list_enabled_shopify_actions_for_runtime(
     db: AsyncSession,
     *,
@@ -448,9 +461,16 @@ async def list_enabled_shopify_actions_for_runtime(
             )
         )
 
-    out.sort(key=lambda t: t[0])
+    capped = cap_enabled_shopify_actions_for_runtime(out, max_n=max_n)
     if len(out) > max_n:
-        out = out[:max_n]
+        log.warning(
+            "runtime.shopify_actions_truncated",
+            agent_id=str(agent_id),
+            max_enabled=max_n,
+            kept=[t[0] for t in capped],
+            dropped=[t[0] for t in out if t[0] not in {k for k, _, _ in capped}],
+        )
+    out = capped
 
     if ttl > 0:
         async with _actions_runtime_lock:

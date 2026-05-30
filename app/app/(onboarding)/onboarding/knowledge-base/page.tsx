@@ -14,6 +14,7 @@ import {
   stripUrlScheme,
   type WebsiteScheme,
 } from "@/lib/website-url";
+import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import {
@@ -421,7 +422,10 @@ function KnowledgeBaseOnboardingPageInner() {
                           type="button"
                           onClick={() => void handleAddWebsite()}
                           disabled={!website.trim() || crawlPhase === "submitting" || crawlPhase === "active"}
-                          className="bg-ds-primary text-ds-on-primary hover:bg-zinc-800 touch-manipulation min-h-11 rounded-ds-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-45 [-webkit-tap-highlight-color:transparent]"
+                          className={appButtonClassName("default", {
+                            className:
+                              "touch-manipulation min-h-11 [-webkit-tap-highlight-color:transparent]",
+                          })}
                         >
                           {addButtonLabel}
                         </button>
