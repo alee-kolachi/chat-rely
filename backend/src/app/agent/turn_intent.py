@@ -31,7 +31,8 @@ Rules:
 - Catalog/product questions must NOT set needs_order_lookup unless they also ask about an order.
 - needs_order_lookup and needs_product_search may both be true when the message asks about multiple topics.
 - Prefer false when unsure (bias false for tool flags).
-- requests_human is false for normal product or policy questions."""
+- requests_human is false for normal product or policy questions.
+- Greetings and small talk (hi, hello, thanks, bye, casual check-ins) stay is_greeting_or_small_talk=true even when the thread discussed products or orders earlier. Do not set needs_product_search or other tool flags for those messages alone."""
 
 class TurnIntentResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -114,6 +115,17 @@ def merge_routing_billing(
     return merged
 
 
+_CHITCHAT_EXCLUDED_TOOLS = frozenset(
+    {
+        "shopify_product_search",
+        "shopify_order_lookup",
+        "shopify_inventory_check",
+        "shopify_customer_context",
+        "search_knowledge_base",
+    }
+)
+
+
 def shopify_tools_to_exclude(
     intent: TurnIntentResult,
     *,
@@ -122,6 +134,8 @@ def shopify_tools_to_exclude(
 ) -> set[str]:
     """Limit bound tools when intent is clear; empty set = no filtering."""
     exclude: set[str] = set()
+    if intent.is_greeting_or_small_talk and not intent.bare_order_number:
+        return set(_CHITCHAT_EXCLUDED_TOOLS)
     if (
         has_order_lookup_tool
         and has_product_search_tool
@@ -146,8 +160,12 @@ def apply_turn_intent_grounding(
     """Optional per-turn hint for the main model (templates only, not phrase matching)."""
     from app.domains.runtime.prompts.user import (
         build_catalog_only_shopify_user_prompt,
+        build_chitchat_user_prompt,
         build_multi_intent_shopify_user_prompt,
     )
+
+    if intent.is_greeting_or_small_talk and not intent.bare_order_number:
+        return build_chitchat_user_prompt(user_message)
 
     if intent.bare_order_number and has_order_lookup_tool:
         ref = intent.bare_order_number.strip()

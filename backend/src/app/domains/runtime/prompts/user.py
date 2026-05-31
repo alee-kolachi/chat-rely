@@ -37,6 +37,16 @@ def _shopify_thread_follow_up_block(
     return "".join(parts)
 
 
+def build_chitchat_user_prompt(user_message: str) -> str:
+    return (
+        "The customer's latest message is greeting or small talk only — no new product, order, "
+        "or policy question.\n"
+        "Reply briefly and naturally. Do **not** call any tools, search the catalog, or resurface "
+        "product cards from earlier turns.\n\n"
+        f"Customer message:\n{user_message}"
+    )
+
+
 def build_shopify_turn_user_prompt(
     user_message: str,
     *,

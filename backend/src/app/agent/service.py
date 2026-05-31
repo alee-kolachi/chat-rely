@@ -386,6 +386,49 @@ def _schedule_stream_turn_persist(
     _turn_persist_tasks[key] = task
 
 
+async def _finalize_stream_turn_persist(
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    conversation_id: UUID,
+    user_message: str,
+    model: str,
+    answer: str,
+    usage_in: int,
+    usage_out: int,
+    tools_invoked: list[str],
+    rag_billing: dict[str, Any],
+    classifier_billing: dict[str, Any] | None,
+    products: list[dict[str, Any]] | None = None,
+    product_detail: dict[str, Any] | None = None,
+) -> UUID | None:
+    """Persist the turn before emitting ``done`` so clients receive ``assistant_message_id``."""
+    await _await_prior_turn_persist(user_id, conversation_id)
+    try:
+        return await _persist_stream_turn(
+            user_id=user_id,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            model=model,
+            answer=answer,
+            usage_in=usage_in,
+            usage_out=usage_out,
+            tools_invoked=tools_invoked,
+            rag_billing=rag_billing,
+            classifier_billing=classifier_billing,
+            products=products,
+            product_detail=product_detail,
+        )
+    except Exception:
+        log.exception(
+            "chat.persist_turn_failed",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+        )
+        return None
+
+
 def _defer_post_stream_metadata(
     *,
     user_id: UUID,
@@ -460,21 +503,7 @@ async def _stream_product_action_turn(
     if conn is None:
         answer = "Product browsing is not available for this store right now."
         yield format_sse("token", {"text": answer})
-        yield format_sse(
-            "done",
-            {
-                "conversation_id": str(conversation_id),
-                "assistant_message_id": None,
-                "response": answer,
-                "model": model,
-                "fallback_used": False,
-                "tools_available_count": 0,
-                "tools_invoked": [],
-                "retrieval_count": 0,
-                "escalation": escalation_info,
-            },
-        )
-        _schedule_stream_turn_persist(
+        assistant_id = await _finalize_stream_turn_persist(
             user_id=user_id,
             agent_id=agent_id,
             conversation_id=conversation_id,
@@ -486,6 +515,20 @@ async def _stream_product_action_turn(
             tools_invoked=[],
             rag_billing={},
             classifier_billing=None,
+        )
+        yield format_sse(
+            "done",
+            {
+                "conversation_id": str(conversation_id),
+                "assistant_message_id": str(assistant_id) if assistant_id else None,
+                "response": answer,
+                "model": model,
+                "fallback_used": False,
+                "tools_available_count": 0,
+                "tools_invoked": [],
+                "retrieval_count": 0,
+                "escalation": escalation_info,
+            },
         )
         return
 
@@ -538,24 +581,7 @@ async def _stream_product_action_turn(
             answer = "I couldn't find similar products in this store's catalog."
 
     yield format_sse("token", {"text": answer})
-    done_data: dict[str, Any] = {
-        "conversation_id": str(conversation_id),
-        "assistant_message_id": None,
-        "response": answer,
-        "model": model,
-        "fallback_used": False,
-        "tools_available_count": 1,
-        "tools_invoked": tools_invoked,
-        "retrieval_count": 0,
-        "escalation": escalation_info,
-    }
-    if products:
-        done_data["products"] = products
-    if product_detail:
-        done_data["product_detail"] = product_detail
-    yield format_sse("done", done_data)
-
-    _schedule_stream_turn_persist(
+    assistant_id = await _finalize_stream_turn_persist(
         user_id=user_id,
         agent_id=agent_id,
         conversation_id=conversation_id,
@@ -570,6 +596,22 @@ async def _stream_product_action_turn(
         products=products,
         product_detail=product_detail,
     )
+    done_data: dict[str, Any] = {
+        "conversation_id": str(conversation_id),
+        "assistant_message_id": str(assistant_id) if assistant_id else None,
+        "response": answer,
+        "model": model,
+        "fallback_used": False,
+        "tools_available_count": 1,
+        "tools_invoked": tools_invoked,
+        "retrieval_count": 0,
+        "escalation": escalation_info,
+    }
+    if products:
+        done_data["products"] = products
+    if product_detail:
+        done_data["product_detail"] = product_detail
+    yield format_sse("done", done_data)
 
 
 async def stream_chat(
@@ -830,6 +872,15 @@ async def stream_chat(
         tool_list = [
             t for t in tool_list if str(getattr(t, "name", "") or "") not in exclude_tools
         ]
+    has_shopify_tools = any(
+        is_shopify_tool_name(str(getattr(t, "name", "") or "")) for t in tool_list
+    )
+    has_order_lookup_tool = any(
+        str(getattr(t, "name", "") or "") == "shopify_order_lookup" for t in tool_list
+    )
+    has_product_search_tool = any(
+        str(getattr(t, "name", "") or "") == "shopify_product_search" for t in tool_list
+    )
     if rag_task is not None:
         chunks, rag_billing, kb_skip_reason = parallel_results[2]
         retrieve_wall_ms = (time.perf_counter() - t_parallel_prep) * 1000.0
@@ -877,7 +928,12 @@ async def stream_chat(
 
     tools_bound_count = len(tool_list) + (1 if human_on else 0)
 
-    if has_shopify_tools:
+    if chitchat_turn and not turn_intent.bare_order_number:
+        system_prompt = _build_open_chat_system_prompt(
+            system_prompt,
+            human_escalation_enabled=escalation_enabled,
+        )
+    elif has_shopify_tools:
         system_prompt = build_agent_system_prompt_for_tools(
             system_prompt,
             has_knowledge_tool=has_knowledge_tool,
@@ -918,7 +974,12 @@ async def stream_chat(
             thread_has_prior_turns=True,
             thread_had_order_lookup=thread_had_order_lookup,
         )
-    if has_shopify_tools or turn_intent.needs_order_lookup or turn_intent.needs_product_search:
+    if (
+        has_shopify_tools
+        or turn_intent.needs_order_lookup
+        or turn_intent.needs_product_search
+        or (chitchat_turn and not turn_intent.bare_order_number)
+    ):
         grounded_user_content = apply_turn_intent_grounding(
             base_content=grounded_user_content,
             user_message=payload.message,
@@ -1092,11 +1153,27 @@ async def stream_chat(
         else str(conv.get("status") or "open")
     )
 
+    assistant_id = await _finalize_stream_turn_persist(
+        user_id=user_id,
+        agent_id=payload.agent_id,
+        conversation_id=conversation_id,
+        user_message=payload.message,
+        model=model,
+        answer=answer,
+        usage_in=usage_in,
+        usage_out=usage_out,
+        tools_invoked=tools_invoked,
+        rag_billing=rag_billing,
+        classifier_billing=classifier_billing,
+        products=stream_products or None,
+        product_detail=stream_product_detail,
+    )
+
     yield format_sse(
         "done",
         {
             "conversation_id": str(conversation_id),
-            "assistant_message_id": None,
+            "assistant_message_id": str(assistant_id) if assistant_id else None,
             "response": answer,
             "model": model,
             "fallback_used": bool(done_payload.get("fallback_used")),
@@ -1113,22 +1190,6 @@ async def stream_chat(
             **({"products": stream_products} if stream_products else {}),
             **({"product_detail": stream_product_detail} if stream_product_detail else {}),
         },
-    )
-
-    _schedule_stream_turn_persist(
-        user_id=user_id,
-        agent_id=payload.agent_id,
-        conversation_id=conversation_id,
-        user_message=payload.message,
-        model=model,
-        answer=answer,
-        usage_in=usage_in,
-        usage_out=usage_out,
-        tools_invoked=tools_invoked,
-        rag_billing=rag_billing,
-        classifier_billing=classifier_billing,
-        products=stream_products or None,
-        product_detail=stream_product_detail,
     )
 
     total_ms = int((time.perf_counter() - t_turn) * 1000.0)
