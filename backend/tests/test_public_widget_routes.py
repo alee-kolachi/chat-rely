@@ -52,7 +52,7 @@ def test_public_widget_config_ok(client: TestClient, monkeypatch: pytest.MonkeyP
     assert isinstance(body.get("attachments_ui_enabled"), bool)
     assert body.get("hide_powered_by_chatrely") is False
     assert body.get("message_feedback_enabled") is False
-    assert body.get("greeting_message") == "Hi! I'm Store Bot. How can I help?"
+    assert body.get("greeting_message") == "Hi there! I'm Store Bot. What can I help you with today?"
 
 
 def test_public_widget_config_custom_greeting(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

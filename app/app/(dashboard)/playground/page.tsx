@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   ChevronRight,
   History,
@@ -10,10 +11,9 @@ import {
   Send,
   Settings2,
   ShoppingBag,
-  ThumbsDown,
-  ThumbsUp,
   UserRound,
 } from "lucide-react";
+import { MessageFeedbackButtons } from "@/components/chat/message-feedback-buttons";
 import {
   StreamingAssistantMessage,
   type AssistantStreamPhase,
@@ -38,7 +38,7 @@ import {
   PlaygroundShopifyActionsSkeleton,
 } from "@/components/playground/playground-page-skeleton";
 import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
-import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { BackendApiError, backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import { isRenderableTranscriptMessage, parseMessageProductMetadata } from "@/lib/conversation-transcript";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
 import { effectiveWelcomeMessage } from "@/lib/agent-settings";
@@ -61,6 +61,11 @@ import { EscalatedChatNotice } from "@/components/chat/escalated-chat-notice";
 import { VisitorContactForm } from "@/components/chat/visitor-contact-form";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+import { WidgetWelcomeMessageRow } from "@/components/chat/widget-chat-shell";
+import {
+  PlaygroundComposer,
+  resizePlaygroundComposer,
+} from "@/components/chat/playground-composer";
 import {
   isAiChatDisabledStatus,
   readConversationStatus,
@@ -89,26 +94,6 @@ const PLAYGROUND_AGENT_TYPE_HINT =
 
 /** Uses global `.ds-app-field` (design-system tokens + focus ring). */
 const fieldControlClass = cn("ds-app-field");
-
-const PLAYGROUND_COMPOSER_MAX_LINES = 3;
-
-/** Grow/shrink playground composer between 1 and 3 lines, then scroll. */
-function resizePlaygroundComposer(textarea: HTMLTextAreaElement) {
-  const style = getComputedStyle(textarea);
-  const lineHeight = Number.parseFloat(style.lineHeight) || 22;
-  const padY = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-  const borderY = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
-  const oneLineHeight = lineHeight + padY + borderY;
-  const maxHeight = lineHeight * PLAYGROUND_COMPOSER_MAX_LINES + padY + borderY;
-
-  textarea.style.height = "0px";
-  const contentHeight = textarea.scrollHeight;
-  const nextHeight = Math.min(Math.max(contentHeight, oneLineHeight), maxHeight);
-  textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
-}
-
-const playgroundComposerClass = cn(fieldControlClass, "playground-composer-input min-w-0 flex-1");
 
 const playgroundSettingsCardClass =
   "border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm sm:p-6";
@@ -178,8 +163,26 @@ function languagePreviewLabel(raw: string | null): string | null {
   return labels[key] ?? raw;
 }
 
-/** Keep playground transcript in sync with Conversations (operator replies, same thread). */
-const PLAYGROUND_THREAD_POLL_MS = 4000;
+/** Fallback when operator-thread SSE fails (escalated / operator-engaged threads only). */
+const PLAYGROUND_OPERATOR_SYNC_FALLBACK_MS = 30_000;
+
+type PlaygroundConversationDetailPayload = {
+  conversation: { status?: string; metadata?: Record<string, unknown> };
+  messages: Array<{
+    id?: string;
+    role: string;
+    content: string;
+    created_at?: string;
+    tool_call_payload?: unknown;
+  }>;
+};
+
+function playgroundNeedsOperatorThreadSync(
+  status: string,
+  metadata: Record<string, unknown> | undefined
+): boolean {
+  return isAiChatDisabledStatus(status) || metadata?.operator_engaged === true;
+}
 
 function newPlaygroundVisitorId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -201,6 +204,26 @@ function shouldApplyServerPlaygroundTranscript(
   server: PlaygroundPreviewMessage[]
 ): boolean {
   return server.length >= local.length;
+}
+
+/** Keep optimistic thumbs votes when the thread poll refreshes from the API. */
+function mergePlaygroundTranscriptFromServer(
+  local: PlaygroundPreviewMessage[],
+  server: PlaygroundPreviewMessage[]
+): PlaygroundPreviewMessage[] {
+  const voteByMessageId = new Map<string, 1 | -1>();
+  for (const m of local) {
+    if (m.from === "assistant" && m.assistantMessageId && (m.feedbackVote === 1 || m.feedbackVote === -1)) {
+      voteByMessageId.set(m.assistantMessageId, m.feedbackVote);
+    }
+  }
+  if (voteByMessageId.size === 0) return server;
+  return server.map((m) => {
+    if (m.from !== "assistant" || !m.assistantMessageId) return m;
+    const vote = voteByMessageId.get(m.assistantMessageId);
+    if (vote === undefined) return m;
+    return { ...m, feedbackVote: vote };
+  });
 }
 
 function readPlaygroundChatFromStorage(agentId: string): {
@@ -493,52 +516,42 @@ function PlaygroundPreviewConversation({
     const aid = agentId;
     const cid = conversationId;
     let cancelled = false;
-    void backendFetch(`/api/v1/conversations/${encodeURIComponent(cid)}`).catch((e) => {
-      if (cancelled || !isStalePlaygroundConversationError(e)) return;
-      setConversationId(null);
-      writePlaygroundChatToStorage(aid, previewMessages, null, visitorId);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId, conversationId, previewMessages, visitorId]);
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    const ac = new AbortController();
+    const liveThreadSyncRef = { current: false };
 
-  useEffect(() => {
-    if (!agentId || !conversationId) return;
-    const aid = agentId;
-    const cid = conversationId;
-    let cancelled = false;
+    function applyDetail(data: PlaygroundConversationDetailPayload) {
+      if (cancelled || blockThreadSyncRef.current) return;
+      const nextStatus = data.conversation.status ?? "open";
+      liveThreadSyncRef.current = playgroundNeedsOperatorThreadSync(
+        nextStatus,
+        data.conversation.metadata
+      );
+      const mapped: PlaygroundPreviewMessage[] = [];
+      for (const m of data.messages) {
+        const row = mapApiMessageToPlaygroundPreview(m);
+        if (row) mapped.push(row);
+      }
+      setConversationStatus(nextStatus);
+      setPreviewMessages((current) => {
+        if (!shouldApplyServerPlaygroundTranscript(current, mapped)) {
+          return current;
+        }
+        const merged = mergePlaygroundTranscriptFromServer(current, mapped);
+        cacheThread(cid, { visitorId, messages: merged, status: nextStatus });
+        return merged;
+      });
+    }
+
     async function syncFromServer() {
       if (blockThreadSyncRef.current) return;
       try {
-        const data = await backendFetch<{
-          conversation: { status?: string };
-          messages: Array<{
-            id?: string;
-            role: string;
-            content: string;
-            created_at?: string;
-            tool_call_payload?: unknown;
-          }>;
-        }>(`/api/v1/conversations/${encodeURIComponent(cid)}`);
+        const data = await backendFetch<PlaygroundConversationDetailPayload>(
+          `/api/v1/conversations/${encodeURIComponent(cid)}`
+        );
         if (cancelled) return;
-        // A poll that started before this render can resolve after the user sends a message.
-        // Applying it would wipe optimistic rows until the next poll (messages "vanish").
         if (blockThreadSyncRef.current) return;
-        const nextStatus = data.conversation.status ?? "open";
-        const mapped: PlaygroundPreviewMessage[] = [];
-        for (const m of data.messages) {
-          const row = mapApiMessageToPlaygroundPreview(m);
-          if (row) mapped.push(row);
-        }
-        setConversationStatus(nextStatus);
-        setPreviewMessages((current) => {
-          if (!shouldApplyServerPlaygroundTranscript(current, mapped)) {
-            return current;
-          }
-          cacheThread(cid, { visitorId, messages: mapped, status: nextStatus });
-          return mapped;
-        });
+        applyDetail(data);
       } catch (e) {
         if (isStalePlaygroundConversationError(e)) {
           setConversationId(null);
@@ -546,21 +559,40 @@ function PlaygroundPreviewConversation({
         }
       }
     }
-    void syncFromServer();
-    const interval = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void syncFromServer();
-    }, PLAYGROUND_THREAD_POLL_MS);
+
+    void (async () => {
+      await syncFromServer();
+      if (cancelled) return;
+      if (!liveThreadSyncRef.current && !isAiChatDisabledStatus(conversationStatus)) return;
+      try {
+        await consumeBackendSseJson<PlaygroundConversationDetailPayload>(
+          `/api/v1/conversations/${encodeURIComponent(cid)}/stream`,
+          applyDetail,
+          { signal: ac.signal }
+        );
+      } catch {
+        if (ac.signal.aborted || cancelled) return;
+        fallbackInterval = window.setInterval(() => {
+          if (document.visibilityState !== "visible") return;
+          void syncFromServer();
+        }, PLAYGROUND_OPERATOR_SYNC_FALLBACK_MS);
+      }
+    })();
+
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void syncFromServer();
+      if (document.visibilityState !== "visible") return;
+      if (!liveThreadSyncRef.current && !isAiChatDisabledStatus(conversationStatus)) return;
+      void syncFromServer();
     };
     document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      ac.abort();
+      if (fallbackInterval) window.clearInterval(fallbackInterval);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [agentId, conversationId, visitorId, cacheThread]);
+  }, [agentId, conversationId, visitorId, cacheThread, conversationStatus]);
 
   useEffect(() => {
     if (!historyOpen || !agentId) return;
@@ -911,15 +943,17 @@ function PlaygroundPreviewConversation({
     (messageId: string, clicked: 1 | -1) => {
       if (!agentId) return;
       let found = false;
-      setPreviewMessages((prev) => {
-        const i = prev.findIndex((m) => m.assistantMessageId === messageId);
-        if (i === -1) return prev;
-        found = true;
-        const cur = prev[i].feedbackVote ?? null;
-        const remove = cur === clicked;
-        const nextVote = remove ? null : clicked;
-        feedbackDesiredRef.current.set(messageId, nextVote);
-        return prev.map((m, j) => (j === i ? { ...m, feedbackVote: nextVote } : m));
+      flushSync(() => {
+        setPreviewMessages((prev) => {
+          const i = prev.findIndex((m) => m.assistantMessageId === messageId);
+          if (i === -1) return prev;
+          found = true;
+          const cur = prev[i].feedbackVote ?? null;
+          const remove = cur === clicked;
+          const nextVote = remove ? null : clicked;
+          feedbackDesiredRef.current.set(messageId, nextVote);
+          return prev.map((m, j) => (j === i ? { ...m, feedbackVote: nextVote } : m));
+        });
       });
       if (!found) return;
 
@@ -1160,19 +1194,16 @@ function PlaygroundPreviewConversation({
               <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
             ) : null}
             {!historyThreadLoading && previewMessages.length === 0 ? (
-              <div className={cn(onboardingType.body, "space-y-3 text-center")}>
-                <p
-                  className="rounded-2xl rounded-tl-sm border px-4 py-3 text-sm leading-relaxed shadow-sm"
-                  style={{
-                    backgroundColor: appearanceResolved.colors.assistantBubble,
-                    borderColor: appearanceResolved.colors.assistantBubbleBorder,
-                    color: appearanceResolved.colors.textPrimary,
-                  }}
-                >
-                  {emptyAssistantLine}
-                </p>
+              <div className="space-y-3">
+                <WidgetWelcomeMessageRow
+                  message={emptyAssistantLine}
+                  resolved={appearanceResolved}
+                  brandColorHex={brandColorHex}
+                  websiteLogoUrl={websiteLogoUrl}
+                  websiteLogoPending={websiteLogoPending}
+                />
                 {toneDescription || languageLabel ? (
-                  <p className={cn(onboardingType.hint, "ds-app-body-muted")}>
+                  <p className={cn(onboardingType.hint, "ds-app-body-muted pl-11 text-left text-xs")}>
                     {toneDescription ? `Tone guidance: ${toneDescription}` : null}
                     {toneDescription && languageLabel ? " \u00b7 " : null}
                     {languageLabel ? `Reply language: ${languageLabel}` : null}
@@ -1286,28 +1317,13 @@ function PlaygroundPreviewConversation({
                         msg.assistantMessageId &&
                         phase === "done" &&
                         msg.text.trim() ? (
-                          <div className="flex items-center gap-0.5 pl-0.5">
-                            {(msg.feedbackVote ?? null) !== -1 ? (
-                              <button
-                                type="button"
-                                className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-sidebar/80 inline-flex size-7 items-center justify-center rounded-md transition-colors"
-                                aria-label="Good response"
-                                onClick={() => submitPlaygroundFeedback(msg.assistantMessageId!, 1)}
-                              >
-                                <ThumbsUp className="size-3" strokeWidth={2} />
-                              </button>
-                            ) : null}
-                            {(msg.feedbackVote ?? null) !== 1 ? (
-                              <button
-                                type="button"
-                                className="text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-sidebar/80 inline-flex size-7 items-center justify-center rounded-md transition-colors"
-                                aria-label="Bad response"
-                                onClick={() => submitPlaygroundFeedback(msg.assistantMessageId!, -1)}
-                              >
-                                <ThumbsDown className="size-3" strokeWidth={2} />
-                              </button>
-                            ) : null}
-                          </div>
+                          <MessageFeedbackButtons
+                            vote={msg.feedbackVote ?? null}
+                            accentColor={brandColorHex}
+                            onVote={(clicked) =>
+                              submitPlaygroundFeedback(msg.assistantMessageId!, clicked)
+                            }
+                          />
                         ) : null}
                       </div>
                     </div>
@@ -1341,10 +1357,7 @@ function PlaygroundPreviewConversation({
 
       <div
         className="shrink-0 px-4 pb-2.5 pt-2 sm:px-5"
-        style={{
-          backgroundColor: appearanceResolved.colors.composerBackground,
-          ["--playground-composer-input-bg" as string]: appearanceResolved.colors.composerBackground,
-        }}
+        style={{ backgroundColor: appearanceResolved.colors.composerBackground }}
       >
         {historyOpen ? (
           <>
@@ -1363,51 +1376,27 @@ function PlaygroundPreviewConversation({
         ) : (
           <div className="flex flex-col gap-1">
             {aiChatDisabled ? <EscalatedChatNotice /> : null}
-            <div className="flex items-center gap-2 sm:gap-3">
-              <textarea
-                ref={messageInputRef}
-                rows={1}
-                className={playgroundComposerClass}
-                placeholder={
-                  aiChatDisabled
-                    ? "Start a new chat to talk to the AI"
-                    : languageLabel
-                      ? `Test your agent (${languageLabel})…`
-                      : "Test your agent…"
-                }
-                value={messageInput}
-                disabled={aiChatDisabled}
-                onChange={(e) => {
-                  setMessageInput(e.target.value);
-                  resizePlaygroundComposer(e.target);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
-                  e.preventDefault();
-                  const draft = (messageInputRef.current?.value ?? messageInput).trim();
-                  if (!draft || isSending || historyThreadLoading || aiChatDisabled) return;
-                  void handleSendMessage();
-                }}
-              />
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex size-11 shrink-0 items-center justify-center active:scale-[0.98]",
-                  hasBrand && chrome
-                    ? cn(
-                        chrome.fabIconClass,
-                        "cursor-pointer rounded-ds-md transition-colors hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
-                      )
-                    : appButtonClassName("default", { className: "cursor-pointer" })
-                )}
-                style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
-                onClick={() => void handleSendMessage()}
-                disabled={!agentId || isSending || historyThreadLoading || !messageInput.trim() || aiChatDisabled}
-                aria-label="Send"
-              >
-                <IconSend className="size-4.5" />
-              </button>
-            </div>
+            <PlaygroundComposer
+              textareaRef={messageInputRef}
+              value={messageInput}
+              onChange={setMessageInput}
+              onSend={() => void handleSendMessage()}
+              sendDisabled={
+                !agentId || isSending || historyThreadLoading || !messageInput.trim() || aiChatDisabled
+              }
+              disabled={aiChatDisabled}
+              placeholder={
+                aiChatDisabled
+                  ? "Start a new chat to talk to the AI"
+                  : languageLabel
+                    ? `Test your agent (${languageLabel})…`
+                    : "Test your agent…"
+              }
+              brandColorHex={brandColorHex}
+              hasBrand={hasBrand}
+              chrome={chrome}
+              shellStyle={{ backgroundColor: appearanceResolved.colors.composerBackground }}
+            />
             {!hidePoweredByPlan ? (
               <PoweredByChatRely compact className="bg-transparent px-0 py-0" />
             ) : null}

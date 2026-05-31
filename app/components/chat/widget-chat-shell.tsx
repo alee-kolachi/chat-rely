@@ -174,6 +174,50 @@ export function WidgetPreviewAssistantBubble({
   );
 }
 
+/** First assistant message: left-aligned row with avatar, same layout as live chat. */
+export function WidgetWelcomeMessageRow({
+  message,
+  resolved,
+  brandColorHex,
+  websiteLogoUrl,
+  websiteLogoPending = false,
+}: {
+  message: string;
+  resolved: ResolvedWidgetAppearance;
+  brandColorHex?: string | null;
+  websiteLogoUrl?: string | null;
+  websiteLogoPending?: boolean;
+}) {
+  const brand = parseBrandColorHex(brandColorHex) ?? "#831C91";
+  const chrome = brandChromeClasses(resolved.colors.header);
+  const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
+
+  return (
+    <div className="flex justify-start">
+      <div className="flex max-w-[90%] gap-3">
+        <WidgetBrandAvatar
+          logoUrl={websiteLogoUrl ?? null}
+          logoPending={websiteLogoPending}
+          hasBrand={hasBrand}
+          chrome={chrome}
+          brandColorHex={brand}
+          size="bubble"
+        />
+        <div
+          className="rounded-2xl rounded-tl-none border px-4 py-3 text-sm leading-relaxed shadow-sm"
+          style={{
+            backgroundColor: resolved.colors.assistantBubble,
+            borderColor: resolved.colors.assistantBubbleBorder,
+            color: resolved.colors.textPrimary,
+          }}
+        >
+          {message}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WidgetPreviewUserBubble({
   children,
   resolved,

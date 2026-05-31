@@ -17,7 +17,7 @@ import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import type { NotificationsListResponse, UserNotification } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
-/** Fallback polling if SSE is unavailable (Tabrid proxy errors, older browsers). */
+/** Fallback polling only when the SSE stream is down. */
 const POLL_FALLBACK_MS = 60_000;
 const TOAST_MS = 5200;
 
@@ -53,7 +53,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const newestIdOnLastFetchRef = useRef<string | null>(null);
   const initialPollDoneRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasLoadedOnceRef = useRef(false);
+  const sseActiveRef = useRef(false);
 
   const dismissToast = useCallback(() => {
     if (toastTimerRef.current) {
@@ -99,47 +99,68 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [applyNotificationsPayload]);
 
   useEffect(() => {
-    if (hasLoadedOnceRef.current) return;
-    hasLoadedOnceRef.current = true;
-    const timeoutId = window.setTimeout(() => {
-      void refresh();
-    }, 1200);
-    return () => window.clearTimeout(timeoutId);
-  }, [refresh]);
-
-  useEffect(() => {
-    const ac = new AbortController();
+    let cancelled = false;
     let fallbackId: ReturnType<typeof setInterval> | null = null;
+    let ac: AbortController | null = null;
 
-    void (async () => {
+    const stopFallback = () => {
+      if (fallbackId) {
+        window.clearInterval(fallbackId);
+        fallbackId = null;
+      }
+    };
+
+    const startFallback = () => {
+      if (fallbackId || cancelled) return;
+      sseActiveRef.current = false;
+      fallbackId = window.setInterval(() => {
+        if (document.visibilityState !== "visible") return;
+        void refresh();
+      }, POLL_FALLBACK_MS);
+    };
+
+    const connectSse = async () => {
+      stopFallback();
+      ac?.abort();
+      ac = new AbortController();
       try {
         await consumeBackendSseJson<NotificationsListResponse>(
           "/api/v1/notifications/stream?limit=50",
           (data) => {
+            sseActiveRef.current = true;
             applyNotificationsPayload(data);
             setError(null);
             setLoading(false);
           },
           { signal: ac.signal },
         );
-      } catch {
-        if (!ac.signal.aborted) {
-          fallbackId = window.setInterval(() => void refresh(), POLL_FALLBACK_MS);
+        if (!cancelled && !ac.signal.aborted) {
+          void connectSse();
         }
+      } catch {
+        if (ac.signal.aborted || cancelled) return;
+        sseActiveRef.current = false;
+        void refresh();
+        startFallback();
       }
-    })();
+    };
+
+    void connectSse();
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible" || sseActiveRef.current) return;
+      void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      ac.abort();
-      if (fallbackId) window.clearInterval(fallbackId);
+      cancelled = true;
+      ac?.abort();
+      stopFallback();
+      sseActiveRef.current = false;
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [refresh, applyNotificationsPayload]);
-
-  useEffect(() => {
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [refresh]);
 
   const { submit: submitMarkRead } = useGuardedSubmit(async (ids: string[]) => {
     if (!ids.length) return;

@@ -221,15 +221,52 @@ async def submit_visitor_contact_route(
     )
 
 
+async def _conversation_detail_response(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+) -> ConversationDetailResponse:
+    conversation = await get_conversation(db, user_id, conversation_id)
+    messages = await list_messages(db, user_id, conversation_id)
+    return ConversationDetailResponse(conversation=conversation, messages=messages)
+
+
+@router.get("/{conversation_id}/stream")
+async def conversation_detail_stream_route(
+    conversation_id: UUID,
+    user: AuthContext = Depends(get_current_user),
+) -> StreamingResponse:
+    """Long-lived SSE connection: pushes the same payload as GET /{conversation_id} on an interval."""
+
+    user_id = user.user_id
+    cid = conversation_id
+
+    async def event_gen():
+        sf = get_session_factory()
+        while True:
+            try:
+                async with sf() as db:
+                    data = await _conversation_detail_response(
+                        db, user_id=user_id, conversation_id=cid
+                    )
+            except AppError:
+                break
+            yield f"data: {data.model_dump_json()}\n\n"
+            await asyncio.sleep(8)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
 async def get_conversation_route(
     conversation_id: UUID,
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationDetailResponse:
-    conversation = await get_conversation(db, user.user_id, conversation_id)
-    messages = await list_messages(db, user.user_id, conversation_id)
-    return ConversationDetailResponse(conversation=conversation, messages=messages)
+    return await _conversation_detail_response(
+        db, user_id=user.user_id, conversation_id=conversation_id
+    )
 
 
 @router.get("/{conversation_id}/summary", response_model=ConversationSummaryStateResponse)

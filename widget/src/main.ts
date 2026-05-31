@@ -639,7 +639,20 @@ function mountMessageFeedback(
   let acked: 1 | -1 | null | undefined = undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  const runSelectAnim = (btn: HTMLButtonElement): void => {
+    btn.classList.remove("cr-feedback-btn--select-anim");
+    void btn.offsetWidth;
+    btn.classList.add("cr-feedback-btn--select-anim");
+    const onEnd = (): void => {
+      btn.classList.remove("cr-feedback-btn--select-anim");
+      btn.removeEventListener("animationend", onEnd);
+    };
+    btn.addEventListener("animationend", onEnd);
+  };
+
   const syncVisibility = (): void => {
+    up.classList.toggle("cr-feedback-btn--selected-up", current === 1);
+    down.classList.toggle("cr-feedback-btn--selected-down", current === -1);
     if (current === null) {
       up.hidden = false;
       down.hidden = false;
@@ -689,14 +702,17 @@ function mountMessageFeedback(
     }
   };
 
-  const apply = (next: 1 | -1 | null): void => {
+  const apply = (next: 1 | -1 | null, btn: HTMLButtonElement): void => {
     current = next;
     syncVisibility();
+    if (next === 1 || next === -1) {
+      runSelectAnim(btn);
+    }
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => void flush(), 450);
   };
-  up.addEventListener("click", () => apply(current === 1 ? null : 1));
-  down.addEventListener("click", () => apply(current === -1 ? null : -1));
+  up.addEventListener("click", () => apply(current === 1 ? null : 1, up));
+  down.addEventListener("click", () => apply(current === -1 ? null : -1, down));
   syncVisibility();
   row.append(up, down);
   wrap.appendChild(row);
@@ -851,6 +867,9 @@ async function boot(): Promise<void> {
   const composerRow = document.createElement("div");
   composerRow.className = "cr-composer-row";
 
+  const composerField = document.createElement("div");
+  composerField.className = "cr-composer-field";
+
   const input = document.createElement("textarea");
   input.className = "cr-input";
   input.autocomplete = "off";
@@ -864,7 +883,8 @@ async function boot(): Promise<void> {
   send.setAttribute("aria-label", "Send");
   send.disabled = true;
 
-  composerRow.append(input, send);
+  composerField.append(input, send);
+  composerRow.append(composerField);
 
   const poweredByEl = document.createElement("div");
   poweredByEl.className = "cr-powered";

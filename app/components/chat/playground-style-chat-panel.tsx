@@ -1,12 +1,11 @@
 "use client";
 
 import type { FormEvent, ReactNode, RefObject } from "react";
-import { Send } from "lucide-react";
 import { StreamingAssistantMessage, type AssistantStreamPhase } from "@/components/chat/StreamingAssistantMessage";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
-import { appButtonClassName } from "@/lib/button-styles";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
+import { PlaygroundComposer } from "@/components/chat/playground-composer";
 import { getWidgetPreviewContext } from "@/lib/widget-appearance";
 import { cn } from "@/lib/utils";
 import type { ProductCard, ProductDetail } from "@/lib/product-card";
@@ -21,24 +20,6 @@ export type PlaygroundStyleChatMessage = {
   products?: ProductCard[] | null;
   productDetail?: ProductDetail | null;
 };
-
-const PLAYGROUND_COMPOSER_MAX_LINES = 3;
-const composerClass = cn("ds-app-field", "playground-composer-input min-w-0 flex-1");
-
-export function resizePlaygroundStyleComposer(textarea: HTMLTextAreaElement) {
-  const style = getComputedStyle(textarea);
-  const lineHeight = Number.parseFloat(style.lineHeight) || 22;
-  const padY = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-  const borderY = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
-  const oneLineHeight = lineHeight + padY + borderY;
-  const maxHeight = lineHeight * PLAYGROUND_COMPOSER_MAX_LINES + padY + borderY;
-
-  textarea.style.height = "0px";
-  const contentHeight = textarea.scrollHeight;
-  const nextHeight = Math.min(Math.max(contentHeight, oneLineHeight), maxHeight);
-  textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
-}
 
 export function PlaygroundStyleChatPanel({
   agentName,
@@ -258,51 +239,27 @@ export function PlaygroundStyleChatPanel({
 
       <div
         className="shrink-0 px-4 pb-2.5 pt-2 sm:px-5"
-        style={{
-          backgroundColor: resolved.colors.composerBackground,
-          ["--playground-composer-input-bg" as string]: resolved.colors.composerBackground,
-        }}
+        style={{ backgroundColor: resolved.colors.composerBackground }}
       >
-        <form onSubmit={onSend} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <textarea
-              ref={messageInputRef}
-              rows={1}
-              className={composerClass}
-              placeholder={composerPlaceholder}
-              value={messageInput}
-              disabled={composerDisabled}
-              onChange={(e) => {
-                onMessageInputChange(e.target.value);
-                resizePlaygroundStyleComposer(e.target);
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
-                e.preventDefault();
-                if (sendDisabled) return;
-                e.currentTarget.form?.requestSubmit();
-              }}
-            />
-            <button
-              type="submit"
-              disabled={sendDisabled || composerDisabled}
-              className={cn(
-                "inline-flex size-11 shrink-0 items-center justify-center active:scale-[0.98]",
-                hasBrand && headerChrome
-                  ? cn(
-                      headerChrome.fabIconClass,
-                      "cursor-pointer rounded-ds-md transition-colors hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
-                    )
-                  : appButtonClassName("default", { className: "cursor-pointer" })
-              )}
-              style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
-              aria-label="Send"
-            >
-              <Send className="size-4.5" strokeWidth={1.8} aria-hidden />
-            </button>
-          </div>
+        <div className="flex flex-col gap-1">
+          <PlaygroundComposer
+            textareaRef={messageInputRef}
+            value={messageInput}
+            onChange={onMessageInputChange}
+            onSend={onSend}
+            sendDisabled={sendDisabled}
+            disabled={composerDisabled}
+            placeholder={composerPlaceholder}
+            brandColorHex={brandColorHex}
+            hasBrand={hasBrand}
+            chrome={headerChrome}
+            shellStyle={{
+              backgroundColor: resolved.colors.composerBackground,
+            }}
+            submitType="submit"
+          />
           {composerError ? <p className="text-rose-600 text-sm">{composerError}</p> : null}
-        </form>
+        </div>
       </div>
     </div>
   );

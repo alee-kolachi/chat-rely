@@ -5,7 +5,7 @@ from typing import Any
 
 def default_welcome_message(agent_name: str | None) -> str:
     name = (agent_name or "").strip() or "Support"
-    return f"Hi! I'm {name}. How can I help?"
+    return f"Hi there! I'm {name}. What can I help you with today?"
 
 
 def resolve_welcome_message(agent_name: str | None, behavior: dict[str, Any] | None) -> str:

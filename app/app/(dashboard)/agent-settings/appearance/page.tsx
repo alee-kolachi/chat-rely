@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Send } from "lucide-react";
 import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import {
   WidgetChatShell,
-  WidgetPreviewAssistantBubble,
   WidgetPreviewUserBubble,
+  WidgetWelcomeMessageRow,
 } from "@/components/chat/widget-chat-shell";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
@@ -521,14 +522,19 @@ function AppearanceForm() {
               <div className="flex flex-col">
                 <div className="px-3 py-2.5">
                   <div
-                    className="text-ds-on-surface-variant rounded-ds-md border px-3 py-2 text-xs shadow-ds-sm"
-                    style={{
-                      backgroundColor: resolvedPreview.colors.composerBackground,
-                      borderColor: "#d1d5db",
-                      color: resolvedPreview.colors.textMuted,
-                    }}
+                    className="pointer-events-none flex min-h-11 w-full items-end gap-1 rounded-xl border border-ds-outline bg-ds-surface px-2 py-1 pl-3 shadow-ds-sm"
+                    style={{ backgroundColor: resolvedPreview.colors.composerBackground }}
                   >
-                    Write a message…
+                    <span className="min-h-9 flex-1 py-2 text-xs text-ds-on-surface-variant">
+                      Write a message…
+                    </span>
+                    <span
+                      className="mb-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] text-white"
+                      style={{ backgroundColor: previewBrandColor }}
+                      aria-hidden
+                    >
+                      <Send className="size-4" strokeWidth={1.8} />
+                    </span>
                   </div>
                 </div>
                 {!hidePoweredByPlan ? (
@@ -538,14 +544,13 @@ function AppearanceForm() {
             }
           >
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4">
-              <WidgetPreviewAssistantBubble resolved={resolvedPreview}>
-                <div>
-                  {previewMessage}
-                  <div className="mt-1 flex justify-end">
-                    <MessageTimestamp variant="bubble" value={previewSampleTimestamp} />
-                  </div>
-                </div>
-              </WidgetPreviewAssistantBubble>
+              <WidgetWelcomeMessageRow
+                message={previewMessage}
+                resolved={resolvedPreview}
+                brandColorHex={previewBrandColor}
+                websiteLogoUrl={websiteLogoUrl}
+                websiteLogoPending={websiteLogoPending}
+              />
               <div className="flex justify-end">
                 <WidgetPreviewUserBubble resolved={resolvedPreview}>
                   <UserBubbleBody

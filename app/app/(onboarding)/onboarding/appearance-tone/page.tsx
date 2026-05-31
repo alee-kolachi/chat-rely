@@ -158,7 +158,6 @@ export default function AppearanceToneOnboardingPage() {
         from: "assistant" as const,
         text: previewAssistantMessage,
         streamPhase: "done" as const,
-        createdAt: previewSampleTimestamp,
       },
       {
         from: "user" as const,

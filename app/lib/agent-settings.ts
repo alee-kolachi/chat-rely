@@ -114,7 +114,7 @@ const WELCOME_MESSAGE_MAX = 500;
 /** Default first bubble when the merchant leaves welcome message blank. */
 export function defaultWelcomeMessage(agentName: string | null | undefined): string {
   const name = (agentName ?? "").trim() || "Support";
-  return `Hi! I'm ${name}. How can I help?`;
+  return `Hi there! I'm ${name}. What can I help you with today?`;
 }
 
 /** Stored custom welcome or agent-name default (what customers see). */

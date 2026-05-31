@@ -2,9 +2,9 @@ from app.domains.public_widget.welcome import default_welcome_message, resolve_w
 
 
 def test_default_welcome_message() -> None:
-    assert default_welcome_message("Acme Shop") == "Hi! I'm Acme Shop. How can I help?"
-    assert default_welcome_message("") == "Hi! I'm Support. How can I help?"
-    assert default_welcome_message(None) == "Hi! I'm Support. How can I help?"
+    assert default_welcome_message("Acme Shop") == "Hi there! I'm Acme Shop. What can I help you with today?"
+    assert default_welcome_message("") == "Hi there! I'm Support. What can I help you with today?"
+    assert default_welcome_message(None) == "Hi there! I'm Support. What can I help you with today?"
 
 
 def test_resolve_welcome_message_custom() -> None:
@@ -12,4 +12,4 @@ def test_resolve_welcome_message_custom() -> None:
 
 
 def test_resolve_welcome_message_default() -> None:
-    assert resolve_welcome_message("Bot", {}) == "Hi! I'm Bot. How can I help?"
+    assert resolve_welcome_message("Bot", {}) == "Hi there! I'm Bot. What can I help you with today?"
