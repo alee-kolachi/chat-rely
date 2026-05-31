@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { WidgetChatShell } from "@/components/chat/widget-chat-shell";
+import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+import { PlaygroundStyleChatPanel } from "@/components/chat/playground-style-chat-panel";
 import { backendFetch } from "@/lib/backend-api";
 import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
@@ -14,7 +15,9 @@ import {
   effectiveWelcomeMessage,
   readBehaviorString,
 } from "@/lib/agent-settings";
+import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
 import { faviconServiceUrl } from "@/lib/website-url";
+import { getOnboardingAgentName } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import { AppSegmentGroupSimple } from "@/components/ui/app-segment-group";
@@ -31,13 +34,18 @@ import {
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 
+type AgentListRow = {
+  id: string;
+  name: string;
+  behavior_settings?: Record<string, unknown> | null;
+};
+
 type OnboardingStatusPayload = {
   website_url: string | null;
 };
 
-type AgentPayload = {
-  name?: string;
-  behavior_settings?: Record<string, unknown>;
+type BootstrapPayload = {
+  website_preview?: { source_url: string | null } | null;
 };
 
 function normalizeTone(raw: string | undefined): AgentTone {
@@ -52,19 +60,28 @@ export default function AppearanceToneOnboardingPage() {
   const [tone, setTone] = useState<AgentTone>("Friendly");
   const [hex, setHex] = useState("831C91");
   const [selectedPreset, setSelectedPreset] = useState(0);
-  const [agentName, setAgentName] = useState("Support");
+  const [agentName, setAgentName] = useState(() => getOnboardingAgentName()?.trim() || "Your agent");
+  const [behaviorSettings, setBehaviorSettings] = useState<Record<string, unknown> | null>(null);
   const [welcome, setWelcome] = useState("");
   const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const agentId = useResolvedOnboardingAgentId();
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const previewSampleTimestamp = useMemo(() => messageCreatedAtIso(), []);
 
   const agentPreviewBackHref = useMemo(() => {
     const path = "/onboarding/agent-preview";
     if (!agentId) return path;
     return `${path}?agentId=${encodeURIComponent(agentId)}`;
   }, [agentId]);
+
+  useEffect(() => {
+    const savedName = getOnboardingAgentName()?.trim();
+    if (savedName) setAgentName(savedName);
+  }, []);
 
   useEffect(() => {
     if (!agentId) {
@@ -74,37 +91,37 @@ export default function AppearanceToneOnboardingPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const agent = await backendFetch<AgentPayload>(`/api/v1/agents/${agentId}`);
+        const [agentsRes, bootstrap, status] = await Promise.all([
+          backendFetch<{ agents: AgentListRow[] }>("/api/v1/agents"),
+          backendFetch<BootstrapPayload>(
+            `/api/v1/agents/${encodeURIComponent(agentId)}/integrations/bootstrap?include_website_preview=true`,
+          ),
+          backendFetch<OnboardingStatusPayload>(
+            `/api/v1/onboarding/status?agent_id=${encodeURIComponent(agentId)}`,
+          ).catch(() => null),
+        ]);
         if (cancelled) return;
-        const behavior = agent.behavior_settings ?? {};
+
+        const agent = agentsRes.agents.find((row) => row.id === agentId);
+        const behavior = agent?.behavior_settings ?? {};
         const savedTone = normalizeTone(readBehaviorString(behavior, "tone"));
         const savedColor = parseBrandColorHex(behavior.brand_color) ?? BRAND_COLOR_PRESETS[0].hex;
         const presetIndex = BRAND_COLOR_PRESETS.findIndex(
           (p) => p.hex.toUpperCase() === savedColor.toUpperCase(),
         );
-        setAgentName(agent.name?.trim() || "Support");
+
+        setAgentName(agent?.name?.trim() || getOnboardingAgentName()?.trim() || "Your agent");
+        setBehaviorSettings(behavior);
         setWelcome(readBehaviorString(behavior, "greeting_message"));
         setTone(savedTone);
         setHex(savedColor.replace("#", ""));
         setSelectedPreset(presetIndex >= 0 ? presetIndex : 0);
-      } catch {
-        if (!cancelled) {
-          setError("Could not load your agent settings.");
-          setIsLoading(false);
-        }
-        return;
-      }
 
-      try {
-        const status = await backendFetch<OnboardingStatusPayload>(
-          `/api/v1/onboarding/status?agent_id=${encodeURIComponent(agentId)}`,
-        );
-        if (!cancelled) {
-          const icon = faviconServiceUrl(status.website_url);
-          setWebsiteLogoUrl(icon || null);
-        }
+        const siteUrl =
+          bootstrap.website_preview?.source_url?.trim() || status?.website_url?.trim() || null;
+        setWebsiteLogoUrl(siteUrl ? faviconServiceUrl(siteUrl) || null : null);
       } catch {
-        /* website logo is optional */
+        if (!cancelled) setError("Could not load your agent settings.");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -121,10 +138,37 @@ export default function AppearanceToneOnboardingPage() {
   }, [hex, selectedPreset]);
 
   const previewBrandChrome = useMemo(() => brandChromeClasses(previewBrandColor), [previewBrandColor]);
+
+  const previewBehaviorSettings = useMemo(
+    () => ({
+      ...(behaviorSettings ?? {}),
+      brand_color: previewBrandColor,
+    }),
+    [behaviorSettings, previewBrandColor],
+  );
+
   const previewAssistantMessage = useMemo(() => {
     const behavior = { greeting_message: welcome.trim() || undefined };
     return effectiveWelcomeMessage(behavior, agentName);
   }, [welcome, agentName]);
+
+  const previewMessages = useMemo(
+    () => [
+      {
+        from: "assistant" as const,
+        text: previewAssistantMessage,
+        streamPhase: "done" as const,
+        createdAt: previewSampleTimestamp,
+      },
+      {
+        from: "user" as const,
+        text: "Sample visitor reply",
+        streamPhase: "done" as const,
+        createdAt: previewSampleTimestamp,
+      },
+    ],
+    [previewAssistantMessage, previewSampleTimestamp],
+  );
 
   async function handleContinue() {
     if (!agentId || isSaving) return;
@@ -149,6 +193,10 @@ export default function AppearanceToneOnboardingPage() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function handlePreviewSend(event: FormEvent) {
+    event.preventDefault();
   }
 
   return (
@@ -276,43 +324,34 @@ export default function AppearanceToneOnboardingPage() {
                   }}
                   aria-hidden
                 />
-                <div className="relative z-[1] mx-auto flex w-full max-w-[400px] flex-col items-center pb-2">
-                  <WidgetChatShell
+                <div className="relative z-[1] mx-auto flex w-full max-w-[26rem] flex-col items-center pb-2">
+                  <PlaygroundStyleChatPanel
                     agentName={agentName}
                     brandColorHex={previewBrandColor}
+                    behaviorSettings={previewBehaviorSettings}
                     websiteLogoUrl={websiteLogoUrl}
                     websiteLogoPending={isLoading}
+                    messages={previewMessages}
+                    isSending={false}
+                    messageInput=""
+                    onMessageInputChange={() => {}}
+                    onSend={handlePreviewSend}
+                    sendDisabled
+                    composerDisabled
+                    composerPlaceholder="Test your agent…"
+                    messageInputRef={messageInputRef}
+                    messagesScrollRef={messagesScrollRef}
                     shellHeightClass="h-full min-h-[14rem] w-full sm:min-h-[20rem] lg:min-h-[520px]"
-                    footer={
-                      <div className="border-ds-outline px-3 py-2.5">
-                        <div className="rounded-ds-md border border-ds-outline bg-ds-sidebar px-3 py-2 text-xs text-ds-on-surface-variant">
-                          Write a message…
-                        </div>
-                      </div>
-                    }
-                  >
-                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-ds-sidebar p-3 sm:p-4">
-                      <div className="border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-white px-3 py-2.5 text-xs leading-relaxed text-ds-on-surface sm:text-sm">
-                        {previewAssistantMessage}
-                      </div>
-                    </div>
-                  </WidgetChatShell>
-                  <div className="mt-3 flex w-full max-w-[26rem] justify-end">
-                    <div
-                      className={cn(
-                        "flex size-14 items-center justify-center overflow-hidden rounded-full border border-black/10 shadow-[0_10px_25px_rgba(15,23,42,0.22)] ring-4 ring-white",
-                        previewBrandChrome.fabIconClass,
-                      )}
-                      style={{ backgroundColor: previewBrandColor }}
-                      aria-hidden
-                    >
-                      {websiteLogoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={websiteLogoUrl} alt="" className="size-8 object-contain" />
-                      ) : (
-                        <span className="text-xl">💬</span>
-                      )}
-                    </div>
+                  />
+                  <div className="mt-3 flex w-full justify-end">
+                    <WidgetBrandAvatar
+                      logoUrl={websiteLogoUrl}
+                      logoPending={isLoading}
+                      hasBrand={Boolean(previewBrandColor)}
+                      chrome={previewBrandChrome}
+                      brandColorHex={previewBrandColor}
+                      size="launcher"
+                    />
                   </div>
                 </div>
               </section>

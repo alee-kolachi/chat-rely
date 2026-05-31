@@ -18,6 +18,8 @@ export type BuildTimeSeriesChartOptions = {
   rangeTo?: string;
   /** Extra zero-count days before/after the selected range. */
   edgePadDays?: number;
+  /** Reserves space for the rotated Y-axis title (e.g. "Conversations"). */
+  includeYAxisTitle?: boolean;
 };
 
 const MAX_CHART_DAYS = 400;
@@ -145,13 +147,16 @@ export type TimeSeriesChartModel = {
   viewW: number;
   plotLeft: number;
   plotRight: number;
+  yLabelX: number;
+  yTitleX: number;
   yAtTick: (tick: number) => number;
   xAxisY: number;
   xTickY: number;
   midY: number;
 };
 
-const padL = 36;
+const padLDefault = 36;
+const padLWithYTitle = 56;
 const padR = 4;
 const padT = 10;
 const padB = 52;
@@ -170,6 +175,11 @@ export function buildTimeSeriesChartModel(
     );
   }
   if (!points.length) return null;
+
+  const includeYAxisTitle = options?.includeYAxisTitle ?? false;
+  const padL = includeYAxisTitle ? padLWithYTitle : padLDefault;
+  const yLabelX = padL - 10;
+  const yTitleX = 11;
 
   const maxCount = Math.max(...points.map((s) => s.count));
   const paddedMax = maxCount <= 0 ? 1 : Math.max(maxCount * 1.2, maxCount + 1);
@@ -242,6 +252,8 @@ export function buildTimeSeriesChartModel(
     viewW,
     plotLeft,
     plotRight,
+    yLabelX,
+    yTitleX,
     yAtTick,
     xAxisY,
     xTickY,

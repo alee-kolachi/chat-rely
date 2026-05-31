@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
 import { CHAT_RELY_LOGO_PATH } from "@/components/branding/chat-rely-wordmark";
+import { cn } from "@/lib/utils";
 
 /** Shared message shape for demo playback and future live chat. */
 export type HeroChatMessage = {
@@ -52,25 +54,46 @@ const TIMING = {
   userDelay: 900,
   firstStepDelay: 650,
   stepDelay: 950,
-  replyDelay: 750,
+  afterLastStep: 380,
+  stepsFade: 320,
+  typingPause: 520,
   betweenTurns: 2600,
   endPause: 5800,
 } as const;
 
-function ThinkingSteps({ steps, visibleStep }: { steps: readonly string[]; visibleStep: number }) {
+const MSG_IN_ANIMATION = "animate-[mkt-msg-in_0.5s_cubic-bezier(0.22,1,0.36,1)_both]";
+
+function ThinkingSteps({
+  steps,
+  visibleStep,
+  fadingOut,
+}: {
+  steps: readonly string[];
+  visibleStep: number;
+  fadingOut: boolean;
+}) {
   return (
-    <div className="space-y-2.5 py-1">
+    <div
+      className={cn(
+        "space-y-2.5 py-1 transition-opacity duration-300 ease-out",
+        fadingOut ? "pointer-events-none opacity-0" : "opacity-100",
+      )}
+      aria-hidden={fadingOut}
+    >
       {steps.map((step, index) => (
         <div
           key={step}
-          className={`flex items-center gap-2 transition-all duration-700 ease-out ${
-            index <= visibleStep ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
-          } ${index === visibleStep ? "text-ds-on-surface" : "text-ds-on-surface-variant"}`}
+          className={cn(
+            "flex items-center gap-2 transition-all duration-500 ease-out",
+            index <= visibleStep ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
+            index === visibleStep ? "text-ds-on-surface" : "text-ds-on-surface-variant",
+          )}
         >
           <span
-            className={`size-2 shrink-0 rounded-full transition-colors duration-500 ${
-              index <= visibleStep ? "bg-ds-primary" : "bg-ds-outline"
-            }`}
+            className={cn(
+              "size-2 shrink-0 rounded-full transition-colors duration-300",
+              index <= visibleStep ? "bg-ds-primary" : "bg-ds-outline",
+            )}
             aria-hidden
           />
           {step}
@@ -80,15 +103,21 @@ function ThinkingSteps({ steps, visibleStep }: { steps: readonly string[]; visib
   );
 }
 
+function TypingBubble() {
+  return (
+    <div className={cn("flex justify-start", MSG_IN_ANIMATION)} aria-hidden>
+      <div className="mkt-chat-message flex max-w-[90%] items-center rounded-2xl rounded-tl-md border border-ds-outline bg-white px-3 py-2.5 shadow-sm">
+        <AssistantThinkingDots />
+      </div>
+    </div>
+  );
+}
+
 function ChatBubble({ message }: { message: HeroChatMessage }) {
   const isUser = message.role === "user";
 
   return (
-    <div
-      className={`flex transition-all duration-700 ease-out ${
-        isUser ? "translate-y-0 justify-end opacity-100" : "translate-y-0 justify-start opacity-100"
-      }`}
-    >
+    <div className={cn("flex", MSG_IN_ANIMATION, isUser ? "justify-end" : "justify-start")}>
       <div
         className={
           isUser
@@ -115,6 +144,8 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
   const [turnIndex, setTurnIndex] = useState(0);
   const [visibleStep, setVisibleStep] = useState(-1);
   const [activeSteps, setActiveSteps] = useState<readonly string[] | null>(null);
+  const [stepsFadingOut, setStepsFadingOut] = useState(false);
+  const [showTyping, setShowTyping] = useState(false);
   const [playbackKey, setPlaybackKey] = useState(0);
 
   const displayMessages = mode === "live" && liveMessages ? liveMessages : messages;
@@ -136,6 +167,8 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
     setTurnIndex(0);
     setVisibleStep(-1);
     setActiveSteps(null);
+    setStepsFadingOut(false);
+    setShowTyping(false);
 
     let elapsed = TIMING.initialPause;
     const cycleKey = playbackKey;
@@ -149,6 +182,8 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
         ]);
         setActiveSteps(turn.steps);
         setVisibleStep(-1);
+        setStepsFadingOut(false);
+        setShowTyping(false);
       });
 
       elapsed += index === 0 ? TIMING.userDelay - 200 : TIMING.userDelay;
@@ -158,14 +193,24 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
         schedule(elapsed, () => setVisibleStep(stepIndex));
       });
 
-      elapsed += TIMING.replyDelay;
+      elapsed += TIMING.afterLastStep;
+      schedule(elapsed, () => setStepsFadingOut(true));
+
+      elapsed += TIMING.stepsFade;
+      schedule(elapsed, () => {
+        setActiveSteps(null);
+        setStepsFadingOut(false);
+        setVisibleStep(-1);
+        setShowTyping(true);
+      });
+
+      elapsed += TIMING.typingPause;
       schedule(elapsed, () => {
         setMessages((current) => [
           ...current,
           { id: `${cycleKey}-${turn.id}-assistant`, role: "assistant", content: turn.agentReply },
         ]);
-        setActiveSteps(null);
-        setVisibleStep(-1);
+        setShowTyping(false);
       });
 
       elapsed += index === script.length - 1 ? TIMING.endPause : TIMING.betweenTurns;
@@ -214,7 +259,11 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
           <ChatBubble key={message.id} message={message} />
         ))}
 
-        {mode === "demo" && activeSteps ? <ThinkingSteps steps={activeSteps} visibleStep={visibleStep} /> : null}
+        {mode === "demo" && activeSteps ? (
+          <ThinkingSteps steps={activeSteps} visibleStep={visibleStep} fadingOut={stepsFadingOut} />
+        ) : null}
+
+        {mode === "demo" && showTyping ? <TypingBubble /> : null}
       </div>
 
       <div className="shrink-0 border-t border-ds-outline bg-white px-4 py-3">

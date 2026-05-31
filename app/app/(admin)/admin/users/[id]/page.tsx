@@ -237,7 +237,7 @@ export default async function AdminUserDetailPage({ params }: { params: RoutePar
   const knowledgeKinds = Object.entries(user.knowledge_summary.by_kind);
 
   return (
-    <div className="flex flex-col gap-8 p-6">
+    <div className="flex flex-col gap-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           {user.avatar_url ? (

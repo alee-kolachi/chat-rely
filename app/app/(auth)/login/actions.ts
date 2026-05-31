@@ -6,7 +6,7 @@ import {
   CHATRELY_AUTH_SHORT_LIVED_COOKIE,
   CHATRELY_REMEMBER_ME_MAX_AGE_SEC,
 } from "@/lib/auth-session-preference";
-import { postBootstrapMeServer } from "@/lib/server-bootstrap-me";
+import { postBootstrapMeServer, fetchOnboardingGateServer } from "@/lib/server-bootstrap-me";
 import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
 import { createServerSupabaseClient, getValidatedServerAuth } from "@/lib/supabase-server";
 
@@ -53,8 +53,9 @@ export async function loginWithEmailPassword(
   }
 
   const nextDefault = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
-  const { onboarding_completed } = await postBootstrapMeServer(session.access_token);
-  const destination = resolvePostAuthDestination(nextDefault, onboarding_completed);
+  await postBootstrapMeServer(session.access_token);
+  const gate = await fetchOnboardingGateServer(session.access_token);
+  const destination = resolvePostAuthDestination(nextDefault, gate);
 
   redirect(destination);
 }

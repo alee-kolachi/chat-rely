@@ -51,8 +51,6 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
     pct = Math.min(100, Math.round(jobProgress));
   } else if (pagesTotal > 0) {
     pct = Math.min(100, Math.round((pagesProcessed / pagesTotal) * 100));
-  } else if (running) {
-    pct = 8;
   }
 
   const readyForPreview =
@@ -77,14 +75,14 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
     if (pagesTotal > 0) {
       headline = `Reading your site (${pagesProcessed} of ${pagesTotal} pages)`;
     } else {
-      headline = "Reading your site";
+      headline = "Reading your site…";
     }
     if (chunksEmbedded > 0 && chunksTotal > 0) {
-      detail = `${chunksEmbedded} of ${chunksTotal} sections indexed so far.`;
+      detail = `${chunksEmbedded} of ${chunksTotal} sections indexed.`;
     } else if (pagesProcessed > 0) {
-      detail = `${pagesProcessed} page${pagesProcessed === 1 ? "" : "s"} found so far.`;
+      detail = `${pagesProcessed} page${pagesProcessed === 1 ? "" : "s"} indexed so far.`;
     } else {
-      detail = "Finding pages on your site. This usually takes a minute.";
+      detail = "";
     }
   }
 

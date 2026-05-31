@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { getInternalBackendBaseUrl } from "@/lib/internal-backend-url";
 import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
+import { fetchOnboardingGateServer } from "@/lib/server-bootstrap-me";
 import { resolveSupabaseUrlFromHost } from "@/lib/resolve-supabase-url";
 
 /** Workspace routes that require a finished (or legacy-exempt) onboarding before access. */
@@ -91,23 +91,16 @@ export async function proxy(request: NextRequest) {
     return landingRedirect;
   }
 
-  let onboardingCompleted = true;
+  let gate = { onboarding_completed: true, is_admin: false };
   try {
-    const gateRes = await fetch(`${getInternalBackendBaseUrl()}/api/v1/me/onboarding-gate`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      cache: "no-store",
-    });
-    if (gateRes.ok) {
-      const gate = (await gateRes.json()) as { onboarding_completed?: boolean };
-      onboardingCompleted = Boolean(gate.onboarding_completed);
-    }
+    gate = await fetchOnboardingGateServer(session.access_token);
   } catch {
-    onboardingCompleted = true;
+    gate = { onboarding_completed: true, is_admin: false };
   }
 
-  if (!onboardingCompleted) {
+  if (!gate.onboarding_completed && !gate.is_admin) {
     const welcome = new URL(
-      resolvePostAuthDestination(`${request.nextUrl.pathname}${request.nextUrl.search}`, false),
+      resolvePostAuthDestination(`${request.nextUrl.pathname}${request.nextUrl.search}`, gate),
       request.url
     );
     const welcomeRedirect = NextResponse.redirect(welcome);

@@ -8,7 +8,12 @@ import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import type { PricingTierSlug } from "@/lib/marketing/pricing-catalog";
 import { PricingCards } from "@/components/marketing/pricing-sections";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
-import { OnboardingStickyFooter } from "@/components/onboarding/onboarding-ui";
+import {
+  OnboardingPageHeader,
+  OnboardingStickyFooter,
+  OnboardingWideColumn,
+  onboardingType,
+} from "@/components/onboarding/onboarding-ui";
 
 export function OnboardingPricingClient() {
   const router = useRouter();
@@ -91,7 +96,7 @@ export function OnboardingPricingClient() {
     if (q === "success") {
       setCheckoutBanner("Payment received. Finishing setup…");
     } else if (q === "cancel") {
-      setCheckoutBanner("Checkout canceled. You can pick a plan below or continue on Free.");
+      setCheckoutBanner("Checkout canceled. Pick a plan below or continue on Free.");
     } else {
       setCheckoutBanner(null);
     }
@@ -138,70 +143,45 @@ export function OnboardingPricingClient() {
         />
       }
     >
-      {continueError ? (
-        <p className="border-ds-outline bg-ds-surface/95 mx-auto mt-2 max-w-3xl rounded-ds-md border px-3 py-2 text-center text-xs text-rose-600 sm:px-4">
-          {continueError}
-        </p>
-      ) : null}
-      {checkoutBanner ? (
-        <p className="border-ds-outline bg-ds-surface/95 text-ds-on-surface mx-auto mt-2 max-w-3xl rounded-ds-md border px-3 py-2 text-center text-xs sm:px-4 sm:text-sm">
-          {checkoutBanner}
-        </p>
-      ) : null}
-      <div className="relative flex w-full min-w-0 flex-col overflow-x-hidden max-lg:min-h-min max-lg:flex-none lg:min-h-0 lg:flex-1">
-        <div
-          className="pointer-events-none absolute inset-0 -z-10"
-          style={{
-            background:
-              "radial-gradient(ellipse 100% 70% at 50% 0%, color-mix(in srgb, var(--ds-primary) 12%, transparent), transparent 50%), linear-gradient(180deg, color-mix(in srgb, var(--ds-sidebar) 70%, white) 0%, #ffffff 45%)",
-          }}
-          aria-hidden
+      <OnboardingWideColumn className="flex flex-col gap-6 !pt-6 md:!pt-8">
+        {continueError ? (
+          <div className="rounded-ds-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            {continueError}
+          </div>
+        ) : null}
+
+        {checkoutBanner ? (
+          <div className="rounded-ds-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            {checkoutBanner}
+          </div>
+        ) : null}
+
+        <OnboardingPageHeader
+          className="!mb-0"
+          kicker="Plans & billing"
+          title="Choose a plan"
+          subtitle="Your agent setup is saved. Start on Free or upgrade for more conversations and store tools."
         />
 
-        <div className="relative mx-auto flex w-full min-w-0 max-w-6xl flex-col px-3 pt-4 pb-[max(8.5rem,calc(5rem+env(safe-area-inset-bottom,0px)))] max-lg:min-h-min max-lg:flex-none sm:px-4 sm:pt-6 md:px-10 md:pt-8 md:pb-32 lg:flex-1">
-          <header className="mx-auto flex w-full min-w-0 max-w-3xl shrink-0 flex-col items-center px-1 text-center sm:px-0">
-            <p className="text-ds-primary text-[10px] font-semibold tracking-[0.18em] uppercase sm:text-[11px] sm:tracking-[0.2em]">
-              Plans & billing
-            </p>
-            <h1 className="text-ds-on-surface mt-2 text-xl font-semibold leading-[1.25] tracking-tight sm:mt-3 sm:text-3xl md:text-[2rem]">
-              Pick a plan to go live
-            </h1>
-            <p className="ds-app-body-muted mx-auto mt-2 max-w-[min(100%,48rem)] text-center leading-snug sm:mt-3 sm:text-[13px] md:text-sm">
-              Your agent setup is saved. Free includes Shopify connect; paid plans add live store tools and higher limits.
-              Manage billing anytime
-              under{" "}
-              <Link
-                href="/account/plan"
-                className="text-ds-primary font-medium underline decoration-ds-primary/30 underline-offset-[3px] hover:decoration-black"
-              >
-                Settings → Plan
-              </Link>
-              .{" "}
-              <Link
-                href="/pricing"
-                className="text-ds-on-surface font-medium underline decoration-ds-outline underline-offset-[3px] hover:text-ds-on-surface"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Compare all plans
-              </Link>
-              .
-            </p>
-            <p className="text-ds-on-surface-variant mx-auto mt-3 max-w-[min(100%,40rem)] text-center text-[11px] leading-snug sm:text-xs">
-              Taxes may apply by region. Questions before you commit? Contact support from Settings.
-            </p>
-          </header>
+        <PricingCards
+          variant="onboarding"
+          isAuthenticated
+          onPlanCheckout={onPlanSelect}
+          checkoutBusySlug={checkoutBusySlug ?? (continueBusy ? "free" : null)}
+        />
 
-          <div className="mt-4 min-w-0 sm:mt-6 md:mt-8">
-            <PricingCards
-              variant="onboarding"
-              isAuthenticated
-              onPlanCheckout={onPlanSelect}
-              checkoutBusySlug={checkoutBusySlug}
-            />
-          </div>
-        </div>
-      </div>
+        <p className={onboardingType.hint}>
+          Change plans anytime in{" "}
+          <Link href="/account/plan" className="text-ds-primary font-semibold hover:underline">
+            Settings → Plan
+          </Link>
+          .{" "}
+          <Link href="/pricing" className="text-ds-primary font-semibold hover:underline" target="_blank" rel="noreferrer">
+            Compare all features
+          </Link>
+          .
+        </p>
+      </OnboardingWideColumn>
     </OnboardingFrame>
   );
 }

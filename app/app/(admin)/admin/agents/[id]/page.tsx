@@ -50,7 +50,7 @@ export default async function AdminAgentDetailPage({ params }: { params: Params 
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6">
       <Link
         href="/admin/agents"
         className="ds-app-body-muted hover:text-ds-on-surface w-fit"

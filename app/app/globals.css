@@ -394,6 +394,20 @@
   }
 }
 
+@keyframes onboarding-index-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.onboarding-index-progress-indeterminate {
+  animation: onboarding-index-indeterminate 1.4s ease-in-out infinite;
+}
+
 @keyframes ds-blink {
 
   from,

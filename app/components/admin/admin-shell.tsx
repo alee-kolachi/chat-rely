@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import { LogoutButton } from "@/components/auth/logout-button";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 
 export function AdminShell({ email, children }: { email: string; children: ReactNode }) {
@@ -14,15 +14,11 @@ export function AdminShell({ email, children }: { email: string; children: React
             </span>
             <span className="text-ds-on-surface-variant truncate text-sm">{email}</span>
           </div>
-          <Link
-            href="/dashboard"
-            className="text-ds-primary hover:text-ds-interactive-hover shrink-0 text-sm font-medium"
-          >
-            Back to dashboard
-          </Link>
+          <LogoutButton className="text-ds-on-surface-variant hover:bg-ds-neutral shrink-0 rounded-ds-md px-3 py-2 text-sm font-medium transition-colors hover:text-ds-on-surface" />
         </header>
-        <main className="relative z-0 flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain">
+        <main className="relative z-0 flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain bg-ds-app-canvas ds-dashboard-main-pad">
           {children}
+          <div aria-hidden className="ds-dashboard-main-spacer" />
         </main>
       </div>
     </div>

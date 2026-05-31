@@ -533,7 +533,7 @@ async function StripeEventsTab({ sp }: { sp: ParsedSp }) {
 
 function BillingShell({ tab, children }: { tab: Tab; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
         <h1 className="text-ds-on-surface text-2xl font-semibold">Billing</h1>
         <p className="text-ds-on-surface-variant text-sm">

@@ -6,6 +6,7 @@ import { ExternalLink } from "lucide-react";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { getOnboardingAgentId, onboardingHref, saveOnboardingAgentId } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
+import { OnboardingIndexingProgress } from "@/components/onboarding/onboarding-indexing-progress";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import {
   buildWebsiteUrl,
@@ -143,7 +144,22 @@ function KnowledgeBaseOnboardingPageInner() {
   );
 
   const visiblePages = useMemo(() => crawlPages.slice(0, revealedCount), [crawlPages, revealedCount]);
-  const revealingMore = revealedCount < crawlPages.length;
+
+  const crawlProgressSnapshot = useMemo(() => {
+    if (crawlPhase !== "active") return indexingJob;
+    const pagesFound = Math.max(indexingJob.pagesProcessed, visiblePages.length);
+    if (indexingJob.headline) {
+      if (pagesFound <= indexingJob.pagesProcessed) return indexingJob;
+      return { ...indexingJob, pagesProcessed: pagesFound };
+    }
+    return {
+      ...indexingJob,
+      status: "running",
+      running: true,
+      headline: "Reading your site…",
+      pagesProcessed: pagesFound,
+    };
+  }, [crawlPhase, indexingJob, visiblePages.length]);
 
   const canContinue = Boolean(sourceId);
 
@@ -348,6 +364,7 @@ function KnowledgeBaseOnboardingPageInner() {
       completedItems={["Agent Name"]}
       stepLabel="Step 2 of 5"
       linkAgentId={agentId}
+      hideIndexingBanner
       footer={
         <OnboardingStickyFooter
           backHref={step1BackHref}
@@ -462,37 +479,9 @@ function KnowledgeBaseOnboardingPageInner() {
                             Pages will appear here one at a time as we find them.
                           </p>
                         )}
-                        <div className="text-ds-on-surface-variant mt-3 flex items-center gap-2 border-t border-ds-outline pt-3 text-sm">
-                          <span
-                            className="bg-ds-primary size-2 shrink-0 animate-pulse rounded-full"
-                            aria-hidden
-                          />
-                          <span className="font-medium text-ds-on-surface">
-                            {indexingJob.headline ||
-                              (revealingMore
-                                ? "Finding more pages…"
-                                : visiblePages.length > 0
-                                  ? "Still crawling your site…"
-                                  : "Crawling your site…")}
-                          </span>
-                          {indexingJob.pct > 0 ? (
-                            <span className="ml-auto text-xs font-semibold tabular-nums">{indexingJob.pct}%</span>
-                          ) : null}
-                        </div>
-                        {indexingJob.pct > 0 ? (
-                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ds-outline/70">
-                            <div
-                              className="bg-ds-primary h-full rounded-full transition-[width] duration-500 ease-out"
-                              style={{ width: `${indexingJob.pct}%` }}
-                            />
-                          </div>
-                        ) : null}
-                        {indexingJob.detail ? (
-                          <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">{indexingJob.detail}</p>
-                        ) : null}
+                        <OnboardingIndexingProgress snapshot={crawlProgressSnapshot} variant="card" />
                         <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                          You can continue setup while we read your site. Step 4 unlocks testing once at least one
-                          page is indexed.
+                          You can continue setup while we read your site in the background.
                         </p>
                       </div>
                     ) : null}

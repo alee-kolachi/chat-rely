@@ -33,12 +33,13 @@ export default async function AdminCostingPage() {
     ]);
 
     return (
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-2">
           <h1 className="text-ds-on-surface text-2xl font-semibold">Costing</h1>
           <p className="text-ds-on-surface-variant text-sm">
-            Platform-wide LLM and embedding spend, revenue, and margin. Numbers refresh every{" "}
-            {overview.cache_ttl_seconds}s; last refreshed{" "}
+            Platform-wide LLM and embedding spend, revenue, and margin. Totals include
+            assistant replies plus routing and RAG embedding overhead from the cost ledger.
+            Numbers refresh every {overview.cache_ttl_seconds}s; last refreshed{" "}
             {new Date(overview.cached_at).toLocaleString()}.
           </p>
         </header>

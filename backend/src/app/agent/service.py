@@ -25,7 +25,6 @@ from app.agent.escalation import (
     handoff_reply_awaiting_team,
     handoff_reply_for_status,
     handle_escalation_with_contact,
-    message_requests_human,
     normalize_conversation_status,
     persist_visitor_contact,
     visitor_empty_reply_fallback,
@@ -54,14 +53,14 @@ def _sse_conversation_fields(
 from app.agent.messages import build_turn_messages, slice_history_for_current_turn
 from app.agent.model_routing import (
     apply_throttle_delay,
-    is_likely_greeting_or_small_talk,
-    message_has_order_and_catalog_intents,
-    message_looks_like_order_follow_up,
-    message_looks_like_order_question,
-    message_looks_like_order_reference,
-    order_reference_from_thread,
     resolve_turn_model,
     thread_summary_from_history,
+)
+from app.agent.turn_intent import (
+    apply_turn_intent_grounding,
+    merge_routing_billing,
+    run_turn_intent_classifier,
+    shopify_tools_to_exclude,
 )
 from app.agent.shopify_tools import (
     is_shopify_tool_name,
@@ -98,7 +97,6 @@ from app.domains.conversations.service import (
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
 from app.domains.runtime.prompts import build_grounded_user_prompt
 from app.domains.runtime.prompts.user import (
-    build_multi_intent_shopify_user_prompt,
     build_shopify_turn_user_prompt,
 )
 from app.domains.runtime.prompts.system import (
@@ -153,6 +151,7 @@ async def _prepare_turn_model_selection(
     conversation_id: UUID,
     user_message: str,
     history_rows: list[Any],
+    is_greeting_or_small_talk: bool = False,
 ) -> tuple[str, dict[str, Any] | None]:
     """Plan policy, optional classifier, and throttle delay (parallel with Shopify/RAG prep)."""
     policy = get_cached_plan_model_policy(user_id)
@@ -183,6 +182,7 @@ async def _prepare_turn_model_selection(
         user_message=user_message,
         thread_summary=thread_summary_from_history(history_rows),
         tool_failed=False,
+        is_greeting_or_small_talk=is_greeting_or_small_talk,
     )
     model = _resolve_runtime_model(turn_decision.model, preserve_premium=turn_decision.used_premium)
     model = _apply_usage_limit_model_downgrade(
@@ -585,8 +585,6 @@ async def stream_chat(
 
     asyncio.create_task(refresh_plan_usage_snapshot_isolated(user_id))
 
-    wants_human = payload.request_human or message_requests_human(payload.message)
-
     config_coro = _db_call(lambda db: _load_agent_runtime_config(db, user_id, payload.agent_id))
     conv_coro = _db_call(
         lambda db: _resolve_or_create_conversation(
@@ -696,15 +694,6 @@ async def stream_chat(
 
     t_prep = time.perf_counter()
 
-    if wants_human:
-        human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
-    else:
-        human_on, esc_cfg = False, {}
-
-    operator_engaged = bool((conv.get("metadata") or {}).get(OPERATOR_ENGAGED_META_KEY))
-    has_indexed_kb = bool(config.get("has_indexed_knowledge"))
-    chitchat_turn = is_likely_greeting_or_small_talk(payload.message)
-
     if (
         not payload.conversation_id
         and history_limit > 0
@@ -720,6 +709,22 @@ async def stream_chat(
                 skip_conversation_check=True,
             )
         )
+
+    turn_intent, turn_intent_billing = await run_turn_intent_classifier(
+        user_message=payload.message,
+        thread_summary=thread_summary_from_history(history_rows),
+        thread_had_order_lookup=thread_had_order_lookup_tool(history_rows),
+    )
+    chitchat_turn = turn_intent.is_greeting_or_small_talk
+    wants_human = payload.request_human or turn_intent.requests_human
+
+    if wants_human:
+        human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
+    else:
+        human_on, esc_cfg = False, {}
+
+    operator_engaged = bool((conv.get("metadata") or {}).get(OPERATOR_ENGAGED_META_KEY))
+    has_indexed_kb = bool(config.get("has_indexed_knowledge"))
     thread_had_shopify = thread_had_shopify_tools(history_rows)
     thread_had_order_lookup = thread_had_order_lookup_tool(history_rows)
     structural_skip, structural_kb_reason = _structural_skip_kb_retrieval(
@@ -761,6 +766,7 @@ async def stream_chat(
             conversation_id=conversation_id,
             user_message=payload.message,
             history_rows=history_rows,
+            is_greeting_or_small_talk=chitchat_turn,
         )
     )
 
@@ -772,6 +778,7 @@ async def stream_chat(
     parallel_results = await asyncio.gather(*parallel_prep)
     tool_list, shopify_setup_timings, shopify_connected = parallel_results[0]
     model, classifier_billing = parallel_results[1]
+    classifier_billing = merge_routing_billing(classifier_billing, turn_intent_billing)
 
     t_pre_llm = time.perf_counter()
     prep_ms = (t_prep - t_turn) * 1000.0
@@ -814,6 +821,15 @@ async def stream_chat(
     has_product_search_tool = any(
         str(getattr(t, "name", "") or "") == "shopify_product_search" for t in tool_list
     )
+    exclude_tools = shopify_tools_to_exclude(
+        turn_intent,
+        has_order_lookup_tool=has_order_lookup_tool,
+        has_product_search_tool=has_product_search_tool,
+    )
+    if exclude_tools:
+        tool_list = [
+            t for t in tool_list if str(getattr(t, "name", "") or "") not in exclude_tools
+        ]
     if rag_task is not None:
         chunks, rag_billing, kb_skip_reason = parallel_results[2]
         retrieve_wall_ms = (time.perf_counter() - t_parallel_prep) * 1000.0
@@ -902,56 +918,14 @@ async def stream_chat(
             thread_has_prior_turns=True,
             thread_had_order_lookup=thread_had_order_lookup,
         )
-    if (
-        has_order_lookup_tool
-        and message_looks_like_order_reference(payload.message)
-    ):
-        order_ref = payload.message.strip()
-        grounded_user_content = (
-            f"The customer sent only an order number ({order_ref}). "
-            "Call `shopify_order_lookup` with `order_name_or_number` set to that value "
-            "(include a leading # if they used one) before answering about status or tracking.\n\n"
-            f"Customer message:\n{payload.message}"
-        )
-    elif (
-        has_order_lookup_tool
-        and thread_had_order_lookup
-        and message_looks_like_order_follow_up(payload.message)
-    ):
-        order_ref = order_reference_from_thread(history_rows) or ""
-        ref_line = (
-            f"The order number from this thread is `{order_ref}`. "
-            if order_ref
-            else "Resolve the order number from prior messages in this thread. "
-        )
-        grounded_user_content = (
-            f"{ref_line}"
-            "This is a follow-up about an order already discussed in this thread. "
-            "Do **not** ask the customer to repeat their order number or email. "
-            "Answer from prior assistant messages when they contain the detail; "
-            "otherwise call `shopify_order_lookup` again with the same `order_name_or_number`.\n\n"
-            f"Customer message:\n{payload.message}"
-        )
-    elif (
-        has_shopify_tools
-        and message_has_order_and_catalog_intents(payload.message)
-    ):
-        grounded_user_content = build_multi_intent_shopify_user_prompt(
-            payload.message,
+    if has_shopify_tools or turn_intent.needs_order_lookup or turn_intent.needs_product_search:
+        grounded_user_content = apply_turn_intent_grounding(
+            base_content=grounded_user_content,
+            user_message=payload.message,
+            intent=turn_intent,
             has_order_lookup_tool=has_order_lookup_tool,
             has_product_search_tool=has_product_search_tool,
-        )
-    elif (
-        has_shopify_tools
-        and not has_order_lookup_tool
-        and message_looks_like_order_question(payload.message)
-    ):
-        grounded_user_content = (
-            "The customer is asking about an order, shipment, or tracking. "
-            "Order Lookup is **not** enabled for this chat — do **not** call `shopify_product_search`. "
-            "Explain that you cannot check order status live and suggest they contact the store "
-            "(the merchant can enable Order Lookup in agent settings).\n\n"
-            f"Customer message:\n{payload.message}"
+            thread_had_order_lookup=thread_had_order_lookup,
         )
     elif (
         has_indexed_kb

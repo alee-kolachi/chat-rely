@@ -50,7 +50,7 @@ export default async function AdminKnowledgeSourceDetailPage({
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6">
       <Link
         href="/admin/knowledge?tab=sources"
         className="ds-app-body-muted hover:text-ds-on-surface w-fit"

@@ -94,4 +94,5 @@ class MeContextResponse(BaseModel):
 
 class OnboardingGateResponse(BaseModel):
     onboarding_completed: bool
+    is_admin: bool = False
 

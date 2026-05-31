@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { getInternalBackendBaseUrl } from "@/lib/internal-backend-url";
+import { fetchOnboardingGateServer } from "@/lib/server-bootstrap-me";
 import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
 import { resolveSupabaseUrlFromHost } from "@/lib/resolve-supabase-url";
 
@@ -63,22 +63,11 @@ export async function GET(request: NextRequest) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  let onboardingCompleted = true;
-  if (session?.access_token) {
-    try {
-      const gateRes = await fetch(`${getInternalBackendBaseUrl()}/api/v1/me/onboarding-gate`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
-      });
-      if (gateRes.ok) {
-        const gate = (await gateRes.json()) as { onboarding_completed?: boolean };
-        onboardingCompleted = Boolean(gate.onboarding_completed);
-      }
-    } catch {
-      onboardingCompleted = true;
-    }
-  }
-  const destination = resolvePostAuthDestination(safeNext, onboardingCompleted);
+  const gate =
+    session?.access_token != null
+      ? await fetchOnboardingGateServer(session.access_token)
+      : { onboarding_completed: true, is_admin: false };
+  const destination = resolvePostAuthDestination(safeNext, gate);
   redirectResponse.headers.set("Location", new URL(destination, requestUrl.origin).toString());
 
   return redirectResponse;

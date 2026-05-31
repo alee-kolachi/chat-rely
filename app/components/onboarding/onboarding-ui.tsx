@@ -80,23 +80,31 @@ export function OnboardingPageHeader({
   title,
   subtitle,
   className,
+  centered = false,
 }: {
   kicker?: string | ReactNode;
   title: string;
-  subtitle?: string;
+  subtitle?: string | ReactNode;
   className?: string;
+  centered?: boolean;
 }) {
   return (
-    <header className={cn("mb-8 md:mb-10", className)}>
+    <header className={cn("mb-8 md:mb-10", centered && "mx-auto max-w-3xl text-center", className)}>
       {kicker != null ? (
         typeof kicker === "string" ? (
           <p className={onboardingType.kicker}>{kicker}</p>
         ) : (
-          <div className="flex justify-center">{kicker}</div>
+          <div className={cn(centered && "flex justify-center")}>{kicker}</div>
         )
       ) : null}
       <h1 className={cn(onboardingType.title, kicker != null && "mt-2")}>{title}</h1>
-      {subtitle ? <p className={onboardingType.subtitle}>{subtitle}</p> : null}
+      {subtitle ? (
+        typeof subtitle === "string" ? (
+          <p className={cn(onboardingType.subtitle, centered && "mx-auto")}>{subtitle}</p>
+        ) : (
+          <div className={cn("mt-2", centered && "mx-auto max-w-2xl")}>{subtitle}</div>
+        )
+      ) : null}
     </header>
   );
 }

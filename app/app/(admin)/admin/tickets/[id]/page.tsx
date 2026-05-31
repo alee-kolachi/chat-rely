@@ -34,7 +34,7 @@ export default async function AdminTicketDetailPage({ params }: { params: Params
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6">
       <Link
         href="/admin/tickets"
         className="ds-app-body-muted hover:text-ds-on-surface w-fit"

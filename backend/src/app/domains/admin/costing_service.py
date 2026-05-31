@@ -28,7 +28,21 @@ from app.domains.admin.costing import (
     embedding_pricing_status,
     unknown_models_warning,
 )
+from app.domains.billing.cost_events import (
+    COST_KIND_EMBEDDING_RAG,
+    COST_KIND_LLM_INTENT_FALLBACK,
+    COST_KIND_LLM_ROUTING,
+    COST_KIND_LLM_SHOPIFY_ROUTER,
+    COST_KIND_LLM_TURN_SIGNALS,
+)
 from app.domains.plans.subscription_queries import ACTIVE_SUBSCRIPTION_ORDER_BY
+
+_SUPPLEMENTAL_LLM_EVENT_KINDS = (
+    COST_KIND_LLM_ROUTING,
+    COST_KIND_LLM_SHOPIFY_ROUTER,
+    COST_KIND_LLM_INTENT_FALLBACK,
+    COST_KIND_LLM_TURN_SIGNALS,
+)
 from app.domains.admin.schemas import (
     AdminConversationCost,
     AdminCostByAgentRow,
@@ -98,6 +112,49 @@ def _safe_margin_pct(margin: float, revenue: float) -> float | None:
     if revenue <= 0:
         return None
     return (margin / revenue) * 100.0
+
+
+async def _supplemental_period_event_costs(
+    db: AsyncSession,
+    *,
+    period_start: datetime,
+    period_end: datetime,
+    user_id: UUID | None = None,
+) -> tuple[float, float]:
+    """Ledger-only costs (routing classifiers, RAG query embeddings) not in messages/kc."""
+    params: dict[str, Any] = {
+        "period_start": period_start,
+        "period_end": period_end,
+        "llm_kinds": list(_SUPPLEMENTAL_LLM_EVENT_KINDS),
+        "embed_kind": COST_KIND_EMBEDDING_RAG,
+    }
+    user_filter = ""
+    if user_id is not None:
+        user_filter = "and user_id = cast(:user_id as uuid)"
+        params["user_id"] = str(user_id)
+
+    row = (
+        await db.execute(
+            text(
+                f"""
+                select
+                  coalesce(sum(
+                    case when kind = any(:llm_kinds) then cost_usd else 0 end
+                  ), 0.0)::float as llm_extra,
+                  coalesce(sum(
+                    case when kind = :embed_kind then cost_usd else 0 end
+                  ), 0.0)::float as embed_extra
+                from public.conversation_cost_events
+                where created_at >= :period_start
+                  and created_at < :period_end
+                  and cost_usd is not null
+                  {user_filter}
+                """
+            ),
+            params,
+        )
+    ).mappings().first()
+    return float(row["llm_extra"] or 0.0), float(row["embed_extra"] or 0.0)
 
 
 # --- Conversation cost -----------------------------------------------------------
@@ -422,6 +479,15 @@ async def get_user_costing(
         or 0.0
     )
 
+    llm_extra, embed_extra = await _supplemental_period_event_costs(
+        db,
+        period_start=period_start,
+        period_end=period_end,
+        user_id=user_id,
+    )
+    llm_cost += llm_extra
+    embedding_cost += embed_extra
+
     by_agent_rows = (
         await db.execute(
             text(
@@ -564,7 +630,12 @@ async def _period_costs(
         ).scalar()
         or 0
     )
-    return llm, embedding, float(revenue_cents) / 100.0
+    llm_extra, embed_extra = await _supplemental_period_event_costs(
+        db,
+        period_start=period_start,
+        period_end=period_end,
+    )
+    return llm + llm_extra, embedding + embed_extra, float(revenue_cents) / 100.0
 
 
 async def get_platform_costing_overview(
@@ -748,23 +819,45 @@ async def _user_costing_rows(
           from public.knowledge_chunks kc
           where kc.created_at >= :period_start and kc.created_at < :period_end
           group by kc.user_id
+        ),
+        event_costs as (
+          select
+            user_id,
+            coalesce(sum(
+              case when kind = any(:llm_kinds) then cost_usd else 0 end
+            ), 0.0)::float as llm_extra,
+            coalesce(sum(
+              case when kind = :embed_kind then cost_usd else 0 end
+            ), 0.0)::float as embed_extra
+          from public.conversation_cost_events
+          where created_at >= :period_start
+            and created_at < :period_end
+            and cost_usd is not null
+          group by user_id
         )
         select
           u.id as user_id, coalesce(u.email, '') as email,
           s.plan_slug, s.plan_name,
           coalesce(s.monthly_price_cents, 0)::int as revenue_cents,
-          coalesce(l.cost, 0.0)::float as llm_cost,
-          coalesce(e.cost, 0.0)::float as embed_cost
+          coalesce(l.cost, 0.0)::float + coalesce(ev.llm_extra, 0.0)::float as llm_cost,
+          coalesce(e.cost, 0.0)::float + coalesce(ev.embed_extra, 0.0)::float as embed_cost
         from auth.users u
         left join active_subs s on s.user_id = u.id
         left join llm_costs l on l.user_id = u.id
         left join embed_costs e on e.user_id = u.id
+        left join event_costs ev on ev.user_id = u.id
         where s.user_id is not null or l.user_id is not null or e.user_id is not null
+            or ev.user_id is not null
     """
     rows = (
         await db.execute(
             text(sql),
-            {"period_start": period_start, "period_end": period_end},
+            {
+                "period_start": period_start,
+                "period_end": period_end,
+                "llm_kinds": list(_SUPPLEMENTAL_LLM_EVENT_KINDS),
+                "embed_kind": COST_KIND_EMBEDDING_RAG,
+            },
         )
     ).mappings().all()
 

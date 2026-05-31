@@ -66,8 +66,9 @@ export function TimeSeriesTrendChart({
         rangeFrom,
         rangeTo,
         edgePadDays,
+        includeYAxisTitle: showAxisTitles,
       }),
-    [series, viewWidth, rangeFrom, rangeTo, edgePadDays],
+    [series, viewWidth, rangeFrom, rangeTo, edgePadDays, showAxisTitles],
   );
 
   const activePoint = hoverIndex != null && chart ? chart.points[hoverIndex] : null;
@@ -180,7 +181,7 @@ export function TimeSeriesTrendChart({
             return (
               <text
                 key={`yl-${tick}`}
-                x={chart.plotLeft - 8}
+                x={chart.yLabelX}
                 y={gy}
                 textAnchor="end"
                 dominantBaseline="middle"
@@ -214,27 +215,27 @@ export function TimeSeriesTrendChart({
           {showAxisTitles ? (
             <>
               <text
-                x={18}
+                x={chart.yTitleX}
                 y={chart.midY}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="currentColor"
-                fontSize={12}
+                fontSize={11}
                 fontWeight={600}
                 opacity={0.58}
                 letterSpacing="0.02em"
-                transform={`rotate(-90 18 ${chart.midY})`}
+                transform={`rotate(-90 ${chart.yTitleX} ${chart.midY})`}
                 pointerEvents="none"
               >
                 Conversations
               </text>
               <text
                 x={chart.plotLeft + chart.innerW / 2}
-                y={CHART_VB_H - 10}
+                y={CHART_VB_H - 6}
                 textAnchor="middle"
                 dominantBaseline="auto"
                 fill="currentColor"
-                fontSize={12}
+                fontSize={11}
                 fontWeight={600}
                 opacity={0.58}
                 letterSpacing="0.05em"

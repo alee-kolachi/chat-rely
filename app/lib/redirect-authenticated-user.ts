@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
-import { postBootstrapMeServer } from "@/lib/server-bootstrap-me";
+import { fetchOnboardingGateServer } from "@/lib/server-bootstrap-me";
 import { getValidatedServerAuth } from "@/lib/supabase-server";
 
 function safeNextPath(raw: string | undefined): string {
@@ -15,7 +15,7 @@ export async function redirectAuthenticatedUser(nextPath?: string): Promise<void
 
   const destination = resolvePostAuthDestination(
     safeNextPath(nextPath),
-    (await postBootstrapMeServer(auth.session.access_token)).onboarding_completed
+    await fetchOnboardingGateServer(auth.session.access_token)
   );
   redirect(destination);
 }

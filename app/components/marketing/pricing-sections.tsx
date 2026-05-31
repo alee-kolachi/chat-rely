@@ -163,9 +163,19 @@ function unitedPlanCtaClassName(highlighted: boolean) {
     : "border-2 border-ds-primary text-ds-primary hover:bg-ds-primary hover:text-white";
 }
 
-type UnitedPlanColumnDensity = "landing" | "pricing";
+type UnitedPlanColumnDensity = "landing" | "pricing" | "onboarding";
 
 function unitedPlanColumnTypography(density: UnitedPlanColumnDensity) {
+  if (density === "onboarding") {
+    return {
+      column: "px-6 py-8 text-center sm:px-7 lg:py-9",
+      name: "text-lg font-semibold tracking-tight sm:text-xl",
+      tagline: "mt-2 text-sm leading-relaxed",
+      price: "text-3xl font-bold tabular-nums tracking-tight",
+      period: "text-sm font-medium",
+      cta: "mx-auto mt-8 w-full rounded-ds-lg py-3 text-center text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
+    };
+  }
   if (density === "landing") {
     return {
       column: "px-5 py-7 sm:px-6 lg:py-8",
@@ -186,6 +196,14 @@ function unitedPlanColumnTypography(density: UnitedPlanColumnDensity) {
   };
 }
 
+function OnboardingPopularBadge() {
+  return (
+    <span className="inline-flex rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+      Popular
+    </span>
+  );
+}
+
 type UnitedPlanColumnContentProps = {
   plan: (typeof PRICING_TIER_CARDS)[number];
   highlighted: boolean;
@@ -193,6 +211,7 @@ type UnitedPlanColumnContentProps = {
   isAuthenticated: boolean;
   showTagline?: boolean;
   showFeatureRows?: boolean;
+  showTeaserBullets?: boolean;
   onPlanCheckout?: (slug: PricingTierSlug) => void;
   checkoutBusySlug?: string | null;
 };
@@ -204,13 +223,15 @@ function UnitedPlanColumnContent({
   isAuthenticated,
   showTagline = false,
   showFeatureRows = false,
+  showTeaserBullets = false,
   onPlanCheckout,
   checkoutBusySlug = null,
 }: UnitedPlanColumnContentProps) {
   const typography = unitedPlanColumnTypography(density);
   const { price, period } = formatMonthlyPrice(plan.monthlyPriceCents);
   const cta = planCta(plan.slug, isAuthenticated);
-  const popularBadge = <UnitedPlanPopularBadge />;
+  const isOnboarding = density === "onboarding";
+  const popularBadge = isOnboarding ? <OnboardingPopularBadge /> : <UnitedPlanPopularBadge />;
   const checkoutBusy = checkoutBusySlug === plan.slug;
 
   return (
@@ -243,8 +264,13 @@ function UnitedPlanColumnContent({
         ) : null}
       </div>
       {showFeatureRows ? (
-        <div className="mt-4 min-w-0 flex-1 text-left">
+        <div className="mt-5 min-w-0 flex-1 text-left">
           <PricingPlanFeatureRows slug={plan.slug} highlighted={highlighted} dense />
+        </div>
+      ) : null}
+      {showTeaserBullets ? (
+        <div className="mt-5 min-w-0 flex-1 text-left">
+          <TeaserBulletList planSlug={plan.slug} highlighted={highlighted} onboarding />
         </div>
       ) : null}
       {onPlanCheckout ? (
@@ -274,22 +300,40 @@ type PricingUnitedPlanColumnsProps = {
   isAuthenticated: boolean;
   showTagline?: boolean;
   showFeatureRows?: boolean;
+  showTeaserBullets?: boolean;
   onPlanCheckout?: (slug: PricingTierSlug) => void;
   checkoutBusySlug?: string | null;
+  variant?: PricingCardsVariant;
 };
+
+function unitedPlanChrome(variant: PricingCardsVariant = "teaser") {
+  const isOnboarding = variant === "onboarding";
+  return {
+    shell: isOnboarding
+      ? "min-w-0 overflow-hidden rounded-ds-xl border border-ds-outline bg-ds-surface shadow-sm"
+      : UNITED_PLAN_SHELL,
+    grid: isOnboarding
+      ? "grid grid-cols-1 divide-y divide-ds-outline lg:grid-cols-4 lg:divide-y-0"
+      : UNITED_PLAN_GRID,
+    columnDivider: isOnboarding ? "border-l border-ds-outline" : PLAN_COLUMN_DIVIDER,
+  };
+}
 
 function PricingUnitedPlanColumns({
   density,
   isAuthenticated,
   showTagline = false,
   showFeatureRows = false,
+  showTeaserBullets = false,
   onPlanCheckout,
   checkoutBusySlug = null,
+  variant = "teaser",
 }: PricingUnitedPlanColumnsProps) {
   const typography = unitedPlanColumnTypography(density);
+  const { grid, columnDivider } = unitedPlanChrome(variant);
 
   return (
-    <div className={UNITED_PLAN_GRID}>
+    <div className={grid}>
       {PRICING_TIER_CARDS.map((plan, planIndex) => {
         const highlighted = plan.slug === "standard";
 
@@ -297,7 +341,7 @@ function PricingUnitedPlanColumns({
           <div
             key={plan.slug}
             className={`flex min-w-0 flex-col ${typography.column} ${
-              planIndex > 0 ? PLAN_COLUMN_DIVIDER : ""
+              planIndex > 0 ? columnDivider : ""
             } ${highlighted ? "bg-ds-primary text-white" : "bg-white text-ds-on-surface"}`}
           >
             <UnitedPlanColumnContent
@@ -307,6 +351,7 @@ function PricingUnitedPlanColumns({
               isAuthenticated={isAuthenticated}
               showTagline={showTagline}
               showFeatureRows={showFeatureRows}
+              showTeaserBullets={showTeaserBullets}
               onPlanCheckout={onPlanCheckout}
               checkoutBusySlug={checkoutBusySlug}
             />
@@ -577,13 +622,23 @@ export function PricingFeatureMatrix({
   );
 }
 
-function TeaserBulletList({ planSlug, highlighted }: { planSlug: PricingTierSlug; highlighted: boolean }) {
+function TeaserBulletList({
+  planSlug,
+  highlighted,
+  onboarding = false,
+}: {
+  planSlug: PricingTierSlug;
+  highlighted: boolean;
+  onboarding?: boolean;
+}) {
   const bullets = PRICING_TEASER_BULLETS[planSlug];
   const lineCls = highlighted ? "text-white/90" : "text-ds-on-surface";
   const tickCls = highlighted ? "text-emerald-200" : "text-emerald-600";
 
   return (
-    <ul className="mt-4 min-h-0 flex-1 space-y-2.5 text-xs leading-snug sm:text-[13px]">
+    <ul
+      className={`min-h-0 flex-1 ${onboarding ? "space-y-3 text-sm leading-relaxed" : "mt-4 space-y-2.5 text-xs leading-snug sm:text-[13px]"}`}
+    >
       {bullets.map((line) => (
         <li key={line} className={`flex gap-2.5 ${lineCls}`}>
           <span className={`mt-0.5 shrink-0 font-bold ${tickCls}`} aria-hidden>
@@ -622,14 +677,16 @@ export function PricingCards({
   }
 
   return (
-    <div className={UNITED_PLAN_SHELL}>
+    <div className={unitedPlanChrome(isOnboarding ? "onboarding" : "teaser").shell}>
       <PricingUnitedPlanColumns
-        density="landing"
+        density={isOnboarding ? "onboarding" : "landing"}
         isAuthenticated={isAuthenticated}
         showTagline
-        showFeatureRows
+        showFeatureRows={!isOnboarding}
+        showTeaserBullets={isOnboarding}
         onPlanCheckout={isOnboarding ? onPlanCheckout : undefined}
         checkoutBusySlug={checkoutBusySlug}
+        variant={variant}
       />
     </div>
   );

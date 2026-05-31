@@ -58,7 +58,7 @@ export default async function AdminConversationDetailPage({
   const showEventLedger = costEvents.length > 0;
 
   return (
-    <div className="grid grid-cols-1 gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <main className="flex min-w-0 flex-col gap-4">
         <header className="flex flex-col gap-2">
           <Link

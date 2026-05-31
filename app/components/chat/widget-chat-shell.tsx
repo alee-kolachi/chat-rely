@@ -26,6 +26,8 @@ export type WidgetChatShellProps = {
   className?: string;
   /** Playground-style fixed height; omit for flex parent sizing. */
   shellHeightClass?: string;
+  /** Playground-style composer has no divider above the input. */
+  footerBorderless?: boolean;
   /** Optional sample user bubble for appearance preview. */
   previewUserBubble?: ReactNode;
 };
@@ -57,6 +59,7 @@ export function WidgetChatShell({
   footer,
   className,
   shellHeightClass = "h-full max-h-full xl:h-[min(37.5rem,85vh)]",
+  footerBorderless = false,
   previewUserBubble,
 }: WidgetChatShellProps) {
   const brand = parseBrandColorHex(brandColorHex) ?? "#831C91";
@@ -142,7 +145,7 @@ export function WidgetChatShell({
       </div>
 
       {footer ? (
-        <div className="shrink-0 border-t" style={footerStyle}>
+        <div className={cn("shrink-0", !footerBorderless && "border-t")} style={footerStyle}>
           {footer}
         </div>
       ) : null}

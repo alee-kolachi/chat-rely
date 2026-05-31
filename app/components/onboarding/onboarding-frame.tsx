@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
-import { OnboardingIndexingBanner } from "@/components/onboarding/onboarding-indexing-banner";
+import { OnboardingIndexingProgress } from "@/components/onboarding/onboarding-indexing-progress";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +35,7 @@ export function OnboardingFrame({
   stepLabel,
   completedItems = [],
   linkAgentId,
+  hideIndexingBanner = false,
   children,
   footer,
 }: {
@@ -43,6 +44,8 @@ export function OnboardingFrame({
   completedItems?: OnboardingMenuItem[];
   /** Preserves `?agentId=` on sidebar navigation between steps. */
   linkAgentId?: string | null;
+  /** Step 2 shows crawl progress on the website card instead of the header bar. */
+  hideIndexingBanner?: boolean;
   children: ReactNode;
   /** Docked at the bottom of the main column (inside scrolling layout) so the bar stays tappable on mobile. */
   footer?: ReactNode;
@@ -107,10 +110,12 @@ export function OnboardingFrame({
       <div className="flex min-h-0 flex-1 flex-row overflow-x-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:ml-64">
           <header className="bg-ds-surface border-ds-outline sticky top-0 z-20 shrink-0 border-b">
-            <div className="flex h-14 min-h-14 items-center px-4 sm:px-6">
-              <span className="text-ds-on-surface-variant text-sm font-medium">{stepLabel}</span>
+            <div className="flex h-14 min-h-14 items-center justify-between gap-4 px-4 sm:px-6">
+              <span className="text-ds-on-surface-variant shrink-0 text-sm font-medium">{stepLabel}</span>
+              {showBanner && !hideIndexingBanner ? (
+                <OnboardingIndexingProgress snapshot={snapshot} variant="header" className="ml-auto" />
+              ) : null}
             </div>
-            {showBanner ? <OnboardingIndexingBanner snapshot={snapshot} compact /> : null}
           </header>
 
           <main className="onboarding-main-surface flex min-h-0 flex-1 flex-col">

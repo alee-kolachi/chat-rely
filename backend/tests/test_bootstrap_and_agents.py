@@ -1,9 +1,12 @@
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.deps import AuthContext, get_current_user
 from app.core.errors import AppError
+from app.core.settings import get_settings
 from app.domains.agents.schemas import AgentDTO
 from app.domains.bootstrap.schemas import (
     BootstrapResponse,
@@ -125,7 +128,31 @@ def test_me_onboarding_gate(client: TestClient, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr("app.api.routes.bootstrap.user_dashboard_onboarding_completed", _gate)
     response = client.get("/api/v1/me/onboarding-gate", headers=_auth_header())
     assert response.status_code == 200
-    assert response.json() == {"onboarding_completed": False}
+    assert response.json() == {"onboarding_completed": False, "is_admin": False}
+
+
+def test_me_onboarding_gate_marks_admin_email(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", "alice@chatrely.com")
+    get_settings.cache_clear()
+
+    async def _admin_user() -> AuthContext:
+        return AuthContext(
+            user_id=UUID("00000000-0000-0000-0000-000000000123"),
+            claims={
+                "sub": "00000000-0000-0000-0000-000000000123",
+                "email": "alice@chatrely.com",
+            },
+        )
+
+    client.app.dependency_overrides[get_current_user] = _admin_user
+
+    async def _gate(*_: Any, **__: Any) -> bool:
+        return False
+
+    monkeypatch.setattr("app.api.routes.bootstrap.user_dashboard_onboarding_completed", _gate)
+    response = client.get("/api/v1/me/onboarding-gate", headers=_auth_header())
+    assert response.status_code == 200
+    assert response.json() == {"onboarding_completed": False, "is_admin": True}
 
 
 @pytest.mark.parametrize(
