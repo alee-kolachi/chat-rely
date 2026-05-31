@@ -27,6 +27,45 @@ def resolve_tone_instruction(tone: str | None) -> str:
     )
 
 
+_LANGUAGE_LABELS: dict[str, str] = {
+    "en": "English",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "pt": "Portuguese",
+    "it": "Italian",
+    "nl": "Dutch",
+    "ja": "Japanese",
+    "zh": "Chinese",
+}
+
+
+def resolve_brand_instructions(text: str | None) -> str:
+    """Maps merchant free-text brand voice / sales playbook to a system prompt block."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return ""
+    return (
+        "BRAND INSTRUCTIONS (merchant-provided)\n"
+        f"{cleaned}\n"
+        "Follow these when they fit the customer's question. "
+        "Do not contradict facts from Shopify tools or the knowledge base."
+    )
+
+
+def resolve_language_instruction(language: str | None) -> str:
+    """Maps merchant default reply language to a system prompt block."""
+    key = (language or "").strip().lower()
+    if not key or key == "auto":
+        return ""
+    label = _LANGUAGE_LABELS.get(key, language.strip())
+    return (
+        f"LANGUAGE (merchant default: {label})\n"
+        f"Default reply language: {label}. "
+        "If the customer writes in another language, reply in their language instead."
+    )
+
+
 def resolve_agent_type_prompt(agent_type: str | None, custom_prompt: str) -> str:
     normalized = (agent_type or "brand_support").strip().lower()
 

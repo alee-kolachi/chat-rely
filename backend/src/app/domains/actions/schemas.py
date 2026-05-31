@@ -34,3 +34,18 @@ class AgentActionPatchRequest(BaseModel):
     enabled: bool | None = None
     config: dict[str, Any] | None = None
     safety_policy: dict[str, Any] | None = None
+
+
+class AgentActionBatchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_key: str
+    enabled: bool | None = None
+    config: dict[str, Any] | None = None
+    safety_policy: dict[str, Any] | None = None
+
+
+class AgentActionsBatchPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    updates: list[AgentActionBatchItem] = Field(min_length=1)

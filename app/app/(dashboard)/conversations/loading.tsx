@@ -1,14 +1,14 @@
 export default function ConversationsLoading() {
   return (
-    <div className="ds-app-shell flex min-h-0 flex-1 flex-col overflow-hidden p-6 md:p-8">
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden">
-        <header className="mb-6 shrink-0 md:mb-8">
+    <div className="ds-app-shell ds-app-shell--flush flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 flex-col gap-6 overflow-hidden">
+        <header className="shrink-0">
           <div className="bg-ds-sidebar h-8 w-48 animate-pulse rounded-md" />
           <div className="bg-ds-sidebar mt-3 h-4 w-96 max-w-full animate-pulse rounded-md" />
         </header>
 
         <section className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,2fr)] gap-6 overflow-hidden xl:grid-cols-[380px_1fr] xl:grid-rows-[minmax(0,1fr)]">
-          <div className="border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+          <div className="border-ds-outline bg-ds-surface flex min-h-0 flex-col overflow-hidden rounded-ds-xl border shadow-sm">
             <div className="border-ds-outline bg-ds-sidebar/90 flex shrink-0 items-center justify-between border-b px-4 py-3">
               <div className="bg-ds-sidebar h-4 w-24 animate-pulse rounded-md" />
               <div className="bg-ds-sidebar h-4 w-16 animate-pulse rounded-md" />
@@ -21,7 +21,7 @@ export default function ConversationsLoading() {
             </div>
           </div>
 
-          <div className="border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+          <div className="border-ds-outline bg-ds-surface flex min-h-0 flex-col overflow-hidden rounded-ds-xl border shadow-sm">
             <div className="border-ds-outline bg-ds-sidebar/90 flex shrink-0 items-center justify-between border-b px-5 py-4 sm:px-6">
               <div className="space-y-2">
                 <div className="bg-ds-sidebar h-4 w-56 animate-pulse rounded-md" />

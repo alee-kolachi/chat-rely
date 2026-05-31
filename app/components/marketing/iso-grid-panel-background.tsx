@@ -11,7 +11,7 @@ export function IsoGridPanelBackground({
   className,
 }: IsoGridPanelBackgroundProps) {
   return (
-    <div aria-hidden className={cn("pointer-events-none absolute inset-0 z-0 opacity-[0.36]", className)}>
+    <div aria-hidden className={cn("pointer-events-none absolute inset-0 z-0 min-h-full opacity-[0.36]", className)}>
       <IsoGridPattern
         id={id}
         className="h-full w-full"

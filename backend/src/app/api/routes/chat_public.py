@@ -53,10 +53,12 @@ async def chat_public_stream_route(
         conversation_id=payload.conversation_id,
         visitor_id=payload.visitor_id,
         visitor_email=payload.visitor_email,
+        visitor_name=payload.visitor_name,
         request_human=payload.request_human,
         locale=payload.locale,
         country_code=payload.country_code,
         channel="widget",
+        product_action=payload.product_action,
     )
 
     async def generate():

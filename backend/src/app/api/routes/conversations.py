@@ -18,6 +18,8 @@ from app.domains.conversations.schemas import (
     ConversationUpdateRequest,
     ConversationWorkspaceResponse,
     MessageDTO,
+    VisitorContactSubmitRequest,
+    VisitorContactSubmitResponse,
 )
 from app.domains.conversation_summaries.schemas import (
     ConversationSummaryDTO,
@@ -36,6 +38,8 @@ from app.domains.conversations.service import (
     mark_conversation_operator_engaged,
     update_conversation_status,
 )
+from app.agent.escalation import submit_visitor_contact_for_escalation
+from app.domains.actions.service import get_human_escalation_for_runtime
 from app.domains.integrations.mailjet.notify import maybe_send_ticket_email_reply
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -184,6 +188,37 @@ async def conversations_workspace_stream_route(
             await asyncio.sleep(8)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+@router.post("/{conversation_id}/visitor-contact", response_model=VisitorContactSubmitResponse)
+async def submit_visitor_contact_route(
+    conversation_id: UUID,
+    payload: VisitorContactSubmitRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> VisitorContactSubmitResponse:
+    conv = await get_conversation(db, user.user_id, conversation_id)
+    if conv.agent_id != payload.agent_id:
+        raise AppError(code="conversation.not_found", message="Conversation not found", status_code=404)
+    _, esc_cfg = await get_human_escalation_for_runtime(
+        db,
+        user_id=user.user_id,
+        agent_id=payload.agent_id,
+    )
+    result = await submit_visitor_contact_for_escalation(
+        db,
+        user_id=user.user_id,
+        agent_id=payload.agent_id,
+        conversation_id=conversation_id,
+        visitor_name=payload.visitor_name,
+        visitor_email=payload.visitor_email,
+        esc_cfg=esc_cfg,
+    )
+    return VisitorContactSubmitResponse(
+        handoff_message=result.reply,
+        conversation_status=result.conversation_status,
+        contact_capture_required=result.contact_capture_required,
+    )
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)

@@ -560,25 +560,26 @@ export default function KnowledgeWebsitePage() {
 
   return (
     <KnowledgeWorkspaceShell>
-      <main className="min-w-0 flex-1 p-4 pb-32 [&_button]:cursor-pointer [&_select]:cursor-pointer md:p-8 md:pb-32">
+      <main className="ds-app-page-scroll ds-app-page-scroll--mobile-dock min-w-0 flex-1 overflow-y-auto overscroll-y-contain [&_button]:cursor-pointer [&_select]:cursor-pointer">
         <KnowledgeMobileSubnav active="website" />
 
-        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="ds-app-page-title">Website</h1>
-            <p className="ds-app-page-description ds-app-page-description--wide">
-              Crawl pages or submit sitemaps so your agent stays aligned with live content.
-            </p>
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="ds-app-page-title">Website</h1>
+              <p className="ds-app-page-description ds-app-page-description--wide">
+                Crawl pages or submit sitemaps so your agent stays aligned with live content.
+              </p>
+            </div>
           </div>
-        </div>
 
-        {error ? (
-          <div className="border-ds-outline text-ds-on-surface mb-4 rounded-ds-lg border border-red-200 bg-red-50 px-4 py-3 text-sm">
-            {error}
-          </div>
-        ) : null}
+          {error ? (
+            <div className="border-ds-outline text-ds-on-surface rounded-ds-lg border border-red-200 bg-red-50 px-4 py-3 text-sm">
+              {error}
+            </div>
+          ) : null}
 
-        <section className="border-ds-outline mb-8 overflow-hidden rounded-ds-xl border bg-ds-surface">
+          <section className="border-ds-outline bg-ds-surface overflow-hidden rounded-ds-xl border shadow-sm">
           <div
             className="border-ds-outline flex cursor-pointer items-center justify-between border-b px-5 py-1.5 sm:px-6"
             role="button"
@@ -632,8 +633,8 @@ export default function KnowledgeWebsitePage() {
               <div className="space-y-6 p-5 sm:p-6">
                 <div className="space-y-2">
                   <label className="ds-app-kicker block text-ds-on-surface-variant">URL</label>
-                  <div className="border-ds-outline focus-within:border-ds-primary focus-within:ring-ds-primary/15 flex items-center overflow-hidden rounded-ds-lg border bg-white focus-within:ring-2">
-                    <div className="border-ds-outline bg-ds-sidebar relative border-r">
+                  <div className="border-ds-outline-subtle focus-within:border-ds-primary focus-within:ring-ds-primary/15 flex items-center overflow-hidden rounded-ds-lg border bg-ds-app-canvas focus-within:ring-2">
+                    <div className="border-ds-outline-subtle bg-ds-app-canvas relative border-r">
                       <select
                         value={protocol}
                         onChange={(e) => setProtocol(e.target.value)}
@@ -732,7 +733,7 @@ export default function KnowledgeWebsitePage() {
           ) : null}
         </section>
 
-        <section className="space-y-4 pb-8 lg:pb-10">
+        <section className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="ds-app-section-title">Link sources</h2>
             <KnowledgeSearchInput
@@ -782,7 +783,7 @@ export default function KnowledgeWebsitePage() {
             {sourcesLoading ? (
               <KnowledgeWebsiteSourceListSkeleton rows={4} />
             ) : filteredSources.length === 0 ? (
-              <div className="bg-ds-sidebar px-4 py-6 text-center">
+              <div className="bg-ds-app-canvas px-4 py-6 text-center">
                 <p className="text-ds-on-surface text-sm font-medium">
                   {searchActive ? "No matching links" : "No website sources yet"}
                 </p>
@@ -814,11 +815,12 @@ export default function KnowledgeWebsitePage() {
           </div>
           )}
         </section>
+        </div>
 
         <DataSourcesSidebar mobile className="lg:hidden" />
       </main>
 
-      <DataSourcesSidebar className="hidden lg:block" />
+      <DataSourcesSidebar className="hidden lg:flex" />
     </KnowledgeWorkspaceShell>
   );
 }
@@ -858,7 +860,7 @@ function PathRuleBlock({
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <div className="border-ds-outline focus-within:border-ds-primary focus-within:ring-ds-primary/15 relative h-[46px] min-w-[150px] overflow-hidden rounded-ds-lg border bg-white focus-within:ring-2">
+        <div className="border-ds-outline-subtle focus-within:border-ds-primary focus-within:ring-ds-primary/15 relative h-[46px] min-w-[150px] overflow-hidden rounded-ds-lg border bg-ds-app-canvas focus-within:ring-2">
           <select
             className="text-ds-on-surface h-full w-full cursor-pointer appearance-none rounded-ds-lg bg-transparent py-2 pr-9 pl-4 text-sm font-medium leading-none outline-none"
             value={operator}
@@ -1114,7 +1116,7 @@ function WebsiteSourceRow({
     <div
       id={`knowledge-source-${source.id}`}
       className={cn(
-        "border-ds-outline bg-ds-surface border-b/70 transition-colors last:border-0 hover:bg-ds-sidebar/40",
+        "border-ds-outline bg-ds-app-canvas border-b/70 transition-colors last:border-0 hover:bg-ds-nav-active/50",
         isHighlighted && "ring-2 ring-ds-primary/40 ring-inset"
       )}
     >

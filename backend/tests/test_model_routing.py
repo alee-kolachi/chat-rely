@@ -6,14 +6,11 @@ import pytest
 
 from app.agent.model_routing import (
     ClassifierResult,
-    is_likely_greeting_or_small_talk,
-    message_looks_like_order_question,
-    message_looks_like_order_reference,
     resolve_turn_model_sync,
     should_run_classifier,
 )
 from app.domains.plans.plan_limits import PlanModelPolicy, advanced_resolution_band
-from app.domains.runtime.service import _apply_usage_limit_model_downgrade
+from app.domains.runtime.service import _apply_usage_limit_model_downgrade, _resolve_runtime_model
 
 
 def _policy(
@@ -30,39 +27,26 @@ def _policy(
     )
 
 
-def test_greeting_skips_classifier() -> None:
-    assert is_likely_greeting_or_small_talk("Hi there")
-    assert is_likely_greeting_or_small_talk("thanks!")
-    assert not is_likely_greeting_or_small_talk(
-        "Where is my order #1234 and why was it marked delivered when I never got it?"
+def test_should_run_classifier_skips_greeting_flag() -> None:
+    policy = _policy()
+    assert not should_run_classifier(
+        policy=policy,
+        throttle_tier="normal",
+        premium_remaining=100,
+        conversation_premium_used=0,
+        routing_enabled=True,
+        max_per_conversation=2,
+        is_greeting_or_small_talk=True,
     )
-
-
-def test_bare_order_number_not_greeting() -> None:
-    assert message_looks_like_order_reference("8842")
-    assert message_looks_like_order_reference("#8842")
-    assert not message_looks_like_order_reference("Hi")
-    assert not is_likely_greeting_or_small_talk("8842")
-
-
-def test_order_question_detection() -> None:
-    assert message_looks_like_order_question("Where is my order #8842?")
-    assert message_looks_like_order_question("8842")
-    assert not message_looks_like_order_question("Do you sell hoodies?")
-
-
-def test_multi_intent_order_and_catalog_detection() -> None:
-    from app.agent.model_routing import (
-        message_has_order_and_catalog_intents,
-        message_looks_like_catalog_question,
+    assert should_run_classifier(
+        policy=policy,
+        throttle_tier="normal",
+        premium_remaining=100,
+        conversation_premium_used=0,
+        routing_enabled=True,
+        max_per_conversation=2,
+        is_greeting_or_small_talk=False,
     )
-
-    combined = "Where is order #1001 and do you sell boots?"
-    assert message_looks_like_order_question(combined)
-    assert message_looks_like_catalog_question(combined)
-    assert message_has_order_and_catalog_intents(combined)
-    assert not message_has_order_and_catalog_intents("Where is my order #8842?")
-    assert not message_has_order_and_catalog_intents("Do you sell boots?")
 
 
 def test_should_run_classifier_hobby_never() -> None:
@@ -72,7 +56,6 @@ def test_should_run_classifier_hobby_never() -> None:
         throttle_tier="normal",
         premium_remaining=0,
         conversation_premium_used=0,
-        user_message="complex order issue",
         routing_enabled=True,
         max_per_conversation=2,
     )
@@ -85,7 +68,6 @@ def test_should_run_classifier_strong_throttle_never() -> None:
         throttle_tier="strong",
         premium_remaining=100,
         conversation_premium_used=0,
-        user_message="complex order issue",
         routing_enabled=True,
         max_per_conversation=2,
     )
@@ -125,6 +107,11 @@ def test_apply_usage_limit_downgrade_on_strong() -> None:
         model="gpt-4o",
     )
     assert out == "gpt-4o-mini"
+
+
+def test_resolve_runtime_model_preserves_smart_resolution_model() -> None:
+    assert _resolve_runtime_model("gpt-4o", preserve_premium=True) == "gpt-4o"
+    assert _resolve_runtime_model("gpt-4o", preserve_premium=False) == "gpt-4o-mini"
 
 
 def test_advanced_resolution_band() -> None:

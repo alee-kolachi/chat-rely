@@ -23,6 +23,7 @@ from app.domains.actions.catalog_definitions import (
 from app.domains.actions.schemas import (
     ActionCatalogEntry,
     ActionCatalogResponse,
+    AgentActionBatchItem,
     AgentActionPatchRequest,
 )
 from app.domains.agents.service import _fetch_agent_by_id
@@ -42,17 +43,20 @@ def invalidate_shopify_actions_runtime_cache(*, user_id: UUID, agent_id: UUID) -
 
 
 async def _ensure_action_rows(db: AsyncSession, agent_id: UUID) -> None:
-    for d in all_static_definitions():
-        await db.execute(
-            text(
-                """
-                insert into public.agent_actions (agent_id, action_key, enabled, config, safety_policy)
-                values (cast(:agent_id as uuid), :action_key, false, '{}'::jsonb, '{}'::jsonb)
-                on conflict (agent_id, action_key) do nothing
-                """
-            ),
-            {"agent_id": str(agent_id), "action_key": d.action_key},
-        )
+    action_keys = [d.action_key for d in all_static_definitions()]
+    if not action_keys:
+        return
+    await db.execute(
+        text(
+            """
+            insert into public.agent_actions (agent_id, action_key, enabled, config, safety_policy)
+            select cast(:agent_id as uuid), v.action_key, false, '{}'::jsonb, '{}'::jsonb
+            from unnest(cast(:action_keys as text[])) as v(action_key)
+            on conflict (agent_id, action_key) do nothing
+            """
+        ),
+        {"agent_id": str(agent_id), "action_keys": action_keys},
+    )
     await db.commit()
 
 
@@ -373,6 +377,199 @@ async def patch_agent_action(
         enabled=bool(row["enabled"]),
         config=row["config"],
         safety_policy=row["safety_policy"],
+    )
+
+
+def _count_enabled_shopify_in_map(action_map: dict[str, dict[str, Any]]) -> int:
+    return sum(
+        1
+        for key, row in action_map.items()
+        if key.startswith("shopify.") and bool(row.get("enabled"))
+    )
+
+
+def _validate_action_enable(
+    *,
+    definition: StaticActionDefinition,
+    current: dict[str, Any],
+    next_enabled: bool,
+    shopify_plan_ok: bool,
+    human_escalation_plan_ok: bool,
+    max_enabled: int,
+    granted_set: frozenset[str],
+    status: str,
+    enabled_shopify_count: int,
+) -> None:
+    if not next_enabled:
+        return
+    if definition.requires_shopify_connection:
+        if not shopify_plan_ok:
+            raise AppError(
+                code="plan.shopify_disabled",
+                message="Shopify actions are not enabled for your plan",
+                status_code=403,
+            )
+        if status != "live":
+            raise AppError(
+                code="action.not_available",
+                message="This action is not available yet or required scopes are missing",
+                status_code=409,
+                details={"status": status},
+            )
+        if not _scopes_satisfied(definition.required_scopes, granted_set):
+            raise AppError(
+                code="action.missing_scopes",
+                message="Reconnect Shopify with the required OAuth scopes",
+                status_code=409,
+                details={"required": sorted(definition.required_scopes)},
+            )
+        if not current["enabled"] and enabled_shopify_count >= max_enabled:
+            raise AppError(
+                code="plan.action_limit",
+                message="Maximum enabled actions for this plan reached",
+                status_code=409,
+                details={"max_enabled_actions_per_agent": max_enabled},
+            )
+        return
+    if definition.action_key == HUMAN_ACTION_KEY and (
+        not human_escalation_plan_ok or max_enabled <= 0
+    ):
+        raise AppError(
+            code="plan.human_escalation_disabled",
+            message="Human escalation is not enabled for your plan",
+            status_code=403,
+        )
+    if status != "live":
+        raise AppError(
+            code="action.not_available",
+            message="This action is not available yet",
+            status_code=409,
+            details={"status": status},
+        )
+
+
+async def patch_agent_actions_batch(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    updates: list[AgentActionBatchItem],
+) -> ActionCatalogResponse:
+    """Apply multiple action patches in one transaction (one round-trip for the dashboard)."""
+    if not updates:
+        return await fetch_action_catalog_response(db, user_id=user_id, agent_id=agent_id)
+
+    await _fetch_agent_by_id(db, user_id, agent_id)
+    _, plan = await _ensure_default_subscription(db, user_id)
+    features = plan.features or {}
+    shopify_plan_ok = bool(features.get("shopify_enabled", False))
+    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
+    limits = plan_limits_dto_from_row(
+        included_conversations=plan.included_conversations,
+        max_agents=plan.max_agents,
+        features=features,
+    )
+    max_enabled = limits.max_enabled_actions_per_agent
+
+    conn = await get_connection_status(db, user_id=user_id, agent_id=agent_id)
+    granted_set = frozenset((s or "").lower() for s in (conn.scopes or []))
+
+    await _ensure_action_rows(db, agent_id)
+    action_map = await _load_agent_action_map(db, agent_id)
+
+    pending: list[tuple[str, bool, dict[str, Any], dict[str, Any]]] = []
+    shopify_touched = False
+
+    for item in updates:
+        definition = get_static_definition(item.action_key)
+        if definition is None:
+            raise AppError(code="action.unknown", message="Unknown action key", status_code=404)
+
+        if definition.requires_shopify_connection and item.enabled is True:
+            if not shopify_plan_ok:
+                raise AppError(
+                    code="plan.shopify_disabled",
+                    message="Shopify actions are not enabled for your plan",
+                    status_code=403,
+                )
+            if not conn.connected:
+                raise AppError(
+                    code="shopify.not_connected",
+                    message="Connect a Shopify store before enabling actions",
+                    status_code=409,
+                )
+
+        status = _effective_status(
+            shopify_plan_ok=shopify_plan_ok,
+            human_escalation_plan_ok=human_escalation_plan_ok,
+            max_enabled_actions_per_agent=max_enabled,
+            granted=granted_set,
+            definition=definition,
+        )
+        current = action_map.get(
+            item.action_key, {"enabled": False, "config": {}, "safety_policy": {}}
+        )
+        next_enabled = current["enabled"] if item.enabled is None else item.enabled
+        enabled_shopify_count = _count_enabled_shopify_in_map(action_map)
+
+        _validate_action_enable(
+            definition=definition,
+            current=current,
+            next_enabled=next_enabled,
+            shopify_plan_ok=shopify_plan_ok,
+            human_escalation_plan_ok=human_escalation_plan_ok,
+            max_enabled=max_enabled,
+            granted_set=granted_set,
+            status=status,
+            enabled_shopify_count=enabled_shopify_count,
+        )
+
+        next_config = dict(current["config"])
+        if item.config is not None:
+            next_config.update(item.config)
+        next_safety = dict(current["safety_policy"])
+        if item.safety_policy is not None:
+            next_safety.update(item.safety_policy)
+
+        pending.append((item.action_key, next_enabled, next_config, next_safety))
+        action_map[item.action_key] = {
+            "enabled": next_enabled,
+            "config": next_config,
+            "safety_policy": next_safety,
+        }
+        if item.action_key.startswith("shopify."):
+            shopify_touched = True
+
+    for action_key, next_enabled, next_config, next_safety in pending:
+        await db.execute(
+            text(
+                """
+                update public.agent_actions
+                set enabled = :enabled,
+                    config = cast(:config as jsonb),
+                    safety_policy = cast(:safety as jsonb),
+                    updated_at = now()
+                where agent_id = cast(:agent_id as uuid) and action_key = :action_key
+                """
+            ),
+            {
+                "agent_id": str(agent_id),
+                "action_key": action_key,
+                "enabled": next_enabled,
+                "config": json.dumps(next_config),
+                "safety": json.dumps(next_safety),
+            },
+        )
+
+    await db.commit()
+    if shopify_touched:
+        invalidate_shopify_actions_runtime_cache(user_id=user_id, agent_id=agent_id)
+
+    return await fetch_action_catalog_response(
+        db,
+        user_id=user_id,
+        agent_id=agent_id,
+        shopify_connection=conn,
     )
 
 

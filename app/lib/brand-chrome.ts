@@ -32,6 +32,13 @@ export function parseBrandColorHex(raw: unknown): string | null {
   return `#${cleaned.toUpperCase()}`;
 }
 
+/** Format a hex string (with or without `#`) as `#RRGGBB`, or `null` if invalid. */
+export function formatHex(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const cleaned = input.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6);
+  return cleaned.length === 6 ? `#${cleaned.toUpperCase()}` : null;
+}
+
 export function previewAssistantLineForTone(tone: string | null | undefined): string {
   const t = (tone ?? "").trim().toLowerCase();
   if (t === "professional") return "Hello. How may I assist you today?";

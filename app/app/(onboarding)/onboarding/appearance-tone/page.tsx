@@ -5,11 +5,19 @@ import { useRouter } from "next/navigation";
 import { WidgetChatShell } from "@/components/chat/widget-chat-shell";
 import { backendFetch } from "@/lib/backend-api";
 import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
-import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
-import { TONE_OPTIONS, type AgentTone, readBehaviorString } from "@/lib/agent-settings";
+import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
+import {
+  TONE_OPTIONS,
+  WELCOME_MESSAGE_MAX,
+  type AgentTone,
+  defaultWelcomeMessage,
+  effectiveWelcomeMessage,
+  readBehaviorString,
+} from "@/lib/agent-settings";
 import { faviconServiceUrl } from "@/lib/website-url";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
+import { AppSegmentGroupSimple } from "@/components/ui/app-segment-group";
 import { cn } from "@/lib/utils";
 import {
   OnboardingInput,
@@ -45,6 +53,7 @@ export default function AppearanceToneOnboardingPage() {
   const [hex, setHex] = useState("831C91");
   const [selectedPreset, setSelectedPreset] = useState(0);
   const [agentName, setAgentName] = useState("Support");
+  const [welcome, setWelcome] = useState("");
   const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,6 +83,7 @@ export default function AppearanceToneOnboardingPage() {
           (p) => p.hex.toUpperCase() === savedColor.toUpperCase(),
         );
         setAgentName(agent.name?.trim() || "Support");
+        setWelcome(readBehaviorString(behavior, "greeting_message"));
         setTone(savedTone);
         setHex(savedColor.replace("#", ""));
         setSelectedPreset(presetIndex >= 0 ? presetIndex : 0);
@@ -111,21 +121,27 @@ export default function AppearanceToneOnboardingPage() {
   }, [hex, selectedPreset]);
 
   const previewBrandChrome = useMemo(() => brandChromeClasses(previewBrandColor), [previewBrandColor]);
-  const previewAssistantMessage = useMemo(() => previewAssistantLineForTone(tone), [tone]);
+  const previewAssistantMessage = useMemo(() => {
+    const behavior = { greeting_message: welcome.trim() || undefined };
+    return effectiveWelcomeMessage(behavior, agentName);
+  }, [welcome, agentName]);
 
   async function handleContinue() {
     if (!agentId || isSaving) return;
     setIsSaving(true);
     setError(null);
     try {
+      const prefs: Record<string, unknown> = {
+        agent_id: agentId,
+        tone,
+        brand_color: previewBrandColor,
+        widget_position: "bottom_right",
+      };
+      const trimmedWelcome = welcome.trim();
+      if (trimmedWelcome) prefs.greeting_message = trimmedWelcome;
       await backendFetch("/api/v1/onboarding/preferences", {
         method: "PATCH",
-        body: JSON.stringify({
-          agent_id: agentId,
-          tone,
-          brand_color: previewBrandColor,
-          widget_position: "bottom_right",
-        }),
+        body: JSON.stringify(prefs),
       });
       router.push(`/onboarding/pricing?agentId=${encodeURIComponent(agentId)}`);
     } catch (e) {
@@ -180,24 +196,34 @@ export default function AppearanceToneOnboardingPage() {
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
+                      <label htmlFor="onboarding-welcome" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                        Welcome message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
+                      </label>
+                      <p className="ds-app-body-muted mb-2 text-sm">
+                        First message customers see. Leave blank to use: {defaultWelcomeMessage(agentName)}
+                      </p>
+                      <textarea
+                        id="onboarding-welcome"
+                        className="ds-app-field min-h-[4.5rem] w-full rounded-ds-lg text-sm leading-relaxed"
+                        value={welcome}
+                        onChange={(e) => setWelcome(e.target.value)}
+                        maxLength={WELCOME_MESSAGE_MAX}
+                        placeholder={defaultWelcomeMessage(agentName)}
+                      />
+                    </div>
+
+                    <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
                       <p className="text-ds-on-surface mb-1 text-sm font-semibold">Tone</p>
                       <p className="ds-app-body-muted mb-3">How replies sound to customers.</p>
-                      <div className="bg-ds-sidebar flex flex-col gap-1 rounded-ds-md border border-ds-outline p-1 sm:flex-row sm:gap-0">
-                        {TONE_OPTIONS.map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => setTone(t)}
-                            className={`touch-manipulation w-full rounded-ds-sm px-3 py-3 text-sm font-medium transition-all sm:flex-1 sm:py-2 ${
-                              tone === t
-                                ? "bg-white text-ds-on-surface shadow-sm"
-                                : "text-ds-on-surface-variant hover:text-ds-on-surface"
-                            }`}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
+                      <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
+                        You can add detailed brand instructions later in Agent Settings → Tone.
+                      </p>
+                      <AppSegmentGroupSimple
+                        aria-label="Tone"
+                        value={tone}
+                        onChange={setTone}
+                        options={TONE_OPTIONS.map((t) => ({ value: t, label: t }))}
+                      />
                     </div>
 
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">

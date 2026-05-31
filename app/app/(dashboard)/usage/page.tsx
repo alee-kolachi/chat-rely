@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { UsagePlanBanner } from "@/components/dashboard/usage-plan-banner";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { backendFetch } from "@/lib/backend-api";
+import { appButtonClassName } from "@/lib/button-styles";
 import { formatLocaleDate, formatLocaleNumber } from "@/lib/format-locale-datetime";
 import { formatStorageBytes } from "@/lib/plan-entitlements";
 import { useClientMounted } from "@/lib/use-client-mounted";
@@ -22,53 +24,47 @@ type KnowledgeUsage = {
   total_qa_pairs?: number;
 };
 
-function UsageMetric({
+function UsageMetricCard({
   label,
   hint,
-  used,
-  included,
+  usedLabel,
+  includedLabel,
   loading,
-  localeReady,
   pct,
   overIncluded,
 }: {
   label: string;
-  hint?: string;
-  used: number;
-  included: number;
+  hint: string;
+  usedLabel: string;
+  includedLabel: string;
   loading: boolean;
-  localeReady: boolean;
   pct: number;
   overIncluded: boolean;
 }) {
   return (
-    <div className="border-ds-outline/70 border-b py-6 last:border-b-0">
-      <h2 className="ds-app-section-title">{label}</h2>
-      {hint ? <p className="ds-app-body-muted mt-1 max-w-2xl">{hint}</p> : null}
-      <div className="mt-4">
-        <div className="text-ds-on-surface flex flex-wrap items-baseline justify-between gap-2 text-2xl font-semibold tabular-nums">
-          {loading ? (
-            <>
-              <span className="bg-ds-sidebar inline-block h-8 w-20 animate-pulse rounded-md" />
-              <span className="bg-ds-sidebar inline-block h-6 w-36 animate-pulse rounded-md" />
-            </>
-          ) : (
-            <>
-              <span>{formatLocaleNumber(used, localeReady)}</span>
-              <span className="text-ds-on-surface-variant text-base font-normal">
-                / {formatLocaleNumber(included, localeReady)} included
-              </span>
-            </>
-          )}
-        </div>
-        <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-ds-sidebar">
-          <div
-            className={`h-full transition-[width] ${overIncluded ? "bg-amber-500" : "bg-ds-primary"}`}
-            style={{ width: loading ? "0%" : `${pct}%` }}
-          />
-        </div>
+    <article className="border-ds-outline bg-ds-surface flex min-h-0 flex-col rounded-ds-xl border p-5 shadow-sm sm:p-6">
+      <h2 className="text-ds-on-surface-variant text-sm font-semibold leading-snug">{label}</h2>
+      <div className="mt-2 flex min-h-[2.75rem] flex-wrap items-end justify-between gap-2">
+        {loading ? (
+          <>
+            <span className="bg-ds-sidebar inline-block h-9 w-20 animate-pulse rounded-md" />
+            <span className="bg-ds-sidebar inline-block h-5 w-28 animate-pulse rounded-md" />
+          </>
+        ) : (
+          <>
+            <p className="ds-app-metric-value min-w-0 break-words">{usedLabel}</p>
+            <span className="text-ds-on-surface-variant shrink-0 text-sm">/ {includedLabel} included</span>
+          </>
+        )}
       </div>
-    </div>
+      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-ds-sidebar">
+        <div
+          className={`h-full transition-[width] ${overIncluded ? "bg-amber-500" : "bg-ds-primary"}`}
+          style={{ width: loading ? "0%" : `${pct}%` }}
+        />
+      </div>
+      <p className="ds-app-body-muted mt-auto pt-3 text-pretty break-words">{hint}</p>
+    </article>
   );
 }
 
@@ -127,150 +123,143 @@ export default function UsagePage() {
 
   const throttleTier = snap?.throttle_tier ?? null;
 
-  const knowledgeSummary = useMemo(() => {
-    if (!knowledgeUsage) return null;
-    const parts: string[] = [];
-    const qa = knowledgeUsage.total_qa_pairs ?? 0;
-    const snippets = knowledgeUsage.total_snippets ?? 0;
-    const files = knowledgeUsage.total_files ?? 0;
-    const links = knowledgeUsage.total_links ?? 0;
-    if (qa > 0) parts.push(`${qa} Q&A`);
-    if (snippets > 0) parts.push(`${snippets} snippets`);
-    if (files > 0) parts.push(`${files} files`);
-    if (links > 0) parts.push(`${links} pages`);
-    return parts.length ? parts.join(" · ") : null;
-  }, [knowledgeUsage]);
+  const knowledgeHint = useMemo(() => {
+    const parts: string[] = ["Indexed content for the selected agent."];
+    if (!selectedAgentId) {
+      parts.push("Select an agent in the header to load storage totals.");
+      return parts.join(" ");
+    }
+    const summary: string[] = [];
+    const qa = knowledgeUsage?.total_qa_pairs ?? 0;
+    const snippets = knowledgeUsage?.total_snippets ?? 0;
+    const files = knowledgeUsage?.total_files ?? 0;
+    const links = knowledgeUsage?.total_links ?? 0;
+    if (qa > 0) summary.push(`${qa} Q&A`);
+    if (snippets > 0) summary.push(`${snippets} snippets`);
+    if (files > 0) summary.push(`${files} files`);
+    if (links > 0) summary.push(`${links} pages`);
+    if (summary.length) parts.push(summary.join(" · "));
+    return parts.join(" ");
+  }, [knowledgeUsage, selectedAgentId]);
+
+  const periodLabel =
+    snap && localeReady
+      ? `${formatLocaleDate(snap.period_start, localeReady, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })} – ${formatLocaleDate(snap.period_end, localeReady, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}`
+      : null;
 
   return (
-    <div className="ds-app-shell px-6 pt-6 pb-16 md:px-8 md:pt-8 md:pb-20">
-      <div className="mx-auto w-full max-w-3xl">
-        <div className="mb-8">
-          <h1 className="ds-app-page-title">Usage</h1>
-          <p className="ds-app-body-muted mt-1">
-            Current period for <strong className="text-ds-on-surface font-semibold">{ctx?.plan.name ?? "your plan"}</strong>
-            {snap ? (
-              <>
-                {" "}
-                ·{" "}
-                {formatLocaleDate(snap.period_start, localeReady, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}{" "}
-                –{" "}
-                {formatLocaleDate(snap.period_end, localeReady, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </>
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="ds-app-page-title">Usage</h1>
+            <p className="ds-app-page-description ds-app-page-description--wide">
+              Plan limits and consumption for your account this billing period.
+            </p>
+            {ctx?.plan.name ? (
+              <p className="ds-app-body-muted mt-2 text-sm">
+                <span className="text-ds-on-surface font-semibold">{ctx.plan.name}</span>
+                {periodLabel ? <> · {periodLabel}</> : null}
+              </p>
             ) : null}
-          </p>
+          </div>
+          <Link
+            href="/account/plan"
+            className={appButtonClassName("default", { className: "self-start md:self-auto" })}
+          >
+            Manage plan
+          </Link>
         </div>
 
-        {error ? <p className="mb-6 text-sm text-rose-600">{error}</p> : null}
+        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
-        <section>
-          <UsageMetric
+        <UsagePlanBanner />
+
+        <section
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
+          aria-busy={loading || agentsLoading || knowledgeLoading}
+        >
+          <UsageMetricCard
             label="Conversations"
             hint="Closed chats with visitor messages, assistant replies, or tool activity."
-            used={usedConversations}
-            included={includedConversations}
+            usedLabel={formatLocaleNumber(usedConversations, localeReady)}
+            includedLabel={formatLocaleNumber(includedConversations, localeReady)}
             loading={loading}
-            localeReady={localeReady}
             pct={conversationsPct}
             overIncluded={beyondConversations > 0}
           />
 
-          <UsageMetric
+          <UsageMetricCard
             label="AI agents"
             hint="Workspaces in this account."
-            used={usedAgents}
-            included={maxAgents}
+            usedLabel={formatLocaleNumber(usedAgents, localeReady)}
+            includedLabel={formatLocaleNumber(maxAgents, localeReady)}
             loading={loading || agentsLoading}
-            localeReady={localeReady}
             pct={agentsPct}
             overIncluded={maxAgents > 0 && usedAgents > maxAgents}
           />
 
           {includedPremium > 0 ? (
-            <UsageMetric
+            <UsageMetricCard
               label="Smart resolution turns"
-              hint="Advanced resolution uses this allowance each billing cycle."
-              used={usedPremium}
-              included={includedPremium}
+              hint="Advanced-model replies for harder questions. Not every conversation uses one; most turns stay on Essential AI."
+              usedLabel={formatLocaleNumber(usedPremium, localeReady)}
+              includedLabel={formatLocaleNumber(includedPremium, localeReady)}
               loading={loading}
-              localeReady={localeReady}
               pct={premiumPct}
               overIncluded={usedPremium > includedPremium}
             />
           ) : null}
 
           {includedKnowledge > 0 ? (
-            <div className="border-ds-outline/70 border-b py-6 last:border-b-0">
-              <h2 className="ds-app-section-title">Knowledge storage</h2>
-              <p className="ds-app-body-muted mt-1">
-                Indexed content for the selected agent
-                {selectedAgentId ? "" : ". Select an agent in the header to load storage totals."}
-                {knowledgeSummary ? <> · {knowledgeSummary}</> : null}
-              </p>
-              <div className="mt-4">
-                <div className="text-ds-on-surface flex flex-wrap items-baseline justify-between gap-2 text-2xl font-semibold tabular-nums">
-                  {loading || knowledgeLoading ? (
-                    <>
-                      <span className="bg-ds-sidebar inline-block h-8 w-24 animate-pulse rounded-md" />
-                      <span className="bg-ds-sidebar inline-block h-6 w-32 animate-pulse rounded-md" />
-                    </>
-                  ) : (
-                    <>
-                      <span>{formatStorageBytes(usedKnowledge)}</span>
-                      <span className="text-ds-on-surface-variant text-base font-normal">
-                        / {formatStorageBytes(includedKnowledge)} included
-                      </span>
-                    </>
-                  )}
-                </div>
-                <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-ds-sidebar">
-                  <div
-                    className={`h-full transition-[width] ${overKnowledge ? "bg-amber-500" : "bg-ds-primary"}`}
-                    style={{ width: loading || knowledgeLoading ? "0%" : `${knowledgePct}%` }}
-                  />
-                </div>
-              </div>
-            </div>
+            <UsageMetricCard
+              label="Knowledge storage"
+              hint={knowledgeHint}
+              usedLabel={formatStorageBytes(usedKnowledge)}
+              includedLabel={formatStorageBytes(includedKnowledge)}
+              loading={loading || knowledgeLoading}
+              pct={knowledgePct}
+              overIncluded={overKnowledge}
+            />
           ) : null}
         </section>
 
         {snap ? (
-          <dl className="mt-6 grid gap-3 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-ds-on-surface-variant">Throttle tier</dt>
-              <dd className="font-medium tabular-nums">
-                {loading ? "…" : throttleTier ? formatThrottleTier(throttleTier) : "-"}
-              </dd>
-            </div>
-            {beyondConversations > 0 ? (
-              <div className="flex justify-between gap-4">
-                <dt className="text-ds-on-surface-variant">Above included conversations</dt>
-                <dd className="font-medium tabular-nums">{formatLocaleNumber(beyondConversations, localeReady)}</dd>
+          <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+            <h2 className="ds-app-section-title">This billing period</h2>
+            <p className="ds-app-body-muted mt-1">
+              Throttle status and any usage above your included conversation allowance.
+            </p>
+            <dl className="mt-5 grid gap-4 sm:grid-cols-2">
+              <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/40 px-4 py-3">
+                <dt className="text-ds-on-surface-variant text-sm">Throttle tier</dt>
+                <dd className="text-ds-on-surface mt-1 text-lg font-semibold tabular-nums">
+                  {loading ? "…" : throttleTier ? formatThrottleTier(throttleTier) : "Normal"}
+                </dd>
               </div>
+              <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/40 px-4 py-3">
+                <dt className="text-ds-on-surface-variant text-sm">Above included conversations</dt>
+                <dd className="text-ds-on-surface mt-1 text-lg font-semibold tabular-nums">
+                  {loading ? "…" : formatLocaleNumber(beyondConversations, localeReady)}
+                </dd>
+              </div>
+            </dl>
+            {throttleTier === "strong" ? (
+              <p className="ds-app-body-muted mt-4 text-sm leading-relaxed">
+                Heavy usage this period: chat stays on, but replies may take longer until your cycle resets or you
+                upgrade.
+              </p>
             ) : null}
-          </dl>
+          </article>
         ) : null}
-
-        {throttleTier === "strong" ? (
-          <p className="ds-app-body-muted mt-4 text-sm leading-relaxed">
-            Heavy usage this period: chat stays on, but replies may take longer until your cycle resets or you upgrade.
-          </p>
-        ) : null}
-
-        <p className="ds-app-body-muted mt-8 text-sm">
-          Plan limits and upgrades are on{" "}
-          <Link href="/account/plan" className="text-ds-primary font-semibold hover:underline">
-            Plan
-          </Link>
-          .
-        </p>
       </div>
     </div>
   );

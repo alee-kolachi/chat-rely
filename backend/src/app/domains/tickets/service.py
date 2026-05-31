@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 from uuid import UUID
@@ -29,6 +30,7 @@ async def record_escalation(
     conversation_id: UUID,
     user_message: str,
     customer_email: str | None,
+    customer_name: str | None = None,
 ) -> TicketDTO:
     """Set conversation to escalated and upsert a ticket row."""
     subject = _subject_from_user_message(user_message)
@@ -49,18 +51,27 @@ async def record_escalation(
     )
     await try_mark_conversation_counts_toward_plan(db, conversation_id)
 
+    name = (customer_name or "").strip() or None
+    ticket_meta = json.dumps({"customer_name": name}) if name else "{}"
+
     result = await db.execute(
         text(
             """
             insert into public.tickets (
               user_id, agent_id, conversation_id, status, subject, priority, customer_email, metadata
             ) values (
-              :user_id, :agent_id, :conversation_id, 'open', :subject, 'medium', :customer_email, '{}'::jsonb
+              :user_id, :agent_id, :conversation_id, 'open', :subject, 'medium', :customer_email,
+              cast(:ticket_meta as jsonb)
             )
             on conflict (conversation_id) do update
               set status = 'open',
                   subject = excluded.subject,
                   customer_email = coalesce(excluded.customer_email, tickets.customer_email),
+                  metadata = case
+                    when excluded.metadata ? 'customer_name'
+                      then coalesce(tickets.metadata, '{}'::jsonb) || excluded.metadata
+                    else tickets.metadata
+                  end,
                   updated_at = now()
             returning
               id, user_id, agent_id, conversation_id, status, subject, priority,
@@ -73,6 +84,7 @@ async def record_escalation(
             "conversation_id": str(conversation_id),
             "subject": subject,
             "customer_email": customer_email,
+            "ticket_meta": ticket_meta,
         },
     )
     row = result.mappings().first()
@@ -95,6 +107,41 @@ async def record_escalation(
     return TicketDTO.model_validate(row)
 
 
+async def update_visitor_contact_metadata(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    visitor_name: str | None,
+    visitor_email: str | None,
+) -> None:
+    patch: dict[str, str] = {}
+    name = (visitor_name or "").strip()
+    email = (visitor_email or "").strip()
+    if name:
+        patch["visitor_name"] = name
+    if email:
+        patch["visitor_email"] = email
+    if not patch:
+        return
+    await db.execute(
+        text(
+            """
+            update public.conversations
+            set metadata = coalesce(metadata, '{}'::jsonb) || cast(:patch as jsonb),
+                updated_at = now()
+            where id = :conversation_id and user_id = :user_id
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "patch": json.dumps(patch),
+        },
+    )
+    await db.commit()
+
+
 async def update_visitor_email_metadata(
     db: AsyncSession,
     *,
@@ -102,18 +149,49 @@ async def update_visitor_email_metadata(
     conversation_id: UUID,
     visitor_email: str | None,
 ) -> None:
-    if not visitor_email:
+    await update_visitor_contact_metadata(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        visitor_name=None,
+        visitor_email=visitor_email,
+    )
+
+
+async def sync_ticket_visitor_contact(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    customer_name: str | None,
+    customer_email: str | None,
+) -> None:
+    name = (customer_name or "").strip() or None
+    email = (customer_email or "").strip() or None
+    if not name and not email:
         return
+    patch: dict[str, str] = {}
+    if name:
+        patch["customer_name"] = name
     await db.execute(
         text(
             """
-            update public.conversations
-            set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('visitor_email', :email),
+            update public.tickets
+            set customer_email = coalesce(:customer_email, customer_email),
+                metadata = case
+                  when cast(:patch as jsonb) = '{}'::jsonb then metadata
+                  else coalesce(metadata, '{}'::jsonb) || cast(:patch as jsonb)
+                end,
                 updated_at = now()
-            where id = :conversation_id and user_id = :user_id
+            where conversation_id = :conversation_id and user_id = :user_id
             """
         ),
-        {"conversation_id": str(conversation_id), "user_id": str(user_id), "email": visitor_email},
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "customer_email": email,
+            "patch": json.dumps(patch),
+        },
     )
     await db.commit()
 

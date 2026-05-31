@@ -12,9 +12,9 @@ export default function NotificationsPage() {
   const { notifications, markRead, markAllRead } = useNotifications();
 
   return (
-    <div className="ds-app-shell px-6 pt-6 pb-24 md:px-8 md:pt-8 md:pb-28">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+        <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="ds-app-page-title">Notifications</h1>
             <p className="ds-app-page-description ds-app-page-description--wide">
@@ -25,7 +25,7 @@ export default function NotificationsPage() {
             <button
               type="button"
               onClick={() => void markAllRead()}
-              className={appButtonClassName("default", { className: "cursor-pointer self-start sm:self-auto" })}
+              className={appButtonClassName("default", { className: "cursor-pointer self-start md:self-auto" })}
             >
               Mark all read
             </button>

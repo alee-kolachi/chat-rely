@@ -56,7 +56,7 @@ When enabled, the agent uses LangGraph with `tool_choice=auto`:
 
 **Escalation:** The model must **call** `escalate_to_human` before saying the user is connected to a human. Handoff copy comes from `backend/src/app/agent/escalation.py` (`handoff_reply_*`).
 
-**Human-intent detection:** Prefer the escalation **tool** and model judgment. **Do not use regex** (`re`, `RegExp`) for visitor intent, routing, or parsing — use tool calls, small keyword lists, or structured fields instead. (Legacy regex in escalation should be removed over time.)
+**Human-intent detection:** Prefer the escalation **tool** and model judgment. **Do not use regex** (`re`, `RegExp`) or hardcoded phrase lists for visitor intent, routing, or parsing — use the turn-intent router (`backend/src/app/agent/turn_intent.py`), tool calls, or structured fields instead.
 
 ---
 

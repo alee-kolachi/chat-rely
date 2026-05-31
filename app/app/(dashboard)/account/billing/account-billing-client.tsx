@@ -79,14 +79,14 @@ export function AccountBillingClient() {
   }
 
   return (
-    <div className="ds-app-shell p-6 md:p-8">
-      <div className="mx-auto w-full max-w-3xl space-y-8">
-        <section>
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+        <header>
           <h1 className="ds-app-page-title">Billing</h1>
-          <p className="text-ds-on-surface-variant ds-app-page-description ds-app-page-description--wide mt-2">
+          <p className="ds-app-page-description ds-app-page-description--wide">
             Manage payment methods, invoices, and subscription details through Stripe&apos;s secure portal.
           </p>
-        </section>
+        </header>
 
         {loading ? (
           <p className="text-ds-on-surface-variant text-sm">Loading billing…</p>
@@ -100,7 +100,7 @@ export function AccountBillingClient() {
               </div>
             ) : null}
             {subscriptionSummary ? (
-              <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+              <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
                 <h2 className="ds-app-section-title">Current subscription</h2>
                 <dl className="mt-4 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
@@ -124,7 +124,7 @@ export function AccountBillingClient() {
               </section>
             ) : null}
 
-            <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+            <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
               <h2 className="ds-app-section-title">Stripe billing portal</h2>
               <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
                 View invoices, update payment methods, and manage subscription cancellation in Stripe&apos;s customer

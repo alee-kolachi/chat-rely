@@ -441,3 +441,36 @@ async def test_stream_chat_short_circuits_non_substantive_without_llm(
     assert done_payload["response"] == visitor_non_substantive_reply()
     assert done_payload["tools_invoked"] == []
 
+
+def test_resolve_brand_instructions_empty() -> None:
+    from app.domains.runtime.prompts.system import resolve_brand_instructions
+
+    assert resolve_brand_instructions("") == ""
+    assert resolve_brand_instructions("   ") == ""
+    assert resolve_brand_instructions(None) == ""
+
+
+def test_resolve_brand_instructions_includes_merchant_text() -> None:
+    from app.domains.runtime.prompts.system import resolve_brand_instructions
+
+    block = resolve_brand_instructions("Always offer to schedule a call.")
+    assert "BRAND INSTRUCTIONS" in block
+    assert "Always offer to schedule a call." in block
+    assert "Do not contradict facts" in block
+
+
+def test_resolve_language_instruction_auto_is_empty() -> None:
+    from app.domains.runtime.prompts.system import resolve_language_instruction
+
+    assert resolve_language_instruction("") == ""
+    assert resolve_language_instruction("auto") == ""
+    assert resolve_language_instruction(None) == ""
+
+
+def test_resolve_language_instruction_maps_known_code() -> None:
+    from app.domains.runtime.prompts.system import resolve_language_instruction
+
+    block = resolve_language_instruction("fr")
+    assert "French" in block
+    assert "Default reply language" in block
+

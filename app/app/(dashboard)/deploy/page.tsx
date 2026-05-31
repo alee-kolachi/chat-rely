@@ -5,23 +5,27 @@ import { DeployWidgetEmbedSnippet } from "@/components/deploy/deploy-widget-embe
 
 export default function DeployPage() {
   return (
-    <div className="ds-app-shell p-6 md:p-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
         <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="ds-app-page-title">Deploy</h1>
-            <p className="ds-app-body-muted mt-1 max-w-2xl">
+            <p className="ds-app-page-description ds-app-page-description--wide">
               Add the chat widget to your storefront or website.
             </p>
           </div>
           <DeployPageHeaderActions />
         </header>
 
-        <DeployShopifyStatus />
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+          <DeployShopifyStatus />
+        </section>
 
-        <DeployWidgetEmbedSnippet />
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+          <DeployWidgetEmbedSnippet />
+        </section>
 
-        <section>
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
           <h2 className="ds-app-section-title mb-2">Next steps</h2>
           <p className="ds-app-body-muted leading-relaxed">
             Tune replies in the{" "}

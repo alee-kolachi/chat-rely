@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { appButtonClassName } from "@/lib/button-styles";
+import { readTicketCustomerName } from "@/lib/visitor-contact";
 import { cn } from "@/lib/utils";
 
 type TicketRow = {
@@ -16,6 +17,7 @@ type TicketRow = {
   status: string;
   priority: string;
   customer_email: string | null;
+  metadata?: Record<string, unknown>;
   updated_at: string;
 };
 
@@ -109,9 +111,9 @@ function TicketsPageContent() {
   }
 
   return (
-    <div className="ds-app-shell p-6 md:p-8">
-      <div className="mx-auto w-full max-w-7xl">
-        <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="ds-app-page-title">Tickets</h1>
             <p className="ds-app-page-description ds-app-page-description--wide">
@@ -134,38 +136,38 @@ function TicketsPageContent() {
           >
             Refresh
           </button>
-        </header>
+        </div>
 
-        {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
+        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
-        <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <article className="border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm">
-            <p className="text-ds-on-surface-variant text-sm font-medium">Total</p>
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-5 shadow-sm sm:p-6">
+            <p className="text-ds-on-surface-variant text-sm font-semibold leading-snug">Total</p>
             <TicketMetricValue loading={loading} value={total} />
           </article>
           <Link
             href="/tickets?status=open"
             className={cn(
-              "border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm transition-colors hover:bg-ds-sidebar/50",
+              "border-ds-outline bg-ds-surface rounded-ds-xl border p-5 shadow-sm transition-colors hover:bg-ds-sidebar/50 sm:p-6",
               statusFilter === "open" && "ring-ds-primary ring-2"
             )}
           >
-            <p className="text-ds-on-surface-variant text-sm font-medium">Open</p>
+            <p className="text-ds-on-surface-variant text-sm font-semibold leading-snug">Open</p>
             <TicketMetricValue loading={loading} value={openCount} />
           </Link>
           <Link
             href="/tickets?status=pending_customer"
             className={cn(
-              "border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm transition-colors hover:bg-ds-sidebar/50",
+              "border-ds-outline bg-ds-surface rounded-ds-xl border p-5 shadow-sm transition-colors hover:bg-ds-sidebar/50 sm:p-6",
               statusFilter === "pending_customer" && "ring-ds-primary ring-2"
             )}
           >
-            <p className="text-ds-on-surface-variant text-sm font-medium">Awaiting customer</p>
+            <p className="text-ds-on-surface-variant text-sm font-semibold leading-snug">Awaiting customer</p>
             <TicketMetricValue loading={loading} value={awaitingCount} />
           </Link>
         </section>
 
-        <section className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+        <section className="border-ds-outline bg-ds-surface overflow-hidden rounded-ds-xl border shadow-sm">
           <div className="border-ds-outline bg-ds-sidebar/90 flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
             <h2 className="ds-app-kicker text-ds-on-surface font-semibold">Queue</h2>
             <div className="flex flex-wrap gap-2">
@@ -205,7 +207,13 @@ function TicketsPageContent() {
                   : "No tickets yet. Escalations appear when the AI hands off and “Escalate to Human” is enabled for this agent."}
               </p>
             ) : (
-              tickets.map((t) => (
+              tickets.map((t) => {
+                const customerName = readTicketCustomerName(t.metadata);
+                const contactLine =
+                  customerName && t.customer_email
+                    ? `${customerName} · ${t.customer_email}`
+                    : customerName || t.customer_email || "No contact captured";
+                return (
                 <Link
                   key={t.id}
                   href={conversationHref(t)}
@@ -214,7 +222,7 @@ function TicketsPageContent() {
                   <div className="min-w-0">
                     <p className="text-ds-on-surface truncate text-sm font-semibold">{t.subject ?? "Ticket"}</p>
                     <p className="ds-app-body-muted truncate">
-                      {t.customer_email ?? "No email captured"}
+                      {contactLine}
                     </p>
                   </div>
                   <span
@@ -230,7 +238,8 @@ function TicketsPageContent() {
                     {ticketStatusLabel(t.status)}
                   </span>
                 </Link>
-              ))
+                );
+              })
             )}
           </div>
         </section>
@@ -243,7 +252,7 @@ export default function TicketsPage() {
   return (
     <Suspense
       fallback={
-        <div className="ds-app-shell text-ds-on-surface-variant flex min-h-0 flex-1 flex-col p-6 text-sm md:p-8">
+        <div className="ds-app-shell text-ds-on-surface-variant flex min-h-0 flex-1 flex-col text-sm">
           Loading…
         </div>
       }

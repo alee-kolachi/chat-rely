@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     runtime_default_chat_model: str = "gpt-4o-mini"
     runtime_premium_chat_model: str = "gpt-4o"
     runtime_model_routing_enabled: bool = True
+    runtime_turn_intent_enabled: bool = True
     runtime_max_premium_turns_per_conversation: int = 2
     runtime_prefer_fast_chat_model: bool = True
     # SQLAlchemy pool: recycle connections (seconds); use Supabase pooler :6543 in DATABASE_URL.

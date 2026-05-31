@@ -3,7 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domains.runtime.schemas import ensure_non_whitespace_message
+from app.domains.public_widget.appearance import PublicWidgetAppearance
+from app.domains.runtime.schemas import ProductActionRequest, ensure_non_whitespace_message
 
 
 class PublicWidgetAgentContext(BaseModel):
@@ -43,6 +44,8 @@ class PublicWidgetConfigResponse(BaseModel):
         default=False,
         description="When True, embed may show thumbs up/down on assistant replies (Pro / Scale).",
     )
+    """Pro-only: theme mode, font, granular colors. Omitted for non-Pro plans."""
+    widget_appearance: PublicWidgetAppearance | None = None
 
 
 class PublicWidgetChatRequest(BaseModel):
@@ -54,9 +57,11 @@ class PublicWidgetChatRequest(BaseModel):
     conversation_id: UUID | None = None
     visitor_id: str = Field(min_length=1, max_length=255)
     visitor_email: str | None = None
+    visitor_name: str | None = None
     request_human: bool = False
     locale: str | None = None
     country_code: str | None = None
+    product_action: ProductActionRequest | None = None
 
     @field_validator("message")
     @classmethod
@@ -79,3 +84,20 @@ class PublicWidgetMessageFeedbackRequest(BaseModel):
         if self.value is None:
             raise ValueError("value is required when remove is false")
         return self
+
+
+class PublicWidgetVisitorContactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: UUID
+    visitor_id: str = Field(min_length=1, max_length=255)
+    visitor_name: str = Field(min_length=1, max_length=200)
+    visitor_email: str = Field(min_length=3, max_length=320)
+
+
+class PublicWidgetVisitorContactResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    handoff_message: str
+    conversation_status: str
+    contact_capture_required: bool = False

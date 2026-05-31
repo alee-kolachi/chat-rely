@@ -20,9 +20,16 @@ import {
 } from "@/components/chat/StreamingAssistantMessage";
 import { chatSseStream } from "@/lib/chat-sse";
 import { applyChatSseEvent, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
+import {
+  productActionUserMessage,
+  type ProductActionRequest,
+  type ProductCard,
+  type ProductDetail,
+} from "@/lib/product-card";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
-import { useSetDashboardTopbarExtras } from "@/components/layout/dashboard-topbar-extras-context";
+import { ActionToggle } from "@/components/actions/action-toggle";
+import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
 import {
@@ -32,24 +39,50 @@ import {
 } from "@/components/playground/playground-page-skeleton";
 import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard-page-skeleton";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
-import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
-import { brandChromeClasses, parseBrandColorHex, previewAssistantLineForTone } from "@/lib/brand-chrome";
+import { isRenderableTranscriptMessage, parseMessageProductMetadata } from "@/lib/conversation-transcript";
+import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
+import { effectiveWelcomeMessage } from "@/lib/agent-settings";
 import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
+import { getWidgetPreviewContext } from "@/lib/widget-appearance";
 import { InfoHint } from "@/components/ui/info-hint";
+import { AppSegmentGroup, AppSegmentOption } from "@/components/ui/app-segment-group";
 import { IsoGridPanelBackground } from "@/components/marketing/iso-grid-panel-background";
 import {
   CREATIVITY_BANDS,
   normalizeCreativity,
   type CreativityLevel,
 } from "@/lib/agent-settings";
-import { useActionEnableToggle } from "@/hooks/use-action-enable-toggle";
+import { useActionDrafts } from "@/hooks/use-action-drafts";
+import { unsavedChangesMessage } from "@/lib/action-draft-utils";
 import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
+import { EscalatedChatNotice } from "@/components/chat/escalated-chat-notice";
+import { VisitorContactForm } from "@/components/chat/visitor-contact-form";
+import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+import {
+  isAiChatDisabledStatus,
+  readConversationStatus,
+} from "@/lib/escalated-conversation";
+import { readContactCaptureRequired } from "@/lib/visitor-contact";
+import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
 
 const PLAYGROUND_CREATIVITY_HINT =
-  "How varied replies are. Conservative stays close to your knowledge; Creative allows more flexible wording.";
+  "Conservative stays close to your knowledge; Creative allows more flexible wording.";
+
+const PLAYGROUND_CREATIVITY_DESCRIPTION =
+  "How varied replies are in preview. Save to apply on your live widget.";
+
+const PLAYGROUND_ACTIONS_DESCRIPTION =
+  "Turn Shopify tools and human handoff on or off for this agent.";
+
+const PLAYGROUND_AGENT_DESCRIPTION =
+  "Choose a preset voice or write custom instructions for how the agent responds.";
+
+const PLAYGROUND_SYSTEM_PROMPT_PLACEHOLDER = `e.g. Mention our 30-day return policy on order questions.
+Keep replies to 2–3 short sentences.
+Never guess stock or prices—search the catalog first.`;
 
 const PLAYGROUND_AGENT_TYPE_HINT =
   "Brand Support: on-brand shop answers, warm and direct. General AI: flexible helper for any question. Customer Support: resolves issues step by step with a calm tone. Custom: you write the full system prompt.";
@@ -77,23 +110,37 @@ function resizePlaygroundComposer(textarea: HTMLTextAreaElement) {
 
 const playgroundComposerClass = cn(fieldControlClass, "playground-composer-input min-w-0 flex-1");
 
-/** Matches agent-settings form labels (not uppercase kickers). */
-const settingsFieldLabelClass = "ds-app-label mb-1.5 block";
+const playgroundSettingsCardClass =
+  "border-ds-outline rounded-ds-xl border bg-ds-surface p-5 shadow-sm sm:p-6";
+
+const playgroundSettingsCardHeaderClass = "mb-4";
+
+const playgroundSettingsCardTitleClass = "text-ds-on-surface text-base font-semibold";
+
+const playgroundSettingsFieldLabelClass = "text-ds-on-surface text-sm font-semibold";
+
+const playgroundSettingsCardDescriptionClass =
+  "text-ds-on-surface-variant mt-1.5 text-sm leading-relaxed";
+
 const fieldControlPointerClass = cn(fieldControlClass, "cursor-pointer");
 
 type PlaygroundPreviewMessage = {
   from: "user" | "assistant";
   text: string;
+  createdAt?: string;
   assistantMessageId?: string | null;
   feedbackVote?: 1 | -1 | null;
   streamPhase?: AssistantStreamPhase;
   errorMessage?: string | null;
   statusLine?: string | null;
+  products?: ProductCard[] | null;
+  productDetail?: ProductDetail | null;
 };
 
 type PlaygroundThreadCacheEntry = {
   visitorId: string;
   messages: PlaygroundPreviewMessage[];
+  status?: string;
 };
 
 type PlaygroundConversationRow = {
@@ -198,16 +245,26 @@ function mapApiMessageToPlaygroundPreview(m: {
   role: string;
   content?: string | null;
   id?: string;
+  created_at?: string;
   tool_call_payload?: unknown;
+  metadata?: unknown;
 }): PlaygroundPreviewMessage | null {
   if (!isRenderableTranscriptMessage(m)) return null;
   const from = m.role as "user" | "assistant";
   const row: PlaygroundPreviewMessage = {
     from,
     text: m.content ?? "",
+    ...(typeof m.created_at === "string" && m.created_at.length > 0
+      ? { createdAt: m.created_at }
+      : {}),
   };
   if (from === "assistant" && m.id != null && String(m.id).length > 0) {
     row.assistantMessageId = String(m.id);
+  }
+  if (from === "assistant" && m.metadata && typeof m.metadata === "object") {
+    const { products, productDetail } = parseMessageProductMetadata(m.metadata);
+    row.products = products ?? null;
+    row.productDetail = productDetail ?? null;
   }
   return row;
 }
@@ -242,9 +299,8 @@ function PlaygroundPreviewConversation({
   agentId,
   agentName,
   brandColorHex,
-  toneRaw,
   toneDescriptionRaw,
-  greetingMessageRaw,
+  behaviorSettings,
   languageRaw,
   agentType,
   systemPrompt,
@@ -256,9 +312,8 @@ function PlaygroundPreviewConversation({
   agentId: string | null;
   agentName: string | null;
   brandColorHex: string | null;
-  toneRaw: string | null;
   toneDescriptionRaw: string | null;
-  greetingMessageRaw: string | null;
+  behaviorSettings: Record<string, unknown> | null | undefined;
   languageRaw: string | null;
   agentType: string;
   systemPrompt: string;
@@ -289,6 +344,9 @@ function PlaygroundPreviewConversation({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyThreadLoading, setHistoryThreadLoading] = useState(false);
+  const [conversationStatus, setConversationStatus] = useState<string>("open");
+  const [contactCaptureRequired, setContactCaptureRequired] = useState(false);
+  const aiChatDisabled = isAiChatDisabledStatus(conversationStatus);
   const [, setThreadCacheState] = useState<Record<string, PlaygroundThreadCacheEntry>>({});
   const chatAbortRef = useRef<AbortController | null>(null);
   const blockThreadSyncRef = useRef(false);
@@ -351,8 +409,14 @@ function PlaygroundPreviewConversation({
 
     const request = (async () => {
       const data = await backendFetch<{
-        conversation: { visitor_id: string };
-        messages: Array<{ id?: string; role: string; content: string; tool_call_payload?: unknown }>;
+        conversation: { visitor_id: string; status?: string };
+        messages: Array<{
+          id?: string;
+          role: string;
+          content: string;
+          created_at?: string;
+          tool_call_payload?: unknown;
+        }>;
       }>(`/api/v1/conversations/${encodeURIComponent(threadId)}`);
       const mapped: PlaygroundPreviewMessage[] = [];
       for (const m of data.messages) {
@@ -362,6 +426,7 @@ function PlaygroundPreviewConversation({
       const entry = {
         visitorId: data.conversation.visitor_id.trim() || newPlaygroundVisitorId(),
         messages: mapped,
+        status: data.conversation.status ?? "open",
       };
       cacheThread(threadId, entry);
       return entry;
@@ -394,6 +459,7 @@ function PlaygroundPreviewConversation({
         setConversationId(null);
         setVisitorId(newPlaygroundVisitorId());
         setPreviewMessages([]);
+        setConversationStatus("open");
         return;
       }
 
@@ -411,9 +477,16 @@ function PlaygroundPreviewConversation({
   }, [agentId, cacheThread, clearFeedbackSyncState]);
 
   useEffect(() => {
-    if (!conversationId) return;
-    cacheThread(conversationId, { visitorId, messages: previewMessages });
-  }, [conversationId, visitorId, previewMessages, cacheThread]);
+    if (!conversationId) {
+      setConversationStatus("open");
+      return;
+    }
+    cacheThread(conversationId, {
+      visitorId,
+      messages: previewMessages,
+      status: conversationStatus,
+    });
+  }, [conversationId, visitorId, previewMessages, conversationStatus, cacheThread]);
 
   useEffect(() => {
     if (!agentId || !conversationId) return;
@@ -439,22 +512,31 @@ function PlaygroundPreviewConversation({
       if (blockThreadSyncRef.current) return;
       try {
         const data = await backendFetch<{
-          messages: Array<{ id?: string; role: string; content: string; tool_call_payload?: unknown }>;
+          conversation: { status?: string };
+          messages: Array<{
+            id?: string;
+            role: string;
+            content: string;
+            created_at?: string;
+            tool_call_payload?: unknown;
+          }>;
         }>(`/api/v1/conversations/${encodeURIComponent(cid)}`);
         if (cancelled) return;
         // A poll that started before this render can resolve after the user sends a message.
         // Applying it would wipe optimistic rows until the next poll (messages "vanish").
         if (blockThreadSyncRef.current) return;
+        const nextStatus = data.conversation.status ?? "open";
         const mapped: PlaygroundPreviewMessage[] = [];
         for (const m of data.messages) {
           const row = mapApiMessageToPlaygroundPreview(m);
           if (row) mapped.push(row);
         }
+        setConversationStatus(nextStatus);
         setPreviewMessages((current) => {
           if (!shouldApplyServerPlaygroundTranscript(current, mapped)) {
             return current;
           }
-          cacheThread(cid, { visitorId, messages: mapped });
+          cacheThread(cid, { visitorId, messages: mapped, status: nextStatus });
           return mapped;
         });
       } catch (e) {
@@ -527,7 +609,8 @@ function PlaygroundPreviewConversation({
   async function streamPlaygroundReply(
     userMessage: string,
     thread: { conversationId: string | null; visitorId: string },
-    ac: AbortController
+    ac: AbortController,
+    productAction?: ProductActionRequest
   ) {
     for await (const ev of chatSseStream("/api/chat/stream", {
       method: "POST",
@@ -540,11 +623,29 @@ function PlaygroundPreviewConversation({
         system_prompt_override: agentType === "custom" ? systemPrompt : null,
         creativity_override: creativity,
         visitor_id: thread.visitorId,
+        ...(productAction
+          ? {
+              product_action: {
+                type: productAction.type,
+                handle: productAction.handle,
+                title: productAction.title ?? null,
+              },
+            }
+          : {}),
       }),
     })) {
       if (ac.signal.aborted) break;
-      if (ev.type === "done" && ev.conversation_id) {
-        setConversationId(ev.conversation_id);
+      if (ev.type === "done") {
+        if (ev.conversation_id) {
+          setConversationId(ev.conversation_id);
+        }
+        const nextStatus = readConversationStatus(ev.conversation_status);
+        if (nextStatus) {
+          setConversationStatus(nextStatus);
+        } else if (ev.ai_chat_disabled === true) {
+          setConversationStatus("escalated");
+        }
+        setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
       }
       setPreviewMessages((prev) => {
         if (prev.length === 0) return prev;
@@ -588,9 +689,57 @@ function PlaygroundPreviewConversation({
     });
   }
 
+  const runProductAction = useCallback(
+    async (action: ProductActionRequest) => {
+      if (!agentId || isSending || historyThreadLoading || aiChatDisabled) return;
+      const userMessage = productActionUserMessage(action);
+      stickToBottomRef.current = true;
+      blockThreadSyncRef.current = true;
+      setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage, createdAt: messageCreatedAtIso() }]);
+      setIsSending(true);
+      setChatError(null);
+      chatAbortRef.current?.abort();
+      const ac = new AbortController();
+      chatAbortRef.current = ac;
+      setPreviewMessages((prev) => [
+        ...prev,
+        {
+          from: "assistant",
+          text: "",
+          streamPhase: "thinking",
+          createdAt: messageCreatedAtIso(),
+        },
+      ]);
+      const thread = { conversationId, visitorId };
+      try {
+        await streamPlaygroundReply(userMessage, thread, ac, action);
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        const errMsg = e instanceof Error ? e.message : "Could not load product";
+        setChatError(errMsg);
+        setPreviewMessages((prev) => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last?.from !== "assistant") return prev;
+          const next = [...prev];
+          next[next.length - 1] = {
+            ...last,
+            streamPhase: "error",
+            errorMessage: errMsg,
+          };
+          return next;
+        });
+      } finally {
+        if (chatAbortRef.current === ac) chatAbortRef.current = null;
+        setIsSending(false);
+      }
+    },
+    [agentId, conversationId, creativity, historyThreadLoading, isSending, visitorId, agentType, systemPrompt, aiChatDisabled]
+  );
+
   async function handleSendMessage() {
     const draft = (messageInputRef.current?.value ?? messageInput).trim();
-    if (!agentId || !draft || isSending || historyThreadLoading) return;
+    if (!agentId || !draft || isSending || historyThreadLoading || aiChatDisabled) return;
     stickToBottomRef.current = true;
     // `blockThreadSyncRef` is otherwise updated in layout after commit; without this, an in-flight
     // poll can finish between optimistic updates and that effect and overwrite the transcript.
@@ -601,7 +750,7 @@ function PlaygroundPreviewConversation({
       messageInputRef.current.value = "";
       resizePlaygroundComposer(messageInputRef.current);
     }
-    setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage }]);
+    setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage, createdAt: messageCreatedAtIso() }]);
     setIsSending(true);
     setChatError(null);
     chatAbortRef.current?.abort();
@@ -613,6 +762,7 @@ function PlaygroundPreviewConversation({
         from: "assistant",
         text: "",
         streamPhase: "thinking",
+        createdAt: messageCreatedAtIso(),
       },
     ]);
     let thread = { conversationId, visitorId };
@@ -629,7 +779,12 @@ function PlaygroundPreviewConversation({
         setPreviewMessages((prev) => {
           const next = [...prev];
           if (next[next.length - 1]?.from === "assistant") {
-            next[next.length - 1] = { from: "assistant", text: "", streamPhase: "thinking" };
+            next[next.length - 1] = {
+              from: "assistant",
+              text: "",
+              streamPhase: "thinking",
+              createdAt: next[next.length - 1]?.createdAt ?? messageCreatedAtIso(),
+            };
           }
           return next;
         });
@@ -657,6 +812,35 @@ function PlaygroundPreviewConversation({
     }
   }
 
+  async function handleSubmitVisitorContact(fields: { name: string; email: string }) {
+    if (!agentId || !conversationId) {
+      throw new Error("Send a message before connecting to support.");
+    }
+    const data = await backendFetch<{
+      handoff_message: string;
+      conversation_status: string;
+      contact_capture_required: boolean;
+    }>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/visitor-contact`, {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: agentId,
+        visitor_name: fields.name,
+        visitor_email: fields.email,
+      }),
+    });
+    setContactCaptureRequired(data.contact_capture_required);
+    setConversationStatus(data.conversation_status);
+    setPreviewMessages((prev) => [
+      ...prev,
+      {
+        from: "assistant",
+        text: data.handoff_message,
+        createdAt: messageCreatedAtIso(),
+        streamPhase: "done",
+      },
+    ]);
+  }
+
   function handleResetPreviewChat() {
     if (!agentId) return;
     stickToBottomRef.current = true;
@@ -666,6 +850,8 @@ function PlaygroundPreviewConversation({
     setPreviewMessages([]);
     setChatError(null);
     setHistoryOpen(false);
+    setConversationStatus("open");
+    setContactCaptureRequired(false);
     writePlaygroundChatToStorage(agentId, [], null, nextVisitorId);
   }
 
@@ -678,6 +864,7 @@ function PlaygroundPreviewConversation({
       setConversationId(threadId);
       setVisitorId(cached.visitorId);
       setPreviewMessages(cached.messages);
+      setConversationStatus(cached.status ?? "open");
       setHistoryOpen(false);
       writePlaygroundChatToStorage(agentId, cached.messages, threadId, cached.visitorId);
     } else {
@@ -693,6 +880,7 @@ function PlaygroundPreviewConversation({
       setConversationId(threadId);
       setVisitorId(next.visitorId);
       setPreviewMessages(next.messages);
+      setConversationStatus(next.status ?? "open");
       setHistoryOpen(false);
       writePlaygroundChatToStorage(agentId, next.messages, threadId, next.visitorId);
     } catch (e) {
@@ -712,6 +900,11 @@ function PlaygroundPreviewConversation({
   const messageFeedbackEnabled = useMemo(
     () => messageFeedbackEnabledForPlanSlug(meData?.plan.slug),
     [meData?.plan.slug]
+  );
+
+  const { resolved: appearanceResolved, headerChrome, userChrome } = useMemo(
+    () => getWidgetPreviewContext(behaviorSettings, brandColorHex, meData?.plan.slug),
+    [behaviorSettings, brandColorHex, meData?.plan.slug]
   );
 
   const submitPlaygroundFeedback = useCallback(
@@ -792,22 +985,11 @@ function PlaygroundPreviewConversation({
   );
 
   const hasBrand = Boolean(brandColorHex);
-
-  useLayoutEffect(() => {
-    const el = messageInputRef.current;
-    if (!el) return;
-    resizePlaygroundComposer(el);
-  }, [messageInput]);
-  const chrome = useMemo(
-    () => (brandColorHex ? brandChromeClasses(brandColorHex) : null),
-    [brandColorHex]
-  );
+  const chrome = headerChrome;
   const displayName = (agentName?.trim() || "Assistant preview").trim();
-  const emptyToneLine = previewAssistantLineForTone(toneRaw);
-  const greetingMessage = greetingMessageRaw?.trim() || null;
   const toneDescription = toneDescriptionRaw?.trim() || null;
   const languageLabel = languagePreviewLabel(languageRaw);
-  const emptyAssistantLine = greetingMessage ?? emptyToneLine;
+  const emptyAssistantLine = effectiveWelcomeMessage(behaviorSettings, agentName);
 
   const headerToolbarIconBtnClass = useMemo(
     () =>
@@ -826,18 +1008,28 @@ function PlaygroundPreviewConversation({
   return (
     <div
       className={cn(
-        "border-ds-outline flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border bg-white shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
-        /* Mobile preview tab: fill panel; desktop: fixed shell like embeddable chat widgets — transcript scrolls inside */
+        "border-ds-outline flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
         "h-full max-h-full",
         "xl:h-[min(37.5rem,85vh)]"
       )}
+      style={{
+        backgroundColor: appearanceResolved.colors.panelBackground,
+        borderColor: appearanceResolved.colors.assistantBubbleBorder,
+        color: appearanceResolved.colors.textPrimary,
+      }}
     >
       <div
         className={cn(
           "flex shrink-0 items-center justify-between border-b px-5 py-3.5 sm:px-6",
           hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
         )}
-        style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+        style={
+          hasBrand
+            ? { backgroundColor: appearanceResolved.colors.header }
+            : appearanceResolved.themeMode === "dark"
+              ? { backgroundColor: appearanceResolved.colors.composerBackground }
+              : undefined
+        }
       >
         <div className="flex min-w-0 items-center gap-3">
           <WidgetBrandAvatar
@@ -891,6 +1083,7 @@ function PlaygroundPreviewConversation({
         ref={messagesScrollRef}
         onScroll={historyOpen ? undefined : onMessagesScroll}
         className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+        style={{ backgroundColor: appearanceResolved.colors.panelBackground }}
       >
         {historyOpen ? (
           <div className="flex flex-col p-4 sm:p-5" role="region" aria-label="Conversations">
@@ -968,7 +1161,14 @@ function PlaygroundPreviewConversation({
             ) : null}
             {!historyThreadLoading && previewMessages.length === 0 ? (
               <div className={cn(onboardingType.body, "space-y-3 text-center")}>
-                <p className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-sm border bg-white px-4 py-3 text-sm leading-relaxed shadow-sm">
+                <p
+                  className="rounded-2xl rounded-tl-sm border px-4 py-3 text-sm leading-relaxed shadow-sm"
+                  style={{
+                    backgroundColor: appearanceResolved.colors.assistantBubble,
+                    borderColor: appearanceResolved.colors.assistantBubbleBorder,
+                    color: appearanceResolved.colors.textPrimary,
+                  }}
+                >
                   {emptyAssistantLine}
                 </p>
                 {toneDescription || languageLabel ? (
@@ -990,10 +1190,33 @@ function PlaygroundPreviewConversation({
                   : msg.text.trim()
                     ? "done"
                     : "thinking");
+              const hasCarousel =
+                msg.from === "assistant" &&
+                Boolean(msg.products?.length && !msg.productDetail);
+              const assistantBubbleClass =
+                "rounded-2xl rounded-tl-none border px-4 py-3 text-sm shadow-sm sm:px-5";
+              const assistantBubbleStyle = {
+                backgroundColor: appearanceResolved.colors.assistantBubble,
+                borderColor: appearanceResolved.colors.assistantBubbleBorder,
+                color: appearanceResolved.colors.textPrimary,
+              };
+              const assistantTimeFooter =
+                msg.createdAt && (phase === "done" || phase === "error") ? (
+                  <MessageTimestamp
+                    variant="bubble"
+                    value={msg.createdAt}
+                    style={{ color: appearanceResolved.colors.textMuted }}
+                  />
+                ) : null;
               return (
                 <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
                   {msg.from === "assistant" ? (
-                    <div className="flex max-w-[90%] gap-3">
+                    <div
+                      className={cn(
+                        "flex gap-3",
+                        hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[90%]"
+                      )}
+                    >
                       <WidgetBrandAvatar
                         logoUrl={websiteLogoUrl}
                         logoPending={websiteLogoPending}
@@ -1002,15 +1225,63 @@ function PlaygroundPreviewConversation({
                         size="bubble"
                       />
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <div className="border-ds-outline text-ds-on-surface rounded-2xl rounded-tl-none border bg-white px-4 py-3 text-sm shadow-sm sm:px-5">
+                        {hasCarousel ? (
                           <StreamingAssistantMessage
                             text={msg.text}
                             phase={phase}
                             errorMessage={msg.errorMessage}
                             statusLine={msg.statusLine}
                             brandColorHex={brandColorHex}
+                            products={msg.products}
+                            productDetail={msg.productDetail}
+                            productActionsDisabled={isSending || aiChatDisabled}
+                            introBubbleClassName={assistantBubbleClass}
+                            introBubbleStyle={assistantBubbleStyle}
+                            bubbleFooter={assistantTimeFooter}
+                            onShowProductDetails={(product) =>
+                              void runProductAction({
+                                type: "details",
+                                handle: product.handle,
+                                title: product.title,
+                              })
+                            }
+                            onShowSimilarProducts={(product) =>
+                              void runProductAction({
+                                type: "similar",
+                                handle: product.handle,
+                                title: product.title,
+                              })
+                            }
+                          />
+                        ) : (
+                        <div className={assistantBubbleClass} style={assistantBubbleStyle}>
+                          <StreamingAssistantMessage
+                            text={msg.text}
+                            phase={phase}
+                            errorMessage={msg.errorMessage}
+                            statusLine={msg.statusLine}
+                            brandColorHex={brandColorHex}
+                            products={msg.products}
+                            productDetail={msg.productDetail}
+                            productActionsDisabled={isSending || aiChatDisabled}
+                            onShowProductDetails={(product) =>
+                              void runProductAction({
+                                type: "details",
+                                handle: product.handle,
+                                title: product.title,
+                              })
+                            }
+                            onShowSimilarProducts={(product) =>
+                              void runProductAction({
+                                type: "similar",
+                                handle: product.handle,
+                                title: product.title,
+                              })
+                            }
+                            bubbleFooter={assistantTimeFooter}
                           />
                         </div>
+                        )}
                         {messageFeedbackEnabled &&
                         msg.assistantMessageId &&
                         phase === "done" &&
@@ -1042,13 +1313,23 @@ function PlaygroundPreviewConversation({
                     </div>
                   ) : (
                     <div
-                      className={cn(
-                        "max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5",
-                        hasBrand && chrome ? chrome.titleClass : "bg-ds-primary text-ds-on-primary"
-                      )}
-                      style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
+                      className="max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5"
+                      style={{
+                        backgroundColor: appearanceResolved.colors.userBubble,
+                        color: userChrome.lightBg ? "#0f172a" : "#ffffff",
+                      }}
                     >
-                      {msg.text}
+                      <UserBubbleBody
+                        timestamp={
+                          <MessageTimestamp
+                            variant="bubble"
+                            value={msg.createdAt}
+                            tone={userChrome.lightBg ? "muted" : "on-primary"}
+                          />
+                        }
+                      >
+                        {msg.text}
+                      </UserBubbleBody>
                     </div>
                   )}
                 </div>
@@ -1058,7 +1339,13 @@ function PlaygroundPreviewConversation({
         )}
       </div>
 
-      <div className="border-ds-outline shrink-0 border-t bg-ds-surface p-4 sm:p-5">
+      <div
+        className="shrink-0 px-4 pb-2.5 pt-2 sm:px-5"
+        style={{
+          backgroundColor: appearanceResolved.colors.composerBackground,
+          ["--playground-composer-input-bg" as string]: appearanceResolved.colors.composerBackground,
+        }}
+      >
         {historyOpen ? (
           <>
             <p className="ds-app-body-muted text-center">
@@ -1068,15 +1355,28 @@ function PlaygroundPreviewConversation({
               <p className="text-rose-600 mt-3 text-center text-sm">{footerError}</p>
             ) : null}
           </>
+        ) : contactCaptureRequired ? (
+          <VisitorContactForm
+            compact
+            onSubmit={handleSubmitVisitorContact}
+          />
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
+            {aiChatDisabled ? <EscalatedChatNotice /> : null}
             <div className="flex items-center gap-2 sm:gap-3">
               <textarea
                 ref={messageInputRef}
                 rows={1}
                 className={playgroundComposerClass}
-                placeholder={languageLabel ? `Test your agent (${languageLabel})…` : "Test your agent…"}
+                placeholder={
+                  aiChatDisabled
+                    ? "Start a new chat to talk to the AI"
+                    : languageLabel
+                      ? `Test your agent (${languageLabel})…`
+                      : "Test your agent…"
+                }
                 value={messageInput}
+                disabled={aiChatDisabled}
                 onChange={(e) => {
                   setMessageInput(e.target.value);
                   resizePlaygroundComposer(e.target);
@@ -1085,7 +1385,7 @@ function PlaygroundPreviewConversation({
                   if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
                   e.preventDefault();
                   const draft = (messageInputRef.current?.value ?? messageInput).trim();
-                  if (!draft || isSending || historyThreadLoading) return;
+                  if (!draft || isSending || historyThreadLoading || aiChatDisabled) return;
                   void handleSendMessage();
                 }}
               />
@@ -1102,14 +1402,14 @@ function PlaygroundPreviewConversation({
                 )}
                 style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
                 onClick={() => void handleSendMessage()}
-                disabled={!agentId || isSending || historyThreadLoading || !messageInput.trim()}
+                disabled={!agentId || isSending || historyThreadLoading || !messageInput.trim() || aiChatDisabled}
                 aria-label="Send"
               >
                 <IconSend className="size-4.5" />
               </button>
             </div>
             {!hidePoweredByPlan ? (
-              <PoweredByChatRely compact className="bg-transparent px-0 py-0.5" />
+              <PoweredByChatRely compact className="bg-transparent px-0 py-0" />
             ) : null}
             {footerError ? <p className="text-rose-600 text-sm">{footerError}</p> : null}
           </div>
@@ -1148,7 +1448,6 @@ export default function PlaygroundPage() {
     refresh: refreshIntegrations,
   } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
   const shopifyConnected = Boolean(shopifyConnection?.connected);
-  const setTopbarExtras = useSetDashboardTopbarExtras();
   const [systemPrompt, setSystemPrompt] = useState("");
   const [creativity, setCreativity] = useState<CreativityLevel>(0.5);
   const [agentType, setAgentType] = useState<string>("brand_support");
@@ -1165,14 +1464,14 @@ export default function PlaygroundPage() {
   }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
   const hydratedAgentIdRef = useRef<string | null>(null);
 
-  const { resolveEnabled, isTogglePending, toggleEnabled } = useActionEnableToggle(
-    selectedAgentId || undefined,
-    refreshIntegrations,
-    (message) => {
-      if (!selectedAgentId) return;
-      setSaveError({ agentId: selectedAgentId, message });
-    }
-  );
+  const {
+    resolveEnabled,
+    setEnabledDraft,
+    isDirty: actionsDirty,
+    changeCount: actionChangeCount,
+    cancelAll: cancelActionDrafts,
+    saveAll: saveActionDrafts,
+  } = useActionDrafts(selectedAgentId || undefined, actionsCatalog?.entries);
 
   /* Hydrate playground form when the selected agent changes (not when the agent list reference refreshes). */
   useEffect(() => {
@@ -1235,7 +1534,9 @@ export default function PlaygroundPage() {
         creativity !== baseline.creativity ||
         agentType !== baseline.agentType)
   );
-  const isDirty = Boolean(selectedAgentId && baseline && formFieldsDirty);
+  const isDirty = Boolean(
+    selectedAgentId && baseline && (formFieldsDirty || actionsDirty)
+  );
 
   const showPlaygroundSettingsSkeleton =
     agentsLoading || Boolean(selectedAgentId && baseline === null);
@@ -1245,36 +1546,59 @@ export default function PlaygroundPage() {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const prevBehavior = (selectedAgent?.behavior_settings ?? {}) as Record<string, unknown>;
-      const behavior_settings = {
-        ...prevBehavior,
-        creativity,
-        agent_type: agentType,
-      };
-      const updated = await backendFetch<{
-        system_prompt: string;
-        behavior_settings: Record<string, unknown>;
-      }>(`/api/v1/agents/${selectedAgentId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ system_prompt: systemPrompt, behavior_settings }),
-      });
-      await refreshAgents();
+      const saveTasks: Promise<boolean | void>[] = [];
 
-      const cr = normalizeCreativity(updated.behavior_settings?.creativity);
-      const atRaw = updated.behavior_settings?.agent_type;
-      const at =
-        typeof atRaw === "string" &&
-        PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
-          ? atRaw
-          : agentType;
-      setSystemPrompt(updated.system_prompt);
-      setCreativity(cr);
-      setAgentType(at);
-      setBaseline({
-        systemPrompt: updated.system_prompt,
-        creativity: cr,
-        agentType: at,
-      });
+      if (formFieldsDirty) {
+        saveTasks.push(
+          (async () => {
+            const prevBehavior = (selectedAgent?.behavior_settings ?? {}) as Record<string, unknown>;
+            const behavior_settings = {
+              ...prevBehavior,
+              creativity,
+              agent_type: agentType,
+            };
+            const updated = await backendFetch<{
+              system_prompt: string;
+              behavior_settings: Record<string, unknown>;
+            }>(`/api/v1/agents/${selectedAgentId}`, {
+              method: "PATCH",
+              body: JSON.stringify({ system_prompt: systemPrompt, behavior_settings }),
+            });
+
+            const cr = normalizeCreativity(updated.behavior_settings?.creativity);
+            const atRaw = updated.behavior_settings?.agent_type;
+            const at =
+              typeof atRaw === "string" &&
+              PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
+                ? atRaw
+                : agentType;
+            setSystemPrompt(updated.system_prompt);
+            setCreativity(cr);
+            setAgentType(at);
+            setBaseline({
+              systemPrompt: updated.system_prompt,
+              creativity: cr,
+              agentType: at,
+            });
+          })()
+        );
+      }
+
+      if (actionsDirty) {
+        saveTasks.push(
+          saveActionDrafts((message) => {
+            if (!selectedAgentId) return;
+            setSaveError({ agentId: selectedAgentId, message });
+          })
+        );
+      }
+
+      const results = await Promise.all(saveTasks);
+      if (results.some((result) => result === false)) return;
+
+      if (formFieldsDirty) {
+        await refreshAgents({ silent: true });
+      }
     } catch (e) {
       setSaveError({
         agentId: selectedAgentId,
@@ -1287,50 +1611,28 @@ export default function PlaygroundPage() {
     selectedAgentId,
     isSaving,
     baseline,
+    formFieldsDirty,
+    actionsDirty,
     systemPrompt,
     creativity,
     agentType,
     selectedAgent,
     refreshAgents,
+    saveActionDrafts,
   ]);
 
-  const handleSaveRef = useRef(handleSave);
-
-  useLayoutEffect(() => {
-    handleSaveRef.current = handleSave;
-  }, [handleSave]);
-
-  useLayoutEffect(() => {
-    setTopbarExtras(
-      <>
-        {isDirty ? (
-          <div className="border-ds-outline ml-1 hidden items-center gap-3 border-l pl-3 lg:flex">
-            <div className="flex items-center gap-2">
-              <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-              <span className="ds-app-kicker font-semibold">
-                Unsaved
-              </span>
-            </div>
-            <button
-              type="button"
-              className={appButtonClassName("default", {
-                className: "cursor-pointer inline-flex active:scale-[0.98]",
-              })}
-              onClick={() => void handleSaveRef.current()}
-              disabled={!selectedAgentId || isSaving}
-            >
-              {isSaving ? "Saving…" : "Save changes"}
-            </button>
-          </div>
-        ) : null}
-      </>
-    );
-    return () => setTopbarExtras(null);
-  }, [setTopbarExtras, isSaving, selectedAgentId, isDirty]);
+  const handleCancel = useCallback(() => {
+    if (!baseline) return;
+    setSystemPrompt(baseline.systemPrompt);
+    setCreativity(baseline.creativity);
+    setAgentType(baseline.agentType);
+    cancelActionDrafts();
+    setSaveError(null);
+  }, [baseline, cancelActionDrafts]);
 
   return (
-    <div className="onboarding-main-surface -mx-6 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="border-ds-outline bg-ds-sidebar/80 flex shrink-0 items-center gap-2 border-b p-2.5 xl:hidden">
+    <div className="ds-app-shell ds-app-shell--flush flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="border-ds-outline bg-ds-app-canvas/80 flex shrink-0 items-center gap-2 border-b p-2.5 lg:hidden">
         <button
           type="button"
           onClick={() => setMobileTab("settings")}
@@ -1357,16 +1659,15 @@ export default function PlaygroundPage() {
         </button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-ds-surface xl:flex-row xl:items-stretch">
-        <IsoGridPanelBackground id="playground-iso-grid" />
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row lg:items-stretch">
         <section
           className={cn(
-            "border-ds-outline relative z-10 flex w-full min-h-0 flex-col overflow-hidden border-b bg-white",
-            "xl:w-[420px] xl:shrink-0 xl:border-r xl:border-b-0",
-            mobileTab === "settings" ? "flex-1 xl:flex-none" : "hidden xl:flex"
+            "border-ds-outline relative z-10 flex w-full min-h-0 flex-col overflow-hidden border-b bg-ds-app-canvas",
+            "lg:w-[42%] lg:min-w-[450px] lg:max-w-[500px] lg:shrink-0 lg:border-r lg:border-b-0",
+            mobileTab === "settings" ? "flex-1 lg:flex-none" : "hidden lg:flex"
           )}
         >
-          <div className="border-ds-outline bg-ds-sidebar/90 shrink-0 border-b px-5 py-4 backdrop-blur-sm sm:px-6">
+          <div className="border-ds-outline shrink-0 border-b bg-ds-app-canvas px-5 py-4 sm:px-6">
             <h2 className="ds-app-card-title flex items-center gap-2">
               <IconTune className="text-ds-primary size-4 shrink-0" aria-hidden />
               Playground settings
@@ -1379,57 +1680,47 @@ export default function PlaygroundPage() {
             ) : showPlaygroundSettingsSkeleton ? (
               <PlaygroundSettingsColumnSkeleton />
             ) : (
-              <div className="space-y-10">
+              <div className="space-y-6">
 
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <p id="playground-creativity-label" className={cn(settingsFieldLabelClass, "mb-0")}>
-                  Creativity
-                </p>
-                <InfoHint text={PLAYGROUND_CREATIVITY_HINT} labelFor="Creativity" className="ml-0" />
+            <section className={playgroundSettingsCardClass}>
+              <div className={playgroundSettingsCardHeaderClass}>
+                <div className="flex items-center gap-2">
+                  <h2 id="playground-creativity-label" className={playgroundSettingsCardTitleClass}>
+                    Creativity
+                  </h2>
+                  <InfoHint text={PLAYGROUND_CREATIVITY_HINT} labelFor="Creativity" className="ml-0" />
+                </div>
+                <p className={playgroundSettingsCardDescriptionClass}>{PLAYGROUND_CREATIVITY_DESCRIPTION}</p>
               </div>
-              <div
-                role="radiogroup"
-                aria-labelledby="playground-creativity-label"
-                className="bg-ds-sidebar border-ds-outline flex flex-col gap-1 rounded-ds-md border p-1 sm:flex-row sm:gap-0"
-              >
+              <AppSegmentGroup aria-labelledby="playground-creativity-label">
                 {CREATIVITY_BANDS.map((band) => (
-                  <button
+                  <AppSegmentOption
                     key={band.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={creativity === band.value}
-                    onClick={() => setCreativity(band.value)}
-                    className={cn(
-                      "w-full rounded-ds-sm px-3 py-2.5 text-sm font-medium transition-all sm:flex-1",
-                      creativity === band.value
-                        ? "bg-white text-ds-on-surface shadow-sm"
-                        : "text-ds-on-surface-variant hover:text-ds-on-surface"
-                    )}
+                    selected={creativity === band.value}
+                    onSelect={() => setCreativity(band.value)}
                   >
                     {band.label}
-                  </button>
+                  </AppSegmentOption>
                 ))}
-              </div>
-              <p className="ds-app-body-muted text-sm">
-                Preview uses this right away. Save to apply on your live widget.
-              </p>
-            </div>
+              </AppSegmentGroup>
+            </section>
 
-            <div className="space-y-4">
-              <label className={settingsFieldLabelClass}>
-                Enabled actions
-              </label>
-              <div className="border-ds-outline overflow-hidden rounded-ds-lg border bg-ds-surface shadow-sm">
+            <section className={playgroundSettingsCardClass}>
+              <div className={playgroundSettingsCardHeaderClass}>
+                <h2 className={playgroundSettingsCardTitleClass}>Actions</h2>
+                <p className={playgroundSettingsCardDescriptionClass}>{PLAYGROUND_ACTIONS_DESCRIPTION}</p>
+              </div>
+              <div className="space-y-3">
+              <div className="border-ds-outline overflow-hidden rounded-ds-lg border">
                 <button
                   type="button"
-                  className="bg-ds-sidebar flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left transition-colors hover:bg-ds-sidebar/80"
+                  className="bg-ds-sidebar/60 flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left transition-colors hover:bg-ds-sidebar/80"
                   onClick={() => setShopifyActionsOpen((o) => !o)}
                   aria-expanded={shopifyActionsOpen}
                 >
                   <div className="flex items-center gap-3">
                     <IconBag className="text-ds-primary size-4 shrink-0" aria-hidden />
-                    <span className="ds-app-card-title">Shopify actions</span>
+                    <span className="text-ds-on-surface text-sm font-medium">Shopify</span>
                   </div>
                   <IconChevron
                     className={cn(
@@ -1468,10 +1759,11 @@ export default function PlaygroundPage() {
                               <p className="text-ds-on-surface text-sm font-medium">{e.label}</p>
                               <p className={cn(onboardingType.hint, "mt-0.5")}>{e.description}</p>
                             </div>
-                            <ToggleSwitch
+                            <ActionToggle
                               checked={resolveEnabled(e.action_key, Boolean(e.enabled))}
-                              disabled={isTogglePending(e.action_key) || integrationsLoading}
-                              onCheckedChange={(next) => void toggleEnabled(e.action_key, next)}
+                              disabled={integrationsLoading}
+                              onChange={(next) => setEnabledDraft(e.action_key, next)}
+                              label={`Enable ${e.label}`}
                             />
                           </div>
                         ))}
@@ -1482,18 +1774,19 @@ export default function PlaygroundPage() {
               </div>
 
               {humanEscalationLive ? (
-                <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border bg-ds-surface p-4 shadow-sm">
+                <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border p-4">
                   <div className="flex items-center gap-3">
                     <IconPersonPin className="text-ds-primary size-4 shrink-0" aria-hidden />
-                    <span className="ds-app-card-title">Escalate to human</span>
+                    <span className="text-ds-on-surface text-sm font-medium">Escalate to human</span>
                   </div>
-                  <ToggleSwitch
+                  <ActionToggle
                     checked={resolveEnabled(
                       "human.escalate",
                       Boolean(humanEscalationEntry?.enabled)
                     )}
-                    disabled={isTogglePending("human.escalate") || integrationsLoading}
-                    onCheckedChange={(next) => void toggleEnabled("human.escalate", next)}
+                    disabled={integrationsLoading}
+                    onChange={(next) => setEnabledDraft("human.escalate", next)}
+                    label="Enable escalate to human"
                   />
                 </div>
               ) : humanEscalationEntry?.status === "blocked_by_plan" ? (
@@ -1504,84 +1797,74 @@ export default function PlaygroundPage() {
                   </Link>
                 </p>
               ) : null}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <label className={cn(settingsFieldLabelClass, "mb-0")}>Agent type</label>
-                <InfoHint
-                  text={PLAYGROUND_AGENT_TYPE_HINT}
-                  labelFor="Agent type"
-                  placement="right"
-                  className="ml-0"
-                />
               </div>
-              <select
-                className={fieldControlPointerClass}
-                value={agentType}
-                onChange={(e) => setAgentType(e.target.value)}
-              >
-                {PLAYGROUND_AGENT_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            </section>
 
-            <div
-              className={cn(
-                "space-y-2",
-                agentType !== "custom" && "opacity-55"
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <label className={cn(settingsFieldLabelClass, "mb-0")}>System prompt</label>
-                {agentType === "custom" ? (
-                  <button
-                    type="button"
-                    className="text-ds-on-surface-variant hover:text-ds-interactive-hover inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-xs font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
-                    disabled={!baseline || systemPrompt === baseline.systemPrompt}
-                    onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
+            <section className={playgroundSettingsCardClass}>
+              <div className={playgroundSettingsCardHeaderClass}>
+                <h2 className={playgroundSettingsCardTitleClass}>Agent</h2>
+                <p className={playgroundSettingsCardDescriptionClass}>{PLAYGROUND_AGENT_DESCRIPTION}</p>
+              </div>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="playground-agent-type" className={playgroundSettingsFieldLabelClass}>
+                      Agent type
+                    </label>
+                    <InfoHint
+                      text={PLAYGROUND_AGENT_TYPE_HINT}
+                      labelFor="Agent type"
+                      placement="right"
+                      className="ml-0"
+                    />
+                  </div>
+                  <select
+                    id="playground-agent-type"
+                    className={cn(fieldControlPointerClass, "mt-3")}
+                    value={agentType}
+                    onChange={(e) => setAgentType(e.target.value)}
                   >
-                    <IconHistory className="size-3.5" aria-hidden />
-                    Reset
-                  </button>
-                ) : null}
-              </div>
-              <textarea
-                className={cn(fieldControlClass, "leading-relaxed")}
-                value={systemPrompt}
-                disabled={agentType !== "custom"}
-                placeholder={
-                  agentType === "custom"
-                    ? "Instructions for this agent…"
-                    : "Select Custom Prompt above to edit."
-                }
-                onChange={(e) => setSystemPrompt(e.target.value)}
-              />
-            </div>
-
-            {isDirty ? (
-              <div className="border-ds-outline bg-ds-surface/95 sticky bottom-0 -mx-5 flex shrink-0 items-center justify-between gap-3 border-t p-4 backdrop-blur-sm sm:-mx-8 lg:hidden">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-                  <span className="ds-app-kicker truncate font-semibold">
-                    Unsaved
-                  </span>
+                    {PLAYGROUND_AGENT_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <button
-                  type="button"
-                  className={appButtonClassName("default", {
-                    className: "inline-flex shrink-0 cursor-pointer active:scale-[0.98]",
-                  })}
-                  onClick={() => void handleSave()}
-                  disabled={!selectedAgentId || isSaving}
-                >
-                  {isSaving ? "Saving…" : "Save"}
-                </button>
+
+                <div className={cn(agentType !== "custom" && "opacity-55")}>
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor="playground-system-prompt" className={playgroundSettingsFieldLabelClass}>
+                      System prompt
+                    </label>
+                    {agentType === "custom" ? (
+                      <button
+                        type="button"
+                        className="text-ds-on-surface-variant hover:text-ds-interactive-hover inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-ds-md py-1 text-xs font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40"
+                        disabled={!baseline || systemPrompt === baseline.systemPrompt}
+                        onClick={() => baseline && setSystemPrompt(baseline.systemPrompt)}
+                      >
+                        <IconHistory className="size-3.5" aria-hidden />
+                        Reset
+                      </button>
+                    ) : null}
+                  </div>
+                  <textarea
+                    id="playground-system-prompt"
+                    className={cn(fieldControlClass, "mt-3 leading-relaxed")}
+                    value={systemPrompt}
+                    disabled={agentType !== "custom"}
+                    placeholder={
+                      agentType === "custom"
+                        ? PLAYGROUND_SYSTEM_PROMPT_PLACEHOLDER
+                        : "Select Custom Prompt above to edit."
+                    }
+                    onChange={(e) => setSystemPrompt(e.target.value)}
+                  />
+                </div>
               </div>
-            ) : null}
+            </section>
+
               </div>
             )}
           </div>
@@ -1589,32 +1872,24 @@ export default function PlaygroundPage() {
 
         <section
           className={cn(
-            "relative z-10 min-w-0 flex min-h-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
-            "xl:items-center xl:justify-start xl:self-start xl:min-h-0 xl:p-12 xl:pt-10 xl:pb-12",
-            mobileTab === "preview" ? "" : "hidden xl:flex"
+            "relative flex min-h-0 min-w-0 flex-1 flex-col items-stretch justify-start overflow-hidden p-4 pt-6 sm:p-6 sm:pt-8",
+            "lg:self-stretch lg:p-10 lg:pt-8 lg:pb-10",
+            mobileTab === "preview" ? "" : "hidden lg:flex"
           )}
         >
-          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-start overflow-hidden xl:flex-none xl:h-auto">
+          <IsoGridPanelBackground id="playground-iso-grid" className="min-h-full" />
+          <div className="relative z-10 flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-start overflow-hidden">
             <PlaygroundPreviewConversation
               key={selectedAgentId ?? "__no_agent__"}
               agentId={selectedAgentId}
               agentName={selectedAgent?.name ?? null}
               brandColorHex={parseBrandColorHex(selectedAgent?.behavior_settings?.brand_color)}
-              toneRaw={
-                typeof selectedAgent?.behavior_settings?.tone === "string"
-                  ? selectedAgent.behavior_settings.tone
-                  : null
-              }
               toneDescriptionRaw={
                 typeof selectedAgent?.behavior_settings?.tone_description === "string"
                   ? selectedAgent.behavior_settings.tone_description
                   : null
               }
-              greetingMessageRaw={
-                typeof selectedAgent?.behavior_settings?.greeting_message === "string"
-                  ? selectedAgent.behavior_settings.greeting_message
-                  : null
-              }
+              behaviorSettings={selectedAgent?.behavior_settings}
               languageRaw={
                 typeof selectedAgent?.behavior_settings?.language === "string"
                   ? selectedAgent.behavior_settings.language
@@ -1630,40 +1905,16 @@ export default function PlaygroundPage() {
           </div>
         </section>
       </div>
-    </div>
-  );
-}
 
-function ToggleSwitch({
-  checked,
-  disabled,
-  onCheckedChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onCheckedChange?: (next: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={checked}
-      disabled={disabled}
-      onClick={() => {
-        if (disabled || !onCheckedChange) return;
-        onCheckedChange(!checked);
-      }}
-      className={cn(
-        "flex h-5 w-9 items-center rounded-full p-0.5 transition-colors",
-        checked ? "bg-ds-primary" : "bg-ds-outline",
-        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-      )}
-    >
-      <span
-        className={`h-4 w-4 rounded-full bg-white transition-transform ${
-          checked ? "translate-x-4" : "translate-x-0"
-        }`}
+      <UnsavedChangesActionBar
+        open={isDirty}
+        isSaving={isSaving}
+        saveDisabled={!selectedAgentId}
+        onSave={handleSave}
+        onCancel={handleCancel}
+        message={unsavedChangesMessage(actionChangeCount, formFieldsDirty)}
       />
-    </button>
+    </div>
   );
 }
 

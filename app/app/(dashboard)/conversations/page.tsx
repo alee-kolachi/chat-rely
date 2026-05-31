@@ -2,11 +2,16 @@
 
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
+import { TranscriptAssistantMessage } from "@/components/chat/transcript-assistant-message";
+import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
-import { isRenderableTranscriptMessage } from "@/lib/conversation-transcript";
+import { isRenderableTranscriptMessage, messageHasProductCarousel } from "@/lib/conversation-transcript";
 import { formatLocaleDateTime, formatLocaleTime } from "@/lib/format-locale-datetime";
+import {
+  formatVisitorContactLabel,
+  readVisitorContactFromMetadata,
+} from "@/lib/visitor-contact";
 import { useClientMounted } from "@/lib/use-client-mounted";
 import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
@@ -42,6 +47,7 @@ type Conversation = {
   latest_message_preview: string | null;
   last_activity_at: string;
   updated_at: string;
+  metadata?: Record<string, unknown>;
 };
 
 type ConversationMessage = {
@@ -50,6 +56,7 @@ type ConversationMessage = {
   content: string;
   created_at: string;
   tool_call_payload?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type ConversationSummaryState = {
@@ -129,6 +136,8 @@ function ConversationsPageContent() {
   );
 
   const selectedStatus = selectedConversation?.status ?? null;
+  const selectedVisitorContact = readVisitorContactFromMetadata(selectedConversation?.metadata);
+  const selectedVisitorLabel = formatVisitorContactLabel(selectedVisitorContact);
   const canResolve =
     Boolean(selectedConversationId) &&
     (selectedStatus === "open" || selectedStatus === "escalated");
@@ -597,15 +606,15 @@ function ConversationsPageContent() {
   }
 
   return (
-    <div className="ds-app-shell flex min-h-0 flex-1 flex-col overflow-hidden p-6 md:p-8">
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden">
-        <header className="mb-6 shrink-0 md:mb-8">
+    <div className="ds-app-shell ds-app-shell--flush flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 flex-col gap-6 overflow-hidden">
+        <header className="shrink-0">
           <h1 className="ds-app-page-title">Conversations</h1>
           <p className="ds-app-page-description ds-app-page-description--wide">
             Monitor threads, review context, and jump in when needed.
           </p>
         </header>
-        {error ? <p className="mb-3 shrink-0 text-sm text-rose-600">{error}</p> : null}
+        {error ? <p className="shrink-0 text-sm text-rose-600">{error}</p> : null}
 
         <section className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,2fr)] gap-6 overflow-hidden xl:grid-cols-[380px_1fr] xl:grid-rows-[minmax(0,1fr)]">
           <div className="border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
@@ -749,7 +758,13 @@ function ConversationsPageContent() {
                 <h3 className="text-ds-on-surface truncate text-sm font-semibold">
                   {selectedConversation ? selectedConversation.id : "No conversation selected"}
                 </h3>
-                <p className="ds-app-body-muted">Live transcript</p>
+                <p className="ds-app-body-muted">
+                  {selectedVisitorLabel
+                    ? `Visitor: ${selectedVisitorLabel}`
+                    : selectedStatus === "escalated"
+                      ? "Visitor contact not captured yet"
+                      : "Live transcript"}
+                </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <button
@@ -857,11 +872,31 @@ function ConversationsPageContent() {
               {messagesLoading ? (
                 <ConversationMessagesSkeleton />
               ) : (
-                messages.filter(isRenderableTranscriptMessage).map((message) => (
+                messages.filter(isRenderableTranscriptMessage).map((message) => {
+                  const hasCarousel =
+                    message.role === "assistant" && messageHasProductCarousel(message.metadata);
+                  const messageTime = (
+                    <MessageTimestamp variant="bubble" value={message.created_at} tone="on-primary" />
+                  );
+                  const assistantTime = (
+                    <MessageTimestamp variant="bubble" value={message.created_at} />
+                  );
+                  return (
                   <div
                     key={message.id}
-                    className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}
+                    className={cn(
+                      "flex",
+                      message.role === "user" ? "justify-end" : "justify-start",
+                      hasCarousel ? "max-w-[min(100%,540px)]" : ""
+                    )}
                   >
+                    {message.role === "assistant" && hasCarousel ? (
+                      <TranscriptAssistantMessage
+                        content={message.content}
+                        metadata={message.metadata}
+                        bubbleFooter={assistantTime}
+                      />
+                    ) : (
                     <div
                       className={cn(
                         "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
@@ -871,21 +906,19 @@ function ConversationsPageContent() {
                       )}
                     >
                       {message.role === "assistant" ? (
-                        <AssistantMarkdown>{message.content}</AssistantMarkdown>
+                        <TranscriptAssistantMessage
+                          content={message.content}
+                          metadata={message.metadata}
+                          bubbleFooter={assistantTime}
+                        />
                       ) : (
-                        message.content
+                        <UserBubbleBody timestamp={messageTime}>{message.content}</UserBubbleBody>
                       )}
-                      <div
-                        className={cn(
-                          "mt-2 text-[10px]",
-                          message.role === "user" ? "text-ds-on-primary/80" : "text-ds-on-surface-variant"
-                        )}
-                      >
-                        {formatLocaleTime(message.created_at, localeReady)}
-                      </div>
                     </div>
+                    )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
             <div className="border-ds-outline shrink-0 border-t bg-ds-surface px-5 py-4 sm:px-6">
@@ -917,7 +950,7 @@ export default function ConversationsPage() {
   return (
     <Suspense
       fallback={
-        <div className="ds-app-shell text-ds-on-surface-variant flex min-h-0 flex-1 flex-col p-6 text-sm md:p-8">
+        <div className="ds-app-shell ds-app-shell--flush text-ds-on-surface-variant flex min-h-0 flex-1 flex-col text-sm">
           Loading…
         </div>
       }

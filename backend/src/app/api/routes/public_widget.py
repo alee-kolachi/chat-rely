@@ -13,10 +13,13 @@ from app.domains.public_widget.schemas import (
     PublicWidgetChatRequest,
     PublicWidgetConfigResponse,
     PublicWidgetMessageFeedbackRequest,
+    PublicWidgetVisitorContactRequest,
+    PublicWidgetVisitorContactResponse,
 )
 from app.domains.public_widget.service import (
     build_public_widget_config_response,
     resolve_agent_for_widget_key,
+    submit_public_widget_visitor_contact,
 )
 router = APIRouter(prefix="/public/widget", tags=["public-widget"])
 
@@ -71,3 +74,12 @@ async def public_widget_message_feedback_route(
         remove=payload.remove,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/visitor-contact", response_model=PublicWidgetVisitorContactResponse)
+async def public_widget_visitor_contact_route(
+    ctx: WidgetAgentDep,
+    payload: PublicWidgetVisitorContactRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PublicWidgetVisitorContactResponse:
+    return await submit_public_widget_visitor_contact(db, ctx=ctx, payload=payload)

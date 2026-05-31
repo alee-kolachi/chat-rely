@@ -33,7 +33,7 @@ type DashboardAgentContextValue = {
   selectedAgent: DashboardAgentRecord | null;
   agentsLoading: boolean;
   agentsError: string | null;
-  refreshAgents: () => Promise<void>;
+  refreshAgents: (opts?: { silent?: boolean }) => Promise<void>;
 };
 
 const DashboardAgentContext = createContext<DashboardAgentContextValue | null>(null);
@@ -46,8 +46,9 @@ export function DashboardAgentProvider({ children }: { children: ReactNode }) {
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const hasLoadedOnceRef = useRef(false);
 
-  const refreshAgents = useCallback(async () => {
-    setAgentsLoading(true);
+  const refreshAgents = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setAgentsLoading(true);
     setAgentsError(null);
     try {
       const data = await backendFetch<{ agents: DashboardAgentRecord[] }>("/api/v1/agents");
@@ -64,7 +65,7 @@ export function DashboardAgentProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setAgentsError(e instanceof Error ? e.message : "Failed to load agents");
     } finally {
-      setAgentsLoading(false);
+      if (!silent) setAgentsLoading(false);
     }
   }, []);
 

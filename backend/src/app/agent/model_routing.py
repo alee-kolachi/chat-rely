@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,20 +17,6 @@ from app.core.settings import Settings, get_settings
 from app.domains.plans.plan_limits import PlanModelPolicy
 
 log = structlog.get_logger("model_routing")
-
-_GREETING_STARTS = frozenset(
-    {
-        "hi",
-        "hello",
-        "hey",
-        "thanks",
-        "thank you",
-        "ok",
-        "okay",
-        "bye",
-        "goodbye",
-    }
-)
 
 
 class ClassifierResult(BaseModel):
@@ -47,188 +32,6 @@ class TurnModelDecision:
     used_premium: bool
     classifier_ran: bool
     classifier_reason: str = ""
-
-
-def _normalize_message_for_greeting_check(text: str) -> str:
-    raw = (text or "").strip().lower()
-    while raw and raw[-1] in ".!?":
-        raw = raw[:-1]
-    return " ".join(raw.split())
-
-
-def message_looks_like_order_reference(user_message: str) -> bool:
-    """Single-token order # as customers paste in chat (e.g. 8842 or #8842). No regex."""
-    raw = (user_message or "").strip()
-    if not raw or len(raw) > 32 or " " in raw:
-        return False
-    token = raw[1:].strip() if raw.startswith("#") else raw
-    if not token or not token.isdigit():
-        return False
-    return 3 <= len(token) <= 12
-
-
-_ORDER_QUESTION_MARKERS = (
-    "where is my order",
-    "where's my order",
-    "track my order",
-    "tracking number",
-    "order status",
-    "order #",
-    "my order",
-    "shipment",
-    "shipping status",
-    "has my order shipped",
-    "when will my order",
-)
-
-
-def message_looks_like_order_question(user_message: str) -> bool:
-    """Order / tracking / shipping intent (not catalog). No regex."""
-    if message_looks_like_order_reference(user_message):
-        return True
-    lower = (user_message or "").strip().lower()
-    if not lower:
-        return False
-    if any(marker in lower for marker in _ORDER_QUESTION_MARKERS):
-        return True
-    if "order" in lower and any(ch.isdigit() for ch in lower):
-        return True
-    return False
-
-
-_CATALOG_QUESTION_MARKERS = (
-    "do you sell",
-    "do you have",
-    "do you carry",
-    "in stock",
-    "out of stock",
-    "how much",
-    "price of",
-    "cost of",
-    "catalog",
-    "product",
-    "boots",
-    "boot",
-    "shoes",
-    "hoodie",
-    "shirt",
-    "dress",
-    "recommend",
-    "anything like",
-)
-
-
-def message_looks_like_catalog_question(user_message: str) -> bool:
-    """Catalog / product / pricing intent (not order status). No regex."""
-    lower = (user_message or "").strip().lower()
-    if not lower:
-        return False
-    return any(marker in lower for marker in _CATALOG_QUESTION_MARKERS)
-
-
-def message_has_order_and_catalog_intents(user_message: str) -> bool:
-    """True when one message asks about orders and catalog/products."""
-    return message_looks_like_order_question(
-        user_message
-    ) and message_looks_like_catalog_question(user_message)
-
-
-_ORDER_FOLLOW_UP_MARKERS = (
-    "shipping to",
-    "ship to",
-    "shipped to",
-    "delivery address",
-    "delivery city",
-    "delivery status",
-    "tracking",
-    "track it",
-    "where is it",
-    "when will it",
-    "when does it",
-    "has it shipped",
-    "out for delivery",
-    "still processing",
-    "that order",
-    "the order",
-)
-
-
-def order_reference_from_message(user_message: str) -> str | None:
-    """Extract an order # token when the message names one. No regex."""
-    raw = (user_message or "").strip()
-    if message_looks_like_order_reference(raw):
-        return raw
-    lower = raw.lower()
-    if "order" not in lower and "#" not in raw:
-        return None
-
-    hash_idx = raw.find("#")
-    if hash_idx >= 0:
-        digits = ""
-        for ch in raw[hash_idx + 1 :]:
-            if ch.isdigit():
-                digits += ch
-            elif digits:
-                break
-        if 3 <= len(digits) <= 12:
-            return f"#{digits}"
-
-    order_idx = lower.find("order")
-    if order_idx >= 0:
-        digits = ""
-        started = False
-        for ch in raw[order_idx + len("order") :]:
-            if ch.isdigit():
-                digits += ch
-                started = True
-            elif started:
-                break
-        if 3 <= len(digits) <= 12:
-            return digits
-
-    return None
-
-
-def order_reference_from_thread(history_rows: list[Any]) -> str | None:
-    """Most recent user message in history that names an order #."""
-    for row in reversed(history_rows):
-        role = getattr(row, "role", None) or (row.get("role") if isinstance(row, dict) else "")
-        if role != "user":
-            continue
-        content = getattr(row, "content", None) or (row.get("content") if isinstance(row, dict) else "")
-        ref = order_reference_from_message(str(content or ""))
-        if ref:
-            return ref
-    return None
-
-
-def message_looks_like_order_follow_up(user_message: str) -> bool:
-    """Follow-up about an order already in thread (no new order #). No regex."""
-    if message_looks_like_order_reference(user_message):
-        return False
-    lower = (user_message or "").strip().lower()
-    if not lower:
-        return False
-    if any(marker in lower for marker in _ORDER_FOLLOW_UP_MARKERS):
-        return True
-    padded = f" {lower} "
-    if " it " in padded and any(
-        word in lower for word in ("ship", "deliver", "track", "arrive", "status")
-    ):
-        return True
-    return False
-
-
-def is_likely_greeting_or_small_talk(user_message: str) -> bool:
-    if message_looks_like_order_reference(user_message):
-        return False
-    normalized = _normalize_message_for_greeting_check(user_message)
-    if not normalized or len(normalized) > 80:
-        return False
-    first = normalized.split()[0]
-    if first in _GREETING_STARTS and len(normalized.split()) <= 6:
-        return True
-    return normalized in _GREETING_STARTS
 
 
 def build_classifier_system_prompt(
@@ -275,9 +78,9 @@ def should_run_classifier(
     throttle_tier: str | None,
     premium_remaining: int,
     conversation_premium_used: int,
-    user_message: str,
     routing_enabled: bool,
     max_per_conversation: int,
+    is_greeting_or_small_talk: bool = False,
 ) -> bool:
     if not routing_enabled:
         return False
@@ -287,7 +90,7 @@ def should_run_classifier(
         return False
     if conversation_premium_used >= max_per_conversation:
         return False
-    if is_likely_greeting_or_small_talk(user_message):
+    if is_greeting_or_small_talk:
         return False
     return True
 
@@ -380,6 +183,7 @@ async def resolve_turn_model(
     user_message: str,
     thread_summary: str = "",
     tool_failed: bool = False,
+    is_greeting_or_small_talk: bool = False,
     settings: Settings | None = None,
 ) -> tuple[TurnModelDecision, dict[str, Any] | None]:
     """Pick model for this turn; returns optional classifier billing metadata."""
@@ -396,9 +200,9 @@ async def resolve_turn_model(
         throttle_tier=throttle_tier,
         premium_remaining=premium_remaining,
         conversation_premium_used=conversation_premium_used,
-        user_message=user_message,
         routing_enabled=routing_enabled,
         max_per_conversation=max_per,
+        is_greeting_or_small_talk=is_greeting_or_small_talk,
     ):
         classifier, classifier_billing = await run_complexity_classifier(
             policy=policy,

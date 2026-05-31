@@ -86,7 +86,7 @@ export function KnowledgeSearchInput({
         className="text-ds-on-surface-variant pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2"
       />
       <input
-        className="ds-app-field rounded-ds-lg py-2 pr-4"
+        className="ds-app-field ds-app-field-canvas rounded-ds-lg py-2 pr-4"
         style={{ paddingLeft: "2.9rem" }}
         placeholder={placeholder}
         value={value}

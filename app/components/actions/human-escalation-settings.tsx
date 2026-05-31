@@ -1,9 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { ApiActionCatalogEntry } from "@/components/actions/action-catalog-types";
-import { BackendApiError, backendFetch } from "@/lib/backend-api";
-import { appButtonClassName } from "@/lib/button-styles";
+import { useCallback } from "react";
+import { AppSegmentGroup, AppSegmentOption } from "@/components/ui/app-segment-group";
 
 const AVAILABILITY = {
   manualOnly: "manual_only",
@@ -39,10 +37,14 @@ const COMMON_TIMEZONES = [
   "Australia/Sydney",
 ];
 
-type Props = {
-  agentId: string;
-  catalogEntry: ApiActionCatalogEntry;
-  onSaved?: () => void;
+export type HumanEscalationConfig = {
+  availability_mode: AvailabilityMode;
+  manual_online: boolean;
+  estimated_response_minutes: number;
+  timezone: string;
+  business_day_start: string;
+  business_day_end: string;
+  business_days: number[];
 };
 
 function parseMode(raw: unknown): AvailabilityMode {
@@ -52,7 +54,6 @@ function parseMode(raw: unknown): AvailabilityMode {
   return AVAILABILITY.manualOnly;
 }
 
-/** `<input type="time">` expects HH:MM; API may store HH:MM:SS. */
 function toTimeInputValue(raw: unknown, fallback: string): string {
   if (typeof raw !== "string" || !raw.trim()) {
     return fallback;
@@ -81,89 +82,64 @@ function parseBusinessDays(raw: unknown): number[] {
   return out.length ? [...new Set(out)].sort((a, b) => a - b) : [0, 1, 2, 3, 4];
 }
 
-export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Props) {
-  const cfg = (catalogEntry.config ?? {}) as Record<string, unknown>;
+export function parseHumanEscalationConfig(raw: Record<string, unknown>): HumanEscalationConfig {
+  return {
+    availability_mode: parseMode(raw.availability_mode),
+    manual_online: Boolean(raw.manual_online),
+    estimated_response_minutes:
+      typeof raw.estimated_response_minutes === "number" ? raw.estimated_response_minutes : 15,
+    timezone: typeof raw.timezone === "string" && raw.timezone.trim() ? raw.timezone.trim() : "UTC",
+    business_day_start: toTimeInputValue(raw.business_day_start, "09:00"),
+    business_day_end: toTimeInputValue(raw.business_day_end, "17:00"),
+    business_days: parseBusinessDays(raw.business_days),
+  };
+}
 
-  const [availabilityMode, setAvailabilityMode] = useState<AvailabilityMode>(() => parseMode(cfg.availability_mode));
-  const [manualOnline, setManualOnline] = useState(Boolean(cfg.manual_online));
-  const [estimatedMinutes, setEstimatedMinutes] = useState(
-    typeof cfg.estimated_response_minutes === "number" ? cfg.estimated_response_minutes : 15
-  );
-  const [timezone, setTimezone] = useState(
-    typeof cfg.timezone === "string" && cfg.timezone.trim() ? cfg.timezone.trim() : "UTC"
-  );
-  const [businessDayStart, setBusinessDayStart] = useState(() =>
-    toTimeInputValue(cfg.business_day_start, "09:00")
-  );
-  const [businessDayEnd, setBusinessDayEnd] = useState(() => toTimeInputValue(cfg.business_day_end, "17:00"));
-  const [businessDays, setBusinessDays] = useState<number[]>(() => parseBusinessDays(cfg.business_days));
-  const [saving, setSaving] = useState(false);
-  const [banner, setBanner] = useState<string | null>(null);
+export function humanEscalationConfigToPayload(config: HumanEscalationConfig): Record<string, unknown> {
+  return {
+    availability_mode: config.availability_mode,
+    manual_online: config.manual_online,
+    estimated_response_minutes: config.estimated_response_minutes,
+    timezone: config.timezone,
+    business_day_start: config.business_day_start,
+    business_day_end: config.business_day_end,
+    business_days: config.business_days,
+  };
+}
 
-  useEffect(() => {
-    setAvailabilityMode(parseMode(cfg.availability_mode));
-    setManualOnline(Boolean(cfg.manual_online));
-    setEstimatedMinutes(
-      typeof cfg.estimated_response_minutes === "number" ? cfg.estimated_response_minutes : 15
-    );
-    setTimezone(typeof cfg.timezone === "string" && cfg.timezone.trim() ? cfg.timezone.trim() : "UTC");
-    setBusinessDayStart(toTimeInputValue(cfg.business_day_start, "09:00"));
-    setBusinessDayEnd(toTimeInputValue(cfg.business_day_end, "17:00"));
-    setBusinessDays(parseBusinessDays(cfg.business_days));
-  }, [catalogEntry.config]);
+export function HumanEscalationSettings({
+  value,
+  onChange,
+}: {
+  value: HumanEscalationConfig;
+  onChange: (next: HumanEscalationConfig) => void;
+}) {
+  const patch = useCallback(
+    (partial: Partial<HumanEscalationConfig>) => {
+      onChange({ ...value, ...partial });
+    },
+    [onChange, value]
+  );
 
-  const toggleWeekday = useCallback((value: number) => {
-    setBusinessDays((prev) => {
-      if (prev.includes(value)) {
-        const next = prev.filter((d) => d !== value);
-        return next.length ? next : prev;
+  const toggleWeekday = useCallback(
+    (day: number) => {
+      const prev = value.business_days;
+      if (prev.includes(day)) {
+        const next = prev.filter((d) => d !== day);
+        patch({ business_days: next.length ? next : prev });
+        return;
       }
-      return [...prev, value].sort((a, b) => a - b);
-    });
-  }, []);
-
-  const save = useCallback(async () => {
-    setSaving(true);
-    setBanner(null);
-    try {
-      await backendFetch(`/api/v1/agents/${agentId}/actions/${encodeURIComponent("human.escalate")}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          config: {
-            availability_mode: availabilityMode,
-            manual_online: manualOnline,
-            estimated_response_minutes: estimatedMinutes,
-            timezone,
-            business_day_start: businessDayStart,
-            business_day_end: businessDayEnd,
-            business_days: businessDays,
-          },
-        }),
-      });
-      onSaved?.();
-    } catch (e) {
-      setBanner(
-        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not save settings"
-      );
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    agentId,
-    availabilityMode,
-    businessDayEnd,
-    businessDayStart,
-    businessDays,
-    estimatedMinutes,
-    manualOnline,
-    onSaved,
-    timezone,
-  ]);
+      patch({ business_days: [...prev, day].sort((a, b) => a - b) });
+    },
+    [patch, value.business_days]
+  );
 
   const showManualToggle =
-    availabilityMode === AVAILABILITY.manualOnly || availabilityMode === AVAILABILITY.scheduleAndManual;
+    value.availability_mode === AVAILABILITY.manualOnly ||
+    value.availability_mode === AVAILABILITY.scheduleAndManual;
   const showScheduleFields =
-    availabilityMode === AVAILABILITY.scheduleOnly || availabilityMode === AVAILABILITY.scheduleAndManual;
+    value.availability_mode === AVAILABILITY.scheduleOnly ||
+    value.availability_mode === AVAILABILITY.scheduleAndManual;
 
   return (
     <div className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
@@ -173,12 +149,6 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
         toward email follow-up. Availability below controls which path applies, not whether escalation is allowed.
       </p>
 
-      {banner ? (
-        <div className="border-ds-outline mb-4 rounded-ds-lg border bg-rose-50 px-3 py-2 text-sm text-rose-900">
-          {banner}
-        </div>
-      ) : null}
-
       <fieldset className="space-y-3">
         <legend className="ds-app-kicker text-ds-on-surface-variant mb-2 block">When are you “online” for a live ETA?</legend>
         <label className="flex cursor-pointer items-start gap-3">
@@ -186,8 +156,8 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
             type="radio"
             name="availability_mode"
             className="border-ds-outline mt-1 size-4"
-            checked={availabilityMode === AVAILABILITY.manualOnly}
-            onChange={() => setAvailabilityMode(AVAILABILITY.manualOnly)}
+            checked={value.availability_mode === AVAILABILITY.manualOnly}
+            onChange={() => patch({ availability_mode: AVAILABILITY.manualOnly })}
           />
           <span>
             <span className="text-ds-on-surface block text-sm font-semibold">Only when I mark myself available now</span>
@@ -202,8 +172,8 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
             type="radio"
             name="availability_mode"
             className="border-ds-outline mt-1 size-4"
-            checked={availabilityMode === AVAILABILITY.scheduleOnly}
-            onChange={() => setAvailabilityMode(AVAILABILITY.scheduleOnly)}
+            checked={value.availability_mode === AVAILABILITY.scheduleOnly}
+            onChange={() => patch({ availability_mode: AVAILABILITY.scheduleOnly })}
           />
           <span>
             <span className="text-ds-on-surface block text-sm font-semibold">During my business hours only</span>
@@ -218,8 +188,8 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
             type="radio"
             name="availability_mode"
             className="border-ds-outline mt-1 size-4"
-            checked={availabilityMode === AVAILABILITY.scheduleAndManual}
-            onChange={() => setAvailabilityMode(AVAILABILITY.scheduleAndManual)}
+            checked={value.availability_mode === AVAILABILITY.scheduleAndManual}
+            onChange={() => patch({ availability_mode: AVAILABILITY.scheduleAndManual })}
           />
           <span>
             <span className="text-ds-on-surface block text-sm font-semibold">
@@ -237,13 +207,13 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
           <input
             type="checkbox"
             className="border-ds-outline mt-1 size-4 rounded"
-            checked={manualOnline}
-            onChange={(e) => setManualOnline(e.target.checked)}
+            checked={value.manual_online}
+            onChange={(e) => patch({ manual_online: e.target.checked })}
           />
           <span>
             <span className="text-ds-on-surface block text-sm font-semibold">Available now</span>
             <span className="ds-app-body-muted">
-              Turn on when someone on your team is actively monitoring chat{availabilityMode === AVAILABILITY.scheduleAndManual ? " outside the schedule above" : ""}.
+              Turn on when someone on your team is actively monitoring chat{value.availability_mode === AVAILABILITY.scheduleAndManual ? " outside the schedule above" : ""}.
             </span>
           </span>
         </label>
@@ -262,8 +232,8 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
               type="text"
               list="human-escalation-tz"
               className="ds-app-field max-w-md rounded-ds-md"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value.trim() || "UTC")}
+              value={value.timezone}
+              onChange={(e) => patch({ timezone: e.target.value.trim() || "UTC" })}
               placeholder="e.g. America/Los_Angeles"
               spellCheck={false}
             />
@@ -279,8 +249,8 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
               <input
                 type="time"
                 className="ds-app-field rounded-ds-md"
-                value={businessDayStart}
-                onChange={(e) => setBusinessDayStart(e.target.value || "09:00")}
+                value={value.business_day_start}
+                onChange={(e) => patch({ business_day_start: e.target.value || "09:00" })}
               />
             </div>
             <div>
@@ -288,29 +258,25 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
               <input
                 type="time"
                 className="ds-app-field rounded-ds-md"
-                value={businessDayEnd}
-                onChange={(e) => setBusinessDayEnd(e.target.value || "17:00")}
+                value={value.business_day_end}
+                onChange={(e) => patch({ business_day_end: e.target.value || "17:00" })}
               />
             </div>
           </div>
           <div>
             <span className="ds-app-kicker text-ds-on-surface-variant mb-2 block">Days</span>
-            <div className="flex flex-wrap gap-2">
-              {WEEKDAYS.map(({ label, value }) => (
-                <label
-                  key={value}
-                  className="border-ds-outline flex cursor-pointer items-center gap-2 rounded-ds-md border px-2 py-1.5 text-sm"
+            <AppSegmentGroup aria-label="Business days" mode="multiple">
+              {WEEKDAYS.map(({ label, value: dayValue }) => (
+                <AppSegmentOption
+                  key={dayValue}
+                  selected={value.business_days.includes(dayValue)}
+                  onSelect={() => toggleWeekday(dayValue)}
+                  toggle
                 >
-                  <input
-                    type="checkbox"
-                    className="border-ds-outline size-4 rounded"
-                    checked={businessDays.includes(value)}
-                    onChange={() => toggleWeekday(value)}
-                  />
                   {label}
-                </label>
+                </AppSegmentOption>
               ))}
-            </div>
+            </AppSegmentGroup>
           </div>
         </div>
       ) : null}
@@ -324,23 +290,14 @@ export function HumanEscalationSettings({ agentId, catalogEntry, onSaved }: Prop
           min={1}
           max={240}
           className="ds-app-field max-w-[10rem] rounded-ds-md"
-          value={estimatedMinutes}
-          onChange={(e) => setEstimatedMinutes(Number(e.target.value) || 15)}
+          value={value.estimated_response_minutes}
+          onChange={(e) => patch({ estimated_response_minutes: Number(e.target.value) || 15 })}
         />
         <p className="ds-app-body-muted mt-1">
           Shown as the live ETA when you count as available (manual toggle and/or business hours, depending on your
           choice above).
         </p>
       </div>
-
-      <button
-        type="button"
-        onClick={() => void save()}
-        disabled={saving}
-        className={appButtonClassName("default", { className: "mt-6" })}
-      >
-        {saving ? "Saving…" : "Save"}
-      </button>
     </div>
   );
 }

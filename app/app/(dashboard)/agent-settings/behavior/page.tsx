@@ -5,14 +5,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { backendFetch } from "@/lib/backend-api";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { AgentSettingsShell } from "@/components/agent-settings/agent-settings-shell";
+import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import {
   LANGUAGE_OPTIONS,
+  WELCOME_MESSAGE_MAX,
   type AgentReliabilityRecord,
+  defaultWelcomeMessage,
   mergeBehaviorSettings,
   readBehaviorString,
 } from "@/lib/agent-settings";
-import { appButtonClassName } from "@/lib/button-styles";
-import { cn } from "@/lib/utils";
 
 export default function AgentSettingsBehaviorPage() {
   return (
@@ -103,6 +104,14 @@ function BehaviorForm() {
       const behaviorChanged =
         greeting.trim() !== initialBehavior.greeting.trim() || language !== initialBehavior.language;
 
+      const reliabilityChanged =
+        !reliability ||
+        fallback.trim() !== reliability.fallback_message.trim() ||
+        inactivity !== reliability.inactivity_timeout_minutes ||
+        maxUnresolved !== reliability.max_unresolved_turns_before_escalation;
+
+      const saveTasks: Promise<void>[] = [];
+
       if (behaviorChanged) {
         const merged = mergeBehaviorSettings(selectedAgent?.behavior_settings, {
           greeting_message: greeting.trim() || undefined,
@@ -110,34 +119,31 @@ function BehaviorForm() {
         });
         if (!greeting.trim()) delete (merged as Record<string, unknown>).greeting_message;
         if (language === "auto") delete (merged as Record<string, unknown>).language;
-        await backendFetch(`/api/v1/agents/${selectedAgentId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ behavior_settings: merged }),
-        });
+        saveTasks.push(
+          backendFetch(`/api/v1/agents/${selectedAgentId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ behavior_settings: merged }),
+          }).then(() => undefined)
+        );
       }
 
-      const reliabilityChanged =
-        !reliability ||
-        fallback.trim() !== reliability.fallback_message.trim() ||
-        inactivity !== reliability.inactivity_timeout_minutes ||
-        maxUnresolved !== reliability.max_unresolved_turns_before_escalation;
-
       if (reliabilityChanged) {
-        const updated = await backendFetch<AgentReliabilityRecord>(
-          `/api/v1/agents/${selectedAgentId}/reliability`,
-          {
+        saveTasks.push(
+          backendFetch<AgentReliabilityRecord>(`/api/v1/agents/${selectedAgentId}/reliability`, {
             method: "PATCH",
             body: JSON.stringify({
               fallback_message: fallback.trim(),
               inactivity_timeout_minutes: inactivity,
               max_unresolved_turns_before_escalation: maxUnresolved,
             }),
-          }
+          }).then((updated) => {
+            setReliability(updated);
+          })
         );
-        setReliability(updated);
       }
 
-      await refreshAgents();
+      await Promise.all(saveTasks);
+      await refreshAgents({ silent: true });
       setSavedAt(Date.now());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save behavior settings");
@@ -146,9 +152,22 @@ function BehaviorForm() {
     }
   }
 
+  function handleCancel() {
+    setGreeting(initialBehavior.greeting);
+    setLanguage(initialBehavior.language);
+    if (reliability) {
+      setFallback(reliability.fallback_message);
+      setInactivity(reliability.inactivity_timeout_minutes);
+      setMaxUnresolved(reliability.max_unresolved_turns_before_escalation);
+    }
+    setError(null);
+    setSavedAt(null);
+  }
+
   return (
+    <>
     <div className="space-y-6">
-      <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+      <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
         <h2 className="ds-app-section-title mb-1">Conversation behavior</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
           What the visitor sees first, the language to default to, and how the agent recovers when it&apos;s unsure.
@@ -161,22 +180,23 @@ function BehaviorForm() {
 
         <div className="space-y-6">
           <div>
-            <label htmlFor="greeting-message" className="text-ds-on-surface mb-1 block text-sm font-semibold">
-              Greeting message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
+            <label htmlFor="welcome-message" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+              Welcome message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
             </label>
             <p className="ds-app-body-muted mb-2">
-              Shown as the first assistant bubble when a visitor opens the chat.
+              First message customers see in the widget and playground. Leave blank to use:{" "}
+              {defaultWelcomeMessage(selectedAgent?.name)}
             </p>
             <textarea
-              id="greeting-message"
+              id="welcome-message"
               className="ds-app-field min-h-[5rem] rounded-ds-lg leading-relaxed"
               value={greeting}
               onChange={(e) => setGreeting(e.target.value)}
-              maxLength={500}
-              placeholder="Hi! I'm here to help. Ask me anything about our products."
+              maxLength={WELCOME_MESSAGE_MAX}
+              placeholder={defaultWelcomeMessage(selectedAgent?.name)}
             />
             <p className="text-ds-on-surface-variant mt-1 text-right text-[11px] tabular-nums">
-              {greeting.length}/500
+              {greeting.length}/{WELCOME_MESSAGE_MAX}
             </p>
           </div>
 
@@ -185,7 +205,8 @@ function BehaviorForm() {
               Default language
             </label>
             <p className="ds-app-body-muted mb-2">
-              Auto-detect uses the visitor&apos;s message language. Pick a specific one to force replies into it.
+              Auto-detect matches the visitor&apos;s message language. Pick a specific language to default replies
+              to that language unless they write in another one.
             </p>
             <select
               id="language"
@@ -203,7 +224,7 @@ function BehaviorForm() {
         </div>
       </section>
 
-      <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+      <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
         <h2 className="ds-app-section-title mb-1">Fallback &amp; escalation</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
           What to say when the agent isn&apos;t confident, and when to consider handing over to a human.
@@ -234,7 +255,7 @@ function BehaviorForm() {
               ) : null}
             </div>
 
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-8">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
               <div>
                 <label htmlFor="inactivity" className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
                   Inactivity timeout (minutes)
@@ -281,17 +302,15 @@ function BehaviorForm() {
 
       {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
       {savedAt ? <p className="text-sm font-medium text-emerald-600">Saved.</p> : null}
-
-      <div className="border-ds-outline flex justify-end gap-3 border-t pt-4">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!dirty || isSaving || !allValid || loadingReliability}
-          className={appButtonClassName()}
-        >
-          {isSaving ? "Saving..." : "Save changes"}
-        </button>
-      </div>
     </div>
+
+    <UnsavedChangesActionBar
+      open={dirty}
+      isSaving={isSaving}
+      saveDisabled={!allValid || loadingReliability}
+      onSave={handleSave}
+      onCancel={handleCancel}
+    />
+    </>
   );
 }

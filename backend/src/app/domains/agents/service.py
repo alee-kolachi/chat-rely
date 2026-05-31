@@ -10,6 +10,11 @@ from app.core.errors import AppError
 from app.domains.agents.schemas import AgentCreateRequest, AgentDTO, AgentUpdateRequest
 from app.domains.bootstrap.service import _ensure_default_subscription
 from app.domains.plans.plan_limits import plan_limits_dto_from_row
+from app.domains.plans.subscription_queries import fetch_active_plan_slug
+from app.domains.public_widget.appearance import (
+    advanced_appearance_enabled_for_plan_slug,
+    strip_widget_appearance_from_behavior,
+)
 
 
 def _slugify(value: str) -> str:
@@ -142,6 +147,11 @@ async def update_agent(db: AsyncSession, user_id: UUID, agent_id: UUID, payload:
     updates = payload.model_dump(exclude_none=True)
     if not updates:
         raise AppError(code="validation.invalid_input", message="No fields provided for update", status_code=422)
+
+    if "behavior_settings" in updates and isinstance(updates["behavior_settings"], dict):
+        plan_slug = await fetch_active_plan_slug(db, user_id)
+        if not advanced_appearance_enabled_for_plan_slug(plan_slug):
+            updates["behavior_settings"] = strip_widget_appearance_from_behavior(updates["behavior_settings"])
 
     fields: list[str] = []
     params: dict[str, object] = {"agent_id": str(agent_id), "user_id": str(user_id)}

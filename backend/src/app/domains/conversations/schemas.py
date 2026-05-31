@@ -96,3 +96,19 @@ class ConversationUpdateRequest(BaseModel):
 
     status: str = Field(pattern="^(open|idle_closed|resolved|escalated)$")
 
+
+class VisitorContactSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    visitor_name: str = Field(min_length=1, max_length=200)
+    visitor_email: str = Field(min_length=3, max_length=320)
+
+
+class VisitorContactSubmitResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    handoff_message: str
+    conversation_status: str
+    contact_capture_required: bool = False
+

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { dashboardTabClass } from "@/lib/dashboard-nav-styles";
 
 export type AgentSettingsTabKey = "appearance" | "tone" | "behavior" | "rate-limits";
 
@@ -16,23 +16,19 @@ const tabs: Array<{ key: AgentSettingsTabKey; href: string; label: string }> = [
 
 export function AgentSettingsSubnav({ active }: AgentSettingsSubnavProps) {
   return (
-    <div className="bg-ds-surface/95 backdrop-blur-sm">
-      <nav className="mx-auto flex h-14 max-w-5xl items-end gap-6 overflow-x-auto px-6 md:gap-8 md:px-8">
-        {tabs.map((tab) => (
-          <Link
-            key={tab.key}
-            href={tab.href}
-            className={cn(
-              "mb-0 shrink-0 border-b-2 border-transparent px-0.5 pb-3 text-sm transition-colors",
-              tab.key === active
-                ? "border-ds-primary text-ds-primary font-semibold"
-                : "text-ds-on-surface-variant hover:text-ds-primary font-medium"
-            )}
-          >
-            {tab.label}
-          </Link>
-        ))}
-      </nav>
-    </div>
+    <nav
+      className="border-ds-outline flex min-w-0 items-end gap-5 overflow-x-auto border-b md:gap-8"
+      aria-label="Agent settings sections"
+    >
+      {tabs.map((tab) => (
+        <Link
+          key={tab.key}
+          href={tab.href}
+          className={dashboardTabClass(tab.key === active)}
+        >
+          {tab.label}
+        </Link>
+      ))}
+    </nav>
   );
 }

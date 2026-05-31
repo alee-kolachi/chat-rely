@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  DashboardChartEmptyState,
-  DashboardChartSkeleton,
   DashboardMetricValueSkeleton,
   DashboardQueueAsideSkeleton,
   DashboardRecentConversationsEmptyState,
@@ -15,17 +14,13 @@ import {
   DashboardTrainingTopicsEmptyState,
   DashboardTrainingTopicsSkeleton,
 } from "@/components/dashboard/dashboard-page-skeleton";
+import { TimeSeriesTrendChart } from "@/components/dashboard/time-series-trend-chart";
 import { UsagePlanBanner } from "@/components/dashboard/usage-plan-banner";
 import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { backendFetch } from "@/lib/backend-api";
 import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
-import {
-  buildTimeSeriesChartModel,
-  CHART_VB_H,
-  CHART_VB_W,
-} from "@/lib/dashboard-chart-model";
 import { cn } from "@/lib/utils";
 import { appButtonClassName } from "@/lib/button-styles";
 
@@ -83,6 +78,8 @@ function conversationDetailHref(conversationId: string, agentId: string | null |
   return `/conversations?${qs.toString()}`;
 }
 
+const SOURCE_SUGGESTIONS_PAGE_SIZE = 4;
+
 export default function DashboardPage() {
   const router = useRouter();
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
@@ -94,6 +91,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestionsPage, setSuggestionsPage] = useState(0);
 
   const dashboardUrl = useMemo(() => {
     if (!selectedAgentId) return null;
@@ -169,11 +167,6 @@ export default function DashboardPage() {
     },
   ];
 
-  const timeSeriesChart = useMemo(
-    () => buildTimeSeriesChartModel(data?.series),
-    [data?.series]
-  );
-
   const conversationsHref =
     selectedAgentId != null
       ? `/conversations?agent=${encodeURIComponent(selectedAgentId)}`
@@ -182,13 +175,34 @@ export default function DashboardPage() {
   const ticketsHref = (status: "open" | "pending_customer") =>
     `/tickets?status=${encodeURIComponent(status)}`;
 
+  const trainingTopics = data?.training_topics ?? [];
+  const suggestionPageCount = Math.max(1, Math.ceil(trainingTopics.length / SOURCE_SUGGESTIONS_PAGE_SIZE));
+  const visibleSuggestions = trainingTopics.slice(
+    suggestionsPage * SOURCE_SUGGESTIONS_PAGE_SIZE,
+    (suggestionsPage + 1) * SOURCE_SUGGESTIONS_PAGE_SIZE
+  );
+  const showSuggestionPagination =
+    !showPanelSkeleton &&
+    data?.sources_suggestions_enabled !== false &&
+    trainingTopics.length > SOURCE_SUGGESTIONS_PAGE_SIZE;
+
+  useEffect(() => {
+    setSuggestionsPage(0);
+  }, [selectedAgentId, preset, customFrom, customTo, trainingTopics.length]);
+
+  useEffect(() => {
+    if (suggestionsPage >= suggestionPageCount) {
+      setSuggestionsPage(Math.max(0, suggestionPageCount - 1));
+    }
+  }, [suggestionsPage, suggestionPageCount]);
+
   return (
-    <div className="ds-app-shell px-6 pt-6 pb-24 md:px-8 md:pt-8 md:pb-28">
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="ds-app-page-title">Dashboard</h1>
-            <p className="ds-app-body-muted mt-1">
+            <p className="ds-app-page-description ds-app-page-description--wide">
               A quick pulse on agent activity and support outcomes.
             </p>
           </div>
@@ -290,148 +304,30 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="from-ds-sidebar/20 relative min-h-0 flex-1 bg-gradient-to-b to-transparent px-3 pb-3 pt-2 sm:px-4">
-                  {/* Height tracks column width (aspect) so the plot is not stuffed into a fixed slot */}
-                  <div className="text-ds-on-surface-variant relative mx-auto aspect-[5/2] w-full min-h-[200px] max-h-[320px] text-[var(--ds-chart-grid)]">
-                    {showPanelSkeleton ? (
-                      <DashboardChartSkeleton />
-                    ) : timeSeriesChart ? (
-                      <svg
-                        className="block h-full w-full font-sans"
-                        viewBox={`0 0 ${CHART_VB_W} ${CHART_VB_H}`}
-                        preserveAspectRatio="xMidYMid meet"
-                        role="img"
-                        aria-label="Conversations over time: daily count by day"
-                      >
-                        <defs>
-                          <linearGradient id="dashChartAreaFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="var(--ds-chart-line)" stopOpacity={0.22} />
-                            <stop offset="100%" stopColor="var(--ds-chart-line)" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <path
-                          d={timeSeriesChart.areaPath}
-                          fill="url(#dashChartAreaFill)"
-                          stroke="none"
-                        />
-                        <g opacity={0.9}>
-                        {timeSeriesChart.yTicks.map((tick) => {
-                          const gy = timeSeriesChart.yAtTick(tick);
-                          return (
-                            <line
-                              key={`gy-${tick}`}
-                              x1={timeSeriesChart.padL}
-                              y1={gy}
-                              x2={timeSeriesChart.padL + timeSeriesChart.innerW}
-                              y2={gy}
-                              stroke="currentColor"
-                              strokeWidth={1}
-                              opacity={0.22}
-                            />
-                          );
-                        })}
-                        <line
-                          x1={timeSeriesChart.padL}
-                          y1={timeSeriesChart.padT}
-                          x2={timeSeriesChart.padL}
-                          y2={timeSeriesChart.xAxisY}
-                          stroke="currentColor"
-                          strokeWidth={1}
-                          opacity={0.35}
-                        />
-                        <line
-                          x1={timeSeriesChart.padL}
-                          y1={timeSeriesChart.xAxisY}
-                          x2={timeSeriesChart.padL + timeSeriesChart.innerW}
-                          y2={timeSeriesChart.xAxisY}
-                          stroke="currentColor"
-                          strokeWidth={1}
-                          opacity={0.4}
-                        />
-                      </g>
-                      {timeSeriesChart.yTicks.map((tick) => {
-                        const gy = timeSeriesChart.yAtTick(tick);
-                        return (
-                          <text
-                            key={`yl-${tick}`}
-                            x={timeSeriesChart.padL - 12}
-                            y={gy}
-                            textAnchor="end"
-                            dominantBaseline="middle"
-                            fill="currentColor"
-                            fontSize={12}
-                            opacity={0.88}
-                            style={{ fontVariantNumeric: "tabular-nums" }}
-                          >
-                            {tick}
-                          </text>
-                        );
-                      })}
-                      {timeSeriesChart.xLabels.map((item, j) => (
-                        <text
-                          key={`xl-${item.label}-${j}`}
-                          x={item.x}
-                          y={timeSeriesChart.xTickY}
-                          textAnchor="middle"
-                          dominantBaseline="hanging"
-                          fill="currentColor"
-                          fontSize={12}
-                          opacity={0.88}
-                        >
-                          {item.label}
-                        </text>
-                      ))}
-                      <text
-                        x={28}
-                        y={timeSeriesChart.midY}
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fill="currentColor"
-                        fontSize={13}
-                        fontWeight={600}
-                        opacity={0.58}
-                        letterSpacing="0.02em"
-                        transform={`rotate(-90 28 ${timeSeriesChart.midY})`}
-                      >
-                        Conversations
-                      </text>
-                      <text
-                        x={timeSeriesChart.padL + timeSeriesChart.innerW / 2}
-                        y={CHART_VB_H - 10}
-                        textAnchor="middle"
-                        dominantBaseline="auto"
-                        fill="currentColor"
-                        fontSize={13}
-                        fontWeight={600}
-                        opacity={0.58}
-                        letterSpacing="0.05em"
-                      >
-                        Day
-                      </text>
-                      <path
-                        d={timeSeriesChart.path}
-                        fill="none"
-                        stroke="var(--ds-chart-line)"
-                        strokeWidth={2.5}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  ) : (
-                    <DashboardChartEmptyState message="No chart data for this range" />
-                  )}
-                  </div>
+                  <TimeSeriesTrendChart
+                    series={data?.series}
+                    rangeFrom={data?.range_from}
+                    rangeTo={data?.range_to}
+                    loading={showPanelSkeleton}
+                    ariaLabel="Conversations over time: daily count by day"
+                    gradientId="dashChartAreaFill"
+                    showAxisTitles
+                    plotHeight={280}
+                  />
                 </div>
               </article>
-              <aside className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
-                <h3 className="ds-app-section-title">Team queue snapshot</h3>
-                <p className="ds-app-body-muted mt-1">
-                  Escalations and threads waiting on the customer.
-                </p>
-                <div className="mt-5 space-y-3">
+              <aside className="border-ds-outline bg-ds-surface flex min-h-0 flex-col overflow-hidden rounded-ds-xl border shadow-sm">
+                <div className="border-ds-outline border-b px-5 py-4">
+                  <h3 className="ds-app-section-title">Team queue snapshot</h3>
+                  <p className="ds-app-body-muted mt-1">
+                    Escalations and threads waiting on the customer.
+                  </p>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
                   {showPanelSkeleton ? (
                     <DashboardQueueAsideSkeleton />
                   ) : (
-                    <>
+                    <ul className="divide-ds-outline divide-y">
                       <QueueItem
                         href={ticketsHref("open")}
                         label="Open human escalations"
@@ -444,15 +340,15 @@ export default function DashboardPage() {
                         value={String(data?.awaiting_customer_reply ?? 0)}
                         tone="neutral"
                       />
-                    </>
+                    </ul>
                   )}
+                  <Link
+                    href={conversationsHref}
+                    className={appButtonClassName("default", { className: "mt-4 block w-full text-center" })}
+                  >
+                    Open conversations
+                  </Link>
                 </div>
-                <Link
-                  href={conversationsHref}
-                  className={appButtonClassName("default", { className: "mt-5 block w-full text-center" })}
-                >
-                  Open conversations
-                </Link>
               </aside>
             </section>
 
@@ -526,42 +422,80 @@ export default function DashboardPage() {
                 </div>
               </article>
 
-              <article className="border-ds-outline bg-ds-surface flex flex-col rounded-ds-xl border p-6 shadow-sm">
-                <h3 className="ds-app-section-title">Source suggestions</h3>
-                <p className="ds-app-body-muted mt-1">
-                  Topics where extra knowledge would help. Open a conversation or add content in Knowledge.
-                </p>
-                <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
-                  {showPanelSkeleton ? <DashboardTrainingTopicsSkeleton /> : null}
-                  {!showPanelSkeleton && data?.sources_suggestions_enabled === false ? (
-                    <DashboardSourceSuggestionsPlanGate />
-                  ) : null}
-                  {!showPanelSkeleton && data?.sources_suggestions_enabled !== false
-                    ? (data?.training_topics ?? []).map((topic) => (
-                        <Link
-                          key={topic.slug}
-                          href={`/conversations?agent=${encodeURIComponent(selectedAgentId ?? "")}&training_topic=${encodeURIComponent(topic.slug)}`}
-                          className="border-ds-outline block rounded-ds-lg border bg-ds-sidebar/80 p-3 shadow-sm transition-colors hover:bg-ds-sidebar"
-                        >
-                          <p className="ds-app-card-title">{topic.label}</p>
-                          <p className="ds-app-body-muted mt-0.5">
-                            {topic.count} in this period
-                          </p>
-                        </Link>
-                      ))
-                    : null}
-                  {!showPanelSkeleton &&
-                  data?.sources_suggestions_enabled !== false &&
-                  !(data?.training_topics ?? []).length ? (
-                    <DashboardTrainingTopicsEmptyState />
+              <article className="border-ds-outline bg-ds-surface flex min-h-0 flex-col overflow-hidden rounded-ds-xl border shadow-sm">
+                <div className="border-ds-outline flex items-start justify-between gap-3 border-b px-5 py-4">
+                  <div className="min-w-0">
+                    <h3 className="ds-app-section-title">Source suggestions</h3>
+                    <p className="ds-app-body-muted mt-1">
+                      Topics where extra knowledge would help. Open a conversation or add content in Knowledge.
+                    </p>
+                  </div>
+                  {showSuggestionPagination ? (
+                    <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                      <button
+                        type="button"
+                        className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar/60 focus-visible:ring-ds-primary flex size-8 items-center justify-center rounded-ds-md border transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40"
+                        aria-label="Previous suggestions"
+                        disabled={suggestionsPage <= 0}
+                        onClick={() => setSuggestionsPage((page) => Math.max(0, page - 1))}
+                      >
+                        <ChevronLeft className="size-4" aria-hidden />
+                      </button>
+                      <span className="text-ds-on-surface-variant min-w-[2.75rem] text-center text-xs font-medium tabular-nums">
+                        {suggestionsPage + 1}/{suggestionPageCount}
+                      </span>
+                      <button
+                        type="button"
+                        className="border-ds-outline text-ds-on-surface hover:bg-ds-sidebar/60 focus-visible:ring-ds-primary flex size-8 items-center justify-center rounded-ds-md border transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40"
+                        aria-label="Next suggestions"
+                        disabled={suggestionsPage >= suggestionPageCount - 1}
+                        onClick={() =>
+                          setSuggestionsPage((page) => Math.min(suggestionPageCount - 1, page + 1))
+                        }
+                      >
+                        <ChevronRight className="size-4" aria-hidden />
+                      </button>
+                    </div>
                   ) : null}
                 </div>
-                <Link
-                  href="/knowledge/text-snippet"
-                  className={appButtonClassName("default", { className: "mt-5 inline-flex w-fit" })}
-                >
-                  Improve knowledge base
-                </Link>
+                <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
+                  <div className="min-h-[11.5rem]">
+                    {showPanelSkeleton ? <DashboardTrainingTopicsSkeleton /> : null}
+                    {!showPanelSkeleton && data?.sources_suggestions_enabled === false ? (
+                      <DashboardSourceSuggestionsPlanGate />
+                    ) : null}
+                    {!showPanelSkeleton && data?.sources_suggestions_enabled !== false && visibleSuggestions.length ? (
+                      <ul className="divide-ds-outline divide-y">
+                        {visibleSuggestions.map((topic) => (
+                          <li key={topic.slug}>
+                            <Link
+                              href={`/conversations?agent=${encodeURIComponent(selectedAgentId ?? "")}&training_topic=${encodeURIComponent(topic.slug)}`}
+                              className="hover:bg-ds-sidebar/40 focus-visible:ring-ds-primary -mx-1 flex items-center justify-between gap-3 rounded-ds-md px-1 py-2.5 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                            >
+                              <span className="text-ds-on-surface min-w-0 truncate text-sm font-medium">
+                                {topic.label}
+                              </span>
+                              <span className="text-ds-on-surface-variant shrink-0 text-xs tabular-nums">
+                                {topic.count} in period
+                              </span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {!showPanelSkeleton &&
+                    data?.sources_suggestions_enabled !== false &&
+                    !trainingTopics.length ? (
+                      <DashboardTrainingTopicsEmptyState />
+                    ) : null}
+                  </div>
+                  <Link
+                    href="/knowledge/text-snippet"
+                    className={appButtonClassName("default", { className: "mt-4 inline-flex w-fit" })}
+                  >
+                    Improve knowledge base
+                  </Link>
+                </div>
               </article>
             </section>
           </>
@@ -589,13 +523,17 @@ function QueueItem({
         ? "bg-amber-100 text-amber-800"
         : "bg-ds-sidebar text-ds-on-surface-variant ring-1 ring-ds-outline";
   return (
-    <Link
-      href={href}
-      className="border-ds-outline hover:bg-ds-sidebar/60 focus-visible:ring-ds-primary flex items-center justify-between rounded-ds-md border bg-white px-3 py-2.5 shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
-    >
-      <p className="text-ds-on-surface text-sm font-medium">{label}</p>
-      <span className={cn("rounded-ds-md px-2 py-1 text-xs font-semibold", toneClass)}>{value}</span>
-    </Link>
+    <li>
+      <Link
+        href={href}
+        className="hover:bg-ds-sidebar/40 focus-visible:ring-ds-primary -mx-1 flex items-center justify-between gap-3 rounded-ds-md px-1 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+      >
+        <span className="text-ds-on-surface text-sm font-medium">{label}</span>
+        <span className={cn("rounded-ds-md px-2 py-0.5 text-xs font-semibold tabular-nums", toneClass)}>
+          {value}
+        </span>
+      </Link>
+    </li>
   );
 }
 

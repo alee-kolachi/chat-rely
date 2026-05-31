@@ -2,8 +2,8 @@
 
 export function ActionsPageShellSkeleton() {
   return (
-    <div className="ds-app-shell p-6 md:p-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
         <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="space-y-3">
             <div className="bg-ds-on-surface-variant/15 h-8 w-64 max-w-full animate-pulse rounded-md" />
@@ -27,7 +27,7 @@ export function ActionsPageShellSkeleton() {
               {[1, 2, 3, 4].map((i) => (
                 <div
                   key={i}
-                  className="border-ds-outline h-28 animate-pulse rounded-ds-lg border bg-white"
+                  className="border-ds-outline bg-ds-surface h-28 animate-pulse rounded-ds-lg border"
                 />
               ))}
             </div>
@@ -46,7 +46,7 @@ export function IntegrationSectionsSkeleton() {
           <div className="bg-ds-on-surface-variant/15 h-6 w-36 animate-pulse rounded-sm" />
         </div>
         <div className="px-5 py-4 md:px-6">
-          <div className="border-ds-outline h-24 animate-pulse rounded-ds-lg border bg-white" />
+          <div className="border-ds-outline bg-ds-surface h-24 animate-pulse rounded-ds-lg border" />
         </div>
       </section>
       <section className="border-ds-outline overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
@@ -72,7 +72,7 @@ export function ShopifyActionsGridSkeleton({ count }: { count: number }) {
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
-          className="border-ds-outline overflow-hidden rounded-ds-lg border bg-white"
+          className="border-ds-outline bg-ds-surface overflow-hidden rounded-ds-lg border"
         >
           <div className="flex animate-pulse gap-3 p-4">
             <div className="bg-ds-on-surface-variant/15 size-9 shrink-0 rounded-ds-md" />

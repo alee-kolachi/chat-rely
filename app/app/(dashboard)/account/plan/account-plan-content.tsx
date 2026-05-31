@@ -15,6 +15,7 @@ import {
   formatLocaleNumber,
 } from "@/lib/format-locale-datetime";
 import { buildPlanEntitlementSections } from "@/lib/plan-entitlements";
+import { PlanTierBadge } from "@/components/ui/plan-tier-badge";
 import { appButtonClassName } from "@/lib/button-styles";
 import { useClientMounted } from "@/lib/use-client-mounted";
 
@@ -30,79 +31,76 @@ function formatPlanLabel(slug: string): string {
   return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
-function formatThrottleTier(tier: string): string {
-  return tier.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 type PlanEntitlementRow = ReturnType<typeof buildPlanEntitlementSections>[number]["rows"][number];
 
 function PlanResourceMetricCard({
   label,
+  hint,
   used,
   included,
   loading,
   localeReady,
+  formatUsed,
+  formatIncluded,
 }: {
   label: string;
+  hint?: string;
   used: number;
   included: number;
   loading: boolean;
   localeReady: boolean;
+  formatUsed?: (n: number) => string;
+  formatIncluded?: (n: number) => string;
 }) {
   const pct = included ? Math.min(100, (used / included) * 100) : 0;
   const overIncluded = included > 0 && used > included;
+  const usedLabel = formatUsed ? formatUsed(used) : formatLocaleNumber(used, localeReady);
+  const includedLabel = formatIncluded
+    ? formatIncluded(included)
+    : formatLocaleNumber(included, localeReady);
 
   return (
-    <div className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 p-4">
-      <p className="ds-app-body-muted text-sm font-medium">{label}</p>
-      <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2">
+    <article className="border-ds-outline bg-ds-surface flex min-h-0 flex-col rounded-ds-xl border p-5 shadow-sm sm:p-6">
+      <h2 className="text-ds-on-surface-variant text-sm font-semibold leading-snug">{label}</h2>
+      <div className="mt-2 flex min-h-[2.75rem] flex-wrap items-end justify-between gap-2">
         {loading ? (
           <>
-            <span className="bg-ds-sidebar inline-block h-8 w-16 animate-pulse rounded-md" />
+            <span className="bg-ds-sidebar inline-block h-9 w-20 animate-pulse rounded-md" />
             <span className="bg-ds-sidebar inline-block h-5 w-28 animate-pulse rounded-md" />
           </>
         ) : (
           <>
-            <span className="text-ds-on-surface text-2xl font-semibold tabular-nums">
-              {formatLocaleNumber(used, localeReady)}
-            </span>
-            <span className="text-ds-on-surface-variant text-sm">
-              / {formatLocaleNumber(included, localeReady)} included
-            </span>
+            <p className="ds-app-metric-value min-w-0 break-words">{usedLabel}</p>
+            <span className="text-ds-on-surface-variant shrink-0 text-sm">/ {includedLabel} included</span>
           </>
         )}
       </div>
-      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-ds-sidebar">
+      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-ds-sidebar">
         <div
           className={`h-full transition-[width] ${overIncluded ? "bg-amber-500" : "bg-ds-primary"}`}
           style={{ width: loading ? "0%" : `${pct}%` }}
         />
       </div>
-    </div>
+      {hint ? <p className="ds-app-body-muted mt-auto pt-3 text-pretty break-words">{hint}</p> : null}
+    </article>
   );
 }
 
 function PlanFeatureStatusBadge({ row }: { row: PlanEntitlementRow }) {
   if (row.value === "Coming soon") {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-        Coming soon
-      </span>
+      <span className="text-ds-on-surface-variant shrink-0 text-sm font-medium">Coming soon</span>
     );
   }
   if (!row.included || row.value === "Not included") {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full border border-ds-outline bg-ds-sidebar px-2 py-0.5 text-[11px] font-semibold text-ds-on-surface-variant">
-        Not included
+      <span className="text-ds-on-surface-variant shrink-0 text-sm font-medium">
+        {row.upgradeNote ? `Upgrade · ${row.upgradeNote}` : "Not included"}
       </span>
     );
   }
   if (row.value === "Included") {
-    return (
-      <span className="inline-flex shrink-0 items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-        Included
-      </span>
-    );
+    return <span className="text-ds-on-surface shrink-0 text-sm font-semibold">Included</span>;
   }
   return (
     <span className="text-ds-on-surface shrink-0 text-sm font-semibold tabular-nums">{row.value}</span>
@@ -278,6 +276,11 @@ export function AccountPlanContent() {
 
   const hasStripeSubscription = Boolean(ctx?.subscription.provider_subscription_id?.trim());
   const canChangePaidPlan = Boolean(ctx && catalogPaidTier && hasStripeSubscription);
+  const showHeaderBillingPortal = Boolean(ctx && ctx.plan.slug !== "free" && hasStripeSubscription);
+  const showFooterBillingPortal = Boolean(
+    ctx &&
+      ((catalogPaidTier && !hasStripeSubscription) || (ctx.plan.slug !== "free" && !catalogPaidTier)),
+  );
 
   const planFeatureSections = useMemo(
     () => (ctx ? buildPlanEntitlementSections(ctx.plan, ctx.usage_snapshot) : []),
@@ -418,36 +421,52 @@ export function AccountPlanContent() {
     };
   }, [searchParams, ctx]);
 
+  const premiumIncluded = ctx
+    ? Number(ctx.plan.features?.included_premium_turns ?? ctx.usage_snapshot?.included_premium_turns ?? 0)
+    : 0;
+  const premiumUsed = ctx?.usage_snapshot?.premium_turns_used ?? 0;
+
   return (
-    <div className="ds-app-shell p-6 pb-16 md:p-8 md:pb-20">
-      <div className="mx-auto w-full max-w-5xl">
-        <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <div className="ds-app-shell">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="ds-app-page-title">Plan</h1>
-            <p className="ds-app-body-muted mt-1 max-w-2xl">
-              Manage your subscription, included resources, and plan changes for this workspace.
+            <p className="ds-app-page-description ds-app-page-description--wide">
+              Subscription, limits, and upgrades for this workspace.
             </p>
+            {ctx ? (
+              <p className="ds-app-body-muted mt-2 text-sm">
+                <span className="text-ds-on-surface font-semibold">{ctx.plan.name}</span>
+                {" · "}
+                {formatLocaleDate(ctx.subscription.current_period_start, localeReady)} –{" "}
+                {formatLocaleDate(ctx.subscription.current_period_end, localeReady)}
+              </p>
+            ) : null}
           </div>
-          {ctx ? (
-            <div className="flex flex-col items-start gap-1 md:items-end">
-              <span className="text-ds-on-surface inline-flex w-fit items-center rounded-ds-md bg-ds-sidebar px-3 py-1.5 text-sm font-semibold">
-                {ctx.plan.name}
-              </span>
-              {ctx.plan.slug === "standard" && hasStripeSubscription ? (
-                <span className="text-ds-on-surface-variant max-w-[14rem] text-right text-xs leading-snug">
-                  Stripe may label this plan &quot;Growth&quot; (legacy name). Same tier.
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </header>
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+            <Link href="/usage" className={appButtonClassName("default")}>
+              View usage
+            </Link>
+            {showHeaderBillingPortal ? (
+              <button
+                type="button"
+                disabled={busySlug !== null}
+                onClick={() => void openBillingPortal()}
+                className={appButtonClassName("default")}
+              >
+                {busySlug === "portal" ? "Opening…" : "Billing portal"}
+              </button>
+            ) : null}
+          </div>
+        </div>
 
         {checkoutBanner ? (
           <div
-            className={`mt-4 rounded-ds-lg border px-4 py-3 text-sm ${
+            className={`rounded-ds-xl border px-4 py-3 text-sm ${
               checkoutBanner.tone === "ok"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                : "border-ds-outline bg-ds-sidebar/80 text-ds-on-surface"
+                : "border-ds-outline bg-ds-surface text-ds-on-surface"
             }`}
           >
             {checkoutBanner.text}
@@ -455,286 +474,229 @@ export function AccountPlanContent() {
         ) : null}
 
         {planChangeBanner ? (
-          <div className="mt-4 rounded-ds-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="rounded-ds-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             {planChangeBanner}
           </div>
         ) : null}
 
         {(loadError || error) ? (
-          <div className="border-ds-outline mt-4 rounded-ds-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <div className="rounded-ds-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
             {loadError || error}
           </div>
         ) : null}
 
         {!ctx && (loading || !(loadError || error)) ? (
-          <p className="text-ds-on-surface-variant mt-6 text-sm">Loading…</p>
+          <p className="text-ds-on-surface-variant text-sm">Loading…</p>
         ) : null}
 
         {ctx ? (
           <>
-            <div className="mt-2 grid grid-cols-1 gap-10 lg:grid-cols-3">
-              <div className="space-y-10 lg:col-span-2">
-              <section>
-                <h2 className="ds-app-section-title mb-1">Included resources</h2>
-                <p className="ds-app-body-muted mb-4 text-sm">
-                  Usage for this billing cycle. See{" "}
+            <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="ds-app-section-title">{ctx.plan.name}</h2>
+                    {ctx.plan.slug === "standard" ? (
+                      <PlanTierBadge tier="standard" />
+                    ) : ctx.plan.slug === "pro" ? (
+                      <PlanTierBadge tier="pro" />
+                    ) : null}
+                  </div>
+                  <p className="ds-app-body-muted mt-1">
+                    {formatLocaleCurrency(ctx.plan.monthly_price_cents, localeReady)}/mo
+                    {ctx.plan.slug === "standard" && hasStripeSubscription
+                      ? " · Stripe may show “Growth” (legacy name)"
+                      : null}
+                  </p>
+                </div>
+              </div>
+              {ctx.subscription.cancel_at_period_end ? (
+                <p className="mt-4 rounded-ds-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Cancellation scheduled. You keep {ctx.plan.name} until{" "}
+                  {formatLocaleDate(ctx.subscription.current_period_end, localeReady)}, then your workspace moves to
+                  Free.
+                </p>
+              ) : null}
+              {ctx.usage_snapshot?.throttle_tier === "strong" ? (
+                <p className="mt-4 rounded-ds-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  You passed your included conversations for this cycle. Chat stays on, but replies may be slower
+                  until the cycle resets or you upgrade.
+                </p>
+              ) : null}
+            </article>
+
+            <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+              <div className="mb-6">
+                <h2 className="ds-app-section-title">This billing cycle</h2>
+                <p className="ds-app-body-muted mt-1 text-sm">
+                  Live usage for your plan. See{" "}
                   <Link href="/usage" className="text-ds-primary font-semibold hover:underline">
                     Usage
                   </Link>{" "}
-                  for a full breakdown.
+                  for throttle details.
                 </p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <PlanResourceMetricCard
+                  label="AI agents"
+                  hint="Workspaces in this account."
+                  used={agents.length}
+                  included={ctx.plan.max_agents}
+                  loading={agentsLoading}
+                  localeReady={localeReady}
+                />
+                <PlanResourceMetricCard
+                  label="Conversations"
+                  hint="Closed chats with visitor messages, assistant replies, or tool activity."
+                  used={ctx.usage_snapshot?.conversations_used ?? 0}
+                  included={ctx.plan.included_conversations}
+                  loading={loading}
+                  localeReady={localeReady}
+                />
+                {premiumIncluded > 0 ? (
                   <PlanResourceMetricCard
-                    label="AI agents"
-                    used={agents.length}
-                    included={ctx.plan.max_agents}
-                    loading={agentsLoading}
+                    label="Smart resolution turns"
+                    hint="Advanced-model replies for harder questions. Most turns stay on Essential AI."
+                    used={premiumUsed}
+                    included={premiumIncluded}
+                    loading={loading}
                     localeReady={localeReady}
                   />
-                  <PlanResourceMetricCard
-                    label="Conversations"
-                    used={ctx.usage_snapshot?.conversations_used ?? 0}
-                    included={ctx.plan.included_conversations}
-                    loading={false}
-                    localeReady={localeReady}
-                  />
-                </div>
-                {ctx.usage_snapshot ? (
-                  <div
-                    className={`border-ds-outline mt-3 rounded-ds-lg border px-4 py-3 ${
-                      ctx.usage_snapshot.throttle_tier === "strong"
-                        ? "border-amber-200 bg-amber-50"
-                        : "bg-ds-sidebar/50"
-                    }`}
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="ds-app-card-title">Throttle tier</p>
-                      <span
-                        className={`inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
-                          ctx.usage_snapshot.throttle_tier === "strong"
-                            ? "border-amber-300 bg-white text-amber-800"
-                            : ctx.usage_snapshot.throttle_tier === "light"
-                              ? "border-ds-outline bg-white text-ds-on-surface-variant"
-                              : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        }`}
-                      >
-                        {formatThrottleTier(ctx.usage_snapshot.throttle_tier)}
-                      </span>
-                    </div>
-                    {ctx.usage_snapshot.throttle_tier === "strong" ? (
-                      <p className="ds-app-body-muted mt-2 text-sm leading-relaxed text-amber-900">
-                        You have passed your included conversations for this cycle. Chat stays on, but replies may be
-                        slower until the cycle resets or you upgrade.
-                      </p>
-                    ) : (
-                      <p className="ds-app-body-muted mt-2 text-sm leading-relaxed">
-                        Replies stay at full speed while you are within your included conversations.
-                      </p>
-                    )}
-                  </div>
                 ) : null}
-              </section>
+              </div>
+            </article>
 
-              <section>
-                <h2 className="ds-app-section-title mb-1">Plan features</h2>
-                <p className="ds-app-body-muted mb-4 text-sm">
-                  What&apos;s included on {ctx.plan.name} and what unlocks on higher tiers.
-                </p>
-                <div className="space-y-4">
-                  {planFeatureSections.map((section) => (
-                    <div
-                      key={section.title}
-                      className="border-ds-outline rounded-ds-xl border bg-ds-surface p-4 shadow-sm sm:p-5"
+            <article className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+              <h2 className="ds-app-section-title">What&apos;s included</h2>
+              <p className="ds-app-body-muted mt-1 mb-6 text-sm">
+                Features on {ctx.plan.name} and what unlocks on higher tiers.
+              </p>
+              <div className="space-y-6">
+                {planFeatureSections.map((section) => (
+                  <div key={section.title}>
+                    <h3 className="ds-app-kicker mb-3">{section.title}</h3>
+                    <dl className="border-ds-outline divide-ds-outline/60 divide-y rounded-ds-lg border">
+                      {section.rows.map((row) => (
+                        <div
+                          key={row.label}
+                          className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                        >
+                          <dt className="text-ds-on-surface text-sm font-medium">{row.label}</dt>
+                          <dd className="sm:text-right">
+                            <PlanFeatureStatusBadge row={row} />
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            <article
+              ref={planActionsRef}
+              id="plan-actions"
+              className="border-ds-outline bg-ds-surface scroll-mt-24 rounded-ds-xl border p-6 shadow-sm"
+            >
+              <h2 className="ds-app-section-title">Change plan</h2>
+              <p className="ds-app-body-muted mt-1 mb-6 text-sm">
+                Upgrades and downgrades use Stripe proration. To cancel and move to Free, use the billing portal.
+              </p>
+
+              {ctx.plan.slug === "free" && subscribeTargets.length > 0 ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {subscribeTargets.map((slug) => (
+                    <button
+                      key={slug}
+                      type="button"
+                      disabled={busySlug !== null}
+                      onClick={() => void startCheckout(slug)}
+                      className={appButtonClassName("default", { className: "w-full capitalize" })}
                     >
-                      <p className="ds-app-body-muted mb-3 text-xs font-semibold uppercase tracking-wide">
-                        {section.title}
-                      </p>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {section.rows.map((row) => (
-                          <div
-                            key={row.label}
-                            className="border-ds-outline flex min-h-[4.5rem] flex-col justify-between gap-2 rounded-ds-lg border bg-ds-sidebar/40 px-4 py-3"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <p className="ds-app-card-title min-w-0 leading-snug">{row.label}</p>
-                              <PlanFeatureStatusBadge row={row} />
-                            </div>
-                            {!row.included && row.upgradeNote ? (
-                              <p className="ds-app-body-muted text-xs leading-snug">
-                                Unlocks on {row.upgradeNote}
-                              </p>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                      {busySlug === slug ? "Redirecting…" : `Subscribe · ${formatPlanLabel(slug)}`}
+                    </button>
                   ))}
                 </div>
-              </section>
-              </div>
+              ) : null}
 
-              <aside ref={planActionsRef} id="plan-actions" className="scroll-mt-24 lg:border-l lg:border-ds-outline/60 lg:pl-8">
-                <h2 className="ds-app-section-title mb-3 text-base">Current cycle</h2>
-                <p className="text-ds-on-surface-variant text-sm">
-                  {formatLocaleDate(ctx.subscription.current_period_start, localeReady)} –{" "}
-                  {formatLocaleDate(ctx.subscription.current_period_end, localeReady)}
-                </p>
-                {ctx.subscription.cancel_at_period_end ? (
-                  <p className="mt-2 rounded-ds-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    Cancellation scheduled. You keep {ctx.plan.name} until{" "}
-                    {formatLocaleDate(ctx.subscription.current_period_end, localeReady)}, then your workspace moves to Free.
-                  </p>
-                ) : null}
-                <div className="mt-5 space-y-4">
-                  <div>
-                    <p className="ds-app-body-muted font-medium">Plan price</p>
-                    <p className="ds-app-metric-value mt-1 text-xl">
-                      {formatLocaleCurrency(ctx.plan.monthly_price_cents, localeReady)}/mo
-                    </p>
-                  </div>
-                  {ctx.usage_snapshot && ctx.usage_snapshot.estimated_overage_cents > 0 ? (
-                    <div>
-                      <p className="ds-app-body-muted font-medium">Estimated conversation overage</p>
-                      <p className="ds-app-metric-value mt-1 text-xl">
-                        {formatLocaleCurrency(ctx.usage_snapshot.estimated_overage_cents, localeReady)}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-
-                {ctx.plan.slug === "free" && subscribeTargets.length > 0 ? (
-                  <div className="mt-5 space-y-2">
-                    <p className="ds-app-body-muted font-medium uppercase tracking-wide">
-                      Upgrade (checkout)
-                    </p>
-                    {subscribeTargets.map((slug) => (
+              {canChangePaidPlan && paidUpgradeSlugs.length > 0 ? (
+                <div className="mb-4">
+                  <p className="ds-app-body-muted mb-2 text-sm font-medium">Upgrade</p>
+                  <div className="grid grid-cols-1 gap-2 sm:max-w-md">
+                    {paidUpgradeSlugs.map((slug) => (
                       <button
                         key={slug}
                         type="button"
                         disabled={busySlug !== null}
-                        onClick={() => void startCheckout(slug)}
-                        className={appButtonClassName("default", { className: "w-full capitalize" })}
+                        onClick={() => void changePlan(slug, "upgrade")}
+                        className={appButtonClassName("default", { className: "w-full" })}
                       >
-                        {busySlug === slug ? "Redirecting…" : `Subscribe to ${formatPlanLabel(slug)}`}
+                        {busySlug === slug ? "Updating…" : `Upgrade to ${formatPlanLabel(slug)}`}
                       </button>
                     ))}
                   </div>
-                ) : null}
+                </div>
+              ) : null}
 
-                {canChangePaidPlan && (paidUpgradeSlugs.length > 0 || paidDowngradeSlugs.length > 0) ? (
-                  <div className="mt-8 space-y-6 border-t border-ds-outline/60 pt-6">
-                    <div>
-                      <p className="ds-app-body-muted mb-2 font-medium uppercase tracking-wide">
-                        Upgrade plan
-                      </p>
-                      {paidUpgradeSlugs.length === 0 ? (
-                        <p className="ds-app-body-muted">
-                          You are already on the highest self-serve tier.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {paidUpgradeSlugs.map((slug) => (
-                            <button
-                              key={slug}
-                              type="button"
-                              disabled={busySlug !== null}
-                              onClick={() => void changePlan(slug, "upgrade")}
-                              className={appButtonClassName("default", { className: "w-full" })}
-                            >
-                              {busySlug === slug ? "Updating…" : `Upgrade to ${formatPlanLabel(slug)}`}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <p className="ds-app-body-muted mb-2 font-medium uppercase tracking-wide">
-                        Downgrade plan
-                      </p>
-                      {paidDowngradeSlugs.length === 0 ? (
-                        <p className="ds-app-body-muted">
-                          You are already on the lowest paid tier. To move to Free, cancel in billing (below).
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {paidDowngradeSlugs.map((slug) => (
-                            <button
-                              key={slug}
-                              type="button"
-                              disabled={busySlug !== null}
-                              onClick={() => void changePlan(slug, "downgrade")}
-                              className={appButtonClassName("default", { className: "w-full" })}
-                            >
-                              {busySlug === slug ? "Updating…" : `Downgrade to ${formatPlanLabel(slug)}`}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <p className="text-ds-on-surface-variant text-[11px] leading-relaxed">
-                      Plan switches use Stripe proration immediately (charges or credits on your next invoice).
-                    </p>
+              {canChangePaidPlan && paidDowngradeSlugs.length > 0 ? (
+                <div className="mb-4">
+                  <p className="ds-app-body-muted mb-2 text-sm font-medium">Downgrade</p>
+                  <div className="grid grid-cols-1 gap-2 sm:max-w-md">
+                    {paidDowngradeSlugs.map((slug) => (
+                      <button
+                        key={slug}
+                        type="button"
+                        disabled={busySlug !== null}
+                        onClick={() => void changePlan(slug, "downgrade")}
+                        className={appButtonClassName("default", { className: "w-full" })}
+                      >
+                        {busySlug === slug ? "Updating…" : `Downgrade to ${formatPlanLabel(slug)}`}
+                      </button>
+                    ))}
                   </div>
-                ) : null}
+                </div>
+              ) : null}
 
-                {ctx.plan.slug !== "free" && !catalogPaidTier ? (
-                  <div className="mt-5 border-t border-ds-outline pt-5">
-                    <p className="ds-app-body-muted">
-                      Self-serve upgrades and downgrades apply to Hobby–Pro. Legacy Scale or custom plans: use billing
-                      or contact support.
-                    </p>
-                    <button
-                      type="button"
-                      disabled={busySlug !== null}
-                      onClick={() => void openBillingPortal()}
-                      className={appButtonClassName("default", { className: "mt-3 w-full" })}
-                    >
-                      {busySlug === "portal" ? "Opening…" : "Open Stripe billing portal"}
-                    </button>
-                  </div>
-                ) : null}
+              {canChangePaidPlan && paidUpgradeSlugs.length === 0 && paidDowngradeSlugs.length === 0 ? (
+                <p className="ds-app-body-muted text-sm">
+                  You are on the highest self-serve tier. To cancel, use Billing portal
+                  {showHeaderBillingPortal ? " above" : " below"}.
+                </p>
+              ) : null}
 
-                {catalogPaidTier && !hasStripeSubscription ? (
-                  <div className="mt-5 border-t border-ds-outline pt-5">
-                    <p className="ds-app-body-muted">
-                      We couldn&apos;t find an active Stripe subscription for this workspace. Use the portal to resolve
-                      billing or sync your subscription.
-                    </p>
-                    <button
-                      type="button"
-                      disabled={busySlug !== null}
-                      onClick={() => void openBillingPortal()}
-                      className={appButtonClassName("default", { className: "mt-3 w-full" })}
-                    >
-                      {busySlug === "portal" ? "Opening…" : "Open Stripe billing portal"}
-                    </button>
-                  </div>
-                ) : null}
+              {ctx.plan.slug !== "free" && !catalogPaidTier ? (
+                <p className="ds-app-body-muted mb-4 text-sm">
+                  Self-serve changes apply to Hobby through Pro. Legacy Scale or custom plans: use billing or contact
+                  support.
+                </p>
+              ) : null}
 
-                {canChangePaidPlan ? (
-                  <div className="mt-5 border-t border-ds-outline pt-5">
-                    <p className="ds-app-body-muted mb-2 font-medium uppercase tracking-wide">
-                      Cancel / switch to Free
-                    </p>
-                    <p className="ds-app-body-muted mb-3">
-                      Cancelling in Stripe moves this workspace to the Free plan. When you are done, use the
-                      &quot;Return to …&quot; link at the top of Stripe to come back here (we sync automatically).
-                    </p>
-                    <button
-                      type="button"
-                      disabled={busySlug !== null}
-                      onClick={() => void openBillingPortal()}
-                      className={appButtonClassName("default", { className: "w-full" })}
-                    >
-                      {busySlug === "portal" ? "Opening…" : "Manage cancellation in Stripe"}
-                    </button>
-                  </div>
-                ) : null}
-              </aside>
-            </div>
+              {catalogPaidTier && !hasStripeSubscription ? (
+                <p className="ds-app-body-muted mb-4 text-sm">
+                  We couldn&apos;t find an active Stripe subscription. Open the billing portal to sync or fix billing.
+                </p>
+              ) : null}
 
+              {showFooterBillingPortal ? (
+                <button
+                  type="button"
+                  disabled={busySlug !== null}
+                  onClick={() => void openBillingPortal()}
+                  className={appButtonClassName("default", { className: "mt-2 w-full sm:w-auto" })}
+                >
+                  {busySlug === "portal" ? "Opening…" : "Open Stripe billing portal"}
+                </button>
+              ) : null}
+
+              {ctx.usage_snapshot && ctx.usage_snapshot.estimated_overage_cents > 0 ? (
+                <p className="ds-app-body-muted mt-6 border-t border-ds-outline/60 pt-4 text-sm">
+                  Estimated conversation overage this cycle:{" "}
+                  <span className="text-ds-on-surface font-semibold">
+                    {formatLocaleCurrency(ctx.usage_snapshot.estimated_overage_cents, localeReady)}
+                  </span>
+                </p>
+              ) : null}
+            </article>
           </>
         ) : null}
       </div>

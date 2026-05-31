@@ -40,9 +40,18 @@ class RuntimeEscalationInfo(BaseModel):
 
     human_escalation_action_enabled: bool
     occurred: bool = False
+    contact_capture_required: bool = False
     seller_live: bool = False
     estimated_minutes: int | None = None
     channel_hint: Literal["live", "email"] | None = None
+
+
+class ProductActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["details", "similar"]
+    handle: str = Field(min_length=1, max_length=255)
+    title: str | None = Field(default=None, max_length=500)
 
 
 class RuntimeChatRequest(BaseModel):
@@ -58,11 +67,13 @@ class RuntimeChatRequest(BaseModel):
     #: 0–1 — playground preview; when set, overrides agent `behavior_settings.creativity`.
     creativity_override: float | None = Field(default=None, ge=0.0, le=1.0)
     visitor_email: str | None = None
+    visitor_name: str | None = None
     request_human: bool = False
     #: Browser locale (e.g. en-US); stored on conversation metadata for analytics.
     locale: str | None = None
     #: ISO 3166-1 alpha-2 country from host page or checkout; stored on conversation metadata.
     country_code: str | None = None
+    product_action: ProductActionRequest | None = None
 
     @field_validator("message")
     @classmethod

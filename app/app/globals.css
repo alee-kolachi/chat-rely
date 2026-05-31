@@ -17,12 +17,15 @@
   --color-ds-surface: var(--ds-surface);
   --color-ds-sidebar: var(--ds-sidebar);
   --color-ds-muted: var(--ds-muted);
+  --color-ds-app-canvas: var(--ds-app-canvas);
   --color-ds-elevated: var(--ds-elevated);
   --color-ds-on-surface: var(--ds-on-surface);
   --color-ds-on-surface-variant: var(--ds-on-surface-variant);
   --color-ds-text: var(--ds-text);
   --color-ds-text-muted: var(--ds-text-muted);
   --color-ds-outline: var(--ds-outline);
+  --color-ds-outline-subtle: var(--ds-outline-subtle);
+  --color-ds-nav-active: var(--ds-nav-active-bg);
   --color-ds-ring: var(--ds-ring);
   --color-ds-ring-offset: var(--ds-ring-offset);
   --color-ds-success: var(--ds-success);
@@ -96,14 +99,99 @@
   }
 
   .ds-app-shell {
-    margin: -1.5rem -1.5rem 0;
-    background: var(--ds-surface);
+    width: 100%;
+  }
+
+  /* Scrollable dashboard pages — horizontal/top pad on main; bottom space via .ds-dashboard-main-spacer. */
+  .ds-dashboard-main-pad {
+    padding-left: var(--ds-app-page-pad-x);
+    padding-right: var(--ds-app-page-pad-x);
+    padding-top: var(--ds-app-page-pad-top);
+  }
+
+  .ds-dashboard-main-spacer {
+    flex-shrink: 0;
+    margin-top: auto;
+    height: max(
+      var(--ds-app-page-pad-bottom),
+      calc(0.75rem + env(safe-area-inset-bottom, 0px))
+    );
+    width: 100%;
+  }
+
+  @media (min-width: 768px) {
+    .ds-dashboard-main-spacer {
+      height: max(
+        var(--ds-app-page-pad-bottom),
+        calc(1rem + env(safe-area-inset-bottom, 0px))
+      );
+    }
+  }
+
+  /* Full-height split views (playground, knowledge, conversations) — no outer page chrome. */
+  .ds-app-shell--flush {
+    height: 100%;
+    min-height: 0;
+  }
+
+  @media (min-width: 768px) {
+    :root {
+      --ds-app-page-pad-x: 2rem;
+      --ds-app-page-pad-top: 2rem;
+      --ds-app-page-pad-bottom: 4rem;
+    }
+  }
+
+  /* Scrollable pane inside a flush workspace (knowledge main column). */
+  .ds-app-page-scroll {
+    box-sizing: border-box;
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+    padding: 1rem var(--ds-app-page-pad-x) 0;
+  }
+
+  .ds-app-page-scroll::after {
+    content: "";
+    display: block;
+    flex-shrink: 0;
+    margin-top: auto;
+    height: max(
+      var(--ds-app-page-pad-bottom),
+      calc(0.75rem + env(safe-area-inset-bottom, 0px))
+    );
+    width: 100%;
+  }
+
+  @media (min-width: 768px) {
+    .ds-app-page-scroll {
+      padding: var(--ds-app-page-pad-top) var(--ds-app-page-pad-x) 0;
+    }
+
+    .ds-app-page-scroll::after {
+      height: max(
+        var(--ds-app-page-pad-bottom),
+        calc(1rem + env(safe-area-inset-bottom, 0px))
+      );
+    }
+  }
+
+  /* Extra clearance above a fixed save/action bar. */
+  .ds-app-shell--save-bar {
+    padding-bottom: 5rem;
+  }
+
+  @media (min-width: 768px) {
+    .ds-app-shell--save-bar {
+      padding-bottom: 5.5rem;
+    }
   }
 
   /* Avoid pulling dashboard page chrome under the sticky mobile topbar (hit-testing quirks on some WebKit builds). */
   @media (max-width: 767px) {
-    .ds-app-shell {
-      margin-top: 0;
+    /* Knowledge mobile data-sources bar sits above scroll content. */
+    .ds-app-page-scroll--mobile-dock::after {
+      height: calc(var(--ds-app-page-pad-bottom) + 4.5rem);
     }
   }
 
@@ -218,7 +306,7 @@
   /* Form controls aligned with onboarding / playground */
   .ds-app-field {
     width: 100%;
-    border: 1px solid var(--ds-outline);
+    border: 1px solid var(--ds-outline-subtle);
     border-radius: var(--ds-radius-md);
     background: var(--ds-surface);
     color: var(--ds-on-surface);
@@ -227,6 +315,10 @@
     line-height: var(--ds-app-body-line);
     outline: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .ds-app-field-canvas {
+    background: var(--ds-app-canvas);
   }
 
   .ds-app-field::placeholder {
@@ -244,7 +336,7 @@
     padding: 0.875rem 1rem;
   }
 
-  /* Playground chat composer: ChatGPT-style 1–3 line auto-grow (overrides textarea.ds-app-field min-height). */
+  /* Playground chat composer: white / composer bg with darker border + light shadow. */
   textarea.ds-app-field.playground-composer-input {
     height: 2.75rem;
     min-height: 2.75rem;
@@ -252,6 +344,17 @@
     padding: 0.5rem 1rem;
     line-height: 1.375;
     overflow-y: hidden;
+    background: var(--playground-composer-input-bg, var(--ds-surface));
+    border-color: var(--ds-btn-border);
+    box-shadow: var(--ds-shadow-sm);
+  }
+
+  textarea.ds-app-field.playground-composer-input:focus {
+    background: var(--playground-composer-input-bg, var(--ds-surface));
+    border-color: var(--ds-primary);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--ds-primary) 18%, transparent),
+      var(--ds-shadow-sm);
   }
 
   .chat-turn1-user,
@@ -592,6 +695,7 @@
   }
 
   @keyframes mkt-scroll-hint {
+
     0%,
     100% {
       opacity: 0.45;
@@ -604,6 +708,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     @keyframes mkt-msg-in {
+
       from,
       to {
         opacity: 1;
@@ -612,6 +717,7 @@
     }
 
     @keyframes mkt-scroll-hint {
+
       0%,
       100% {
         opacity: 1;

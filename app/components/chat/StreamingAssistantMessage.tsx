@@ -2,8 +2,12 @@
 
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
 import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
+import { ProductCarousel } from "@/components/chat/product-carousel";
+import { ProductDetailView } from "@/components/chat/product-detail-view";
 import { ToolActivityLine } from "@/components/chat/tool-activity-line";
+import { introTextForProductCards } from "@/lib/product-intro";
 import { cn } from "@/lib/utils";
+import type { ProductCard, ProductDetail } from "@/lib/product-card";
 
 export type AssistantStreamPhase = "thinking" | "streaming" | "done" | "error";
 
@@ -18,6 +22,14 @@ export function StreamingAssistantMessage({
   onRetry,
   brandColorHex,
   className,
+  products,
+  productDetail,
+  productActionsDisabled,
+  onShowProductDetails,
+  onShowSimilarProducts,
+  introBubbleClassName,
+  introBubbleStyle,
+  bubbleFooter,
 }: {
   text: string;
   phase: AssistantStreamPhase;
@@ -26,6 +38,16 @@ export function StreamingAssistantMessage({
   onRetry?: () => void;
   brandColorHex?: string | null;
   className?: string;
+  products?: ProductCard[] | null;
+  productDetail?: ProductDetail | null;
+  productActionsDisabled?: boolean;
+  onShowProductDetails?: (product: ProductCard) => void;
+  onShowSimilarProducts?: (product: ProductCard) => void;
+  /** When set with a product carousel, only the intro line uses this bubble styling. */
+  introBubbleClassName?: string;
+  introBubbleStyle?: React.CSSProperties;
+  /** Shown bottom-right inside the intro bubble or below assistant content. */
+  bubbleFooter?: React.ReactNode;
 }) {
   if (phase === "error") {
     return (
@@ -46,8 +68,78 @@ export function StreamingAssistantMessage({
 
   const showDots = phase === "thinking";
   const trimmed = text.trim();
-  const showText = trimmed.length > 0 && (phase === "streaming" || phase === "done");
-  const showEmptyDone = phase === "done" && !trimmed.length;
+  const showRichProducts =
+    Boolean(products?.length) &&
+    onShowProductDetails &&
+    onShowSimilarProducts &&
+    (phase === "streaming" || phase === "done");
+  const showRichDetail =
+    Boolean(productDetail) &&
+    onShowProductDetails &&
+    onShowSimilarProducts &&
+    (phase === "streaming" || phase === "done");
+  const hasRichUi = showRichProducts || showRichDetail;
+  const introText = hasRichUi ? introTextForProductCards(trimmed) : trimmed;
+  const showText =
+    introText.length > 0 &&
+    (phase === "streaming" || phase === "done") &&
+    (!hasRichUi || phase === "done" || !trimmed.includes("\n"));
+  const showEmptyDone = phase === "done" && !introText.length && !hasRichUi;
+  const detachCarousel = Boolean(showRichProducts && introBubbleClassName);
+
+  const introLine = showText ? (
+    <p className="text-ds-on-surface mb-0 text-sm leading-relaxed">{introText}</p>
+  ) : null;
+
+  if (showRichProducts && products) {
+    return (
+      <div className={cn("flex w-full min-w-0 flex-col gap-2", className)}>
+        {showDots ? <AssistantThinkingDots brandColorHex={brandColorHex} /> : null}
+        {statusLine && (phase === "thinking" || phase === "streaming") ? (
+          <ToolActivityLine message={statusLine} />
+        ) : null}
+        {introLine && detachCarousel ? (
+          <div className={introBubbleClassName} style={introBubbleStyle}>
+            {introLine}
+            {bubbleFooter ? <div className="mt-1 flex justify-end">{bubbleFooter}</div> : null}
+          </div>
+        ) : (
+          introLine
+        )}
+        <ProductCarousel
+          products={products}
+          disabled={productActionsDisabled}
+          onShowDetails={onShowProductDetails}
+          onShowSimilar={onShowSimilarProducts}
+        />
+        {!introLine && bubbleFooter ? <div className="flex justify-end pr-0.5">{bubbleFooter}</div> : null}
+      </div>
+    );
+  }
+
+  if (hasRichUi) {
+    return (
+      <div className={cn("min-h-[1.25rem]", className)}>
+        {showDots ? <AssistantThinkingDots brandColorHex={brandColorHex} /> : null}
+        {statusLine && (phase === "thinking" || phase === "streaming") ? (
+          <ToolActivityLine message={statusLine} />
+        ) : null}
+        {introLine}
+        <div className={cn(showText ? "mt-2" : "")}>
+          {showRichDetail && productDetail ? (
+            <ProductDetailView
+              product={productDetail}
+              disabled={productActionsDisabled}
+              onShowDetails={onShowProductDetails}
+              onShowSimilar={onShowSimilarProducts}
+              embedded
+            />
+          ) : null}
+        </div>
+        {bubbleFooter ? <div className="mt-1 flex justify-end">{bubbleFooter}</div> : null}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("min-h-[1.25rem]", className)}>
@@ -57,12 +149,13 @@ export function StreamingAssistantMessage({
       ) : null}
       {showText ? (
         <div className="text-ds-on-surface text-sm leading-relaxed">
-          <AssistantMarkdown>{text}</AssistantMarkdown>
+          <AssistantMarkdown>{introText}</AssistantMarkdown>
         </div>
       ) : null}
       {showEmptyDone ? (
         <p className="text-ds-on-surface-variant text-sm leading-relaxed">{EMPTY_REPLY_FALLBACK}</p>
       ) : null}
+      {bubbleFooter ? <div className="mt-1 flex justify-end">{bubbleFooter}</div> : null}
     </div>
   );
 }

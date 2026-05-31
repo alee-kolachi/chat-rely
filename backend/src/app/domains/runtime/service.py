@@ -108,7 +108,9 @@ def build_shopify_tools_runtime_block(*, has_order_lookup_tool: bool) -> str:
         "resolve the product from the thread first—pass keywords like `Timberland`, not vague phrases. "
         "If `lookup_meta.not_found` is true, say the item is **not in this store’s catalog** (e.g. iPhones when "
         "the store sells other goods) — do not invent availability or prices. "
-        "Do not use product search for stock, quantity, or order/shipping/tracking questions.\n",
+        "Do not use product search for stock, quantity, or order/shipping/tracking questions. "
+        "When product search returns results, keep your reply to one short intro sentence (under 12 words); "
+        "the chat UI shows product cards with images and links, so never list product names, prices, or bullets in text.\n",
     ]
     if has_order_lookup_tool:
         lines.append(
@@ -308,7 +310,7 @@ async def _load_shopify_tools_fast(
     return tool_list, timings, True
 
 
-def _resolve_runtime_model(model: str) -> str:
+def _resolve_runtime_model(model: str, *, preserve_premium: bool = False) -> str:
     # Keep backward compatibility with legacy/open-ended model labels.
     settings = get_settings()
     raw = (model or "").strip()
@@ -318,14 +320,19 @@ def _resolve_runtime_model(model: str) -> str:
     legacy_aliases = {"gpt-3.5", "gpt-3.5-turbo", "gpt35", "gpt-35"}
     if normalized in legacy_aliases:
         return "gpt-4o-mini"
-    if settings.runtime_prefer_fast_chat_model and normalized in {
-        "gpt-4",
-        "gpt-4o",
-        "gpt-4-turbo",
-        "gpt-4-turbo-preview",
-        "gpt-4-1106-preview",
-        "gpt-4-0125-preview",
-    }:
+    if (
+        settings.runtime_prefer_fast_chat_model
+        and not preserve_premium
+        and normalized
+        in {
+            "gpt-4",
+            "gpt-4o",
+            "gpt-4-turbo",
+            "gpt-4-turbo-preview",
+            "gpt-4-1106-preview",
+            "gpt-4-0125-preview",
+        }
+    ):
         return settings.runtime_default_chat_model or "gpt-4o-mini"
     return raw
 
@@ -428,12 +435,22 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
         "Please clarify your request."
     )
     has_kb = bool(row.get("has_indexed_knowledge"))
+    raw_tone_description = behavior.get("tone_description")
+    tone_description = (
+        str(raw_tone_description).strip()
+        if isinstance(raw_tone_description, str)
+        else ""
+    )
+    raw_language = behavior.get("language")
+    language = str(raw_language).strip() if isinstance(raw_language, str) else ""
     cfg = {
         "agent_name": row["name"],
         "model": row["model"] or "gpt-4o-mini",
         "system_prompt": row["system_prompt"] or "",
         "agent_type": agent_type,
         "tone": tone,
+        "tone_description": tone_description,
+        "language": language,
         "creativity": creativity,
         "min_retrieval_similarity": float(row["min_retrieval_similarity"] or 0.52),
         "fallback_message": fallback,

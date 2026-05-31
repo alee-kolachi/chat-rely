@@ -9,3 +9,9 @@ export function messageFeedbackEnabledForPlanSlug(planSlug: string | null | unde
   const s = (planSlug ?? "").trim().toLowerCase();
   return s === "pro" || s === "scale";
 }
+
+/** Pro / Scale: dark mode, fonts, granular widget colors. */
+export function planAllowsAdvancedAppearance(planSlug: string | null | undefined): boolean {
+  const s = (planSlug ?? "").trim().toLowerCase();
+  return s === "pro" || s === "scale";
+}

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_user, get_db
@@ -12,8 +12,13 @@ from app.domains.actions.schemas import (
     ActionCatalogEntry,
     ActionCatalogResponse,
     AgentActionPatchRequest,
+    AgentActionsBatchPatchRequest,
 )
-from app.domains.actions.service import fetch_action_catalog_response, patch_agent_action
+from app.domains.actions.service import (
+    fetch_action_catalog_response,
+    patch_agent_action,
+    patch_agent_actions_batch,
+)
 from app.domains.integrations.shopify.service import get_connection_status
 from app.domains.knowledge.schemas import WebsiteSourceListItemDTO
 from app.domains.knowledge.service import list_website_sources_for_agent
@@ -78,6 +83,21 @@ async def get_agent_integrations_bootstrap(
     )
 
 
+@router.patch("/{agent_id}/action-settings/bulk", response_model=ActionCatalogResponse)
+async def patch_actions_bulk(
+    agent_id: UUID,
+    payload: AgentActionsBatchPatchRequest,
+    user: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ActionCatalogResponse:
+    return await patch_agent_actions_batch(
+        db,
+        user_id=user.user_id,
+        agent_id=agent_id,
+        updates=payload.updates,
+    )
+
+
 @router.patch("/{agent_id}/actions/{action_key:path}", response_model=ActionCatalogEntry)
 async def patch_action(
     agent_id: UUID,
@@ -86,6 +106,11 @@ async def patch_action(
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ActionCatalogEntry:
+    if action_key in {"batch", "bulk", "bulk-update"}:
+        raise HTTPException(
+            status_code=404,
+            detail="Use PATCH /agents/{agent_id}/action-settings/bulk for multi-action saves",
+        )
     return await patch_agent_action(
         db, user_id=user.user_id, agent_id=agent_id, action_key=action_key, payload=payload
     )

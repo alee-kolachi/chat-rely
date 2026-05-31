@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 import app.api.routes.public_widget as public_widget_routes
 from app.core.errors import AppError
 from app.domains.public_widget.schemas import PublicWidgetAgentContext, PublicWidgetConfigResponse
+from app.domains.public_widget.appearance import (
+    advanced_appearance_enabled_for_plan_slug,
+    strip_widget_appearance_from_behavior,
+)
 from app.domains.public_widget.service import (
     attachments_ui_enabled_for_plan_slug,
     hide_powered_by_chatrely_for_plan_slug,
@@ -48,6 +52,30 @@ def test_public_widget_config_ok(client: TestClient, monkeypatch: pytest.MonkeyP
     assert isinstance(body.get("attachments_ui_enabled"), bool)
     assert body.get("hide_powered_by_chatrely") is False
     assert body.get("message_feedback_enabled") is False
+    assert body.get("greeting_message") == "Hi! I'm Store Bot. How can I help?"
+
+
+def test_public_widget_config_custom_greeting(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    aid = uuid4()
+    uid = uuid4()
+    ctx = PublicWidgetAgentContext(
+        agent_id=aid,
+        user_id=uid,
+        name="Store Bot",
+        behavior_settings={"greeting_message": "  Welcome to our shop!  "},
+    )
+
+    async def _resolve(_db: Any, _key: str) -> PublicWidgetAgentContext:
+        return ctx
+
+    async def _plan_hobby(_db: Any, _uid: UUID) -> str:
+        return "hobby"
+
+    monkeypatch.setattr(public_widget_routes, "resolve_agent_for_widget_key", _resolve)
+    monkeypatch.setattr("app.domains.public_widget.service.fetch_active_plan_slug", _plan_hobby)
+    r = client.get("/api/v1/public/widget/config", headers={"X-ChatRely-Agent-Key": "test-key"})
+    assert r.status_code == 200
+    assert r.json().get("greeting_message") == "Welcome to our shop!"
 
 
 def test_public_widget_config_hides_powered_by_on_pro(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,6 +120,83 @@ def test_hide_powered_by_chatrely_for_plan_slug() -> None:
     assert hide_powered_by_chatrely_for_plan_slug("hobby") is False
     assert hide_powered_by_chatrely_for_plan_slug("standard") is False
     assert hide_powered_by_chatrely_for_plan_slug(None) is False
+
+
+def test_advanced_appearance_enabled_for_plan_slug() -> None:
+    assert advanced_appearance_enabled_for_plan_slug("pro") is True
+    assert advanced_appearance_enabled_for_plan_slug("scale") is True
+    assert advanced_appearance_enabled_for_plan_slug("standard") is False
+    assert advanced_appearance_enabled_for_plan_slug("free") is False
+
+
+def test_public_widget_config_includes_appearance_on_pro(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    aid = uuid4()
+    uid = uuid4()
+    ctx = PublicWidgetAgentContext(
+        agent_id=aid,
+        user_id=uid,
+        name="Pro Bot",
+        behavior_settings={
+            "brand_color": "#3B82F6",
+            "widget_appearance": {
+                "theme_mode": "dark",
+                "font_family": "inter",
+                "colors": {"panel_background": "#111827"},
+            },
+        },
+    )
+
+    async def _resolve(_db: Any, _key: str) -> PublicWidgetAgentContext:
+        return ctx
+
+    async def _plan_pro(_db: Any, _uid: UUID) -> str:
+        return "pro"
+
+    monkeypatch.setattr(public_widget_routes, "resolve_agent_for_widget_key", _resolve)
+    monkeypatch.setattr("app.domains.public_widget.service.fetch_active_plan_slug", _plan_pro)
+    r = client.get("/api/v1/public/widget/config", headers={"X-ChatRely-Agent-Key": "test-key"})
+    assert r.status_code == 200
+    appearance = r.json().get("widget_appearance")
+    assert appearance is not None
+    assert appearance["theme_mode"] == "dark"
+    assert appearance["font_family"] == "inter"
+    assert appearance["colors"]["panel_background"] == "#111827"
+
+
+def test_public_widget_config_omits_appearance_on_hobby(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    aid = uuid4()
+    uid = uuid4()
+    ctx = PublicWidgetAgentContext(
+        agent_id=aid,
+        user_id=uid,
+        name="Hobby Bot",
+        behavior_settings={
+            "widget_appearance": {"theme_mode": "dark", "font_family": "inter"},
+        },
+    )
+
+    async def _resolve(_db: Any, _key: str) -> PublicWidgetAgentContext:
+        return ctx
+
+    async def _plan_hobby(_db: Any, _uid: UUID) -> str:
+        return "hobby"
+
+    monkeypatch.setattr(public_widget_routes, "resolve_agent_for_widget_key", _resolve)
+    monkeypatch.setattr("app.domains.public_widget.service.fetch_active_plan_slug", _plan_hobby)
+    r = client.get("/api/v1/public/widget/config", headers={"X-ChatRely-Agent-Key": "test-key"})
+    assert r.status_code == 200
+    assert r.json().get("widget_appearance") is None
+
+
+def test_strip_widget_appearance_from_behavior() -> None:
+    behavior = {"brand_color": "#3B82F6", "widget_appearance": {"theme_mode": "dark"}}
+    stripped = strip_widget_appearance_from_behavior(behavior)
+    assert "widget_appearance" not in stripped
+    assert stripped["brand_color"] == "#3B82F6"
 
 
 def test_public_widget_cors_preflight(client: TestClient) -> None:

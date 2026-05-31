@@ -203,6 +203,10 @@ async def save_preferences(db: AsyncSession, user_id: UUID, payload: OnboardingP
         behavior_settings["brand_color"] = payload.brand_color
     if payload.widget_position is not None:
         behavior_settings["widget_position"] = payload.widget_position
+    if payload.greeting_message is not None:
+        trimmed = payload.greeting_message.strip()
+        if trimmed:
+            behavior_settings["greeting_message"] = trimmed
 
     await update_agent(
         db,

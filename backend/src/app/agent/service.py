@@ -24,14 +24,33 @@ from app.agent.escalation import (
     conversation_is_awaiting_human_team,
     handoff_reply_awaiting_team,
     handoff_reply_for_status,
+    handle_escalation_with_contact,
     message_requests_human,
-    perform_escalation,
-    persist_visitor_email,
+    normalize_conversation_status,
+    persist_visitor_contact,
     visitor_empty_reply_fallback,
     visitor_non_substantive_reply,
 )
+from app.agent.product_cards import shorten_answer_for_product_cards
 from app.agent.graph import append_escalation_tool_prompt, stream_chat_graph
 from app.agent.knowledge_tools import build_search_knowledge_base_tool
+
+
+def _sse_conversation_fields(
+    conv_status: str,
+    *,
+    escalation_occurred: bool = False,
+    ai_disabled: bool = False,
+) -> dict[str, str | bool]:
+    status = (
+        "escalated"
+        if escalation_occurred or ai_disabled
+        else normalize_conversation_status(conv_status)
+    )
+    return {
+        "conversation_status": status,
+        "ai_chat_disabled": status == "escalated" or ai_disabled,
+    }
 from app.agent.messages import build_turn_messages, slice_history_for_current_turn
 from app.agent.model_routing import (
     apply_throttle_delay,
@@ -54,7 +73,7 @@ from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME
 from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.db.session import get_session_factory
-from app.domains.actions.service import get_human_escalation_for_runtime
+from app.domains.actions.service import get_human_escalation_for_runtime, list_enabled_shopify_actions_for_runtime
 from app.domains.billing.cost_events import (
     COST_KIND_LLM_MAIN,
     COST_KIND_LLM_ROUTING,
@@ -86,9 +105,11 @@ from app.domains.runtime.prompts.system import (
     build_agent_system_prompt_for_tools,
     build_system_prompt,
     resolve_agent_type_prompt,
+    resolve_brand_instructions,
+    resolve_language_instruction,
     resolve_tone_instruction,
 )
-from app.domains.runtime.schemas import RuntimeChatRequest, message_has_substantive_content, RuntimeEscalationInfo
+from app.domains.runtime.schemas import RuntimeChatRequest, message_has_substantive_content, RuntimeEscalationInfo, ProductActionRequest
 from app.domains.runtime.service import (
     _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK,
     build_shopify_tools_runtime_block,
@@ -106,6 +127,11 @@ from app.domains.runtime.service import (
     _retrieve_merged_chunks_for_message,
     _structural_skip_kb_retrieval,
 )
+from app.domains.integrations.shopify.service import (
+    get_cached_shopify_connection,
+    load_shopify_connection_for_agent,
+)
+from app.domains.integrations.shopify.tool_runners import run_product_details, run_similar_products
 
 
 async def _db_call(coro):
@@ -158,7 +184,7 @@ async def _prepare_turn_model_selection(
         thread_summary=thread_summary_from_history(history_rows),
         tool_failed=False,
     )
-    model = _resolve_runtime_model(turn_decision.model)
+    model = _resolve_runtime_model(turn_decision.model, preserve_premium=turn_decision.used_premium)
     model = _apply_usage_limit_model_downgrade(
         throttle_tier=throttle_tier,
         model=model,
@@ -227,8 +253,17 @@ async def _persist_stream_turn(
     tools_invoked: list[str],
     rag_billing: dict[str, Any],
     classifier_billing: dict[str, Any] | None,
+    products: list[dict[str, Any]] | None = None,
+    product_detail: dict[str, Any] | None = None,
 ) -> UUID | None:
     assistant_id: UUID | None = None
+    metadata: dict[str, Any] = {}
+    if tools_invoked:
+        metadata["tools_invoked"] = tools_invoked
+    if products:
+        metadata["products"] = products
+    if product_detail:
+        metadata["product_detail"] = product_detail
     async with get_session_factory()() as db:
         user_message_row = await append_message(
             db,
@@ -256,7 +291,7 @@ async def _persist_stream_turn(
                 model=model,
                 input_tokens=usage_in,
                 output_tokens=usage_out,
-                metadata={"tools_invoked": tools_invoked} if tools_invoked else {},
+                metadata=metadata,
             ),
             agent_id=agent_id,
         )
@@ -314,6 +349,8 @@ def _schedule_stream_turn_persist(
     tools_invoked: list[str],
     rag_billing: dict[str, Any],
     classifier_billing: dict[str, Any] | None,
+    products: list[dict[str, Any]] | None = None,
+    product_detail: dict[str, Any] | None = None,
 ) -> None:
     async def _run() -> None:
         await _await_prior_turn_persist(user_id, conversation_id)
@@ -330,6 +367,8 @@ def _schedule_stream_turn_persist(
                 tools_invoked=tools_invoked,
                 rag_billing=rag_billing,
                 classifier_billing=classifier_billing,
+                products=products,
+                product_detail=product_detail,
             )
         except Exception:
             log.exception(
@@ -365,11 +404,172 @@ def _defer_post_stream_metadata(
                     locale=locale,
                     country_code=country_code,
                 )
-                await persist_visitor_email(db, ctx=esc_ctx)
+                await persist_visitor_contact(db, ctx=esc_ctx)
         except Exception:
             pass
 
     asyncio.create_task(_run())
+
+
+async def _shopify_product_search_enabled(
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+) -> tuple[str, str] | None:
+    conn = get_cached_shopify_connection(agent_id)
+    async with get_session_factory()() as db:
+        if conn is None:
+            conn = await load_shopify_connection_for_agent(db, user_id=user_id, agent_id=agent_id)
+        if not conn:
+            return None
+        enabled = await list_enabled_shopify_actions_for_runtime(db, user_id=user_id, agent_id=agent_id)
+    keys = {item[0] for item in enabled}
+    if "shopify.product_search" not in keys:
+        return None
+    return conn
+
+
+def _product_action_user_message(action: ProductActionRequest) -> str:
+    label = (action.title or action.handle).strip()
+    if action.type == "details":
+        return f"Show details for {label}"
+    return f"Show similar to {label}"
+
+
+async def _stream_product_action_turn(
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    conversation_id: UUID,
+    payload: RuntimeChatRequest,
+    model: str,
+    human_on: bool,
+    esc_cfg: dict[str, Any],
+) -> AsyncIterator[str]:
+    action = payload.product_action
+    if action is None:
+        return
+
+    conn = await _shopify_product_search_enabled(user_id=user_id, agent_id=agent_id)
+    escalation_info = build_escalation_info(
+        human_enabled=human_on,
+        esc_cfg=esc_cfg,
+        occurred=False,
+    ).model_dump(mode="json")
+
+    if conn is None:
+        answer = "Product browsing is not available for this store right now."
+        yield format_sse("token", {"text": answer})
+        yield format_sse(
+            "done",
+            {
+                "conversation_id": str(conversation_id),
+                "assistant_message_id": None,
+                "response": answer,
+                "model": model,
+                "fallback_used": False,
+                "tools_available_count": 0,
+                "tools_invoked": [],
+                "retrieval_count": 0,
+                "escalation": escalation_info,
+            },
+        )
+        _schedule_stream_turn_persist(
+            user_id=user_id,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            user_message=_product_action_user_message(action),
+            model=model,
+            answer=answer,
+            usage_in=0,
+            usage_out=0,
+            tools_invoked=[],
+            rag_billing={},
+            classifier_billing=None,
+        )
+        return
+
+    shop_domain, access_token = conn
+    user_message = _product_action_user_message(action)
+    products: list[dict[str, Any]] | None = None
+    product_detail: dict[str, Any] | None = None
+    tools_invoked: list[str] = []
+
+    if action.type == "details":
+        yield format_sse("status", {"text": "Loading product details…"})
+        raw = await run_product_details(
+            shop_domain=shop_domain,
+            access_token=access_token,
+            handle=action.handle,
+        )
+        tools_invoked = ["shopify_product_details"]
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {}
+        lookup = parsed.get("lookup_meta") if isinstance(parsed, dict) else {}
+        not_found = bool(isinstance(lookup, dict) and lookup.get("not_found"))
+        detail = parsed.get("ui_detail") if isinstance(parsed, dict) else None
+        if not_found or not isinstance(detail, dict):
+            answer = "I couldn't find that product in this store's catalog."
+        else:
+            product_detail = detail
+            answer = "Here are the details:"
+            yield format_sse("product_detail", {"product": product_detail})
+    else:
+        yield format_sse("status", {"text": "Finding similar products…"})
+        raw = await run_similar_products(
+            shop_domain=shop_domain,
+            access_token=access_token,
+            handle=action.handle,
+            title=action.title,
+        )
+        tools_invoked = ["shopify_product_search"]
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {}
+        cards = parsed.get("ui_cards") if isinstance(parsed, dict) else None
+        if isinstance(cards, list) and cards:
+            products = [c for c in cards if isinstance(c, dict)]
+            answer = "Here are similar items:"
+            yield format_sse("products", {"products": products})
+        else:
+            answer = "I couldn't find similar products in this store's catalog."
+
+    yield format_sse("token", {"text": answer})
+    done_data: dict[str, Any] = {
+        "conversation_id": str(conversation_id),
+        "assistant_message_id": None,
+        "response": answer,
+        "model": model,
+        "fallback_used": False,
+        "tools_available_count": 1,
+        "tools_invoked": tools_invoked,
+        "retrieval_count": 0,
+        "escalation": escalation_info,
+    }
+    if products:
+        done_data["products"] = products
+    if product_detail:
+        done_data["product_detail"] = product_detail
+    yield format_sse("done", done_data)
+
+    _schedule_stream_turn_persist(
+        user_id=user_id,
+        agent_id=agent_id,
+        conversation_id=conversation_id,
+        user_message=user_message,
+        model=model,
+        answer=answer,
+        usage_in=0,
+        usage_out=0,
+        tools_invoked=tools_invoked,
+        rag_billing={},
+        classifier_billing=None,
+        products=products,
+        product_detail=product_detail,
+    )
 
 
 async def stream_chat(
@@ -451,6 +651,7 @@ async def stream_chat(
                     esc_cfg={},
                     occurred=False,
                 ).model_dump(mode="json"),
+                **_sse_conversation_fields("escalated", ai_disabled=True),
             },
         )
         return
@@ -476,6 +677,21 @@ async def stream_chat(
                 ).model_dump(mode="json"),
             },
         )
+        return
+
+    if payload.product_action is not None:
+        human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
+        model = str(config.get("model") or "gpt-4o-mini")
+        async for frame in _stream_product_action_turn(
+            user_id=user_id,
+            agent_id=payload.agent_id,
+            conversation_id=conversation_id,
+            payload=payload,
+            model=model,
+            human_on=human_on,
+            esc_cfg=esc_cfg,
+        ):
+            yield frame
         return
 
     t_prep = time.perf_counter()
@@ -580,6 +796,12 @@ async def stream_chat(
     tone_block = resolve_tone_instruction(str(config.get("tone") or ""))
     if tone_block:
         system_prompt = f"{system_prompt}\n\n{tone_block}".strip()
+    brand_block = resolve_brand_instructions(config.get("tone_description"))
+    if brand_block:
+        system_prompt = f"{system_prompt}\n\n{brand_block}".strip()
+    lang_block = resolve_language_instruction(config.get("language"))
+    if lang_block:
+        system_prompt = f"{system_prompt}\n\n{lang_block}".strip()
     shopify_load_ms = float(shopify_setup_timings.get("load_connection_ms", 0.0)) + float(
         shopify_setup_timings.get("list_actions_ms", 0.0)
     ) + float(shopify_setup_timings.get("build_tools_ms", 0.0))
@@ -757,6 +979,7 @@ async def stream_chat(
         conversation_id=conversation_id,
         user_message=payload.message,
         visitor_email=(payload.visitor_email or "").strip() or None,
+        visitor_name=(payload.visitor_name or "").strip() or None,
         esc_cfg=esc_cfg,
     )
     _defer_post_stream_metadata(
@@ -768,17 +991,16 @@ async def stream_chat(
     )
 
     done_payload: dict[str, Any] = {}
+    stream_products: list[dict[str, Any]] = []
+    stream_product_detail: dict[str, Any] | None = None
+
+    contact_capture_required = False
 
     if escalation_enabled and wants_human:
         async with get_session_factory()() as db:
-            occurred = await perform_escalation(db, ctx=esc_ctx)
-            from app.domains.conversations.service import get_conversation
-
-            fresh = await get_conversation(db, user_id, conversation_id)
-        handoff = handoff_reply_for_status(
-            conversation_status="escalated" if occurred else fresh.status,
-            esc_cfg=esc_cfg,
-        )
+            attempt = await handle_escalation_with_contact(db, ctx=esc_ctx)
+        handoff = attempt.reply
+        contact_capture_required = attempt.contact_capture_required
         if first_token_ms is None:
             first_token_ms = (time.perf_counter() - t_turn) * 1000.0
         yield format_sse("token", {"text": handoff})
@@ -788,7 +1010,9 @@ async def stream_chat(
             "usage_input_tokens": 0,
             "usage_output_tokens": 0,
             "tools_invoked": [ESCALATE_TO_HUMAN_TOOL_NAME],
-            "escalation_occurred": occurred,
+            "escalation_occurred": attempt.occurred,
+            "contact_capture_required": contact_capture_required,
+            "conversation_status": attempt.conversation_status,
         }
     else:
         history = slice_history_for_current_turn(
@@ -820,6 +1044,11 @@ async def stream_chat(
                     yield format_sse("token", {"text": str(ev.get("text") or "")})
                 elif ev.get("type") == "status":
                     yield format_sse("status", {"text": str(ev.get("text") or "")})
+                elif ev.get("type") == "products":
+                    cards = ev.get("products") or []
+                    if isinstance(cards, list):
+                        stream_products = [c for c in cards if isinstance(c, dict)]
+                    yield format_sse("products", {"products": stream_products})
                 elif ev.get("type") == "done":
                     done_payload = {
                         "response": ev.get("response"),
@@ -828,7 +1057,13 @@ async def stream_chat(
                         "usage_output_tokens": ev.get("usage_output_tokens"),
                         "tools_invoked": ev.get("tools_invoked"),
                         "escalation_occurred": ev.get("escalation_occurred"),
+                        "contact_capture_required": ev.get("contact_capture_required"),
+                        "conversation_status": ev.get("conversation_status"),
+                        "product_cards": ev.get("product_cards"),
                     }
+                    cards = ev.get("product_cards") or []
+                    if isinstance(cards, list) and cards:
+                        stream_products = [c for c in cards if isinstance(c, dict)]
         else:
             async for frame in stream_llm_sse(
                 lc_messages,
@@ -862,14 +1097,25 @@ async def stream_chat(
             answer = handoff_reply_awaiting_team()
         else:
             answer = str(fallback_message or "").strip() or visitor_empty_reply_fallback()
+    if stream_products:
+        answer = shorten_answer_for_product_cards(answer)
     usage_in = int(done_payload.get("usage_input_tokens") or 0)
     usage_out = int(done_payload.get("usage_output_tokens") or 0)
     tools_invoked = list(done_payload.get("tools_invoked") or [])
     escalation_occurred = bool(done_payload.get("escalation_occurred"))
+    contact_capture_required = bool(done_payload.get("contact_capture_required"))
+    graph_conv_status = done_payload.get("conversation_status")
     escalation_info = build_escalation_info(
         human_enabled=human_on,
         esc_cfg=esc_cfg,
         occurred=escalation_occurred,
+        contact_capture_required=contact_capture_required,
+    )
+
+    conv_status_for_sse = (
+        str(graph_conv_status)
+        if isinstance(graph_conv_status, str) and graph_conv_status.strip()
+        else str(conv.get("status") or "open")
     )
 
     yield format_sse(
@@ -885,6 +1131,13 @@ async def stream_chat(
             "retrieval_count": retrieval_count,
             "retrieval_preview": retrieval_preview,
             "escalation": escalation_info.model_dump(mode="json"),
+            "contact_capture_required": contact_capture_required,
+            **_sse_conversation_fields(
+                conv_status_for_sse,
+                escalation_occurred=escalation_occurred,
+            ),
+            **({"products": stream_products} if stream_products else {}),
+            **({"product_detail": stream_product_detail} if stream_product_detail else {}),
         },
     )
 
@@ -900,6 +1153,8 @@ async def stream_chat(
         tools_invoked=tools_invoked,
         rag_billing=rag_billing,
         classifier_billing=classifier_billing,
+        products=stream_products or None,
+        product_detail=stream_product_detail,
     )
 
     total_ms = int((time.perf_counter() - t_turn) * 1000.0)

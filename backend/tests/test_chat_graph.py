@@ -149,10 +149,21 @@ def test_handoff_reply_copy_is_visitor_clear() -> None:
     empty = visitor_empty_reply_fallback()
 
     assert already == awaiting
-    assert "Your message is with our team" in awaiting
+    assert "support team" in awaiting.lower()
+    assert "new chat" in awaiting.lower()
     assert "importing" not in awaiting.lower()
     assert "importing" not in empty.lower()
     assert "support team" in empty
+
+
+def test_visitor_contact_gate_before_escalation() -> None:
+    from app.agent.escalation import handoff_ask_contact, looks_like_email, visitor_contact_complete
+
+    assert "name and email" in handoff_ask_contact().lower()
+    assert not visitor_contact_complete(None, "a@b.com")
+    assert visitor_contact_complete("Alex", "alex@example.com")
+    assert looks_like_email("alex@example.com")
+    assert not looks_like_email("not-an-email")
 
 
 @pytest.mark.asyncio
@@ -250,6 +261,7 @@ async def test_stream_chat_graph_emits_done() -> None:
         conversation_id=conversation_id,
         user_message="Hi",
         visitor_email=None,
+        visitor_name=None,
         esc_cfg={},
     )
     messages = [SystemMessage(content="sys"), HumanMessage(content="Hi")]
@@ -420,6 +432,15 @@ def test_agent_system_prompt_multi_intent_calls_all_tools() -> None:
     assert "same" in prompt and "turn" in prompt
 
 
+def test_catalog_only_user_prompt_blocks_order_lookup() -> None:
+    from app.domains.runtime.prompts.user import build_catalog_only_shopify_user_prompt
+
+    prompt = build_catalog_only_shopify_user_prompt("Do you sell belts?").lower()
+    assert "shopify_product_search" in prompt
+    assert "do **not** call `shopify_order_lookup`" in prompt
+    assert "do you sell belts?" in prompt
+
+
 def test_multi_intent_user_prompt_keeps_product_search_when_order_lookup_disabled() -> None:
     from app.domains.runtime.prompts.user import build_multi_intent_shopify_user_prompt
 
@@ -453,13 +474,6 @@ def test_shopify_turn_user_prompt_includes_order_follow_up_when_thread_had_looku
     assert "already looked up an order" in prompt
     assert "do not ask for the order number again" in prompt
     assert "What city is it shipping to?" in prompt
-
-
-def test_order_follow_up_detection_for_shipping_city() -> None:
-    from app.agent.model_routing import message_looks_like_order_follow_up
-
-    assert message_looks_like_order_follow_up("What city is it shipping to?")
-    assert not message_looks_like_order_follow_up("#1001")
 
 
 @pytest.mark.asyncio

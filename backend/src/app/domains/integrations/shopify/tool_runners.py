@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 import structlog
@@ -17,6 +18,164 @@ def _product_edges(data: dict[str, object]) -> list[object]:
         return []
     edges = products.get("edges")
     return list(edges) if isinstance(edges, list) else []
+
+
+_PRODUCT_SEARCH_NODE_FIELDS = """
+            title
+            handle
+            status
+            onlineStoreUrl
+            featuredImage {
+              url
+              altText
+            }
+            priceRangeV2 {
+              minVariantPrice {
+                amount
+                currencyCode
+              }
+            }
+            variants(first: 20) {
+              edges {
+                node {
+                  sku
+                  title
+                  price
+                  inventoryQuantity
+                }
+              }
+            }
+"""
+
+
+def _format_display_price(amount: str | None, currency_code: str | None) -> str | None:
+    raw = (amount or "").strip()
+    if not raw:
+        return None
+    code = (currency_code or "USD").strip().upper() or "USD"
+    try:
+        value = float(raw)
+    except ValueError:
+        return f"{raw} {code}"
+    if code == "USD":
+        return f"${value:,.2f}"
+    return f"{value:,.2f} {code}"
+
+
+def _product_store_url(*, shop_domain: str, handle: str, online_store_url: str | None) -> str:
+    direct = (online_store_url or "").strip()
+    if direct:
+        return direct
+    safe_handle = (handle or "").strip()
+    domain = (shop_domain or "").strip()
+    return f"https://{domain}/products/{safe_handle}"
+
+
+def _price_from_node(node: dict[str, object]) -> str | None:
+    price_range = node.get("priceRangeV2")
+    if not isinstance(price_range, dict):
+        return None
+    min_price = price_range.get("minVariantPrice")
+    if not isinstance(min_price, dict):
+        return None
+    return _format_display_price(
+        str(min_price.get("amount") or ""),
+        str(min_price.get("currencyCode") or ""),
+    )
+
+
+def _featured_image_url(node: dict[str, object]) -> str | None:
+    featured = node.get("featuredImage")
+    if not isinstance(featured, dict):
+        return None
+    url = str(featured.get("url") or "").strip()
+    return url or None
+
+
+def _node_to_product_card(node: dict[str, object], *, shop_domain: str) -> dict[str, str] | None:
+    handle = str(node.get("handle") or "").strip()
+    title = str(node.get("title") or "").strip()
+    if not handle or not title:
+        return None
+    card: dict[str, str] = {
+        "handle": handle,
+        "title": title,
+        "url": _product_store_url(
+            shop_domain=shop_domain,
+            handle=handle,
+            online_store_url=str(node.get("onlineStoreUrl") or "") or None,
+        ),
+    }
+    price = _price_from_node(node)
+    if price:
+        card["price"] = price
+    image_url = _featured_image_url(node)
+    if image_url:
+        card["image_url"] = image_url
+    return card
+
+
+def normalize_product_search_ui_cards(
+    data: dict[str, object],
+    shop_domain: str,
+    *,
+    exclude_handle: str | None = None,
+    max_results: int | None = None,
+) -> list[dict[str, str]]:
+    exclude = (exclude_handle or "").strip().lower()
+    limit = max(1, int(max_results)) if max_results is not None else None
+    cards: list[dict[str, str]] = []
+    for edge in _product_edges(data):
+        if not isinstance(edge, dict):
+            continue
+        node = edge.get("node")
+        if not isinstance(node, dict):
+            continue
+        handle = str(node.get("handle") or "").strip().lower()
+        if exclude and handle == exclude:
+            continue
+        card = _node_to_product_card(node, shop_domain=shop_domain)
+        if card is None:
+            continue
+        cards.append(card)
+        if limit is not None and len(cards) >= limit:
+            break
+    return cards
+
+
+def normalize_product_detail_ui(
+    node: dict[str, object],
+    *,
+    shop_domain: str,
+) -> dict[str, object] | None:
+    card = _node_to_product_card(node, shop_domain=shop_domain)
+    if card is None:
+        return None
+    image_urls: list[str] = []
+    seen: set[str] = set()
+    media = node.get("media")
+    if isinstance(media, dict):
+        edges = media.get("edges")
+        if isinstance(edges, list):
+            for edge in edges:
+                if not isinstance(edge, dict):
+                    continue
+                media_node = edge.get("node")
+                if not isinstance(media_node, dict):
+                    continue
+                image = media_node.get("image")
+                if not isinstance(image, dict):
+                    continue
+                url = str(image.get("url") or "").strip()
+                if url and url not in seen:
+                    seen.add(url)
+                    image_urls.append(url)
+    featured = _featured_image_url(node)
+    if featured and featured not in seen:
+        image_urls.insert(0, featured)
+    detail: dict[str, object] = dict(card)
+    detail["image_urls"] = image_urls
+    return detail
 
 
 _CATALOG_QUERY_STOPWORDS = frozenset(
@@ -112,34 +271,23 @@ async def run_product_search(
     if not q:
         return compact_json({"error": "empty_query"})
     n = max(1, min(int(max_results), 20))
-    gql = """
-    query ProductSearch($q: String!, $n: Int!) {
-      products(first: $n, query: $q) {
-        edges {
-          node {
-            title
-            handle
-            status
-            variants(first: 20) {
-              edges {
-                node {
-                  sku
-                  title
-                  price
-                  inventoryQuantity
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    fetch_n = max(n, 10) if _needs_broad_catalog_retry(q) else n
+    gql = f"""
+    query ProductSearch($q: String!, $n: Int!) {{
+      products(first: $n, query: $q) {{
+        edges {{
+          node {{
+{_PRODUCT_SEARCH_NODE_FIELDS}
+          }}
+        }}
+      }}
+    }}
     """
     body = await shopify_graphql(
         shop_domain=shop_domain,
         access_token=access_token,
         query=gql,
-        variables={"q": q, "n": n},
+        variables={"q": q, "n": fetch_n},
     )
     data = dict(body.get("data") or {})
     initial_count = len(_product_edges(data))
@@ -194,7 +342,181 @@ async def run_product_search(
             "No matching product for this search in the connected store catalog. "
             "The item is not listed in Shopify — do not claim it is available."
         )
-    return compact_json({"data": data, "lookup_meta": lookup_meta})
+    ui_cards = normalize_product_search_ui_cards(data, shop_domain, max_results=20)
+    payload: dict[str, object] = {"data": data, "lookup_meta": lookup_meta}
+    if ui_cards:
+        payload["ui_cards"] = ui_cards
+    return compact_json(payload)
+
+
+async def run_product_details(
+    *,
+    shop_domain: str,
+    access_token: str,
+    handle: str,
+) -> str:
+    safe_handle = (handle or "").strip()
+    if not safe_handle:
+        return compact_json({"error": "empty_handle"})
+    gql = """
+    query ProductDetails($handle: String!) {
+      productByHandle(handle: $handle) {
+        title
+        handle
+        onlineStoreUrl
+        priceRangeV2 {
+          minVariantPrice {
+            amount
+            currencyCode
+          }
+        }
+        featuredImage {
+          url
+          altText
+        }
+        media(first: 20) {
+          edges {
+            node {
+              ... on MediaImage {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+    body = await shopify_graphql(
+        shop_domain=shop_domain,
+        access_token=access_token,
+        query=gql,
+        variables={"handle": safe_handle},
+    )
+    data = body.get("data") or {}
+    node = data.get("productByHandle") if isinstance(data, dict) else None
+    if not isinstance(node, dict):
+        return compact_json(
+            {
+                "lookup_meta": {
+                    "handle": safe_handle,
+                    "not_found": True,
+                    "message": "Product not found in this store catalog.",
+                }
+            }
+        )
+    ui_detail = normalize_product_detail_ui(node, shop_domain=shop_domain)
+    return compact_json(
+        {
+            "lookup_meta": {"handle": safe_handle, "not_found": False},
+            "ui_detail": ui_detail,
+        }
+    )
+
+
+def _similar_search_terms(*, title: str, tags: list[str], product_type: str, vendor: str) -> list[str]:
+    terms: list[str] = []
+    for keyword in _product_keywords_from_query(title):
+        if keyword not in terms:
+            terms.append(keyword)
+    for tag in tags:
+        token = (tag or "").strip().lower()
+        if len(token) > 2 and token not in _CATALOG_QUERY_STOPWORDS and token not in terms:
+            terms.append(token)
+            if len(terms) >= 4:
+                break
+    pt = (product_type or "").strip()
+    if pt and pt.lower() not in terms:
+        terms.append(pt.lower())
+    vend = (vendor or "").strip()
+    if vend and vend.lower() not in terms:
+        terms.append(vend.lower())
+    return terms[:6]
+
+
+async def run_similar_products(
+    *,
+    shop_domain: str,
+    access_token: str,
+    handle: str,
+    title: str | None = None,
+    max_results: int = 5,
+) -> str:
+    safe_handle = (handle or "").strip()
+    if not safe_handle:
+        return compact_json({"error": "empty_handle"})
+    n = max(1, min(int(max_results), 20))
+    meta_gql = """
+    query SimilarSource($handle: String!) {
+      productByHandle(handle: $handle) {
+        title
+        handle
+        productType
+        vendor
+        tags
+      }
+    }
+    """
+    meta_body = await shopify_graphql(
+        shop_domain=shop_domain,
+        access_token=access_token,
+        query=meta_gql,
+        variables={"handle": safe_handle},
+    )
+    meta_data = meta_body.get("data") or {}
+    source = meta_data.get("productByHandle") if isinstance(meta_data, dict) else None
+    if not isinstance(source, dict):
+        return compact_json(
+            {
+                "lookup_meta": {
+                    "handle": safe_handle,
+                    "not_found": True,
+                    "message": "Product not found in this store catalog.",
+                }
+            }
+        )
+    source_title = str(source.get("title") or title or "").strip()
+    tags_raw = source.get("tags")
+    tags = [str(t) for t in tags_raw] if isinstance(tags_raw, list) else []
+    search_terms = _similar_search_terms(
+        title=source_title,
+        tags=tags,
+        product_type=str(source.get("productType") or ""),
+        vendor=str(source.get("vendor") or ""),
+    )
+    query = " ".join(search_terms).strip() or source_title or safe_handle
+    search_out = await run_product_search(
+        shop_domain=shop_domain,
+        access_token=access_token,
+        query=query,
+        max_results=max(n + 2, n),
+    )
+    try:
+        payload = json.loads(search_out)
+    except json.JSONDecodeError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    data = dict(payload.get("data") or {})
+    ui_cards = normalize_product_search_ui_cards(
+        data,
+        shop_domain,
+        exclude_handle=safe_handle,
+        max_results=n,
+    )
+    lookup_meta = dict(payload.get("lookup_meta") or {})
+    lookup_meta["source_handle"] = safe_handle
+    lookup_meta["query"] = query
+    lookup_meta["result_count"] = len(ui_cards)
+    lookup_meta["not_found"] = len(ui_cards) <= 0
+    if len(ui_cards) <= 0:
+        lookup_meta["message"] = "No similar products found in this store catalog."
+    out: dict[str, object] = {"data": data, "lookup_meta": lookup_meta}
+    if ui_cards:
+        out["ui_cards"] = ui_cards
+    return compact_json(out)
 
 
 def _normalize_order_reference(raw: str) -> str | None:

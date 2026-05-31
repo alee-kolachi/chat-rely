@@ -21,8 +21,7 @@ from langgraph.types import StreamWriter
 from app.agent.escalation import (
     EscalationTurnContext,
     escalation_tool_system_appendix,
-    handoff_reply_for_status,
-    perform_escalation,
+    handle_escalation_with_contact,
 )
 from app.agent.llm import make_chat_model
 from app.agent.messages import text_delta_from_stream_chunk, text_from_model_message, usage_tokens_from_model_message
@@ -40,7 +39,6 @@ from app.agent.shopify_tools import (
 from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME, build_escalate_to_human_tool
 from app.core.errors import AppError
 from app.db.session import get_session_factory
-from app.domains.conversations.service import get_conversation
 from app.domains.runtime.shopify_lc_tools import tools_by_name
 
 MAX_TOOL_ROUNDS = MAX_SHOPIFY_TOOL_ROUNDS
@@ -65,6 +63,7 @@ class ChatGraphState(TypedDict, total=False):
     usage_output_tokens: int
     final_response: str
     turn_context: dict[str, Any]
+    product_cards: list[dict[str, str]]
 
 
 def _tool_call_signature(name: str, args: dict[str, Any]) -> str:
@@ -228,6 +227,7 @@ async def _escalation_node(state: ChatGraphState, writer: StreamWriter) -> dict[
         conversation_id=raw_ctx["conversation_id"],
         user_message=str(raw_ctx.get("user_message") or ""),
         visitor_email=raw_ctx.get("visitor_email"),
+        visitor_name=raw_ctx.get("visitor_name"),
         esc_cfg=dict(raw_ctx.get("esc_cfg") or {}),
     )
 
@@ -241,12 +241,8 @@ async def _escalation_node(state: ChatGraphState, writer: StreamWriter) -> dict[
         break
 
     async with get_session_factory()() as db:
-        conv = await get_conversation(db, ctx.user_id, ctx.conversation_id)
-        status = conv.status
-        occurred = await perform_escalation(db, ctx=ctx)
-        if occurred:
-            status = "escalated"
-        handoff = handoff_reply_for_status(conversation_status=status, esc_cfg=ctx.esc_cfg)
+        attempt = await handle_escalation_with_contact(db, ctx=ctx)
+        handoff = attempt.reply
 
     writer({"type": "token", "text": handoff})
     tool_messages: list[BaseMessage] = []
@@ -264,7 +260,9 @@ async def _escalation_node(state: ChatGraphState, writer: StreamWriter) -> dict[
     return {
         "messages": tool_messages + [AIMessage(content=handoff)],
         "tools_invoked": prior + [ESCALATE_TO_HUMAN_TOOL_NAME],
-        "escalation_occurred": occurred,
+        "escalation_occurred": attempt.occurred,
+        "contact_capture_required": attempt.contact_capture_required,
+        "conversation_status": attempt.conversation_status,
         "final_response": handoff,
         "usage_input_tokens": int(state.get("usage_input_tokens") or 0),
         "usage_output_tokens": int(state.get("usage_output_tokens") or 0),
@@ -287,6 +285,7 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
     tool_messages: list[BaseMessage] = []
     invoked = list(state.get("tools_invoked") or [])
     cache = dict(state.get("tool_result_cache") or {})
+    product_cards = list(state.get("product_cards") or [])
 
     for tc in ai.tool_calls or []:
         name, args, tc_id = tool_call_parts(tc)
@@ -338,12 +337,22 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
             body = (out or "").strip()[:120_000] or '{"error": "empty_tool_result"}'
             cache[sig] = body
             invoked.append(name)
+        if name == "shopify_product_search":
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                parsed = {}
+            cards = parsed.get("ui_cards") if isinstance(parsed, dict) else None
+            if isinstance(cards, list) and cards:
+                product_cards = [c for c in cards if isinstance(c, dict)]
+                writer({"type": "products", "products": product_cards})
         tool_messages.append(ToolMessage(content=body, tool_call_id=tc_id, name=name))
 
     return {
         "messages": tool_messages,
         "tools_invoked": invoked,
         "tool_result_cache": cache,
+        "product_cards": product_cards,
         "usage_input_tokens": int(state.get("usage_input_tokens") or 0),
         "usage_output_tokens": int(state.get("usage_output_tokens") or 0),
     }
@@ -415,6 +424,7 @@ async def stream_chat_graph(
         "fallback_used": False,
         "usage_input_tokens": 0,
         "usage_output_tokens": 0,
+        "product_cards": [],
         "turn_context": (
             {
                 "user_id": turn_context.user_id,
@@ -422,6 +432,7 @@ async def stream_chat_graph(
                 "conversation_id": turn_context.conversation_id,
                 "user_message": turn_context.user_message,
                 "visitor_email": turn_context.visitor_email,
+                "visitor_name": turn_context.visitor_name,
                 "esc_cfg": turn_context.esc_cfg,
             }
             if turn_context is not None
@@ -433,7 +444,7 @@ async def stream_chat_graph(
     try:
         async for mode, chunk in graph.astream(initial, stream_mode=["custom", "updates"]):
             if mode == "custom" and isinstance(chunk, dict):
-                if chunk.get("type") in ("token", "status"):
+                if chunk.get("type") in ("token", "status", "products"):
                     yield chunk
             elif mode == "updates" and isinstance(chunk, dict):
                 for node_out in chunk.values():
@@ -465,4 +476,7 @@ async def stream_chat_graph(
         "usage_output_tokens": int(final_state.get("usage_output_tokens") or 0),
         "tools_invoked": list(final_state.get("tools_invoked") or []),
         "escalation_occurred": bool(final_state.get("escalation_occurred")),
+        "contact_capture_required": bool(final_state.get("contact_capture_required")),
+        "conversation_status": final_state.get("conversation_status"),
+        "product_cards": list(final_state.get("product_cards") or []),
     }

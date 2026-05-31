@@ -47,7 +47,7 @@ export function AgentSettingsHeader() {
         method: "PATCH",
         body: JSON.stringify({ name: trimmed }),
       });
-      await refreshAgents();
+      await refreshAgents({ silent: true });
     } catch (e) {
       setNameError(e instanceof Error ? e.message : "Failed to rename agent");
     } finally {
@@ -60,7 +60,7 @@ export function AgentSettingsHeader() {
   }
 
   return (
-    <header className="mb-6 space-y-3">
+    <header className="flex flex-col gap-3">
       <div>
         <h1 className="ds-app-page-title">Agent Settings</h1>
         <p className="ds-app-page-description ds-app-page-description--wide">
@@ -72,7 +72,7 @@ export function AgentSettingsHeader() {
         </p>
       </div>
 
-      <div className="border-ds-outline rounded-ds-xl border bg-ds-surface p-4 shadow-sm sm:p-5">
+      <div className="border-ds-outline bg-ds-surface rounded-ds-xl border p-4 shadow-sm sm:p-5">
         <label htmlFor="agent-name-input" className="ds-app-kicker mb-2 block text-ds-on-surface-variant">
           Agent name
         </label>
@@ -104,7 +104,7 @@ export function AgentSettingsHeader() {
 /** Shown by every tab when there is no agent yet (e.g., before onboarding completes). */
 export function AgentSettingsEmptyState() {
   return (
-    <div className="border-ds-outline rounded-ds-xl border bg-ds-surface p-8 text-center shadow-sm">
+    <div className="border-ds-outline bg-ds-surface rounded-ds-xl border p-8 text-center shadow-sm">
       <h2 className="ds-app-section-title">No agent yet</h2>
       <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
         Finish onboarding to create your first agent, then tweak appearance, tone, and behavior here.
@@ -128,31 +128,25 @@ export function AgentSettingsShell({ active, children }: AgentSettingsShellProps
 
   return (
     <div className="ds-app-shell">
-      <div className="px-6 pt-6 md:px-8 md:pt-8">
-        <div className="mx-auto w-full max-w-5xl">
-          <AgentSettingsHeader />
-        </div>
-      </div>
-      <AgentSettingsSubnav active={active} />
-      <div className="px-6 pt-6 pb-8 md:px-8">
-        <div className="mx-auto w-full max-w-5xl">
-          {/* During saves we call `refreshAgents()` which toggles `agentsLoading`.
-              The fetch does NOT clear `agents`, but this wrapper previously hid
-              `children` while loading, causing a visible flicker.
-              Keep the existing tab UI visible whenever we already have an agent;
-              only show the loading placeholder when nothing is loaded yet. */}
-          {!selectedAgent || agents.length === 0 ? (
-            agentsLoading ? (
-              <div className="border-ds-outline rounded-ds-xl border bg-ds-surface p-8 text-center text-sm text-ds-on-surface-variant shadow-sm">
-                Loading agent settings...
-              </div>
-            ) : (
-              <AgentSettingsEmptyState />
-            )
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+        <AgentSettingsHeader />
+        <AgentSettingsSubnav active={active} />
+        {/* During saves we call `refreshAgents()` which toggles `agentsLoading`.
+            The fetch does NOT clear `agents`, but this wrapper previously hid
+            `children` while loading, causing a visible flicker.
+            Keep the existing tab UI visible whenever we already have an agent;
+            only show the loading placeholder when nothing is loaded yet. */}
+        {!selectedAgent || agents.length === 0 ? (
+          agentsLoading ? (
+            <div className="border-ds-outline bg-ds-surface rounded-ds-xl border p-8 text-center text-sm text-ds-on-surface-variant shadow-sm">
+              Loading agent settings...
+            </div>
           ) : (
-            children
-          )}
-        </div>
+            <AgentSettingsEmptyState />
+          )
+        ) : (
+          children
+        )}
       </div>
     </div>
   );

@@ -49,6 +49,16 @@ def build_shopify_turn_user_prompt(
     )
 
 
+def build_catalog_only_shopify_user_prompt(user_message: str) -> str:
+    return (
+        "The customer is asking about **products or catalog** only (not order status or tracking).\n"
+        "- Call `shopify_product_search` with product name or category keywords from their message.\n"
+        "- Do **not** call `shopify_order_lookup` — there is no order # or tracking question in this message.\n"
+        "- If `lookup_meta.not_found` is true, say the item is not in this store's catalog.\n\n"
+        f"Customer message:\n{user_message}"
+    )
+
+
 def build_multi_intent_shopify_user_prompt(
     user_message: str,
     *,

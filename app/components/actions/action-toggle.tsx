@@ -53,9 +53,9 @@ export function ActionToggle({
         onChange?.(next);
       }}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-primary",
+        "relative inline-flex shrink-0 rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-primary",
         dims.track,
-        checked ? "justify-end bg-ds-primary" : "justify-start bg-ds-outline",
+        checked ? "bg-ds-primary" : "bg-ds-outline",
         pending && "cursor-wait opacity-90",
         isDisabled && !pending && "cursor-not-allowed opacity-50",
         className
@@ -64,8 +64,9 @@ export function ActionToggle({
       <span
         aria-hidden
         className={cn(
-          "relative block rounded-full bg-white shadow-sm",
+          "absolute top-0.5 block rounded-full bg-white shadow-sm transition-[left,right] duration-200 ease-out",
           dims.thumb,
+          checked ? "right-0.5 left-auto" : "left-0.5",
           pending && "animate-pulse"
         )}
       >

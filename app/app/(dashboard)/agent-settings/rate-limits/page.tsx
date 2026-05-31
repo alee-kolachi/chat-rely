@@ -4,9 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { backendFetch } from "@/lib/backend-api";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { AgentSettingsShell } from "@/components/agent-settings/agent-settings-shell";
+import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import { mergeBehaviorSettings, readRateLimit } from "@/lib/agent-settings";
-import { appButtonClassName } from "@/lib/button-styles";
-import { cn } from "@/lib/utils";
 
 export default function AgentSettingsRateLimitsPage() {
   return (
@@ -74,7 +73,7 @@ function RateLimitsForm() {
         method: "PATCH",
         body: JSON.stringify({ behavior_settings: merged }),
       });
-      await refreshAgents();
+      await refreshAgents({ silent: true });
       setSavedAt(Date.now());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save rate limits");
@@ -89,7 +88,16 @@ function RateLimitsForm() {
     setLimitMessage("Too many messages. Please try again in a bit.");
   }
 
+  function handleCancel() {
+    setMaxMessages(initial.max_messages);
+    setWindowSeconds(initial.window_seconds);
+    setLimitMessage(initial.limit_message);
+    setError(null);
+    setSavedAt(null);
+  }
+
   return (
+    <>
     <div className="space-y-6">
       <div
         role="note"
@@ -101,7 +109,7 @@ function RateLimitsForm() {
         </p>
       </div>
 
-      <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
+      <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
         <h2 className="ds-app-section-title mb-1">Rate limits</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
           Throttle how many user messages this agent accepts within a rolling time window before showing the limit
@@ -109,7 +117,7 @@ function RateLimitsForm() {
         </p>
 
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-8">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
             <div>
               <label htmlFor="rate-limit-messages" className="text-ds-on-surface mb-1.5 block text-sm font-semibold">
                 Max messages
@@ -163,7 +171,7 @@ function RateLimitsForm() {
           {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
           {savedAt ? <p className="text-sm font-medium text-emerald-600">Saved.</p> : null}
 
-          <div className="border-ds-outline flex justify-end gap-3 border-t pt-4">
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={handleReset}
@@ -171,17 +179,18 @@ function RateLimitsForm() {
             >
               Reset to defaults
             </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!dirty || isSaving || !valid}
-              className={appButtonClassName()}
-            >
-              {isSaving ? "Saving..." : "Save changes"}
-            </button>
           </div>
         </div>
       </section>
     </div>
+
+    <UnsavedChangesActionBar
+      open={dirty}
+      isSaving={isSaving}
+      saveDisabled={!valid}
+      onSave={handleSave}
+      onCancel={handleCancel}
+    />
+    </>
   );
 }

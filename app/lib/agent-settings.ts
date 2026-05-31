@@ -49,6 +49,7 @@ export function creativityBandLabel(value: number): string {
 
 export type AgentBehaviorSettings = {
   tone?: AgentTone | string;
+  /** Merchant brand voice and sales playbook; injected into the agent system prompt at runtime. */
   tone_description?: string;
   brand_color?: string;
   widget_position?: WidgetPosition;
@@ -107,6 +108,26 @@ export function readBehaviorString(
   const v = behavior?.[key];
   return typeof v === "string" ? v : "";
 }
+
+const WELCOME_MESSAGE_MAX = 500;
+
+/** Default first bubble when the merchant leaves welcome message blank. */
+export function defaultWelcomeMessage(agentName: string | null | undefined): string {
+  const name = (agentName ?? "").trim() || "Support";
+  return `Hi! I'm ${name}. How can I help?`;
+}
+
+/** Stored custom welcome or agent-name default (what customers see). */
+export function effectiveWelcomeMessage(
+  behavior: Record<string, unknown> | null | undefined,
+  agentName: string | null | undefined
+): string {
+  const custom = readBehaviorString(behavior, "greeting_message").trim();
+  if (custom) return custom.slice(0, WELCOME_MESSAGE_MAX);
+  return defaultWelcomeMessage(agentName);
+}
+
+export { WELCOME_MESSAGE_MAX };
 
 /** Read a nested rate_limit object with safe defaults. */
 export function readRateLimit(

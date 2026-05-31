@@ -111,11 +111,19 @@
 .ds-btn-segment.ds-btn-selected,
 .ds-btn-segment[aria-pressed="true"],
 .ds-btn-segment[data-selected="true"] {
-  border: 1px solid var(--ds-btn-border);
-  background-color: var(--ds-btn-bg);
-  color: var(--ds-on-surface);
+  border: 1px solid var(--ds-primary);
+  background-color: var(--ds-primary);
+  color: var(--ds-on-primary);
   box-shadow: var(--ds-shadow-sm);
   font-weight: var(--ds-btn-font-weight);
+}
+
+.ds-btn-segment.ds-btn-selected:hover:not(:disabled):not([aria-disabled="true"]),
+.ds-btn-segment[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]),
+.ds-btn-segment[data-selected="true"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--ds-primary-hover);
+  border-color: var(--ds-primary-hover);
+  color: var(--ds-on-primary);
 }
 
 /** @deprecated Use `.ds-btn-default` */

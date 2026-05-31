@@ -8,6 +8,8 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.domains.integrations.shopify.tool_runners import (
+    _needs_broad_catalog_retry,
+    _strip_catalog_search_noise,
     run_customer_context,
     run_inventory_check,
     run_order_lookup,
@@ -91,11 +93,16 @@ def build_shopify_langchain_tools(
         product_search_input = _make_product_search_input(default_max_results)
 
         async def _product_search(query: str, max_results: int = default_max_results) -> str:
+            q = _strip_catalog_search_noise((query or "").strip())
+            effective = max(max_results, default_max_results)
+            if _needs_broad_catalog_retry(q):
+                effective = max(effective, 10)
+            effective = min(effective, 20)
             return await run_product_search(
                 shop_domain=shop_domain,
                 access_token=access_token,
                 query=query,
-                max_results=max_results,
+                max_results=effective,
             )
 
         tools.append(

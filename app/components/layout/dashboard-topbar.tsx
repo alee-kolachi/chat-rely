@@ -6,9 +6,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { PlanLockedNavAffordance } from "@/components/ui/plan-unlock-footer";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
+import {
+  dashboardNavActiveClass,
+  dashboardNavChildLinkClass,
+  dashboardNavDisabledClass,
+  dashboardNavLinkClass,
+} from "@/lib/dashboard-nav-styles";
 import { cn } from "@/lib/utils";
 
 const mobileNavItems = [
@@ -48,15 +55,8 @@ export function DashboardTopbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [mobileOpenSections, setMobileOpenSections] = useState<Record<string, boolean>>({});
 
-  const mobileNavItemsVisible = useMemo(
-    () =>
-      mobileNavItems.filter(
-        (item) =>
-          item.href !== "/analytics" ||
-          (!meLoading && planAllowsAnalyticsPage(meData?.plan.slug))
-      ),
-    [meData?.plan, meLoading]
-  );
+  const mobileNavItemsVisible = useMemo(() => mobileNavItems, []);
+  const analyticsLocked = !meLoading && !planAllowsAnalyticsPage(meData?.plan.slug);
 
   useEffect(() => {
     if (!isMenuOpen) return;
@@ -98,6 +98,8 @@ export function DashboardTopbar() {
 
           <nav className="space-y-1">
             {mobileNavItemsVisible.map((item) => {
+              const isAnalyticsItem = item.href === "/analytics";
+              const analyticsDisabled = isAnalyticsItem && analyticsLocked;
               const childActive = item.children ? hasActiveChild(pathname, item.children) : false;
               const active = isRouteActive(pathname, item.href) || childActive;
               const sectionOpen = item.children ? mobileOpenSections[item.href] : false;
@@ -112,22 +114,32 @@ export function DashboardTopbar() {
                       }
                       className={cn(
                         "flex min-h-11 w-full items-center justify-between rounded-lg border border-transparent px-3 py-2 text-left text-sm transition-all touch-manipulation",
-                        "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                        active && "border-zinc-300 bg-white text-ds-on-surface font-semibold shadow-sm"
+                        dashboardNavLinkClass(active, "hover:bg-ds-outline/35")
                       )}
                       aria-expanded={sectionOpen}
                     >
                       {item.label}
                       <IconChevronSmall className={cn("size-4 shrink-0 transition-transform", sectionOpen && "rotate-90")} />
                     </button>
+                  ) : analyticsDisabled ? (
+                    <span
+                      title="Not on your plan. Upgrade to Hobby or above for Analytics."
+                      className={cn(
+                        "flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm touch-manipulation",
+                        dashboardNavLinkClass(false),
+                        dashboardNavDisabledClass
+                      )}
+                    >
+                      <span className="truncate">{item.label}</span>
+                      <PlanLockedNavAffordance />
+                    </span>
                   ) : (
                     <Link
                       href={item.href}
                       onClick={() => setIsMenuOpen(false)}
                       className={cn(
-                        "flex min-h-11 items-center rounded-lg border border-transparent px-3 py-2 text-sm transition-all touch-manipulation",
-                        "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                        active && "border-zinc-300 bg-white text-ds-on-surface font-semibold shadow-sm"
+                        "flex min-h-11 items-center touch-manipulation",
+                        dashboardNavLinkClass(active)
                       )}
                     >
                       {item.label}
@@ -144,8 +156,8 @@ export function DashboardTopbar() {
                             href={child.href}
                             onClick={() => setIsMenuOpen(false)}
                             className={cn(
-                              "ds-app-body-muted hover:text-ds-on-surface touch-manipulation flex min-h-10 items-center rounded-md border border-transparent px-2 py-1.5 transition-colors",
-                              childActive && "border-zinc-300 bg-white text-ds-on-surface font-semibold"
+                              "touch-manipulation flex min-h-10 items-center",
+                              dashboardNavChildLinkClass(childActive)
                             )}
                           >
                             {child.label}

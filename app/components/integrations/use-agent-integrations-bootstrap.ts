@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiActionCatalogResponse } from "@/components/actions/action-catalog-types";
+import { writeActionCatalogCache } from "@/lib/action-catalog-cache";
 import { backendFetch } from "@/lib/backend-api";
 import type { ShopifyConnectionApi } from "@/components/integrations/use-shopify-connection";
 
@@ -67,6 +68,15 @@ export function invalidateAgentIntegrationsBootstrapCache(agentId: string) {
   for (const key of Array.from(bootstrapCache.keys())) {
     if (key.startsWith(prefix)) bootstrapCache.delete(key);
   }
+}
+
+/** Sync action catalog into bootstrap cache without a network round-trip (after batch save). */
+export function applyAgentIntegrationsCatalogCache(
+  agentId: string,
+  catalog: ApiActionCatalogResponse
+) {
+  writeActionCatalogCache(agentId, catalog);
+  propagateCatalogForAgent(agentId, catalog);
 }
 
 /** Keep action catalog in sync across playground (with-preview) and actions (core) cache keys. */
@@ -139,6 +149,7 @@ export function useAgentIntegrationsBootstrap(
     try {
       const res = await fetchBootstrap(agentId, includeWebsitePreview, nextKey);
       bootstrapCache.set(nextKey, { ...res, updatedAt: Date.now() });
+      writeActionCatalogCache(agentId, res.catalog);
       propagateCatalogForAgent(agentId, res.catalog);
       setCatalog(res.catalog);
       setShopify(res.shopify);

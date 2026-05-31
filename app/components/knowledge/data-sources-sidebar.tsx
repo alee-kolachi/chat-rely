@@ -101,7 +101,7 @@ export function DataSourcesSidebar({
           className
         )}
       >
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
+        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="ds-app-kicker text-ds-on-surface font-semibold">Data sources</p>
             <div className="ds-app-body-muted mt-0.5 flex items-center gap-2">
@@ -141,105 +141,107 @@ export function DataSourcesSidebar({
   return (
     <aside
       className={cn(
-        "border-ds-outline relative sticky top-0 h-[calc(100vh-3.5rem)] w-[clamp(16rem,30vw,31.25rem)] min-w-[16rem] shrink-0 overflow-y-auto overflow-x-hidden border-l p-6 md:p-8",
+        "border-ds-outline relative flex min-h-0 w-[clamp(16rem,30vw,31.25rem)] min-w-[16rem] shrink-0 flex-col overflow-hidden border-l",
         className
       )}
     >
-      <IsoGridPanelBackground id="knowledge-data-sources-grid" />
-      <div className="relative z-10">
-      <h2 className="ds-app-section-title mb-6 text-base">Data sources</h2>
-      <div className="space-y-2">
-        <div className="border-ds-outline divide-ds-outline/60 rounded-ds-md border bg-ds-surface shadow-sm">
-          <SourceTypeRow
-            icon={<IconQuestion className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
-            label="Q&A"
-            count={qaCount}
-            bytes={resolvedUsage?.qa_used_bytes ?? 0}
-            loading={resolvedUsageLoading}
-          />
-          <SourceTypeRow
-            icon={<IconQuote className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
-            label="Snippets"
-            count={snippetCount}
-            bytes={resolvedUsage?.snippets_used_bytes ?? 0}
-            loading={resolvedUsageLoading}
-            withDivider
-          />
-          <SourceTypeRow
-            icon={<IconFile className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
-            label="Files"
-            count={fileCount}
-            bytes={resolvedUsage?.files_used_bytes ?? 0}
-            loading={resolvedUsageLoading}
-            withDivider
-          />
-          <SourceTypeRow
-            icon={<IconLanguage className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
-            label="Links"
-            count={websitePages}
-            bytes={resolvedUsage?.website_used_bytes ?? 0}
-            loading={resolvedUsageLoading}
-            withDivider
-          />
-        </div>
-
-        <div className="border-ds-outline rounded-ds-md border bg-ds-surface p-3.5 shadow-sm">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="text-ds-on-surface-variant">Total size</span>
-            <span className="text-ds-on-surface text-right font-semibold">
-              {resolvedUsage && !resolvedUsageLoading ? (
-                <>
-                  {formatBytes(used)} / {formatBytes(cap)}
-                </>
-              ) : (
-                "-"
-              )}
-            </span>
-          </div>
-          {showLimitBlock ? (
-            <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-ds-outline/55">
-              <div
-                className={cn(
-                  "from-ds-primary to-ds-secondary h-full bg-gradient-to-r transition-all",
-                  overCap ? "from-amber-500 to-amber-600" : "",
-                )}
-                style={{ width: `${pct}%` }}
+      <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-6 md:p-8">
+        <IsoGridPanelBackground id="knowledge-data-sources-grid" className="min-h-full" />
+        <div className="relative z-10">
+          <h2 className="ds-app-section-title mb-6 text-base">Data sources</h2>
+          <div className="space-y-2">
+            <div className="border-ds-outline divide-ds-outline/60 rounded-ds-md border bg-ds-surface shadow-sm">
+              <SourceTypeRow
+                icon={<IconQuestion className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+                label="Q&A"
+                count={qaCount}
+                bytes={resolvedUsage?.qa_used_bytes ?? 0}
+                loading={resolvedUsageLoading}
+              />
+              <SourceTypeRow
+                icon={<IconQuote className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+                label="Snippets"
+                count={snippetCount}
+                bytes={resolvedUsage?.snippets_used_bytes ?? 0}
+                loading={resolvedUsageLoading}
+                withDivider
+              />
+              <SourceTypeRow
+                icon={<IconFile className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+                label="Files"
+                count={fileCount}
+                bytes={resolvedUsage?.files_used_bytes ?? 0}
+                loading={resolvedUsageLoading}
+                withDivider
+              />
+              <SourceTypeRow
+                icon={<IconLanguage className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />}
+                label="Links"
+                count={websitePages}
+                bytes={resolvedUsage?.website_used_bytes ?? 0}
+                loading={resolvedUsageLoading}
+                withDivider
               />
             </div>
-          ) : (
-            <div className="mb-2 h-2 w-full rounded-full bg-ds-outline/30" />
-          )}
-        </div>
 
-        {showLimitBlock && (overCap || showUpgrade) ? (
-          <div className="mt-6 space-y-3">
-            <div className="flex items-start gap-2">
-              <div className="mt-1.5 size-2 shrink-0 rounded-full bg-amber-500" />
-              <div>
-                <p className="text-sm font-semibold text-amber-800">
-                  {overCap ? "Limit exceeded" : "Upgrade available"}
-                </p>
-                <p className="text-ds-on-surface-variant text-sm leading-relaxed">
-                  {overCap
-                    ? `You are using ${formatBytes(used)} of ${formatBytes(cap)} included on your ${resolvedUsage?.plan_name ?? ""} plan.`
-                    : `You are on the ${resolvedUsage?.plan_name ?? ""} plan. Upgrade for more knowledge storage and features.`}
-                </p>
+            <div className="border-ds-outline rounded-ds-md border bg-ds-surface p-3.5 shadow-sm">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-ds-on-surface-variant">Total size</span>
+                <span className="text-ds-on-surface text-right font-semibold">
+                  {resolvedUsage && !resolvedUsageLoading ? (
+                    <>
+                      {formatBytes(used)} / {formatBytes(cap)}
+                    </>
+                  ) : (
+                    "-"
+                  )}
+                </span>
               </div>
-            </div>
-            {showUpgrade ? (
-              <Link
-                href="/pricing"
-                className="border-ds-outline hover:border-black/40 group flex w-full cursor-pointer items-center justify-between rounded-ds-md border bg-ds-surface p-3 text-left shadow-sm transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <IconArrowUp className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />
-                  <span className="ds-app-card-title">Upgrade for more data</span>
+              {showLimitBlock ? (
+                <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-ds-outline/55">
+                  <div
+                    className={cn(
+                      "from-ds-primary to-ds-secondary h-full bg-gradient-to-r transition-all",
+                      overCap ? "from-amber-500 to-amber-600" : "",
+                    )}
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
-              </Link>
+              ) : (
+                <div className="mb-2 h-2 w-full rounded-full bg-ds-outline/30" />
+              )}
+            </div>
+
+            {showLimitBlock && (overCap || showUpgrade) ? (
+              <div className="mt-6 space-y-3">
+                <div className="flex items-start gap-2">
+                  <div className="mt-1.5 size-2 shrink-0 rounded-full bg-amber-500" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">
+                      {overCap ? "Limit exceeded" : "Upgrade available"}
+                    </p>
+                    <p className="text-ds-on-surface-variant text-sm leading-relaxed">
+                      {overCap
+                        ? `You are using ${formatBytes(used)} of ${formatBytes(cap)} included on your ${resolvedUsage?.plan_name ?? ""} plan.`
+                        : `You are on the ${resolvedUsage?.plan_name ?? ""} plan. Upgrade for more knowledge storage and features.`}
+                    </p>
+                  </div>
+                </div>
+                {showUpgrade ? (
+                  <Link
+                    href="/pricing"
+                    className="border-ds-outline hover:border-black/40 group flex w-full cursor-pointer items-center justify-between rounded-ds-md border bg-ds-surface p-3 text-left shadow-sm transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconArrowUp className="text-ds-primary size-4 shrink-0" strokeWidth={1.6} />
+                      <span className="ds-app-card-title">Upgrade for more data</span>
+                    </div>
+                  </Link>
+                ) : null}
+              </div>
             ) : null}
           </div>
-        ) : null}
-      </div>
+        </div>
       </div>
     </aside>
   );

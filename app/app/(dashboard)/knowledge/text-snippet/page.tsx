@@ -264,10 +264,10 @@ export default function KnowledgeTextSnippetPage() {
 
   return (
     <KnowledgeWorkspaceShell>
-      <main className="min-w-0 flex-1 p-4 pb-32 md:p-8 md:pb-32">
+      <main className="ds-app-page-scroll ds-app-page-scroll--mobile-dock min-w-0 flex-1 overflow-y-auto overscroll-y-contain">
         <KnowledgeMobileSubnav active="text-snippet" />
-        <div className="mx-auto max-w-5xl">
-          <div className="mb-8">
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+          <div>
             <h1 className="ds-app-page-title">Text snippets</h1>
             <p className="ds-app-page-description ds-app-page-description--wide">
               Short excerpts you control. Indexed like other knowledge for chat.
@@ -275,7 +275,6 @@ export default function KnowledgeTextSnippetPage() {
           </div>
 
           <CollapsibleSection
-            className="mb-8"
             title={editingId ? "Edit snippet" : "Create snippet"}
             hideTitle
             headerClassName="bg-transparent py-1"
@@ -396,7 +395,7 @@ export default function KnowledgeTextSnippetPage() {
               ) : filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-6">
-                    <div className="bg-ds-sidebar px-4 py-6 text-center">
+                    <div className="bg-ds-app-canvas px-4 py-6 text-center">
                       <p className="text-ds-on-surface text-sm font-medium">
                         {searchQuery.trim() ? "No matching snippets" : "No snippets yet"}
                       </p>
@@ -416,7 +415,7 @@ export default function KnowledgeTextSnippetPage() {
                       <tr
                         id={`knowledge-source-${snippet.id}`}
                         className={cn(
-                          "bg-ds-surface transition-colors hover:bg-ds-sidebar/40",
+                          "bg-ds-app-canvas transition-colors hover:bg-ds-nav-active/40",
                           highlightSourceId === snippet.id && "ring-2 ring-ds-primary/40 ring-inset"
                         )}
                       >
@@ -514,7 +513,7 @@ export default function KnowledgeTextSnippetPage() {
         <DataSourcesSidebar mobile className="lg:hidden" />
       </main>
 
-      <DataSourcesSidebar className="hidden lg:block" />
+      <DataSourcesSidebar className="hidden lg:flex" />
     </KnowledgeWorkspaceShell>
   );
 }

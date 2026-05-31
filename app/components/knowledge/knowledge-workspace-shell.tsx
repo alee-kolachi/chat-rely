@@ -12,7 +12,7 @@ export function KnowledgeWorkspaceShell({
   return (
     <div
       className={cn(
-        "ds-app-shell !m-0 flex min-h-0 w-full flex-1 flex-col lg:flex-row",
+        "ds-app-shell ds-app-shell--flush flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row",
         className,
       )}
     >

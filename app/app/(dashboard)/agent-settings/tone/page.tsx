@@ -2,17 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { backendFetch } from "@/lib/backend-api";
-import { previewAssistantLineForTone } from "@/lib/brand-chrome";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { AgentSettingsShell } from "@/components/agent-settings/agent-settings-shell";
+import { AppSegmentGroupSimple } from "@/components/ui/app-segment-group";
+import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import {
   TONE_OPTIONS,
   type AgentTone,
   mergeBehaviorSettings,
   readBehaviorString,
 } from "@/lib/agent-settings";
-import { appButtonClassName } from "@/lib/button-styles";
-import { cn } from "@/lib/utils";
 
 export default function AgentSettingsTonePage() {
   return (
@@ -64,7 +63,6 @@ function ToneForm() {
         tone,
         tone_description: description.trim() || undefined,
       });
-      // If user cleared the description we want to remove the key from JSON.
       if (!description.trim()) {
         delete (merged as Record<string, unknown>).tone_description;
       }
@@ -72,7 +70,7 @@ function ToneForm() {
         method: "PATCH",
         body: JSON.stringify({ behavior_settings: merged }),
       });
-      await refreshAgents();
+      await refreshAgents({ silent: true });
       setSavedAt(Date.now());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save tone settings");
@@ -81,87 +79,65 @@ function ToneForm() {
     }
   }
 
-  const previewLine = previewAssistantLineForTone(tone);
+  function handleCancel() {
+    setTone(initialTone);
+    setDescription(initialDescription);
+    setError(null);
+    setSavedAt(null);
+  }
 
   return (
-    <div className="space-y-6">
-      <section className="border-ds-outline rounded-ds-xl border bg-ds-surface p-6 shadow-sm">
-        <h2 className="ds-app-section-title mb-1">Tone</h2>
+    <>
+      <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+        <h2 className="ds-app-section-title mb-1">Tone &amp; instructions</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
-          Sets the default phrasing style. Replies are nudged toward this voice in the system prompt.
+          Pick a default phrasing style, then add any brand-specific guidance. Both shape how the agent replies.
         </p>
 
         <div className="space-y-6">
           <div>
             <p className="text-ds-on-surface mb-3 text-sm font-semibold">Default tone</p>
-            <div
-              role="radiogroup"
+            <AppSegmentGroupSimple
               aria-label="Default tone"
-              className="bg-ds-sidebar border-ds-outline flex flex-col gap-1 rounded-ds-md border p-1 sm:flex-row sm:gap-0"
-            >
-              {TONE_OPTIONS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  role="radio"
-                  aria-checked={tone === option}
-                  onClick={() => setTone(option)}
-                  className={cn(
-                    "w-full rounded-ds-sm px-3 py-2.5 text-sm font-medium transition-all sm:flex-1",
-                    tone === option
-                      ? "bg-white text-ds-on-surface shadow-sm"
-                      : "text-ds-on-surface-variant hover:text-ds-on-surface"
-                  )}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
+              value={tone}
+              onChange={setTone}
+              options={TONE_OPTIONS.map((option) => ({ value: option, label: option }))}
+            />
           </div>
 
           <div>
             <label htmlFor="tone-description" className="text-ds-on-surface mb-1 block text-sm font-semibold">
-              Custom guidance <span className="text-ds-on-surface-variant font-normal">(optional)</span>
+              Brand instructions <span className="text-ds-on-surface-variant font-normal">(optional)</span>
             </label>
             <p className="ds-app-body-muted mb-2">
-              Style notes for the agent, e.g. &ldquo;use British English, never use emojis,
-              keep sentences under 20 words&rdquo;.
+              Tell the agent how your team talks to customers. Examples: &ldquo;Our products are high-ticket,
+              always offer to schedule a call&rdquo;, &ldquo;Demo products on a video call&rdquo;,
+              &ldquo;Use British English and never use emojis&rdquo;.
             </p>
             <textarea
               id="tone-description"
               className="ds-app-field min-h-[6.5rem] rounded-ds-lg leading-relaxed"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              maxLength={1000}
-              placeholder="Optional: how should the agent sound beyond the preset above?"
+              maxLength={2000}
+              placeholder="How should the agent talk, and what should it always suggest?"
             />
             <p className="text-ds-on-surface-variant mt-1 text-right text-[11px] tabular-nums">
-              {description.length}/1000
+              {description.length}/2000
             </p>
-          </div>
-
-          <div className="border-ds-outline rounded-ds-md border bg-ds-sidebar/50 p-4">
-            <p className="text-ds-on-surface-variant mb-1 text-[11px] font-semibold tracking-wide uppercase">
-              Sample reply
-            </p>
-            <p className="text-ds-on-surface text-sm leading-relaxed">{previewLine}</p>
           </div>
 
           {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
           {savedAt ? <p className="text-sm font-medium text-emerald-600">Saved.</p> : null}
-
-          <div className="border-ds-outline flex justify-end gap-3 border-t pt-4">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!dirty || isSaving}
-              className={appButtonClassName()}
-            >
-              {isSaving ? "Saving..." : "Save changes"}
-            </button>
-          </div>
         </div>
       </section>
-    </div>
+
+      <UnsavedChangesActionBar
+        open={dirty}
+        isSaving={isSaving}
+        onSave={handleSave}
+        onCancel={handleCancel}
+      />
+    </>
   );
 }

@@ -19,9 +19,17 @@ import {
   Wrench,
 } from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { PlanCrownIcon } from "@/components/ui/plan-tier-badge";
+import { PlanLockedNavAffordance } from "@/components/ui/plan-unlock-footer";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { useMeContext } from "@/components/layout/me-context-provider";
 import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
+import {
+  dashboardNavActiveClass,
+  dashboardNavChildLinkClass,
+  dashboardNavDisabledClass,
+  dashboardNavLinkClass,
+} from "@/lib/dashboard-nav-styles";
 import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
@@ -88,8 +96,7 @@ export function DashboardSidebar() {
   const [collapsedFlyoutHref, setCollapsedFlyoutHref] = useState<string | null>(null);
   const flyoutContainerRef = useRef<HTMLDivElement>(null);
 
-  const showAnalyticsNav =
-    uiReady && !meLoading && planAllowsAnalyticsPage(meData?.plan.slug);
+  const analyticsLocked = uiReady && !meLoading && !planAllowsAnalyticsPage(meData?.plan.slug);
 
   const collapsedForUi = uiReady && isCollapsed;
 
@@ -172,6 +179,7 @@ export function DashboardSidebar() {
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain p-2">
         {navItems.map((item) => {
           const isAnalyticsItem = item.href === "/analytics";
+          const analyticsDisabled = isAnalyticsItem && analyticsLocked;
           const itemActive = isRouteActive(pathname, item.href);
           const childActive = item.children ? hasActiveChild(pathname, item.children) : false;
           const sectionOpen = item.children ? openSections[item.href] : false;
@@ -183,7 +191,7 @@ export function DashboardSidebar() {
             <div
               key={item.href}
               ref={collapsedForUi && item.children && collapsedFlyoutHref === item.href ? flyoutContainerRef : undefined}
-              className={cn("group relative", isAnalyticsItem && !showAnalyticsNav && "hidden")}
+              className="group relative"
             >
               {item.children && !collapsedForUi ? (
                 <button
@@ -192,7 +200,7 @@ export function DashboardSidebar() {
                   className={cn(
                     "flex w-full min-w-0 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
                     "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                    showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
+                    showAsActive && dashboardNavActiveClass
                   )}
                   aria-label={sectionOpen ? `Collapse ${item.label}` : `Expand ${item.label}`}
                 >
@@ -214,25 +222,46 @@ export function DashboardSidebar() {
                   aria-haspopup="true"
                   className={cn(
                     collapsedRailItemClass,
-                    showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
+                    showAsActive && dashboardNavActiveClass
                   )}
                 >
                   {item.icon("size-5 shrink-0")}
                 </button>
               ) : (
+                analyticsDisabled ? (
+                  <span
+                    title="Not on your plan. Upgrade to Hobby or above for Analytics."
+                    className={cn(
+                      collapsedForUi
+                        ? cn(collapsedRailItemClass, "relative")
+                        : cn(dashboardNavLinkClass(false), "pr-2"),
+                      dashboardNavDisabledClass
+                    )}
+                  >
+                    {item.icon("size-5 shrink-0")}
+                    {!collapsedForUi ? (
+                      <>
+                        <span className="truncate">{item.label}</span>
+                        <PlanLockedNavAffordance />
+                      </>
+                    ) : (
+                      <PlanCrownIcon className="absolute top-1 right-1 size-3" title="Not on your plan" />
+                    )}
+                  </span>
+                ) : (
                 <Link
                   href={item.href}
                   title={collapsedForUi ? item.label : undefined}
                   className={cn(
                     collapsedForUi
-                      ? collapsedRailItemClass
-                      : "flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                    showAsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
+                      ? cn(collapsedRailItemClass, showAsActive && dashboardNavActiveClass)
+                      : dashboardNavLinkClass(showAsActive, "flex min-w-0 flex-1")
                   )}
                 >
                   {item.icon("size-5 shrink-0")}
                   {!collapsedForUi && <span className="truncate">{item.label}</span>}
                 </Link>
+                )
               )}
 
               {collapsedForUi && !item.children && (
@@ -265,7 +294,7 @@ export function DashboardSidebar() {
                         key={childHref}
                         href={childHref}
                         role="menuitem"
-                        className={cn(baseChildClass, childIsActive && "bg-white font-semibold !text-ds-primary")}
+                        className={cn(baseChildClass, childIsActive && cn(dashboardNavActiveClass, "font-semibold"))}
                       >
                         {child.label}
                       </Link>
@@ -291,7 +320,7 @@ export function DashboardSidebar() {
                       <Link
                         key={childHref}
                         href={childHref}
-                        className={cn(baseChildClass, childIsActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold")}
+                        className={dashboardNavChildLinkClass(childIsActive)}
                       >
                         {child.label}
                       </Link>

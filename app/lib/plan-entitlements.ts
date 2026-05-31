@@ -7,6 +7,8 @@ export type PlanEntitlementRow = {
   value: string;
   included: boolean;
   upgradeNote?: string;
+  /** Minimum paid tier for upsell badge (Pro shows crown). */
+  minimumTier?: "hobby" | "standard" | "pro";
 };
 
 export type PlanEntitlementSection = {
@@ -105,6 +107,7 @@ export function buildPlanEntitlementSections(
       value: maxActions > 0 ? String(maxActions) : "Not included",
       included: maxActions > 0,
       upgradeNote: maxActions > 0 ? undefined : tierLabel("hobby"),
+      minimumTier: "hobby",
     },
     {
       label: "Shopify integration",
@@ -119,24 +122,28 @@ export function buildPlanEntitlementSections(
         : maxActions === 0
           ? "Live store tools on Hobby+"
           : undefined,
+      minimumTier: !featureBool(features, "shopify_enabled") ? "hobby" : undefined,
     },
     {
       label: "Auto-retrain agents",
       value: tierAtLeast(slug, "standard") ? "Coming soon" : "Not included",
       included: false,
       upgradeNote: tierAtLeast(slug, "standard") ? undefined : tierLabel("standard"),
+      minimumTier: "standard",
     },
     {
       label: "Visitor attachments (widget)",
       value: tierAtLeast(slug, "hobby") ? "Coming soon" : "Not included",
       included: false,
       upgradeNote: tierAtLeast(slug, "hobby") ? undefined : tierLabel("hobby"),
+      minimumTier: "hobby",
     },
     {
       label: "Source suggestions",
       value: tierAtLeast(slug, "standard") ? "Included" : "Not included",
       included: tierAtLeast(slug, "standard"),
       upgradeNote: tierAtLeast(slug, "standard") ? undefined : tierLabel("standard"),
+      minimumTier: "standard",
     },
   ];
 
@@ -147,18 +154,21 @@ export function buildPlanEntitlementSections(
       value: analyticsTier === "none" ? "Not included" : analyticsTier === "basic" ? "Included" : "Included",
       included: analyticsTier !== "none",
       upgradeNote: analyticsTier === "none" ? tierLabel("hobby") : undefined,
+      minimumTier: analyticsTier === "none" ? "hobby" : undefined,
     },
     {
       label: "Advanced analytics",
       value: analyticsTier === "full" ? "Included" : "Not included",
       included: analyticsTier === "full",
       upgradeNote: analyticsTier === "full" ? undefined : tierLabel("standard"),
+      minimumTier: analyticsTier === "full" ? undefined : "standard",
     },
     {
       label: "Visitor feedback (widget)",
       value: tierAtLeast(slug, "pro") ? "Included" : "Not included",
       included: tierAtLeast(slug, "pro"),
       upgradeNote: tierAtLeast(slug, "pro") ? undefined : tierLabel("pro"),
+      minimumTier: "pro",
     },
   ];
 
@@ -175,6 +185,7 @@ export function buildPlanEntitlementSections(
       value: "Not included",
       included: false,
       upgradeNote: tierLabel("standard"),
+      minimumTier: "standard",
     });
   }
   intelligenceRows.push({
@@ -182,6 +193,7 @@ export function buildPlanEntitlementSections(
     value: tierAtLeast(slug, "hobby") ? "Included" : "Not included",
     included: tierAtLeast(slug, "hobby"),
     upgradeNote: tierAtLeast(slug, "hobby") ? undefined : tierLabel("hobby"),
+    minimumTier: "hobby",
   });
   if (tierAtLeast(slug, "pro")) {
     intelligenceRows.push({
@@ -193,10 +205,18 @@ export function buildPlanEntitlementSections(
 
   const brandRows: PlanEntitlementRow[] = [
     {
+      label: "Widget styling (theme, fonts, colors)",
+      value: tierAtLeast(slug, "pro") ? "Included" : "Not included",
+      included: tierAtLeast(slug, "pro"),
+      upgradeNote: tierAtLeast(slug, "pro") ? undefined : tierLabel("pro"),
+      minimumTier: "pro",
+    },
+    {
       label: "Remove “Powered by ChatRely”",
       value: tierAtLeast(slug, "pro") ? "Included" : "Not included",
       included: tierAtLeast(slug, "pro"),
       upgradeNote: tierAtLeast(slug, "pro") ? undefined : tierLabel("pro"),
+      minimumTier: "pro",
     },
   ];
 

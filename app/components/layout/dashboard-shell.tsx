@@ -16,10 +16,11 @@ import { NotificationsProvider } from "@/components/layout/notifications-context
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [topbarExtras, setTopbarExtras] = useState<ReactNode>(null);
-  /** Knowledge workspace is full-bleed in this column; inner routes supply their own padding (avoids a gap under the topbar and beside the data-sources sidebar). */
-  const knowledgeMain = pathname.startsWith("/knowledge");
-  /** Playground is a full-height split view; the default main bottom pad reads as a blank tail when scrolled. */
-  const playgroundMain = pathname.startsWith("/playground");
+  /** Full-height workspaces scroll inside their panes; outer main stays viewport-tall. */
+  const workspaceMain =
+    pathname.startsWith("/knowledge") ||
+    pathname.startsWith("/playground") ||
+    pathname.startsWith("/conversations");
 
   return (
     <DashboardAgentProvider>
@@ -34,14 +35,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               <DashboardScreenTopbar rightExtras={topbarExtras} />
               <main
                 className={cn(
-                  "relative z-0 flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain",
-                  playgroundMain
-                    ? "pb-[max(0.5rem,env(safe-area-inset-bottom,0px)))]"
-                    : "pb-[max(3rem,calc(1.5rem+env(safe-area-inset-bottom,0px)))] md:pb-[max(4rem,calc(2rem+env(safe-area-inset-bottom,0px)))]",
-                  knowledgeMain ? "px-0 pt-0" : "px-6 pt-6",
+                  "relative z-0 flex min-h-0 flex-1 flex-col overflow-x-hidden overscroll-y-contain bg-ds-app-canvas",
+                  workspaceMain
+                    ? "overflow-hidden p-0"
+                    : "ds-dashboard-main-pad overflow-y-auto",
                 )}
               >
                 {children}
+                {!workspaceMain ? <div aria-hidden className="ds-dashboard-main-spacer" /> : null}
               </main>
             </div>
           </div>

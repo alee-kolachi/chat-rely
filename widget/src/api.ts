@@ -1,3 +1,18 @@
+export type WidgetAppearanceColors = {
+  header?: string;
+  user_bubble?: string;
+  panel_background?: string;
+  assistant_bubble?: string;
+  assistant_bubble_border?: string;
+  composer_background?: string;
+};
+
+export type WidgetAppearanceConfig = {
+  theme_mode?: WidgetThemeMode;
+  font_family?: WidgetFontFamily;
+  colors?: WidgetAppearanceColors;
+};
+
 export type WidgetConfig = {
   agent_id: string;
   name: string;
@@ -9,11 +24,32 @@ export type WidgetConfig = {
   attachments_ui_enabled?: boolean;
   hide_powered_by_chatrely?: boolean;
   message_feedback_enabled?: boolean;
+  widget_appearance?: WidgetAppearanceConfig | null;
+};
+
+export type ProductCard = {
+  handle: string;
+  title: string;
+  url: string;
+  image_url?: string | null;
+  price?: string | null;
+};
+
+export type ProductDetail = ProductCard & {
+  image_urls: string[];
+};
+
+export type ProductActionRequest = {
+  type: "details" | "similar";
+  handle: string;
+  title?: string | null;
 };
 
 export type ChatSseEvent =
   | { type: "status"; text: string }
   | { type: "token"; text: string }
+  | { type: "products"; products: ProductCard[] }
+  | { type: "product_detail"; product: ProductDetail }
   | { type: "start"; conversation_id?: string }
   | ({
       type: "done";
@@ -29,6 +65,50 @@ async function safeJson(res: Response): Promise<{ error?: { message?: string } }
   } catch {
     return null;
   }
+}
+
+function parseProductCards(value: unknown): ProductCard[] {
+  if (!Array.isArray(value)) return [];
+  const cards: ProductCard[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const handle = typeof row.handle === "string" ? row.handle.trim() : "";
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const url = typeof row.url === "string" ? row.url.trim() : "";
+    if (!handle || !title || !url) continue;
+    cards.push({
+      handle,
+      title,
+      url,
+      image_url: typeof row.image_url === "string" ? row.image_url : null,
+      price: typeof row.price === "string" ? row.price : null,
+    });
+  }
+  return cards;
+}
+
+function parseProductDetail(value: unknown): ProductDetail | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const handle = typeof row.handle === "string" ? row.handle.trim() : "";
+  const title = typeof row.title === "string" ? row.title.trim() : "";
+  const url = typeof row.url === "string" ? row.url.trim() : "";
+  if (!handle || !title || !url) return null;
+  const imageUrls: string[] = [];
+  if (Array.isArray(row.image_urls)) {
+    for (const item of row.image_urls) {
+      if (typeof item === "string" && item.trim()) imageUrls.push(item.trim());
+    }
+  }
+  return {
+    handle,
+    title,
+    url,
+    image_url: typeof row.image_url === "string" ? row.image_url : imageUrls[0] ?? null,
+    price: typeof row.price === "string" ? row.price : null,
+    image_urls: imageUrls,
+  };
 }
 
 function parseSseBlock(block: string): ChatSseEvent | null {
@@ -47,6 +127,12 @@ function parseSseBlock(block: string): ChatSseEvent | null {
   }
   if (eventName === "status") return { type: "status", text: String(data.text ?? "") };
   if (eventName === "token") return { type: "token", text: String(data.text ?? "") };
+  if (eventName === "products") return { type: "products", products: parseProductCards(data.products) };
+  if (eventName === "product_detail") {
+    const product = parseProductDetail(data.product);
+    if (!product) return null;
+    return { type: "product_detail", product };
+  }
   if (eventName === "done") return { type: "done", ...data };
   if (eventName === "error") {
     return { type: "error", message: String(data.message ?? "Chat failed") };
@@ -120,6 +206,41 @@ export async function* streamChat(
     const ev = parseSseBlock(buf.trim());
     if (ev) yield ev;
   }
+}
+
+export async function postWidgetVisitorContact(
+  apiBase: string,
+  agentKey: string,
+  body: {
+    conversation_id: string;
+    visitor_id: string;
+    visitor_name: string;
+    visitor_email: string;
+  }
+): Promise<{
+  handoff_message: string;
+  conversation_status: string;
+  contact_capture_required: boolean;
+}> {
+  const url = `${apiBase}/api/v1/public/widget/visitor-contact`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-ChatRely-Agent-Key": agentKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await safeJson(res);
+    const msg = err?.error?.message ?? `Contact submit failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return (await res.json()) as {
+    handoff_message: string;
+    conversation_status: string;
+    contact_capture_required: boolean;
+  };
 }
 
 export async function postWidgetMessageFeedback(

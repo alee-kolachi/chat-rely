@@ -2,9 +2,17 @@
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StreamingAssistantMessage, type AssistantStreamPhase } from "@/components/chat/StreamingAssistantMessage";
+import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
 import { chatSseStream } from "@/lib/chat-sse";
 import { applyChatSseEvent, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
+import {
+  productActionUserMessage,
+  type ProductActionRequest,
+  type ProductCard,
+  type ProductDetail,
+} from "@/lib/product-card";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import { appButtonClassName } from "@/lib/button-styles";
@@ -27,9 +35,12 @@ import type { ShopifyConnectionApi } from "@/components/integrations/use-shopify
 type PreviewMessage = {
   from: "user" | "assistant";
   text: string;
+  createdAt?: string;
   streamPhase?: AssistantStreamPhase;
   errorMessage?: string | null;
   statusLine?: string | null;
+  products?: ProductCard[] | null;
+  productDetail?: ProductDetail | null;
 };
 
 type OnboardingStatusPayload = {
@@ -107,7 +118,14 @@ export default function AgentPreviewOnboardingPage() {
   const [messages, setMessages] = useState<PreviewMessage[]>([]);
 
   useEffect(() => {
-    setMessages([{ from: "assistant", text: welcomeMessage, streamPhase: "done" }]);
+    setMessages([
+      {
+        from: "assistant",
+        text: welcomeMessage,
+        streamPhase: "done",
+        createdAt: messageCreatedAtIso(),
+      },
+    ]);
   }, [welcomeMessage]);
 
   const checklist = useMemo(() => {
@@ -198,6 +216,110 @@ export default function AgentPreviewOnboardingPage() {
 
   const canSend = Boolean(agentId && input.trim() && !isSending && indexing.readyForPreview);
 
+  async function streamPreviewReply(
+    userMessage: string,
+    ac: AbortController,
+    productAction?: ProductActionRequest
+  ) {
+    for await (const ev of chatSseStream("/api/chat/stream", {
+      method: "POST",
+      signal: ac.signal,
+      body: JSON.stringify({
+        agent_id: agentId,
+        message: userMessage,
+        conversation_id: conversationId,
+        visitor_id: visitorIdRef.current,
+        ...(productAction
+          ? {
+              product_action: {
+                type: productAction.type,
+                handle: productAction.handle,
+                title: productAction.title ?? null,
+              },
+            }
+          : {}),
+      }),
+    })) {
+      if (ac.signal.aborted) break;
+      if (ev.type === "done" && ev.conversation_id) {
+        setConversationId(ev.conversation_id);
+      }
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        if (last.from !== "assistant") return prev;
+        const patch = applyChatSseEvent(ev, {
+          text: last.text,
+          streamPhase: last.streamPhase ?? "thinking",
+        });
+        if (!patch) return prev;
+        const next = [...prev];
+        next[next.length - 1] = {
+          ...last,
+          ...patch,
+          from: "assistant",
+        };
+        return next;
+      });
+      if (ev.type === "done") {
+        const reply = typeof ev.response === "string" ? ev.response.trim() : "";
+        if (reply.length >= 8) setAskedRealQuestion(true);
+      } else if (ev.type === "error") {
+        throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
+      }
+      if (chatStreamTerminalEvent(ev)) {
+        setIsSending(false);
+      }
+    }
+  }
+
+  const runProductAction = useCallback(
+    async (action: ProductActionRequest) => {
+      if (!agentId || isSending || !indexing.readyForPreview) return;
+      const userMessage = productActionUserMessage(action);
+      setError(null);
+      stickToBottomRef.current = true;
+      setMessages((prev) => [...prev, { from: "user", text: userMessage, createdAt: messageCreatedAtIso() }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "assistant",
+          text: "",
+          streamPhase: "thinking",
+          statusLine: null,
+          createdAt: messageCreatedAtIso(),
+        },
+      ]);
+      setIsSending(true);
+      chatAbortRef.current?.abort();
+      const ac = new AbortController();
+      chatAbortRef.current = ac;
+      try {
+        await streamPreviewReply(userMessage, ac, action);
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        const errMsg = e instanceof Error ? e.message : "Could not load product";
+        setError(errMsg);
+        setMessages((prev) => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last?.from !== "assistant") return prev;
+          const next = [...prev];
+          next[next.length - 1] = {
+            ...last,
+            streamPhase: "error",
+            errorMessage: errMsg,
+          };
+          return next;
+        });
+      } finally {
+        if (chatAbortRef.current === ac) chatAbortRef.current = null;
+        setIsSending(false);
+      }
+    },
+    [agentId, conversationId, indexing.readyForPreview, isSending]
+  );
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
     if (!canSend || !agentId) return;
@@ -205,57 +327,23 @@ export default function AgentPreviewOnboardingPage() {
     setInput("");
     setError(null);
     stickToBottomRef.current = true;
-    setMessages((prev) => [...prev, { from: "user", text: message }]);
+    setMessages((prev) => [...prev, { from: "user", text: message, createdAt: messageCreatedAtIso() }]);
     setMessages((prev) => [
       ...prev,
-      { from: "assistant", text: "", streamPhase: "thinking", statusLine: null },
+      {
+        from: "assistant",
+        text: "",
+        streamPhase: "thinking",
+        statusLine: null,
+        createdAt: messageCreatedAtIso(),
+      },
     ]);
     setIsSending(true);
     chatAbortRef.current?.abort();
     const ac = new AbortController();
     chatAbortRef.current = ac;
     try {
-      for await (const ev of chatSseStream("/api/chat/stream", {
-        method: "POST",
-        signal: ac.signal,
-        body: JSON.stringify({
-          agent_id: agentId,
-          message,
-          conversation_id: conversationId,
-          visitor_id: visitorIdRef.current,
-        }),
-      })) {
-        if (ac.signal.aborted) break;
-        if (ev.type === "done" && ev.conversation_id) {
-          setConversationId(ev.conversation_id);
-        }
-        setMessages((prev) => {
-          if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          if (last.from !== "assistant") return prev;
-          const patch = applyChatSseEvent(ev, {
-            text: last.text,
-            streamPhase: last.streamPhase ?? "thinking",
-          });
-          if (!patch) return prev;
-          const next = [...prev];
-          next[next.length - 1] = {
-            ...last,
-            ...patch,
-            from: "assistant",
-          };
-          return next;
-        });
-        if (ev.type === "done") {
-          const reply = typeof ev.response === "string" ? ev.response.trim() : "";
-          if (reply.length >= 8) setAskedRealQuestion(true);
-        } else if (ev.type === "error") {
-          throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
-        }
-        if (chatStreamTerminalEvent(ev)) {
-          setIsSending(false);
-        }
-      }
+      await streamPreviewReply(message, ac);
     } catch (e) {
       if (ac.signal.aborted) return;
       const errMsg = e instanceof Error ? e.message : "Failed to send message";
@@ -433,24 +521,97 @@ export default function AgentPreviewOnboardingPage() {
                             : message.text.trim()
                               ? "done"
                               : "thinking");
+                        const hasCarousel =
+                          message.from === "assistant" &&
+                          Boolean(message.products?.length && !message.productDetail);
+                        const assistantBubbleClass =
+                          "border-ds-outline rounded-2xl rounded-tl-sm border bg-ds-sidebar px-4 py-2.5";
+                        const assistantTimeFooter =
+                          message.createdAt && (phase === "done" || phase === "error") ? (
+                            <MessageTimestamp variant="bubble" value={message.createdAt} />
+                          ) : null;
                         return (
                           <div
                             key={`${message.from}-${idx}`}
                             className={
                               message.from === "user"
-                                ? "bg-ds-primary ml-auto max-w-[92%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-ds-on-primary sm:max-w-[88%]"
-                                : "border-ds-outline max-w-[92%] rounded-2xl rounded-tl-sm border bg-ds-sidebar px-4 py-2.5 sm:max-w-[88%]"
+                                ? "ml-auto max-w-[92%] sm:max-w-[88%]"
+                                : cn(hasCarousel ? "max-w-full" : "max-w-[92%] sm:max-w-[88%]")
                             }
                           >
-                            {message.from === "assistant" ? (
+                            {message.from === "assistant" && hasCarousel ? (
                               <StreamingAssistantMessage
                                 text={message.text}
                                 phase={phase}
                                 statusLine={message.statusLine}
                                 errorMessage={message.errorMessage}
+                                products={message.products}
+                                productDetail={message.productDetail}
+                                productActionsDisabled={isSending}
+                                introBubbleClassName={assistantBubbleClass}
+                                bubbleFooter={assistantTimeFooter}
+                                onShowProductDetails={(product) =>
+                                  void runProductAction({
+                                    type: "details",
+                                    handle: product.handle,
+                                    title: product.title,
+                                  })
+                                }
+                                onShowSimilarProducts={(product) =>
+                                  void runProductAction({
+                                    type: "similar",
+                                    handle: product.handle,
+                                    title: product.title,
+                                  })
+                                }
                               />
                             ) : (
-                              message.text
+                            <div
+                              className={
+                                message.from === "user"
+                                  ? "bg-ds-primary rounded-2xl rounded-tr-sm px-4 py-2.5 text-ds-on-primary"
+                                  : assistantBubbleClass
+                              }
+                            >
+                              {message.from === "assistant" ? (
+                                <StreamingAssistantMessage
+                                  text={message.text}
+                                  phase={phase}
+                                  statusLine={message.statusLine}
+                                  errorMessage={message.errorMessage}
+                                  products={message.products}
+                                  productDetail={message.productDetail}
+                                  productActionsDisabled={isSending}
+                                  onShowProductDetails={(product) =>
+                                    void runProductAction({
+                                      type: "details",
+                                      handle: product.handle,
+                                      title: product.title,
+                                    })
+                                  }
+                                  onShowSimilarProducts={(product) =>
+                                    void runProductAction({
+                                      type: "similar",
+                                      handle: product.handle,
+                                      title: product.title,
+                                    })
+                                  }
+                                  bubbleFooter={assistantTimeFooter}
+                                />
+                              ) : (
+                                <UserBubbleBody
+                                  timestamp={
+                                    <MessageTimestamp
+                                      variant="bubble"
+                                      value={message.createdAt}
+                                      tone="on-primary"
+                                    />
+                                  }
+                                >
+                                  {message.text}
+                                </UserBubbleBody>
+                              )}
+                            </div>
                             )}
                           </div>
                         );

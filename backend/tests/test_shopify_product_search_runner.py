@@ -145,3 +145,154 @@ async def test_product_search_tool_uses_agent_config_max_results(
     tool = tools[0]
     await tool.coroutine(query="boots")
     assert n_seen[0] == 7
+
+
+def test_normalize_product_search_ui_cards_builds_storefront_fields() -> None:
+    data = {
+        "products": {
+            "edges": [
+                {
+                    "node": {
+                        "title": "Navy Linen Button-Up",
+                        "handle": "navy-linen",
+                        "onlineStoreUrl": "https://store.example.com/products/navy-linen",
+                        "featuredImage": {"url": "https://cdn.example.com/navy.jpg"},
+                        "priceRangeV2": {
+                            "minVariantPrice": {"amount": "78.00", "currencyCode": "USD"}
+                        },
+                    }
+                }
+            ]
+        }
+    }
+    cards = tool_runners.normalize_product_search_ui_cards(
+        data, "example.myshopify.com", max_results=5
+    )
+    assert len(cards) == 1
+    assert cards[0]["handle"] == "navy-linen"
+    assert cards[0]["url"] == "https://store.example.com/products/navy-linen"
+    assert cards[0]["price"] == "$78.00"
+    assert cards[0]["image_url"] == "https://cdn.example.com/navy.jpg"
+
+
+@pytest.mark.asyncio
+async def test_product_search_includes_ui_cards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_shopify_graphql(**kwargs):
+        return {
+            "data": {
+                "products": {
+                    "edges": [
+                        {
+                            "node": {
+                                "title": "Boot",
+                                "handle": "boot",
+                                "onlineStoreUrl": None,
+                                "featuredImage": None,
+                                "priceRangeV2": {
+                                    "minVariantPrice": {"amount": "10.00", "currencyCode": "USD"}
+                                },
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_product_search(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        query="boot",
+    )
+    payload = json.loads(out)
+    assert payload["ui_cards"][0]["url"] == "https://example.myshopify.com/products/boot"
+
+
+@pytest.mark.asyncio
+async def test_run_product_details_returns_ui_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_shopify_graphql(**kwargs):
+        return {
+            "data": {
+                "productByHandle": {
+                    "title": "Boot",
+                    "handle": "boot",
+                    "onlineStoreUrl": "https://store.example.com/products/boot",
+                    "priceRangeV2": {
+                        "minVariantPrice": {"amount": "10.00", "currencyCode": "USD"}
+                    },
+                    "featuredImage": {"url": "https://cdn.example.com/boot.jpg"},
+                    "media": {
+                        "edges": [
+                            {"node": {"image": {"url": "https://cdn.example.com/boot.jpg"}}},
+                            {"node": {"image": {"url": "https://cdn.example.com/boot-2.jpg"}}},
+                        ]
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_product_details(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        handle="boot",
+    )
+    payload = json.loads(out)
+    detail = payload["ui_detail"]
+    assert detail["title"] == "Boot"
+    assert len(detail["image_urls"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_shopify_tools_node_emits_products_event() -> None:
+    from unittest.mock import MagicMock
+
+    from app.agent.graph import _shopify_tools_node
+    from langchain_core.messages import AIMessage
+    from langchain_core.tools import StructuredTool
+
+    writer = MagicMock()
+    body = json.dumps(
+        {
+            "ui_cards": [
+                {
+                    "handle": "boot",
+                    "title": "Boot",
+                    "url": "https://store.example.com/products/boot",
+                    "price": "$10.00",
+                }
+            ]
+        }
+    )
+
+    async def _run(**kwargs: object) -> str:
+        return body
+
+    tool = StructuredTool.from_function(
+        coroutine=_run,
+        name="shopify_product_search",
+        description="test",
+    )
+    ai = AIMessage(
+        content="",
+        tool_calls=[{"id": "tc1", "name": "shopify_product_search", "args": {"query": "boot"}}],
+    )
+    state = {
+        "messages": [ai],
+        "bound_tools": [tool],
+        "shopify_tool_names": {"shopify_product_search"},
+        "model_round": 1,
+        "tools_invoked": [],
+        "tool_result_cache": {},
+        "product_cards": [],
+        "turn_context": {},
+    }
+
+    result = await _shopify_tools_node(state, writer)
+
+    writer.assert_any_call({"type": "products", "products": json.loads(body)["ui_cards"]})
+    assert result["product_cards"][0]["handle"] == "boot"

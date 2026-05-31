@@ -247,10 +247,10 @@ export default function KnowledgeFilesPage() {
 
   return (
     <KnowledgeWorkspaceShell>
-      <main className="min-w-0 flex-1 p-4 pb-32 md:p-8 md:pb-32">
+      <main className="ds-app-page-scroll ds-app-page-scroll--mobile-dock min-w-0 flex-1 overflow-y-auto overscroll-y-contain">
         <KnowledgeMobileSubnav active="files" />
-        <div className="mx-auto max-w-5xl">
-          <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="ds-app-page-title">Files</h1>
               <p className="ds-app-page-description ds-app-page-description--wide">
@@ -265,10 +265,9 @@ export default function KnowledgeFilesPage() {
             headerClassName="bg-transparent py-1"
             headerContent={<div className="text-sm font-semibold text-ds-on-surface">Upload files</div>}
             defaultExpanded
-            className="mb-8"
           >
             <div
-              className="cursor-pointer p-6 text-center transition-colors hover:bg-white"
+              className="cursor-pointer p-6 text-center transition-colors hover:bg-ds-sidebar/30"
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
@@ -368,7 +367,7 @@ export default function KnowledgeFilesPage() {
                   ) : filteredRows.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-6">
-                        <div className="bg-ds-sidebar px-4 py-6 text-center">
+                        <div className="bg-ds-app-canvas px-4 py-6 text-center">
                           <p className="text-ds-on-surface text-sm font-medium">
                             {searchQuery.trim() ? "No matching files" : "No file sources yet"}
                           </p>
@@ -386,7 +385,7 @@ export default function KnowledgeFilesPage() {
                         key={row.id}
                         id={`knowledge-source-${row.id}`}
                         className={cn(
-                          "bg-ds-surface transition-colors hover:bg-ds-sidebar/40",
+                          "bg-ds-app-canvas transition-colors hover:bg-ds-nav-active/40",
                           highlightSourceId === row.id && "ring-2 ring-ds-primary/40 ring-inset"
                         )}
                       >
@@ -454,7 +453,7 @@ export default function KnowledgeFilesPage() {
         <DataSourcesSidebar mobile className="lg:hidden" />
       </main>
 
-      <DataSourcesSidebar className="hidden lg:block" />
+      <DataSourcesSidebar className="hidden lg:flex" />
     </KnowledgeWorkspaceShell>
   );
 }

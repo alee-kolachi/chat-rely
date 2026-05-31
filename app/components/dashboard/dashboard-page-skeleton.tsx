@@ -24,14 +24,14 @@ export function DashboardChartSkeleton(props?: ChartAreaSkeletonProps) {
 
 export function DashboardQueueAsideSkeleton() {
   return (
-    <div className="mt-5 space-y-3" aria-hidden>
+    <ul className="divide-ds-outline divide-y" aria-hidden>
       {[1, 2].map((i) => (
-        <div key={i} className="bg-ds-sidebar flex items-center justify-between px-3 py-2.5">
+        <li key={i} className="flex items-center justify-between gap-3 px-1 py-3">
           <div className="ds-skeleton h-4 w-[58%] max-w-[14rem]" />
           <div className="ds-skeleton h-6 w-10 shrink-0" />
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -58,16 +58,16 @@ export function DashboardRecentTableSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
-export function DashboardTrainingTopicsSkeleton({ blocks = 3 }: { blocks?: number }) {
+export function DashboardTrainingTopicsSkeleton({ blocks = 4 }: { blocks?: number }) {
   return (
-    <div className="space-y-3" aria-hidden>
+    <ul className="divide-ds-outline divide-y" aria-hidden>
       {Array.from({ length: blocks }).map((_, i) => (
-        <div key={i} className="bg-ds-sidebar/80 p-3">
+        <li key={i} className="flex items-center justify-between gap-3 px-1 py-2.5">
           <div className="ds-skeleton h-4 w-[72%] max-w-[14rem]" />
-          <div className="ds-skeleton mt-2 h-3 w-28" />
-        </div>
+          <div className="ds-skeleton h-3 w-20 shrink-0" />
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 

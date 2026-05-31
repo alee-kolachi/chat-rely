@@ -1,9 +1,13 @@
 import { BackendApiError, getAccessToken, getBackendBaseUrl, parseRetryAfterSeconds } from "@/lib/backend-api";
+import type { ProductCard, ProductDetail } from "@/lib/product-card";
+import { parseProductCards, parseProductDetail } from "@/lib/product-card";
 
 /** SSE events from `POST /api/chat/stream`. */
 export type ChatSseEvent =
   | { type: "status"; text: string }
   | { type: "token"; text: string }
+  | { type: "products"; products: ProductCard[] }
+  | { type: "product_detail"; product: ProductDetail }
   | ({
       type: "done";
       conversation_id?: string;
@@ -36,6 +40,15 @@ function parseSseBlock(block: string): ChatSseEvent | null {
   }
   if (eventName === "token") {
     return { type: "token", text: String(data.text ?? "") };
+  }
+  if (eventName === "products") {
+    const products = parseProductCards(data.products) ?? [];
+    return { type: "products", products };
+  }
+  if (eventName === "product_detail") {
+    const product = parseProductDetail(data.product);
+    if (!product) return null;
+    return { type: "product_detail", product };
   }
   if (eventName === "done") {
     return { type: "done", ...data };
