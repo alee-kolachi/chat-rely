@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { dashboardTabClass } from "@/lib/dashboard-nav-styles";
+import { cn } from "@/lib/utils";
 
 export type AgentSettingsTabKey = "appearance" | "tone" | "behavior" | "rate-limits";
 
@@ -17,14 +18,14 @@ const tabs: Array<{ key: AgentSettingsTabKey; href: string; label: string }> = [
 export function AgentSettingsSubnav({ active }: AgentSettingsSubnavProps) {
   return (
     <nav
-      className="border-ds-outline flex min-w-0 items-end gap-5 overflow-x-auto border-b md:gap-8"
+      className="border-ds-outline -mx-1 flex min-w-0 items-end gap-4 overflow-x-auto border-b px-1 pb-px md:gap-8"
       aria-label="Agent settings sections"
     >
       {tabs.map((tab) => (
         <Link
           key={tab.key}
           href={tab.href}
-          className={dashboardTabClass(tab.key === active)}
+          className={cn(dashboardTabClass(tab.key === active), "shrink-0 whitespace-nowrap")}
         >
           {tab.label}
         </Link>

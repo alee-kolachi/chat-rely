@@ -102,7 +102,14 @@
     width: 100%;
   }
 
-  /* Scrollable dashboard pages — horizontal/top pad on main; bottom space via .ds-dashboard-main-spacer. */
+  /*
+   * Mobile layout contracts (merchant app):
+   * - Standard pages: .ds-dashboard-main-pad on <main> (dashboard shell).
+   * - Flush workspaces (/knowledge, /playground, /conversations): main stays p-0;
+   *   use .ds-app-page-scroll or .ds-flush-page-pad on the page root.
+   * - Tables (3+ columns): wrap in overflow-x-auto; never overflow-visible on wrapper.
+   * - Breakpoints: md (768px) app chrome; lg (1024px) knowledge two-pane split.
+   */
   .ds-dashboard-main-pad {
     padding-left: var(--ds-app-page-pad-x);
     padding-right: var(--ds-app-page-pad-x);
@@ -139,6 +146,20 @@
       --ds-app-page-pad-x: 2rem;
       --ds-app-page-pad-top: 2rem;
       --ds-app-page-pad-bottom: 4rem;
+    }
+  }
+
+  /* Horizontal/top pad for flush pages that are not ds-app-page-scroll (e.g. conversations). */
+  .ds-flush-page-pad {
+    box-sizing: border-box;
+    padding-left: var(--ds-app-page-pad-x);
+    padding-right: var(--ds-app-page-pad-x);
+    padding-top: 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .ds-flush-page-pad {
+      padding-top: var(--ds-app-page-pad-top);
     }
   }
 

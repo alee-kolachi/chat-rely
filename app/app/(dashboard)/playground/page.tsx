@@ -1621,7 +1621,7 @@ export default function PlaygroundPage() {
 
   return (
     <div className="ds-app-shell ds-app-shell--flush flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="border-ds-outline bg-ds-app-canvas/80 flex shrink-0 items-center gap-2 border-b p-2.5 lg:hidden">
+      <div className="border-ds-outline bg-ds-app-canvas/80 flex shrink-0 items-center gap-2 border-b p-2 sm:p-2.5 lg:hidden">
         <button
           type="button"
           onClick={() => setMobileTab("settings")}
@@ -1663,7 +1663,12 @@ export default function PlaygroundPage() {
             </h2>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-6 sm:px-8 sm:py-8">
+          <div
+            className={cn(
+              "min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5 sm:px-8 sm:py-8",
+              isDirty && "pb-24 sm:pb-28",
+            )}
+          >
             {!agentsLoading && !selectedAgentId ? (
               <DashboardSelectAgentEmptyState />
             ) : showPlaygroundSettingsSkeleton ? (

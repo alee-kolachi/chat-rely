@@ -296,12 +296,12 @@ export default function AppearanceToneOnboardingPage() {
                             style={{ backgroundColor: preset.hex }}
                           />
                         ))}
-                        <div className="border-ds-outline ml-1 flex items-center overflow-hidden rounded-ds-md border">
-                          <span className="ds-app-body-muted px-2 font-mono">#</span>
+                        <div className="border-ds-outline flex min-w-0 w-full items-center overflow-hidden rounded-ds-md border sm:ml-1 sm:w-auto">
+                          <span className="ds-app-body-muted shrink-0 px-2 font-mono">#</span>
                           <OnboardingInput
                             value={hex}
                             onChange={(e) => setHex(e.target.value.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6))}
-                            className="w-24 border-0 py-2 font-mono text-xs uppercase focus:ring-0"
+                            className="min-w-0 w-full border-0 py-2 font-mono text-xs uppercase focus:ring-0 sm:w-24"
                             aria-label="Hex color"
                           />
                         </div>

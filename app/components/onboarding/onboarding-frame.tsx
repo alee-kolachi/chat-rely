@@ -2,6 +2,9 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { Menu, X } from "lucide-react";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { OnboardingIndexingProgress } from "@/components/onboarding/onboarding-indexing-progress";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
@@ -51,6 +54,76 @@ export function OnboardingFrame({
   footer?: ReactNode;
 }) {
   const { snapshot, showBanner } = useOnboardingIndexingStatus(linkAgentId);
+  const [isStepsOpen, setIsStepsOpen] = useState(false);
+  const stepNumber = onboardingMenuItems.indexOf(activeItem) + 1;
+  const totalSteps = onboardingMenuItems.length;
+
+  useEffect(() => {
+    if (!isStepsOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isStepsOpen]);
+
+  const mobileStepsMenu = isStepsOpen ? (
+    <div className="fixed inset-0 z-[200] md:hidden" role="dialog" aria-modal="true">
+      <button
+        type="button"
+        aria-label="Close setup steps"
+        className="absolute inset-0 bg-black/45 touch-manipulation"
+        onClick={() => setIsStepsOpen(false)}
+      />
+      <aside className="border-ds-outline bg-ds-sidebar relative z-[1] h-full w-[min(84vw,320px)] overflow-y-auto border-r p-3 shadow-xl touch-manipulation">
+        <div className="border-ds-outline mb-3 flex items-center justify-between border-b pb-3">
+          <span className="ds-app-card-title">Agent setup</span>
+          <button
+            type="button"
+            onClick={() => setIsStepsOpen(false)}
+            className="text-ds-on-surface-variant hover:bg-ds-neutral hover:text-ds-on-surface touch-manipulation min-h-10 min-w-10 rounded-ds-md p-2 transition-colors"
+            aria-label="Close setup steps"
+          >
+            <X className="size-4" strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+
+        <p className="text-ds-on-surface-variant mb-3 px-1 text-xs font-medium tracking-wide uppercase">
+          Step {stepNumber} of {totalSteps}
+        </p>
+
+        <nav className="space-y-1">
+          {onboardingMenuItems.map((item) => {
+            const isActive = item === activeItem;
+            const isCompleted = completedItems.includes(item);
+            return (
+              <Link
+                key={item}
+                href={onboardingNavHref(onboardingItemRoutes[item], linkAgentId)}
+                onClick={() => setIsStepsOpen(false)}
+                className={cn(
+                  "mb-1 flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all touch-manipulation",
+                  "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
+                  isActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm",
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] leading-none",
+                    isCompleted ? "bg-emerald-500 text-white" : "bg-zinc-200/70 text-transparent",
+                  )}
+                  aria-hidden
+                >
+                  ✓
+                </span>
+                {item}
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+    </div>
+  ) : null;
 
   return (
     <div className="bg-white text-ds-on-surface flex h-dvh max-h-dvh min-h-0 w-full max-w-[100vw] flex-col">
@@ -65,7 +138,9 @@ export function OnboardingFrame({
 
         <div className="px-3 pt-5 pb-3">
           <div className="mb-1 text-sm font-semibold tracking-tight">Agent Setup</div>
-          <p className="text-ds-on-surface-variant text-[11px] font-medium tracking-widest uppercase">5 Steps</p>
+          <p className="text-ds-on-surface-variant text-[11px] font-medium tracking-widest uppercase">
+            {totalSteps} Steps
+          </p>
         </div>
 
         <nav className="flex-1 px-2 pb-3">
@@ -79,13 +154,13 @@ export function OnboardingFrame({
                 className={cn(
                   "mb-1 flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm transition-all",
                   "text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface",
-                  isActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm"
+                  isActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm",
                 )}
               >
                 <span
                   className={cn(
                     "inline-flex size-4 items-center justify-center rounded-full text-[10px] leading-none",
-                    isCompleted ? "bg-emerald-500 text-white" : "bg-zinc-200/70 text-transparent"
+                    isCompleted ? "bg-emerald-500 text-white" : "bg-zinc-200/70 text-transparent",
                   )}
                   aria-hidden
                 >
@@ -110,22 +185,56 @@ export function OnboardingFrame({
       <div className="flex min-h-0 flex-1 flex-row overflow-x-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:ml-64">
           <header className="bg-ds-surface border-ds-outline sticky top-0 z-20 shrink-0 border-b">
-            <div className="flex h-14 min-h-14 items-center justify-between gap-4 px-4 sm:px-6">
-              <span className="text-ds-on-surface-variant shrink-0 text-sm font-medium">{stepLabel}</span>
+            <div className="flex h-14 min-h-14 items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6">
+              <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsStepsOpen(true)}
+                  className="text-ds-on-surface-variant hover:bg-ds-neutral hover:text-ds-on-surface touch-manipulation flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-ds-md transition-colors md:hidden"
+                  aria-label="Open setup steps"
+                >
+                  <Menu className="size-5" strokeWidth={2} aria-hidden />
+                </button>
+                <div className="min-w-0">
+                  <p className="text-ds-on-surface-variant text-xs font-medium md:hidden">
+                    Step {stepNumber} of {totalSteps}
+                  </p>
+                  <span className="text-ds-on-surface block truncate text-sm font-medium sm:text-base">
+                    {stepLabel}
+                  </span>
+                </div>
+              </div>
               {showBanner && !hideIndexingBanner ? (
-                <OnboardingIndexingProgress snapshot={snapshot} variant="header" className="ml-auto" />
+                <OnboardingIndexingProgress snapshot={snapshot} variant="header" className="ml-auto shrink-0" />
               ) : null}
+            </div>
+            <div
+              className="bg-ds-primary/10 h-1 md:hidden"
+              role="progressbar"
+              aria-valuenow={stepNumber}
+              aria-valuemin={1}
+              aria-valuemax={totalSteps}
+              aria-label={`Setup progress, step ${stepNumber} of ${totalSteps}`}
+            >
+              <div
+                className="bg-ds-primary h-full transition-[width] duration-300"
+                style={{ width: `${(stepNumber / totalSteps) * 100}%` }}
+              />
             </div>
           </header>
 
           <main className="onboarding-main-surface flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">{children}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 sm:px-6">{children}</div>
             {footer ? (
-              <div className="relative z-50 w-full shrink-0">{footer}</div>
+              <div className="relative z-50 w-full shrink-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] sm:px-6">
+                {footer}
+              </div>
             ) : null}
           </main>
         </div>
       </div>
+
+      {mobileStepsMenu && typeof document !== "undefined" ? createPortal(mobileStepsMenu, document.body) : null}
     </div>
   );
 }

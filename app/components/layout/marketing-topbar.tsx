@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
 import { useSessionPresent } from "@/hooks/use-session-present";
+import { cn } from "@/lib/utils";
 
 const navLinks = [
   { href: "/#product", label: "Product" },
@@ -22,6 +24,19 @@ export function MarketingTopbar() {
   const { ready: sessionReady, hasSession } = useSessionPresent();
   const showDashboard = sessionReady && hasSession;
   const isHome = pathname === "/";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [panelEntered, setPanelEntered] = useState(false);
+
+  const closeMenu = () => setMenuOpen(false);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      setPanelEntered(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setPanelEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, [menuOpen]);
 
   return (
     <header className="sticky top-0 z-50 border-b border-ds-outline/60 bg-ds-surface/95 backdrop-blur-md">
@@ -64,47 +79,87 @@ export function MarketingTopbar() {
             </>
           )}
 
-          <details className="group relative md:hidden">
-            <summary className="flex h-10 w-10 list-none items-center justify-center rounded-full border border-ds-outline bg-white text-ds-on-surface marker:content-none">
-              <span className="text-lg leading-none group-open:hidden">≡</span>
-              <span className="hidden text-lg leading-none group-open:inline">×</span>
-            </summary>
-            <div className="absolute right-0 top-12 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-ds-outline bg-white p-4 shadow-ds-lg">
-              <nav className="flex flex-col gap-1">
-                {navLinks.map((link) => (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className="mkt-font rounded-lg px-3 py-2 text-sm font-medium text-ds-on-surface hover:bg-ds-muted"
-                  >
-                    {link.label}
-                  </Link>
-                ))}
-              </nav>
-              {!showDashboard ? (
-                <div className="mt-3 grid grid-cols-2 gap-2 border-t border-ds-outline pt-3">
-                  <Link
-                    href="/login"
-                    className="mkt-font rounded-full border border-ds-outline px-3 py-2 text-center text-base font-medium"
-                  >
-                    Log in
-                  </Link>
-                  <Link
-                    href="/signup"
-                    className="mkt-pill mkt-pill-dark px-3 py-2 text-center"
-                  >
-                    Start free
-                  </Link>
-                </div>
-              ) : (
-                <Link href="/dashboard" className="mkt-pill mkt-pill-dark mt-3 block text-center">
-                  Open dashboard
-                </Link>
-              )}
-            </div>
-          </details>
+          <button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-ds-outline bg-white text-ds-on-surface md:hidden"
+            aria-expanded={menuOpen}
+            aria-controls="marketing-mobile-menu"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <span className={cn("text-lg leading-none", menuOpen && "hidden")}>≡</span>
+            <span className={cn("hidden text-lg leading-none", menuOpen && "inline")}>×</span>
+          </button>
         </div>
       </div>
+
+      {menuOpen ? (
+        <div className="fixed inset-0 z-[200] md:hidden" role="dialog" aria-modal="true" id="marketing-mobile-menu">
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="absolute inset-0 bg-black/45 touch-manipulation"
+            onClick={closeMenu}
+          />
+          <aside
+            className={cn(
+              "border-ds-outline fixed right-0 top-0 z-[1] h-full w-[min(84vw,320px)] overflow-y-auto border-l bg-white p-4 shadow-xl touch-manipulation transition-transform duration-300 motion-reduce:transition-none",
+              panelEntered ? "translate-x-0" : "translate-x-full",
+            )}
+          >
+            <div className="mb-3 flex items-center justify-between border-b border-ds-outline pb-3">
+              <span className="mkt-font text-sm font-semibold text-ds-on-surface">Menu</span>
+              <button
+                type="button"
+                onClick={closeMenu}
+                className="text-ds-on-surface-variant flex min-h-10 min-w-10 items-center justify-center rounded-lg text-lg transition hover:bg-ds-muted hover:text-ds-on-surface"
+                aria-label="Close menu"
+              >
+                ×
+              </button>
+            </div>
+
+            <nav className="flex flex-col gap-1">
+              {navLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="mkt-font rounded-lg px-3 py-2 text-sm font-medium text-ds-on-surface hover:bg-ds-muted"
+                  onClick={closeMenu}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
+            {!showDashboard ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-ds-outline pt-3">
+                <Link
+                  href="/login"
+                  className="mkt-font rounded-full border border-ds-outline px-3 py-2 text-center text-base font-medium"
+                  onClick={closeMenu}
+                >
+                  Log in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="mkt-pill mkt-pill-dark px-3 py-2 text-center"
+                  onClick={closeMenu}
+                >
+                  Start free
+                </Link>
+              </div>
+            ) : (
+              <Link
+                href="/dashboard"
+                className="mkt-pill mkt-pill-dark mt-3 block text-center"
+                onClick={closeMenu}
+              >
+                Open dashboard
+              </Link>
+            )}
+          </aside>
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -391,8 +391,8 @@ export default function KnowledgeQAndAPage() {
             {!agentsLoading && !selectedAgentId ? (
               <DashboardSelectAgentEmptyState />
             ) : (
-            <div className="overflow-visible">
-              <table className="w-full text-left">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left">
                 <thead>
                   <tr className="ds-app-kicker bg-ds-sidebar/70 text-ds-on-surface-variant">
                     <th className="w-10 px-5 py-3 sm:px-6" />

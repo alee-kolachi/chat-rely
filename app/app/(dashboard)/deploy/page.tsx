@@ -17,15 +17,15 @@ export default function DeployPage() {
           <DeployPageHeaderActions />
         </header>
 
-        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-4 shadow-sm sm:p-6">
           <DeployShopifyStatus />
         </section>
 
-        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-4 shadow-sm sm:p-6">
           <DeployWidgetEmbedSnippet />
         </section>
 
-        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-4 shadow-sm sm:p-6">
           <h2 className="ds-app-section-title mb-2">Next steps</h2>
           <p className="ds-app-body-muted leading-relaxed">
             Tune replies in the{" "}

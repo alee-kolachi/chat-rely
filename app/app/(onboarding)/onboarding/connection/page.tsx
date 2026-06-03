@@ -305,7 +305,7 @@ export default function ConnectionOnboardingPage() {
                               onClick={() => void startOAuth()}
                               disabled={connectBusy || !agentId || !shopDraft.trim()}
                               className={appButtonClassName("default", {
-                                className: "min-h-11 shrink-0 sm:min-w-[9.5rem]",
+                                className: "min-h-11 w-full shrink-0 sm:w-auto sm:min-w-[9.5rem]",
                               })}
                             >
                               {connectBusy ? "Opening Shopify…" : "Link Shopify"}

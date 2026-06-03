@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 
 import { InfoHint } from "@/components/ui/info-hint";
 import {
@@ -440,144 +440,7 @@ function PricingMatrixFeatureBody() {
   );
 }
 
-function PricingMatrixMobileView({
-  slug,
-  isAuthenticated,
-  onPlanChange,
-  onPlanCheckout,
-  checkoutBusySlug = null,
-}: {
-  slug: PricingTierSlug;
-  isAuthenticated: boolean;
-  onPlanChange: (next: PricingTierSlug) => void;
-  onPlanCheckout?: (slug: PricingTierSlug) => void;
-  checkoutBusySlug?: string | null;
-}) {
-  const card = PRICING_TIER_CARDS.find((c) => c.slug === slug);
-  const { price, period } = card ? formatMonthlyPrice(card.monthlyPriceCents) : { price: "", period: "" };
-  const cta = planCta(slug, isAuthenticated);
-  const highlighted = slug === "standard";
-  const typography = unitedPlanColumnTypography("pricing");
-  const popularBadge = <UnitedPlanPopularBadge />;
-  const checkoutBusy = checkoutBusySlug === slug;
-
-  return (
-    <div className="p-4 sm:p-5">
-      <label
-        htmlFor="pricing-plan-select"
-        className={`font-semibold uppercase tracking-wider ${highlighted ? "text-white/80" : "ds-app-body-muted"}`}
-      >
-        Choose a plan
-      </label>
-      <select
-        id="pricing-plan-select"
-        value={slug}
-        onChange={(e) => onPlanChange(e.target.value as PricingTierSlug)}
-        className={`mt-2 w-full cursor-pointer rounded-xl border px-4 py-3 text-base font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ds-primary/25 ${
-          highlighted
-            ? "border-white/25 bg-white/10 text-white focus:border-white/40"
-            : "border-ds-outline text-ds-on-surface bg-white focus:border-ds-primary"
-        }`}
-      >
-        {PRICING_TIER_SLUGS.map((tierSlug) => {
-          const c = PRICING_TIER_CARDS.find((t) => t.slug === tierSlug);
-          return (
-            <option key={tierSlug} value={tierSlug}>
-              {c?.name ?? tierSlug}
-            </option>
-          );
-        })}
-      </select>
-
-      <div
-        className={`mt-4 rounded-xl px-4 py-5 sm:px-5 ${
-          highlighted ? "bg-ds-primary text-white" : "border border-zinc-200 bg-white text-ds-on-surface"
-        }`}
-      >
-        <div className="mb-3 flex min-h-[1.75rem] items-center justify-center">
-          {highlighted ? (
-            popularBadge
-          ) : (
-            <span className="invisible inline-flex" aria-hidden>
-              {popularBadge}
-            </span>
-          )}
-        </div>
-        {card ? (
-          <>
-            <h3 className={`${typography.name} ${highlighted ? "text-white" : "text-ds-on-surface"}`}>{card.name}</h3>
-            <p
-              className={`${typography.tagline} ${
-                highlighted ? "text-white/85" : "text-ds-on-surface-variant"
-              }`}
-            >
-              {card.tagline}
-            </p>
-          </>
-        ) : null}
-
-        <div
-          className={`mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b pb-4 ${
-            highlighted ? "border-white/20" : "border-zinc-200/70"
-          }`}
-        >
-          <span className={`${typography.price} ${highlighted ? "text-white" : "text-ds-on-surface"}`}>{price}</span>
-          {period ? (
-            <span className={`${typography.period} ${highlighted ? "text-white/75" : "text-ds-on-surface-variant"}`}>
-              {period}
-            </span>
-          ) : null}
-        </div>
-
-        {onPlanCheckout ? (
-          <button
-            type="button"
-            disabled={checkoutBusy}
-            onClick={() => onPlanCheckout(slug)}
-            className={`${typography.cta} mt-4 w-full ${unitedPlanCtaClassName(highlighted)} disabled:cursor-wait disabled:opacity-70`}
-          >
-            {checkoutBusy
-              ? "Opening checkout…"
-              : slug === "free" && isAuthenticated
-                ? "Stay on Free"
-                : cta.label}
-          </button>
-        ) : (
-          <Link href={cta.href} className={`${typography.cta} mt-4 w-full ${unitedPlanCtaClassName(highlighted)}`}>
-            {slug === "free" && isAuthenticated ? "Stay on Free" : cta.label}
-          </Link>
-        )}
-      </div>
-
-      <div className={`mt-6 space-y-1 ${highlighted ? "rounded-xl bg-white p-4 text-ds-on-surface sm:p-5" : ""}`}>
-        {PRICING_DETAIL_SECTIONS.map((section) => (
-          <div key={section.title} className="pt-4 first:pt-0">
-            <h3 className="text-ds-on-surface border-b border-ds-outline pb-2 text-xs font-bold uppercase tracking-widest">
-              {section.title}
-            </h3>
-            <ul className="divide-y divide-ds-outline/60">
-              {section.rows.map((row) => (
-                <li key={`${section.title}-${row.label}`} className="flex items-center justify-between gap-3 py-3">
-                  <span className="text-ds-on-surface-variant flex min-w-0 flex-1 items-start gap-1 text-sm font-medium leading-snug">
-                    <span className="min-w-0">{row.label}</span>
-                    {pricingRowTooltip(row.label) ? (
-                      <InfoHint text={pricingRowTooltip(row.label)!} labelFor={row.label} placement="top" />
-                    ) : null}
-                  </span>
-                  <span className="shrink-0 text-right">
-                    <MatrixCellDisplay cell={row.cells[slug]} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** Full pricing table: desktop = sticky united plan cards + scrolling feature rows; mobile = plan dropdown + single-plan details. */
+/** Full pricing table: desktop = sticky united plan cards + scrolling feature rows; mobile = stacked plan cards. */
 type PricingFeatureMatrixProps = {
   isAuthenticated?: boolean;
   onPlanCheckout?: (slug: PricingTierSlug) => void;
@@ -589,15 +452,14 @@ export function PricingFeatureMatrix({
   onPlanCheckout,
   checkoutBusySlug = null,
 }: PricingFeatureMatrixProps) {
-  const [mobilePlan, setMobilePlan] = useState<PricingTierSlug>("standard");
-
   return (
     <div className={`${UNITED_PLAN_SHELL} lg:overflow-visible`}>
       <div className="lg:hidden">
-        <PricingMatrixMobileView
-          slug={mobilePlan}
+        <PricingUnitedPlanColumns
+          density="pricing"
           isAuthenticated={isAuthenticated}
-          onPlanChange={setMobilePlan}
+          showTagline
+          showFeatureRows
           onPlanCheckout={onPlanCheckout}
           checkoutBusySlug={checkoutBusySlug}
         />

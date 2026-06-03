@@ -66,7 +66,7 @@ export default function NotificationsPage() {
                         {formatNotificationTime(notification.created_at, localeReady)}
                       </span>
                     </div>
-                    <p className="text-ds-on-surface-variant text-sm leading-relaxed">{notification.body}</p>
+                    <p className="text-ds-on-surface-variant line-clamp-3 text-sm leading-relaxed sm:line-clamp-none">{notification.body}</p>
                   </Link>
                 </li>
               ))}

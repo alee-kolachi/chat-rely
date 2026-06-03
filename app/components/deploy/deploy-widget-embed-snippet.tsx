@@ -57,8 +57,8 @@ export function DeployWidgetEmbedSnippet() {
         <p className="text-ds-on-surface-variant text-sm">This agent has no public key yet.</p>
       ) : (
         <div className="space-y-3">
-          <div className="border-ds-outline overflow-hidden rounded-ds-lg border bg-zinc-950/5">
-            <pre className="max-h-64 overflow-auto p-4 text-left font-mono text-[11px] leading-relaxed text-zinc-800 sm:text-xs">
+          <div className="border-ds-outline overflow-x-auto rounded-ds-lg border bg-zinc-950/5">
+            <pre className="max-h-64 min-w-0 overflow-x-auto p-4 text-left font-mono text-[11px] leading-relaxed text-zinc-800 sm:text-xs">
               {snippet}
             </pre>
           </div>

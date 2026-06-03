@@ -51,7 +51,7 @@ export function TimeSeriesTrendChart({
     const el = wrapRef.current;
     if (!el) return;
     const update = () => {
-      setViewWidth(Math.max(480, Math.round(el.clientWidth)));
+      setViewWidth(Math.max(280, Math.round(el.clientWidth)));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -92,7 +92,7 @@ export function TimeSeriesTrendChart({
   return (
     <div
       ref={wrapRef}
-      className="text-ds-on-surface-variant relative w-full text-[var(--ds-chart-grid)]"
+      className="text-ds-on-surface-variant relative min-w-0 w-full text-[var(--ds-chart-grid)]"
       style={{ height: plotHeight }}
     >
       {loading ? (

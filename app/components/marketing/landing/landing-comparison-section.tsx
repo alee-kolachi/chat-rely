@@ -147,105 +147,158 @@ function IntentCard({
   );
 }
 
-export function LandingComparisonSection() {
+function IntentProgressDots({ activeIntent }: { activeIntent: number }) {
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      {intents.map((intent, index) => (
+        <span
+          key={intent.title}
+          className={cn(
+            "h-1 rounded-full transition-all duration-500 ease-out",
+            index <= activeIntent ? "w-7 bg-ds-primary" : "w-2.5 bg-ds-outline",
+            index === activeIntent && "shadow-[0_0_10px_rgba(138,5,255,0.35)]",
+          )}
+          aria-hidden
+        />
+      ))}
+    </div>
+  );
+}
+
+function ComparisonCopy({ variant }: { variant: "desktop" | "mobile" }) {
+  return (
+    <div className="shrink-0">
+      <h2 className="mkt-display text-2xl sm:text-3xl lg:text-4xl">
+        One conversation covers what shoppers actually ask
+      </h2>
+      <p className="mkt-body mt-2 text-sm text-ds-on-surface-variant sm:text-base">
+        {variant === "mobile"
+          ? "Scroll to watch capabilities stack in the same thread."
+          : "Scroll to watch messages land and capabilities stack in the same thread."}
+      </p>
+    </div>
+  );
+}
+
+function IntentStack({ progress, activeIntent }: { progress: number; activeIntent: number }) {
+  return (
+    <div className="mt-3">
+      {activeIntent < 0 ? (
+        <p className="mkt-font animate-[mkt-scroll-hint_1.8s_ease-in-out_infinite] pt-2 text-sm text-ds-on-surface-variant">
+          Keep scrolling
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2 pt-1">
+          {intents.map((intent, index) => {
+            if (index > activeIntent) return null;
+
+            return (
+              <IntentCard
+                key={intent.title}
+                intent={intent}
+                isActive={index === activeIntent}
+                enter={intentEnterProgress(progress, index)}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveThreadChat({ visibleMessages }: { visibleMessages: number }) {
+  return (
+    <div className="pointer-events-none flex min-h-0 flex-col overflow-hidden rounded-[28px] border border-ds-outline/80 bg-white shadow-[0_20px_56px_rgba(15,15,15,0.07)]">
+      <div className="flex shrink-0 items-center justify-between border-b border-ds-outline/70 px-4 py-3">
+        <div>
+          <p className="mkt-font text-[11px] font-semibold uppercase tracking-[0.14em] text-ds-primary">
+            Live thread
+          </p>
+          <p className="mkt-font mt-0.5 text-xs text-ds-on-surface-variant sm:text-sm">
+            One chat, every intent
+          </p>
+        </div>
+        <span className="mkt-font flex items-center gap-1.5 rounded-full border border-ds-outline/80 bg-ds-surface px-2.5 py-1 text-[10px] font-medium text-ds-on-surface-variant">
+          <span className="size-1.5 rounded-full bg-green-500" aria-hidden />
+          Online
+        </span>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-2 overflow-hidden bg-white p-4 sm:space-y-2.5 sm:p-5">
+        {conversation.slice(0, visibleMessages).map((message, index) => (
+          <ConversationBubble
+            key={`${message.role}-${index}`}
+            role={message.role}
+            text={message.text}
+          />
+        ))}
+      </div>
+
+      <div className="shrink-0 border-t border-ds-outline/70 bg-white px-4 py-2.5">
+        <div className="mkt-chat-message rounded-full border border-ds-outline bg-ds-surface px-3 py-2 text-ds-on-surface-variant">
+          Message…
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LandingComparisonDesktop() {
   const { ref, progress } = useScrollProgress<HTMLDivElement>();
   const visibleMessages = visibleMessageCount(progress);
   const activeIntent = activeIntentIndex(progress);
 
   return (
-    <section className="relative z-10 bg-ds-surface" aria-label="Beyond static FAQs">
-      <div ref={ref} className="relative h-[300vh]">
-        <div className="sticky top-16 z-20 h-[calc(100dvh-4rem)] overflow-hidden bg-ds-surface px-6">
-          <div className="mx-auto flex h-full max-w-[1100px] flex-col py-5 sm:py-7">
-            <div className="shrink-0">
-              <LandingSectionLabel tone="light">Beyond static FAQs</LandingSectionLabel>
-            </div>
+    <div ref={ref} className="relative hidden h-[300vh] lg:block">
+      <div className="sticky top-16 z-20 h-[calc(100dvh-4rem)] overflow-hidden bg-ds-surface px-6">
+        <div className="mx-auto flex h-full max-w-[1100px] flex-col py-5 sm:py-7">
+          <div className="shrink-0">
+            <LandingSectionLabel tone="light">Beyond static FAQs</LandingSectionLabel>
+          </div>
 
-            <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-9">
-              {/* pointer-events-none so page scroll is never trapped on the demo chat */}
-              <div className="pointer-events-none flex min-h-0 flex-col overflow-hidden rounded-[28px] border border-ds-outline/80 bg-white shadow-[0_20px_56px_rgba(15,15,15,0.07)]">
-                <div className="flex shrink-0 items-center justify-between border-b border-ds-outline/70 px-4 py-3">
-                  <div>
-                    <p className="mkt-font text-[11px] font-semibold uppercase tracking-[0.14em] text-ds-primary">
-                      Live thread
-                    </p>
-                    <p className="mkt-font mt-0.5 text-xs text-ds-on-surface-variant sm:text-sm">
-                      One chat, every intent
-                    </p>
-                  </div>
-                  <span className="mkt-font flex items-center gap-1.5 rounded-full border border-ds-outline/80 bg-ds-surface px-2.5 py-1 text-[10px] font-medium text-ds-on-surface-variant">
-                    <span className="size-1.5 rounded-full bg-green-500" aria-hidden />
-                    Online
-                  </span>
-                </div>
+          <div className="mt-4 grid min-h-0 flex-1 grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-9">
+            <LiveThreadChat visibleMessages={visibleMessages} />
 
-                <div className="min-h-0 flex-1 space-y-2 overflow-hidden bg-white p-4 sm:space-y-2.5 sm:p-5">
-                  {conversation.slice(0, visibleMessages).map((message, index) => (
-                    <ConversationBubble
-                      key={`${message.role}-${index}`}
-                      role={message.role}
-                      text={message.text}
-                    />
-                  ))}
-                </div>
-
-                <div className="shrink-0 border-t border-ds-outline/70 bg-white px-4 py-2.5">
-                  <div className="mkt-chat-message rounded-full border border-ds-outline bg-ds-surface px-3 py-2 text-ds-on-surface-variant">
-                    Message…
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex min-h-0 flex-col lg:pl-1">
-                <div className="shrink-0">
-                  <h2 className="mkt-display text-2xl sm:text-3xl lg:text-4xl">
-                    One conversation covers what shoppers actually ask
-                  </h2>
-                  <p className="mkt-body mt-2 text-sm text-ds-on-surface-variant sm:text-base">
-                    Scroll to watch messages land and capabilities stack in the same thread.
-                  </p>
-                  <div className="mt-3 flex items-center gap-2">
-                    {intents.map((intent, index) => (
-                      <span
-                        key={intent.title}
-                        className={cn(
-                          "h-1 rounded-full transition-all duration-500 ease-out",
-                          index <= activeIntent ? "w-7 bg-ds-primary" : "w-2.5 bg-ds-outline",
-                          index === activeIntent && "shadow-[0_0_10px_rgba(138,5,255,0.35)]",
-                        )}
-                        aria-hidden
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-3 min-h-0 flex-1 overflow-hidden">
-                  {activeIntent < 0 ? (
-                    <p className="mkt-font animate-[mkt-scroll-hint_1.8s_ease-in-out_infinite] pt-2 text-sm text-ds-on-surface-variant">
-                      Keep scrolling
-                    </p>
-                  ) : (
-                    <div className="flex h-full flex-col gap-2 overflow-hidden pt-1">
-                      {intents.map((intent, index) => {
-                        if (index > activeIntent) return null;
-
-                        return (
-                          <IntentCard
-                            key={intent.title}
-                            intent={intent}
-                            isActive={index === activeIntent}
-                            enter={intentEnterProgress(progress, index)}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+            <div className="flex min-h-0 flex-col pl-1">
+              <ComparisonCopy variant="desktop" />
+              <IntentProgressDots activeIntent={activeIntent} />
+              <div className="mt-3 min-h-0 flex-1 overflow-hidden">
+                <IntentStack progress={progress} activeIntent={activeIntent} />
               </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function LandingComparisonMobile() {
+  const { ref, progress } = useScrollProgress<HTMLDivElement>();
+  const activeIntent = activeIntentIndex(progress);
+
+  return (
+    <div ref={ref} className="relative h-[140vh] lg:hidden">
+      <div className="px-6 pb-12 pt-5 sm:py-7">
+        <div className="mx-auto max-w-[1100px]">
+          <LandingSectionLabel tone="light">Beyond static FAQs</LandingSectionLabel>
+          <div className="mt-4">
+            <ComparisonCopy variant="mobile" />
+            <IntentProgressDots activeIntent={activeIntent} />
+            <IntentStack progress={progress} activeIntent={activeIntent} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function LandingComparisonSection() {
+  return (
+    <section className="relative z-10 bg-ds-surface" aria-label="Beyond static FAQs">
+      <LandingComparisonMobile />
+      <LandingComparisonDesktop />
     </section>
   );
 }

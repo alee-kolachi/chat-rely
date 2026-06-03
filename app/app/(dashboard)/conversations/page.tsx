@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TranscriptAssistantMessage } from "@/components/chat/transcript-assistant-message";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
@@ -122,6 +123,19 @@ function ConversationsPageContent() {
   const messagesRequestIdRef = useRef(0);
   const messagesByConversationRef = useRef<Record<string, ConversationMessage[]>>({});
   const conversationsCountRef = useRef(0);
+  const [isWideLayout, setIsWideLayout] = useState(false);
+  const isWideLayoutRef = useRef(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const sync = () => {
+      isWideLayoutRef.current = mq.matches;
+      setIsWideLayout(mq.matches);
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   useLayoutEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
@@ -223,7 +237,7 @@ function ConversationsPageContent() {
         const currentId = selectedConversationIdRef.current;
         if (!silent && detailId && !data.detail) {
           setSelectedConversationId(detailId);
-        } else if (!currentId && data.conversations[0]) {
+        } else if (!currentId && data.conversations[0] && isWideLayoutRef.current) {
           setSelectedConversationId(data.conversations[0].id);
         } else if (
           currentId &&
@@ -352,6 +366,14 @@ function ConversationsPageContent() {
     void generateSummary(Boolean(state?.summary && state.stale));
   }
 
+  function clearConversationSelection() {
+    setSelectedConversationId(null);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("conversation");
+    const q = params.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname);
+  }
+
   function selectConversation(conversationId: string) {
     if (conversationId === selectedConversationIdRef.current) return;
     const cached = messagesByConversationRef.current[conversationId];
@@ -465,7 +487,7 @@ function ConversationsPageContent() {
         const detailId = (conversationFromUrl ?? "").trim();
         if (detailId && !data.detail) {
           setSelectedConversationId(detailId);
-        } else if (!currentId && data.conversations[0]) {
+        } else if (!currentId && data.conversations[0] && isWideLayoutRef.current) {
           setSelectedConversationId(data.conversations[0].id);
         } else if (
           currentId &&
@@ -607,19 +629,26 @@ function ConversationsPageContent() {
     }
   }
 
+  const mobileDetailActive = Boolean(selectedConversationId) && !isWideLayout;
+
   return (
     <div className="ds-app-shell ds-app-shell--flush flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 flex-col gap-6 overflow-hidden">
-        <header className="shrink-0">
+      <div className="ds-flush-page-pad mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 flex-col gap-4 overflow-hidden sm:gap-6">
+        <header className={cn("shrink-0", mobileDetailActive && "hidden xl:block")}>
           <h1 className="ds-app-page-title">Conversations</h1>
           <p className="ds-app-page-description ds-app-page-description--wide">
             Monitor threads, review context, and jump in when needed.
           </p>
         </header>
-        {error ? <p className="shrink-0 text-sm text-rose-600">{error}</p> : null}
+        {error ? <p className={cn("shrink-0 text-sm text-rose-600", mobileDetailActive && "hidden xl:block")}>{error}</p> : null}
 
-        <section className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,2fr)] gap-6 overflow-hidden xl:grid-cols-[380px_1fr] xl:grid-rows-[minmax(0,1fr)]">
-          <div className="border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
+        <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden sm:gap-6 xl:grid xl:grid-cols-[380px_1fr] xl:grid-rows-[minmax(0,1fr)]">
+          <div
+            className={cn(
+              "border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm",
+              mobileDetailActive ? "hidden xl:flex" : "flex min-h-0 flex-1",
+            )}
+          >
             <div className="border-ds-outline bg-ds-sidebar/90 flex shrink-0 items-center justify-between border-b px-4 py-3">
               <h2 className="ds-app-kicker text-ds-on-surface font-semibold">Live queue</h2>
               <button
@@ -639,7 +668,7 @@ function ConversationsPageContent() {
             {filtersOpen ? (
               <div className="border-ds-outline bg-ds-sidebar/40 shrink-0 space-y-3 border-b px-4 py-3">
                 <label className="block">
-                  <span className="text-ds-on-surface-variant mb-1 block text-[11px] font-semibold uppercase tracking-wide">
+                  <span className="text-ds-on-surface-variant mb-1 block text-xs font-semibold uppercase tracking-wide">
                     Status
                   </span>
                   <select
@@ -657,9 +686,9 @@ function ConversationsPageContent() {
                     <option value="idle_closed">Idle closed</option>
                   </select>
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block min-w-0">
-                    <span className="text-ds-on-surface-variant mb-1 block text-[11px] font-semibold uppercase tracking-wide">
+                    <span className="text-ds-on-surface-variant mb-1 block text-xs font-semibold uppercase tracking-wide">
                       Started from
                     </span>
                     <input
@@ -670,7 +699,7 @@ function ConversationsPageContent() {
                     />
                   </label>
                   <label className="block min-w-0">
-                    <span className="text-ds-on-surface-variant mb-1 block text-[11px] font-semibold uppercase tracking-wide">
+                    <span className="text-ds-on-surface-variant mb-1 block text-xs font-semibold uppercase tracking-wide">
                       Started to
                     </span>
                     <input
@@ -681,11 +710,11 @@ function ConversationsPageContent() {
                     />
                   </label>
                 </div>
-                <p className="text-ds-on-surface-variant text-[11px] leading-snug">
+                <p className="text-ds-on-surface-variant text-xs leading-snug">
                   Date range filters by when the conversation started (your local timezone).
                 </p>
                 <label className="block">
-                  <span className="text-ds-on-surface-variant mb-1 block text-[11px] font-semibold uppercase tracking-wide">
+                  <span className="text-ds-on-surface-variant mb-1 block text-xs font-semibold uppercase tracking-wide">
                     Training topic
                   </span>
                   <input
@@ -754,8 +783,26 @@ function ConversationsPageContent() {
             </div>
           </div>
 
-          <div className="border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm">
-            <div className="border-ds-outline bg-ds-sidebar/90 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-5 py-4 sm:px-6">
+          <div
+            className={cn(
+              "border-ds-outline flex min-h-0 flex-col overflow-hidden rounded-ds-xl border bg-ds-surface shadow-sm",
+              mobileDetailActive ? "flex min-h-0 flex-1" : "hidden xl:flex",
+            )}
+          >
+            <div className="border-ds-outline bg-ds-sidebar/90 flex shrink-0 items-center gap-2 border-b px-4 py-3 xl:hidden">
+              <button
+                type="button"
+                onClick={() => clearConversationSelection()}
+                className="text-ds-on-surface-variant hover:bg-ds-neutral hover:text-ds-on-surface touch-manipulation flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-ds-md transition-colors"
+                aria-label="Back to conversation list"
+              >
+                <ChevronLeft className="size-5" strokeWidth={2} aria-hidden />
+              </button>
+              <span className="ds-app-kicker text-ds-on-surface min-w-0 flex-1 truncate font-semibold">
+                Conversation
+              </span>
+            </div>
+            <div className="border-ds-outline bg-ds-sidebar/90 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-4 sm:px-6">
               <div className="min-w-0">
                 <h3 className="text-ds-on-surface truncate text-sm font-semibold">
                   {selectedConversation ? selectedConversation.id : "No conversation selected"}

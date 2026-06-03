@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useState } from "react";
+import { DashboardMobileNavTrigger } from "@/components/layout/dashboard-topbar";
 import { onboardingType } from "@/components/onboarding/onboarding-ui";
 import { AccountMenu } from "@/components/layout/account-menu";
 import { NotificationsMenu } from "@/components/layout/notifications-menu";
@@ -51,10 +52,11 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
   const planChip = meData?.plan ? planChipLabel(meData.plan) : null;
 
   return (
-    <header className="border-ds-outline bg-ds-surface flex h-14 min-w-0 shrink-0 items-center justify-between border-b px-4 md:h-16 md:px-8">
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
-        <div className="flex min-w-0 max-w-full flex-1 items-center gap-2 sm:gap-3 md:max-w-lg">
-          <span className="ds-app-kicker shrink-0 font-semibold">
+    <header className="border-ds-outline bg-ds-surface sticky top-0 z-[70] flex h-14 min-w-0 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-4 md:static md:z-auto md:h-16 md:gap-3 md:px-8">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3 md:gap-4">
+        <DashboardMobileNavTrigger />
+        <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:gap-2 md:max-w-lg md:gap-3">
+          <span className="ds-app-kicker hidden shrink-0 font-semibold sm:inline">
             Agent
           </span>
           <div className="min-w-0 flex-1">
@@ -127,7 +129,7 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
       <div className="flex shrink-0 items-center gap-2 md:gap-3">
         {rightExtras}
         {planChip ? (
-          <div className="shrink-0">
+          <div className="hidden shrink-0 sm:block">
             <Link
               href="/account/plan"
               className={appButtonClassName("default", {

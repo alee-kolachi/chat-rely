@@ -859,8 +859,8 @@ function PathRuleBlock({
           ))}
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        <div className="border-ds-outline-subtle focus-within:border-ds-primary focus-within:ring-ds-primary/15 relative h-[46px] min-w-[150px] overflow-hidden rounded-ds-lg border bg-ds-app-canvas focus-within:ring-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <div className="border-ds-outline-subtle focus-within:border-ds-primary focus-within:ring-ds-primary/15 relative h-[46px] min-w-0 w-full overflow-hidden rounded-ds-lg border bg-ds-app-canvas focus-within:ring-2 sm:min-w-[150px] sm:w-auto">
           <select
             className="text-ds-on-surface h-full w-full cursor-pointer appearance-none rounded-ds-lg bg-transparent py-2 pr-9 pl-4 text-sm font-medium leading-none outline-none"
             value={operator}
@@ -877,14 +877,14 @@ function PathRuleBlock({
           />
         </div>
         <input
-          className="ds-app-field min-w-[180px] flex-1 rounded-ds-lg"
+          className="ds-app-field min-w-0 w-full flex-1 rounded-ds-lg sm:min-w-[180px]"
           placeholder="/blog or .pdf"
           value={pattern}
           onChange={(e) => setPattern(e.target.value)}
         />
         <button
           type="button"
-          className={appButtonClassName()}
+          className={appButtonClassName("default", { className: "w-full sm:w-auto" })}
           onClick={() => {
             const p = pattern.trim();
             if (!p) return;

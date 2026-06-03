@@ -68,7 +68,7 @@ export function ActionDetailTabs({ action, catalogEntry, selectedAgentId }: Acti
         </div>
       </div>
 
-      <div className="p-6 md:p-8">
+      <div className="p-4 sm:p-6 md:p-8">
         {activeTab === "overview" && <OverviewPanel action={action} catalogEntry={catalogEntry} />}
         {activeTab === "configuration" && (
           <ConfigurationPanel action={action} catalogEntry={catalogEntry} />

@@ -286,7 +286,7 @@ const onboardingMainBottomPad = "max-md:pb-6 md:pb-[max(6.5rem,calc(4.5rem+env(s
 /** Main content column — consistent max width and bottom padding for sticky footer */
 export function OnboardingMainColumn({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("mx-auto w-full min-w-0 max-w-3xl px-4 pt-8 md:px-8 md:pt-10", className, onboardingMainBottomPad)}>
+    <div className={cn("mx-auto w-full min-w-0 max-w-3xl pt-6 sm:pt-8 md:pt-10", className, onboardingMainBottomPad)}>
       {children}
     </div>
   );
@@ -294,7 +294,7 @@ export function OnboardingMainColumn({ children, className }: { children: ReactN
 
 export function OnboardingWideColumn({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("mx-auto w-full min-w-0 max-w-6xl px-4 pt-8 md:px-8 md:pt-10", className, onboardingMainBottomPad)}>
+    <div className={cn("mx-auto w-full min-w-0 max-w-6xl pt-6 sm:pt-8 md:pt-10", className, onboardingMainBottomPad)}>
       {children}
     </div>
   );

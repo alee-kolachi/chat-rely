@@ -30,7 +30,7 @@ export function UnsavedChangesActionBar({
       role="region"
       aria-label="Unsaved changes"
       className={cn(
-        "pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-4 sm:pb-6",
+        "pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:pb-6",
         className
       )}
     >

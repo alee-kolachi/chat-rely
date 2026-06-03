@@ -33,7 +33,7 @@ export function DashboardRangePicker({
 }: DashboardRangePickerProps) {
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <div className="border-ds-outline bg-ds-surface inline-flex w-fit flex-wrap items-center gap-1 rounded-ds-lg border p-1 shadow-sm">
+      <div className="border-ds-outline bg-ds-surface inline-flex w-full max-w-full flex-wrap items-center gap-1 rounded-ds-lg border p-1 shadow-sm sm:w-fit">
         {RANGE_PRESETS.map(({ key, label }) => (
           <button
             key={key}
