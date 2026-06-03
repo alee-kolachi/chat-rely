@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_current_user, get_db
@@ -12,10 +12,11 @@ from app.domains.knowledge.schemas import (
     TextSnippetUpdateRequest,
 )
 from app.domains.knowledge.service import (
-    create_and_index_text_snippet,
+    create_and_enqueue_text_snippet,
     delete_text_snippet_source,
     get_text_snippet_detail,
     list_text_snippet_sources_for_agent,
+    run_text_snippet_indexing_in_background,
     update_text_snippet_source,
 )
 
@@ -25,12 +26,14 @@ router = APIRouter(prefix="/knowledge/snippets", tags=["knowledge-snippets"])
 @router.post("", response_model=SourceIndexResponse)
 async def create_snippet_route(
     payload: TextSnippetCreateRequest,
+    background_tasks: BackgroundTasks,
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SourceIndexResponse:
-    source, job = await create_and_index_text_snippet(
+    source, job = await create_and_enqueue_text_snippet(
         db, user_id=user.user_id, agent_id=payload.agent_id, title=payload.title, snippet_text=payload.text
     )
+    background_tasks.add_task(run_text_snippet_indexing_in_background, source.id, user.user_id, job.id)
     return SourceIndexResponse(source=source, job=job)
 
 
@@ -57,12 +60,14 @@ async def snippet_detail_route(
 async def update_snippet_route(
     source_id: UUID,
     payload: TextSnippetUpdateRequest,
+    background_tasks: BackgroundTasks,
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SourceIndexResponse:
     source, job = await update_text_snippet_source(
         db, user.user_id, source_id, title=payload.title, snippet_text=payload.text
     )
+    background_tasks.add_task(run_text_snippet_indexing_in_background, source.id, user.user_id, job.id)
     return SourceIndexResponse(source=source, job=job)
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { DataSourcesSidebar } from "@/components/knowledge/data-sources-sidebar";
 import {
@@ -11,6 +11,7 @@ import {
   CollapsibleSection,
   KnowledgeSearchInput,
   KnowledgeSortMenu,
+  StatusPill,
 } from "@/components/knowledge/knowledge-controls";
 import { IconChevron, IconMoreVertical } from "@/components/knowledge/knowledge-icons";
 import { KnowledgeMobileSubnav } from "@/components/knowledge/knowledge-mobile-subnav";
@@ -31,6 +32,56 @@ import { appButtonClassName } from "@/lib/button-styles";
 import { useClientMounted } from "@/lib/use-client-mounted";
 import { cn } from "@/lib/utils";
 
+type SnippetIndexResponse = {
+  source: {
+    id: string;
+    title: string;
+    status: string;
+    last_indexed_at: string | null;
+    updated_at: string;
+  };
+};
+
+function snippetStatusPill(status: string): {
+  label: string;
+  tone: "success" | "danger" | "warning" | "neutral";
+} {
+  switch ((status || "").toLowerCase()) {
+    case "ready":
+      return { label: "Ready", tone: "success" };
+    case "failed":
+      return { label: "Failed", tone: "danger" };
+    case "indexing":
+    case "pending":
+      return { label: "Processing", tone: "warning" };
+    default:
+      return { label: status || "Pending", tone: "neutral" };
+  }
+}
+
+function snippetRowFromSave(
+  source: SnippetIndexResponse["source"],
+  bodyText: string
+): SnippetRow {
+  return {
+    id: source.id,
+    title: source.title,
+    status: source.status,
+    character_count: bodyText.length,
+    preview: bodyText.slice(0, 400),
+    last_indexed_at: source.last_indexed_at,
+    updated_at: source.updated_at,
+  };
+}
+
+function pendingSnippetId(): string {
+  return `pending-${crypto.randomUUID()}`;
+}
+
+function isPendingSnippetId(id: string): boolean {
+  return id.startsWith("pending-");
+}
+
 export default function KnowledgeTextSnippetPage() {
   const localeReady = useClientMounted();
   const searchParams = useSearchParams();
@@ -39,10 +90,10 @@ export default function KnowledgeTextSnippetPage() {
   const knowledgeDs = useKnowledgeDataSources();
   const { refreshUsage } = knowledgeDs ?? { refreshUsage: async () => {} };
   const loadSnippetSources = knowledgeDs?.loadSnippetSources;
+  const setSnippetSources = knowledgeDs?.setSnippetSources;
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -54,9 +105,14 @@ export default function KnowledgeTextSnippetPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedBody, setExpandedBody] = useState<string>("");
   const [expandedLoading, setExpandedLoading] = useState(false);
+  const [pendingSnippetBodies, setPendingSnippetBodies] = useState<Record<string, string>>({});
+  const rowsRef = useRef<SnippetRow[]>([]);
+  const abandonedPendingRef = useRef(new Set<string>());
+  const pendingToRealRef = useRef(new Map<string, string>());
   const sourceCache =
     knowledgeDs?.agentId === selectedAgentId ? knowledgeDs.snippets : { rows: null, loading: false, error: null };
   const rows = useMemo(() => sourceCache.rows ?? [], [sourceCache.rows]);
+  rowsRef.current = rows;
   const loading = Boolean(selectedAgentId && sourceCache.loading && sourceCache.rows === null);
   const visibleError = error ?? sourceCache.error;
 
@@ -93,6 +149,77 @@ export default function KnowledgeTextSnippetPage() {
     if (cmp) result = [...result].sort(cmp);
     return result;
   }, [rows, searchQuery, sortKey]);
+
+  const indexingActive = useMemo(
+    () => rows.some((r) => r.status === "indexing" || r.status === "pending"),
+    [rows]
+  );
+
+  const prependSnippetRow = useCallback(
+    (row: SnippetRow) => {
+      if (!setSnippetSources) return;
+      const next = [row, ...rowsRef.current.filter((existing) => existing.id !== row.id)];
+      rowsRef.current = next;
+      setSnippetSources(next);
+    },
+    [setSnippetSources]
+  );
+
+  const replaceSnippetRow = useCallback(
+    (fromId: string, row: SnippetRow) => {
+      if (!setSnippetSources) return;
+      const next = rowsRef.current.map((existing) => (existing.id === fromId ? row : existing));
+      rowsRef.current = next;
+      setSnippetSources(next);
+    },
+    [setSnippetSources]
+  );
+
+  const removeSnippetRowLocal = useCallback(
+    (id: string) => {
+      if (!setSnippetSources) return;
+      const next = rowsRef.current.filter((existing) => existing.id !== id);
+      rowsRef.current = next;
+      setSnippetSources(next);
+    },
+    [setSnippetSources]
+  );
+
+  const refreshSnippetsPreservingPending = useCallback(async () => {
+    if (!loadSnippetSources || !setSnippetSources) return;
+    const pendingBeforeLoad = rowsRef.current.filter((row) => isPendingSnippetId(row.id));
+    const serverRows = await loadSnippetSources({ silent: true });
+    const serverIds = new Set(serverRows.map((row) => row.id));
+
+    for (const [tempId, realId] of pendingToRealRef.current.entries()) {
+      if (serverIds.has(realId)) pendingToRealRef.current.delete(tempId);
+    }
+
+    if (pendingBeforeLoad.length === 0) return;
+
+    const stillPending = pendingBeforeLoad.filter((row) => {
+      if (serverIds.has(row.id)) return false;
+      const realId = pendingToRealRef.current.get(row.id);
+      return !(realId && serverIds.has(realId));
+    });
+
+    if (stillPending.length === 0) return;
+
+    const mergedById = new Map<string, SnippetRow>();
+    for (const row of stillPending) mergedById.set(row.id, row);
+    for (const row of serverRows) mergedById.set(row.id, row);
+    const merged = Array.from(mergedById.values());
+    rowsRef.current = merged;
+    setSnippetSources(merged);
+  }, [loadSnippetSources, setSnippetSources]);
+
+  useEffect(() => {
+    if (!selectedAgentId || !indexingActive || !loadSnippetSources) return;
+    const id = window.setInterval(() => {
+      void refreshSnippetsPreservingPending();
+    }, 3500);
+    return () => window.clearInterval(id);
+  }, [selectedAgentId, indexingActive, loadSnippetSources, refreshSnippetsPreservingPending]);
 
   const allFilteredSelected =
     filteredRows.length > 0 && filteredRows.every((r) => selected.has(r.id));
@@ -145,47 +272,150 @@ export default function KnowledgeTextSnippetPage() {
     }
   }
 
-  async function saveSnippet() {
+  function saveSnippet() {
     if (!selectedAgentId || !title.trim() || !body.trim()) return;
-    setSaving(true);
+    const trimmedTitle = title.trim();
+    const trimmedBody = body.trim();
     setError(null);
-    try {
-      if (editingId) {
-        await backendFetch(`/api/v1/knowledge/snippets/sources/${encodeURIComponent(editingId)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ title: title.trim(), text: body.trim() }),
-        });
-      } else {
-        await backendFetch("/api/v1/knowledge/snippets", {
+
+    if (editingId) {
+      const targetId = editingId;
+      replaceSnippetRow(targetId, {
+        id: targetId,
+        title: trimmedTitle,
+        status: "indexing",
+        character_count: trimmedBody.length,
+        preview: trimmedBody.slice(0, 400),
+        last_indexed_at: null,
+        updated_at: new Date().toISOString(),
+      });
+      resetForm();
+      setCreateExpanded(false);
+
+      void (async () => {
+        try {
+          const res = await backendFetch<SnippetIndexResponse>(
+            `/api/v1/knowledge/snippets/sources/${encodeURIComponent(targetId)}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({ title: trimmedTitle, text: trimmedBody }),
+            }
+          );
+          replaceSnippetRow(targetId, snippetRowFromSave(res.source, trimmedBody));
+          void refreshUsage({ silent: true });
+        } catch (e) {
+          if (e instanceof BackendApiError && e.code === "knowledge.storage_budget_exhausted") {
+            setError(
+              "This agent’s knowledge storage is full. Delete website, file, or snippet sources, or upgrade your plan."
+            );
+          } else {
+            setError(e instanceof Error ? e.message : "Update failed");
+          }
+          replaceSnippetRow(targetId, {
+            id: targetId,
+            title: trimmedTitle,
+            status: "failed",
+            character_count: trimmedBody.length,
+            preview: trimmedBody.slice(0, 400),
+            last_indexed_at: null,
+            updated_at: new Date().toISOString(),
+          });
+          void loadSnippetSources?.({ silent: true });
+        }
+      })();
+      return;
+    }
+
+    const tempId = pendingSnippetId();
+    prependSnippetRow({
+      id: tempId,
+      title: trimmedTitle,
+      status: "indexing",
+      character_count: trimmedBody.length,
+      preview: trimmedBody.slice(0, 400),
+      last_indexed_at: null,
+      updated_at: new Date().toISOString(),
+    });
+    setPendingSnippetBodies((prev) => ({ ...prev, [tempId]: trimmedBody }));
+    resetForm();
+
+    void (async () => {
+      try {
+        const res = await backendFetch<SnippetIndexResponse>("/api/v1/knowledge/snippets", {
           method: "POST",
           body: JSON.stringify({
             agent_id: selectedAgentId,
-            title: title.trim(),
-            text: body.trim(),
+            title: trimmedTitle,
+            text: trimmedBody,
           }),
         });
+        if (abandonedPendingRef.current.has(tempId)) {
+          abandonedPendingRef.current.delete(tempId);
+          pendingToRealRef.current.delete(tempId);
+          try {
+            await backendFetch<void>(
+              `/api/v1/knowledge/snippets/sources/${encodeURIComponent(res.source.id)}`,
+              { method: "DELETE" }
+            );
+          } catch {
+            /* best effort */
+          }
+          void refreshUsage({ silent: true });
+          return;
+        }
+        pendingToRealRef.current.set(tempId, res.source.id);
+        replaceSnippetRow(tempId, snippetRowFromSave(res.source, trimmedBody));
+        setPendingSnippetBodies((prev) => {
+          const next = { ...prev };
+          delete next[tempId];
+          return next;
+        });
+        void refreshUsage({ silent: true });
+      } catch (e) {
+        if (abandonedPendingRef.current.has(tempId)) {
+          abandonedPendingRef.current.delete(tempId);
+          return;
+        }
+        if (e instanceof BackendApiError && e.code === "knowledge.storage_budget_exhausted") {
+          setError(
+            "This agent’s knowledge storage is full. Delete website, file, or snippet sources, or upgrade your plan."
+          );
+        } else {
+          setError(e instanceof Error ? e.message : "Save failed");
+        }
+        replaceSnippetRow(tempId, {
+          id: tempId,
+          title: trimmedTitle,
+          status: "failed",
+          character_count: trimmedBody.length,
+          preview: trimmedBody.slice(0, 400),
+          last_indexed_at: null,
+          updated_at: new Date().toISOString(),
+        });
       }
-      resetForm();
-      setCreateExpanded(false);
-    } catch (e) {
-      if (e instanceof BackendApiError && e.code === "knowledge.storage_budget_exhausted") {
-        setError(
-          "This agent’s knowledge storage is full. Delete website, file, or snippet sources, or upgrade your plan."
-        );
-      } else {
-        setError(e instanceof Error ? e.message : "Save failed");
-      }
-    } finally {
-      setSaving(false);
-    }
-    if (selectedAgentId) {
-      void loadSnippetSources?.({ silent: true });
-      void refreshUsage({ silent: true });
-    }
+    })();
   }
 
   async function removeSnippet(id: string) {
     if (!window.confirm("Delete this snippet and all indexed chunks? This cannot be undone.")) return;
+    if (isPendingSnippetId(id)) {
+      abandonedPendingRef.current.add(id);
+      pendingToRealRef.current.delete(id);
+      removeSnippetRowLocal(id);
+      setPendingSnippetBodies((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setSelected((prev) => {
+        const n = new Set(prev);
+        n.delete(id);
+        return n;
+      });
+      if (editingId === id) resetForm();
+      setMenuOpenId(null);
+      return;
+    }
     setDeletingId(id);
     setError(null);
     try {
@@ -249,6 +479,10 @@ export default function KnowledgeTextSnippetPage() {
     }
     setExpandedId(id);
     setExpandedBody("");
+    if (isPendingSnippetId(id)) {
+      setExpandedBody(pendingSnippetBodies[id] ?? rowsRef.current.find((r) => r.id === id)?.preview ?? "");
+      return;
+    }
     setExpandedLoading(true);
     try {
       const detail = await backendFetch<{ id: string; title: string; text: string }>(
@@ -323,11 +557,11 @@ export default function KnowledgeTextSnippetPage() {
                 ) : null}
                 <button
                   type="button"
-                  disabled={saving || !title.trim() || !body.trim()}
+                  disabled={!title.trim() || !body.trim()}
                   className={appButtonClassName()}
-                  onClick={() => void saveSnippet()}
+                  onClick={() => saveSnippet()}
                 >
-                  {saving ? "Saving…" : editingId ? "Update snippet" : "Save snippet"}
+                  {editingId ? "Update snippet" : "Save snippet"}
                 </button>
               </div>
             </div>
@@ -384,6 +618,7 @@ export default function KnowledgeTextSnippetPage() {
                   <tr className="ds-app-kicker bg-ds-sidebar/70 text-ds-on-surface-variant">
                     <th className="w-10 px-5 py-3 sm:px-6" />
                     <th className="px-4 py-3 font-semibold">Title</th>
+                    <th className="w-28 px-4 py-3 font-semibold">Status</th>
                     <th className="w-24 px-4 py-3 font-semibold">Characters</th>
                     <th className="w-40 px-4 py-3 font-semibold">Last updated</th>
                     <th className="w-20 px-5 py-3 text-right font-semibold sm:px-6">Actions</th>
@@ -394,7 +629,7 @@ export default function KnowledgeTextSnippetPage() {
                 <KnowledgeSnippetTableSkeleton rows={5} />
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6">
+                  <td colSpan={6} className="px-4 py-6">
                     <div className="bg-ds-app-canvas px-4 py-6 text-center">
                       <p className="text-ds-on-surface text-sm font-medium">
                         {searchQuery.trim() ? "No matching snippets" : "No snippets yet"}
@@ -444,6 +679,12 @@ export default function KnowledgeTextSnippetPage() {
                             <span className="text-ds-on-surface block max-w-[24rem] truncate text-sm font-medium">{snippet.title}</span>
                           </button>
                         </td>
+                        <td className="px-4 py-4 text-xs">
+                          {(() => {
+                            const s = snippetStatusPill(snippet.status);
+                            return <StatusPill label={s.label} tone={s.tone} />;
+                          })()}
+                        </td>
                         <td className="ds-app-body-muted px-4 py-4">
                           {snippet.character_count.toLocaleString()}
                         </td>
@@ -485,7 +726,7 @@ export default function KnowledgeTextSnippetPage() {
                       {isExpanded ? (
                         <tr>
                           <td />
-                          <td colSpan={4} className="bg-ds-sidebar/35 px-6 py-3">
+                          <td colSpan={5} className="bg-ds-sidebar/35 px-6 py-3">
                             {expandedLoading ? (
                               <KnowledgeExpandedBodySkeleton />
                             ) : (

@@ -3702,7 +3702,7 @@ async def index_file_source(
     return source_out, refreshed or job
 
 
-async def index_text_snippet_source(
+async def prepare_text_snippet_indexing(
     db: AsyncSession, source_id: UUID, user_id: UUID
 ) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
     source = await _load_source(db, source_id, user_id)
@@ -3710,7 +3710,6 @@ async def index_text_snippet_source(
         raise AppError(code="validation.invalid_input", message="Only text_snippet sources are supported", status_code=422)
 
     job = await _create_job(db, source, user_id)
-    await _set_job_running(db, job.id)
     await db.execute(
         text(
             """
@@ -3721,6 +3720,19 @@ async def index_text_snippet_source(
         ),
         {"source_id": str(source.id)},
     )
+    await db.commit()
+    source_out = await _load_source(db, source_id, user_id)
+    return source_out, job
+
+
+async def _execute_text_snippet_indexing(
+    db: AsyncSession, source_id: UUID, user_id: UUID, job_id: UUID
+) -> None:
+    source = await _load_source(db, source_id, user_id)
+    if source.type != "text_snippet":
+        raise AppError(code="validation.invalid_input", message="Only text_snippet sources are supported", status_code=422)
+
+    await _set_job_running(db, job_id)
     await db.commit()
 
     try:
@@ -3759,7 +3771,7 @@ async def index_text_snippet_source(
                 where id = :job_id
                 """
             ),
-            {"job_id": str(job.id), "chunks_total": len(chunks)},
+            {"job_id": str(job_id), "chunks_total": len(chunks)},
         )
 
         embeddings = await _embed_texts(chunks)
@@ -3771,7 +3783,7 @@ async def index_text_snippet_source(
                 where id = :job_id
                 """
             ),
-            {"job_id": str(job.id), "chunks_embedded": len(embeddings)},
+            {"job_id": str(job_id), "chunks_embedded": len(embeddings)},
         )
         await db.execute(
             text("delete from public.knowledge_chunks where knowledge_source_id = :source_id"),
@@ -3836,7 +3848,7 @@ async def index_text_snippet_source(
                 """
             ),
             {
-                "job_id": str(job.id),
+                "job_id": str(job_id),
                 "chunks_embedded": len(chunks),
                 "metrics": json.dumps(
                     {
@@ -3865,7 +3877,7 @@ async def index_text_snippet_source(
     except Exception as exc:
         await _finalize_indexing_failure(
             db,
-            job_id=job.id,
+            job_id=job_id,
             source_id=source.id,
             crawl_run_id=None,
             exc=exc,
@@ -3874,6 +3886,27 @@ async def index_text_snippet_source(
             raise
         raise AppError(code="knowledge.indexing_failed", message="Indexing job failed", status_code=500) from exc
 
+
+async def run_text_snippet_indexing_in_background(source_id: UUID, user_id: UUID, job_id: UUID) -> None:
+    from app.db.session import get_session_factory
+
+    async with get_session_factory()() as db:
+        try:
+            await _execute_text_snippet_indexing(db, source_id, user_id, job_id)
+        except Exception as exc:
+            log.warning(
+                "text_snippet_indexing_background_failed",
+                source_id=str(source_id),
+                job_id=str(job_id),
+                error=str(exc),
+            )
+
+
+async def index_text_snippet_source(
+    db: AsyncSession, source_id: UUID, user_id: UUID
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    _, job = await prepare_text_snippet_indexing(db, source_id, user_id)
+    await _execute_text_snippet_indexing(db, source_id, user_id, job.id)
     refreshed = await get_latest_job(db, source_id, user_id)
     source_out = await _load_source(db, source_id, user_id)
     return source_out, refreshed or job
@@ -4081,9 +4114,9 @@ async def index_qa_source(db: AsyncSession, source_id: UUID, user_id: UUID) -> t
     return source_out, refreshed or job
 
 
-async def create_and_index_text_snippet(
+async def _create_text_snippet_source_row(
     db: AsyncSession, *, user_id: UUID, agent_id: UUID, title: str, snippet_text: str
-) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+) -> KnowledgeSourceDTO:
     body = (snippet_text or "").strip()
     if not body:
         raise AppError(code="validation.invalid_input", message="Snippet text cannot be empty", status_code=422)
@@ -4103,7 +4136,7 @@ async def create_and_index_text_snippet(
             status_code=422,
         )
 
-    source = await create_source(
+    return await create_source(
         db,
         user_id,
         KnowledgeSourceCreateRequest(
@@ -4114,7 +4147,27 @@ async def create_and_index_text_snippet(
             metadata={"origin": "dashboard_text_snippet"},
         ),
     )
-    return await index_text_snippet_source(db, source.id, user_id)
+
+
+async def create_and_enqueue_text_snippet(
+    db: AsyncSession, *, user_id: UUID, agent_id: UUID, title: str, snippet_text: str
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    source = await _create_text_snippet_source_row(
+        db, user_id=user_id, agent_id=agent_id, title=title, snippet_text=snippet_text
+    )
+    return await prepare_text_snippet_indexing(db, source.id, user_id)
+
+
+async def create_and_index_text_snippet(
+    db: AsyncSession, *, user_id: UUID, agent_id: UUID, title: str, snippet_text: str
+) -> tuple[KnowledgeSourceDTO, IndexJobDTO]:
+    source, job = await create_and_enqueue_text_snippet(
+        db, user_id=user_id, agent_id=agent_id, title=title, snippet_text=snippet_text
+    )
+    await _execute_text_snippet_indexing(db, source.id, user_id, job.id)
+    refreshed = await get_latest_job(db, source.id, user_id)
+    source_out = await _load_source(db, source.id, user_id)
+    return source_out, refreshed or job
 
 
 async def create_and_index_qa_pair(
@@ -4822,7 +4875,10 @@ async def list_text_snippet_sources_for_agent(
               s.status::text as status,
               s.last_indexed_at,
               s.updated_at,
-              coalesce(chars.character_count, 0) as character_count,
+              case
+                when coalesce(chars.character_count, 0) > 0 then chars.character_count
+                else char_length(coalesce(s.raw_text, ''))
+              end as character_count,
               coalesce(left(s.raw_text, 400), '') as preview,
               j.status::text as latest_job_status,
               j.phase::text as latest_job_phase,
@@ -4918,7 +4974,7 @@ async def update_text_snippet_source(
         {"title": t, "raw_text": body, "source_id": str(source_id), "user_id": str(user_id)},
     )
     await db.commit()
-    return await index_text_snippet_source(db, source_id, user_id)
+    return await prepare_text_snippet_indexing(db, source_id, user_id)
 
 
 async def delete_text_snippet_source(db: AsyncSession, user_id: UUID, source_id: UUID) -> None:
