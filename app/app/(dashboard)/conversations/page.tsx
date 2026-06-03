@@ -68,6 +68,14 @@ type ConversationSummaryState = {
   model: string;
 };
 
+type WorkspaceStreamPayload = {
+  conversations: Conversation[];
+  detail: {
+    conversation: { id: string };
+    messages: ConversationMessage[];
+  } | null;
+};
+
 function ConversationMessagesSkeleton() {
   return (
     <div className="space-y-3" aria-label="Loading conversation messages">
@@ -425,8 +433,8 @@ function ConversationsPageContent() {
     }
 
     const ac = new AbortController();
-    let fallbackId: ReturnType<typeof setInterval> | null = null;
-    let loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    let fallbackId: number | null = null;
+    let loadingTimeoutId: number | null = null;
 
     void loadConversations({ silent: conversationsCountRef.current > 0 });
 
@@ -442,13 +450,7 @@ function ConversationsPageContent() {
       });
     }, WORKSPACE_LOAD_TIMEOUT_MS);
 
-    const applyWorkspace = (data: {
-      conversations: Conversation[];
-      detail: {
-        conversation: { id: string };
-        messages: ConversationMessage[];
-      } | null;
-    }) => {
+    const applyWorkspace = (data: WorkspaceStreamPayload) => {
       setConversations(data.conversations);
       setLoading(false);
       if (data.detail) {
@@ -495,7 +497,7 @@ function ConversationsPageContent() {
           selectedConversationId ?? (conversationFromUrl ?? "").trim();
         if (detailFocus) qs.set("detail_conversation_id", detailFocus);
 
-        await consumeBackendSseJson(
+        await consumeBackendSseJson<WorkspaceStreamPayload>(
           `/api/v1/conversations/workspace/stream?${qs.toString()}`,
           (data) => {
             applyWorkspace(data);

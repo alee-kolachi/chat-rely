@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { MarketingPricingClient } from "./pricing-client";
 
 export const metadata: Metadata = {
@@ -8,5 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default function PricingPage() {
-  return <MarketingPricingClient />;
+  return (
+    <Suspense fallback={null}>
+      <MarketingPricingClient />
+    </Suspense>
+  );
 }

@@ -84,7 +84,7 @@ export function VisitorContactForm({ onSubmit, className, compact = false }: Vis
       <button
         type="submit"
         className={appButtonClassName("default", {
-          size: compact ? "sm" : "default",
+          size: compact ? "sm" : "md",
           className: cn("mt-3 w-full sm:w-auto", compact && "text-xs"),
         })}
         disabled={submitting}

@@ -1,5 +1,6 @@
 "use client";
 
+import type { AuthChangeEvent, Session, UserResponse } from "@supabase/supabase-js";
 import { useEffect, useRef } from "react";
 
 import {
@@ -29,13 +30,13 @@ export function PostAuthCacheReset() {
       window.sessionStorage.setItem(CHATRELY_LAST_AUTH_USER_ID_KEY, id);
     };
 
-    void supabase.auth.getUser().then(({ data }) => {
-      onUserId(data.user?.id ?? null);
+    void supabase.auth.getUser().then((res: UserResponse) => {
+      onUserId(res.data.user?.id ?? null);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       onUserId(session?.user?.id ?? null);
     });
 

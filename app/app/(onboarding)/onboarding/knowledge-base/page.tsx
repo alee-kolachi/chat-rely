@@ -129,7 +129,7 @@ function KnowledgeBaseOnboardingPageInner() {
   const [previewHostname, setPreviewHostname] = useState<string | null>(null);
   const [crawlPages, setCrawlPages] = useState<CrawlPage[]>([]);
   const [revealedCount, setRevealedCount] = useState(0);
-  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealTimerRef = useRef<number | null>(null);
   const pagesListRef = useRef<HTMLUListElement>(null);
   const resumeHydratedRef = useRef(false);
   const agentId = useResolvedOnboardingAgentId();
@@ -232,7 +232,7 @@ function KnowledgeBaseOnboardingPageInner() {
     }
     if (revealedCount >= crawlPages.length) return;
 
-    revealTimerRef.current = setTimeout(() => {
+    revealTimerRef.current = window.setTimeout(() => {
       setRevealedCount((c) => Math.min(c + 1, crawlPages.length));
     }, PAGE_REVEAL_MS);
 

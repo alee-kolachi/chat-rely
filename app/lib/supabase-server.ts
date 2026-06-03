@@ -1,4 +1,5 @@
-import { createServerClient, type Session, type User } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
+import type { Session, User } from "@supabase/supabase-js";
 import { cookies, headers } from "next/headers";
 import {
   CHATRELY_AUTH_SHORT_LIVED_COOKIE,

@@ -52,7 +52,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   const newestIdOnLastFetchRef = useRef<string | null>(null);
   const initialPollDoneRef = useRef(false);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const sseActiveRef = useRef(false);
 
   const dismissToast = useCallback(() => {
@@ -79,7 +79,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     ) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setToast(newest);
-      toastTimerRef.current = setTimeout(() => setToast(null), TOAST_MS);
+      toastTimerRef.current = window.setTimeout(() => setToast(null), TOAST_MS);
     }
 
     newestIdOnLastFetchRef.current = newestId;
@@ -100,7 +100,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    let fallbackId: ReturnType<typeof setInterval> | null = null;
+    let fallbackId: number | null = null;
     let ac: AbortController | null = null;
 
     const stopFallback = () => {
@@ -188,15 +188,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   });
 
   const markRead = useCallback(
-    (ids: string[]) => {
-      void submitMarkRead(ids);
-    },
+    (ids: string[]) => submitMarkRead(ids),
     [submitMarkRead]
   );
 
-  const markAllRead = useCallback(() => {
-    void submitMarkAllRead();
-  }, [submitMarkAllRead]);
+  const markAllRead = useCallback(() => submitMarkAllRead(), [submitMarkAllRead]);
 
   const value = useMemo(
     () => ({

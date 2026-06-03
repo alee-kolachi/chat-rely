@@ -34,17 +34,11 @@ export function MarketingSiteFooter({ variant = "marketing" }: MarketingSiteFoot
           © 2026 ChatRely
         </p>
         <nav className="flex flex-wrap justify-center gap-6 md:gap-8">
-          {FOOTER_LINKS.map((item) =>
-            item.external ? (
-              <a key={item.label} href={item.href} className={linkClass}>
-                {item.label}
-              </a>
-            ) : (
-              <Link key={item.label} href={item.href} className={linkClass}>
-                {item.label}
-              </Link>
-            ),
-          )}
+          {FOOTER_LINKS.map((item) => (
+            <Link key={item.label} href={item.href} className={linkClass}>
+              {item.label}
+            </Link>
+          ))}
         </nav>
       </div>
     </footer>

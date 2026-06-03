@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { backendFetch } from "@/lib/backend-api";
 import { invalidateAgentIntegrationsBootstrapCache } from "@/components/integrations/use-agent-integrations-bootstrap";
 
@@ -14,7 +14,7 @@ export type ShopifyConnectionApi = {
 };
 
 export function useShopifyConnection(agentId: string | undefined) {
-  const searchParams = useSearchParams();
+  const pathname = usePathname();
   const [data, setData] = useState<ShopifyConnectionApi | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,11 +44,12 @@ export function useShopifyConnection(agentId: string | undefined) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!agentId) return;
-    if (searchParams.get("shopify") !== "connected") return;
+    if (!agentId || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("shopify") !== "connected") return;
     invalidateAgentIntegrationsBootstrapCache(agentId);
     queueMicrotask(() => void refresh());
-  }, [agentId, searchParams, refresh]);
+  }, [agentId, pathname, refresh]);
 
   const disconnect = useCallback(async () => {
     if (!agentId) return;

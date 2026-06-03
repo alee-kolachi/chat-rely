@@ -95,7 +95,7 @@ export function StreamingAssistantMessage({
     return (
       <div className={cn("flex w-full min-w-0 flex-col gap-2", className)}>
         {showDots ? <AssistantThinkingDots brandColorHex={brandColorHex} /> : null}
-        {statusLine && (phase === "thinking" || phase === "streaming") ? (
+        {statusLine && phase === "streaming" ? (
           <ToolActivityLine message={statusLine} />
         ) : null}
         {introLine && detachCarousel ? (
@@ -121,7 +121,7 @@ export function StreamingAssistantMessage({
     return (
       <div className={cn("min-h-[1.25rem]", className)}>
         {showDots ? <AssistantThinkingDots brandColorHex={brandColorHex} /> : null}
-        {statusLine && (phase === "thinking" || phase === "streaming") ? (
+        {statusLine && phase === "streaming" ? (
           <ToolActivityLine message={statusLine} />
         ) : null}
         {introLine}

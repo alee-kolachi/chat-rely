@@ -17,7 +17,7 @@ export function SignupTypingPreview() {
 
   useEffect(() => {
     let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let timeoutId: number;
 
     const run = () => {
       if (cancelled || !elRef.current) return;
@@ -36,17 +36,17 @@ export function SignupTypingPreview() {
 
       if (!isDeleting.current && charIndex.current === currentPhrase.length) {
         isDeleting.current = true;
-        timeoutId = setTimeout(run, pauseTime);
+        timeoutId = window.setTimeout(run, pauseTime);
       } else if (isDeleting.current && charIndex.current === 0) {
         isDeleting.current = false;
         phraseIndex.current = (phraseIndex.current + 1) % PHRASES.length;
-        timeoutId = setTimeout(run, 500);
+        timeoutId = window.setTimeout(run, 500);
       } else {
-        timeoutId = setTimeout(run, isDeleting.current ? deletingSpeed : typingSpeed);
+        timeoutId = window.setTimeout(run, isDeleting.current ? deletingSpeed : typingSpeed);
       }
     };
 
-    timeoutId = setTimeout(run, 1500);
+    timeoutId = window.setTimeout(run, 1500);
     return () => {
       cancelled = true;
       clearTimeout(timeoutId);

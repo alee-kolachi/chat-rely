@@ -380,7 +380,7 @@ function PlaygroundPreviewConversation({
   /** Last vote successfully synced per assistant message (undefined = not yet synced this session). */
   const feedbackAckedRef = useRef<Map<string, 1 | -1 | null>>(new Map());
   const feedbackDesiredRef = useRef<Map<string, 1 | -1 | null>>(new Map());
-  const feedbackDebounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const feedbackDebounceRef = useRef<Map<string, number>>(new Map());
   useLayoutEffect(() => {
     blockThreadSyncRef.current = isSending || historyThreadLoading;
   }, [isSending, historyThreadLoading]);
@@ -516,7 +516,7 @@ function PlaygroundPreviewConversation({
     const aid = agentId;
     const cid = conversationId;
     let cancelled = false;
-    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let fallbackInterval: number | null = null;
     const ac = new AbortController();
     const liveThreadSyncRef = { current: false };
 
@@ -959,7 +959,7 @@ function PlaygroundPreviewConversation({
 
       const existing = feedbackDebounceRef.current.get(messageId);
       if (existing) clearTimeout(existing);
-      const t = setTimeout(() => {
+      const t = window.setTimeout(() => {
         feedbackDebounceRef.current.delete(messageId);
         void (async () => {
           const aid = agentId;
