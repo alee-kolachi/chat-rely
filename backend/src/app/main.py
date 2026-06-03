@@ -76,7 +76,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
-    allowed_origins = [str(origin) for origin in settings.allowed_origins]
+    allowed_origins = settings.effective_cors_origins()
     cors_kwargs: dict[str, Any] = {
         "allow_credentials": True,
         "allow_methods": ["*"],

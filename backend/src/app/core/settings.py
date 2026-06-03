@@ -2,6 +2,7 @@ import json
 import re
 from functools import lru_cache
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl, PostgresDsn, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -11,6 +12,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # directly into a dynamic SQL CASE expression in `app.domains.admin.costing`, so we reject
 # anything that could break out of the model literal (quotes, semicolons, parens, …).
 _PRICE_MAP_KEY_RE = re.compile(r"^[A-Za-z0-9._\-:]+$")
+
+_DEFAULT_PRODUCTION_CORS_ORIGIN = "https://chat-rely.vercel.app"
 
 
 class Settings(BaseSettings):
@@ -33,7 +36,8 @@ class Settings(BaseSettings):
     log_pretty_file_path: str = "logs/backend.pretty.log"
     log_pretty_file_max_bytes: int = 10485760
     log_pretty_file_backup_count: int = 10
-    allowed_origins: list[AnyHttpUrl] = []
+    allowed_origins: Annotated[list[AnyHttpUrl], NoDecode] = []
+    """Dashboard API CORS (`ALLOWED_ORIGINS`, comma-separated or JSON). Production defaults to chat-rely.vercel.app."""
 
     database_url: PostgresDsn
     supabase_jwks_url: AnyHttpUrl
@@ -142,6 +146,26 @@ class Settings(BaseSettings):
     `NoDecode` prevents pydantic-settings from JSON-decoding the env value before our validator runs."""
     admin_emails: Annotated[list[str], NoDecode] = []
 
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v: Any) -> list[str]:
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"ALLOWED_ORIGINS must be valid JSON: {exc.msg}") from exc
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+                raise ValueError("ALLOWED_ORIGINS JSON must be an array of origin URLs")
+            return [part.strip() for part in stripped.split(",") if part.strip()]
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        return []
+
     @field_validator("admin_emails", mode="before")
     @classmethod
     def split_admin_emails(cls, v: Any) -> list[str]:
@@ -202,6 +226,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
+    def apply_production_cors_default(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        app_env = str(values.get("app_env") or values.get("APP_ENV") or "development").lower()
+        if app_env == "development":
+            return values
+        raw = values.get("allowed_origins")
+        if raw is None or raw == "":
+            values = dict(values)
+            values["allowed_origins"] = _DEFAULT_PRODUCTION_CORS_ORIGIN
+        return values
+
+    @model_validator(mode="before")
+    @classmethod
     def apply_development_defaults(cls, values: Any) -> Any:
         if not isinstance(values, dict):
             return values
@@ -227,6 +265,38 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.app_env == "development"
+
+    def effective_cors_origins(self) -> list[str]:
+        """Origins allowed for dashboard API CORS (browser calls with credentials)."""
+        origins: list[str] = []
+        seen: set[str] = set()
+
+        def add(raw: str | None) -> None:
+            if not raw:
+                return
+            value = str(raw).strip().rstrip("/")
+            if not value:
+                return
+            parsed = urlparse(value)
+            if parsed.scheme in ("http", "https") and parsed.netloc:
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+            else:
+                origin = value
+            if origin not in seen:
+                seen.add(origin)
+                origins.append(origin)
+
+        for configured in self.allowed_origins:
+            add(str(configured))
+
+        add(self.billing_app_base_url)
+        add(self.shopify_oauth_success_redirect)
+        extra = (self.billing_app_extra_origins or "").strip()
+        if extra:
+            for part in extra.split(","):
+                add(part.strip())
+
+        return origins
 
 
 @lru_cache
