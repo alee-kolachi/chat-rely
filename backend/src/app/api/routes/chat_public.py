@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
@@ -17,6 +18,7 @@ from app.domains.public_widget.schemas import PublicWidgetAgentContext, PublicWi
 from app.domains.public_widget.service import resolve_agent_for_widget_key
 from app.domains.runtime.schemas import RuntimeChatRequest
 
+log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/public", tags=["chat-public"])
 
 
@@ -73,6 +75,7 @@ async def chat_public_stream_route(
                 {"code": exc.code, "message": exc.message, "details": exc.details},
             ).encode("utf-8")
         except Exception:
+            log.exception("chat.stream_failed")
             details: dict[str, str] | None = None
             if get_settings().app_env == "development":
                 details = {"error": "chat.stream_failed"}

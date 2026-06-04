@@ -152,6 +152,10 @@ def visitor_non_substantive_reply() -> str:
     return "I didn't catch a question there — what can I help you with?"
 
 
+def visitor_meta_deflection_reply() -> str:
+    return "I can only help with questions about this brand."
+
+
 @dataclass(frozen=True)
 class EscalationTurnContext:
     user_id: UUID
@@ -210,18 +214,17 @@ async def _set_escalation_pending_contact(
             update public.conversations
             set metadata = case
                   when :pending then coalesce(metadata, '{}'::jsonb)
-                    || jsonb_build_object(:pending_key, true)
-                  else coalesce(metadata, '{}'::jsonb) - :pending_key
+                    || jsonb_build_object('escalation_pending_contact', true)
+                  else coalesce(metadata, '{}'::jsonb) - 'escalation_pending_contact'
                 end,
                 updated_at = now()
-            where id = :conversation_id and user_id = :user_id
+            where id = cast(:conversation_id as uuid) and user_id = cast(:user_id as uuid)
             """
         ),
         {
             "conversation_id": str(conversation_id),
             "user_id": str(user_id),
             "pending": pending,
-            "pending_key": ESCALATION_PENDING_CONTACT_META_KEY,
         },
     )
     await db.commit()
@@ -280,6 +283,61 @@ async def handle_escalation_with_contact(
         reply=handoff_ask_contact(),
         conversation_status=normalize_conversation_status(conv.status),
     )
+
+
+def _invalid_email_reply() -> str:
+    return "Please enter a valid email address so our team can follow up."
+
+
+async def handle_pending_contact_stream_message(
+    db: AsyncSession,
+    *,
+    ctx: EscalationTurnContext,
+    message: str,
+) -> EscalationAttemptResult:
+    """Apply a stream message while escalation_pending_contact is set (name then email)."""
+    conv = await get_conversation(db, ctx.user_id, ctx.conversation_id)
+    meta = dict(conv.metadata or {})
+    if not meta.get(ESCALATION_PENDING_CONTACT_META_KEY):
+        return EscalationAttemptResult(
+            occurred=False,
+            contact_capture_required=False,
+            reply=handoff_reply_for_status(
+                conversation_status=normalize_conversation_status(conv.status),
+                esc_cfg=ctx.esc_cfg,
+            ),
+            conversation_status=normalize_conversation_status(conv.status),
+        )
+
+    name, email = resolve_visitor_contact(
+        meta,
+        visitor_name=ctx.visitor_name,
+        visitor_email=ctx.visitor_email,
+    )
+    text = (message or "").strip()
+    if looks_like_email(text):
+        email = text
+    elif not (name or "").strip():
+        name = text
+    elif not looks_like_email(text):
+        return EscalationAttemptResult(
+            occurred=False,
+            contact_capture_required=True,
+            reply=_invalid_email_reply(),
+            conversation_status=normalize_conversation_status(conv.status),
+        )
+
+    enriched = EscalationTurnContext(
+        user_id=ctx.user_id,
+        agent_id=ctx.agent_id,
+        conversation_id=ctx.conversation_id,
+        user_message=ctx.user_message,
+        visitor_name=name,
+        visitor_email=email,
+        esc_cfg=ctx.esc_cfg,
+    )
+    await persist_visitor_contact(db, ctx=enriched)
+    return await handle_escalation_with_contact(db, ctx=enriched)
 
 
 async def submit_visitor_contact_for_escalation(

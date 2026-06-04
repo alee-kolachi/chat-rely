@@ -62,6 +62,19 @@ class ConversationWorkspaceResponse(BaseModel):
     detail: ConversationDetailResponse | None = None
 
 
+def _metadata_has_product_ui(metadata: dict[str, Any] | None) -> bool:
+    """True when assistant metadata carries widget/playground product UI (cards or detail)."""
+    if not metadata:
+        return False
+    detail = metadata.get("product_detail")
+    if isinstance(detail, dict) and detail:
+        return True
+    products = metadata.get("products")
+    if isinstance(products, list):
+        return any(isinstance(item, dict) and item for item in products)
+    return False
+
+
 class ConversationMessageCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -82,9 +95,15 @@ class ConversationMessageCreateRequest(BaseModel):
         text = (self.content or "").strip()
         tcp = self.tool_call_payload or {}
         has_tool_calls = bool(tcp.get("tool_calls"))
+        has_product_ui = _metadata_has_product_ui(self.metadata)
         if self.role == "user" and len(text) < 1:
             raise ValueError("User messages require non-empty content")
-        if self.role == "assistant" and len(text) < 1 and not has_tool_calls:
+        if (
+            self.role == "assistant"
+            and len(text) < 1
+            and not has_tool_calls
+            and not has_product_ui
+        ):
             raise ValueError("Assistant messages require content or tool_calls")
         if self.role == "tool" and len(text) < 1:
             raise ValueError("Tool messages require non-empty content")

@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -12,6 +13,19 @@ from app.domains.conversations.schemas import (
     ConversationUpdateRequest,
     MessageDTO,
 )
+
+
+def normalize_conversation_metadata(metadata: Any) -> dict[str, Any]:
+    """Coerce DB jsonb (dict or JSON string) into a plain dict for runtime checks."""
+    if isinstance(metadata, dict):
+        return dict(metadata)
+    if isinstance(metadata, str) and metadata.strip():
+        try:
+            parsed = json.loads(metadata)
+        except json.JSONDecodeError:
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
 
 
 async def get_conversation(db: AsyncSession, user_id: UUID, conversation_id: UUID) -> ConversationDTO:

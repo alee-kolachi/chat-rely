@@ -48,6 +48,7 @@ from app.domains.conversations.service import (
     list_messages,
     list_messages_recent,
     merge_client_context_metadata,
+    normalize_conversation_metadata,
 )
 from app.domains.integrations.shopify.service import (
     get_cached_shopify_connection,
@@ -134,8 +135,9 @@ def build_shopify_tools_runtime_block(*, has_order_lookup_tool: bool) -> str:
 
 _SHOPIFY_NO_EXCERPT_GROUNDING = (
     "No knowledge-base excerpts were retrieved for this turn. "
-    "Answer using the enabled Shopify tools only. "
-    "Do not invent or estimate products, prices, stock, or order details not returned by a tool.\n\n"
+    "For policies, returns, shipping rules, and FAQs, call `search_knowledge_base` when it is enabled. "
+    "For products, orders, and inventory, use the enabled Shopify tools only. "
+    "Do not invent or estimate products, prices, stock, order details, or policy terms not returned by a tool.\n\n"
 )
 
 _TOOL_RAG_SUPPLEMENT_FOR_TOOLS = (
@@ -471,9 +473,8 @@ def _conversation_row(
     *,
     default_status: str = "open",
 ) -> ResolvedConversation:
-    meta = row.get("metadata") if isinstance(row, dict) else None
-    if not isinstance(meta, dict):
-        meta = {}
+    raw_meta = row.get("metadata") if isinstance(row, dict) else None
+    meta = normalize_conversation_metadata(raw_meta)
     status = str(row.get("status") or default_status)
     return ResolvedConversation(
         id=UUID(str(row["id"])),

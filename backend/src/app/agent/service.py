@@ -19,15 +19,20 @@ log = structlog.get_logger("agent.service")
 _turn_persist_tasks: dict[tuple[str, str], asyncio.Task[None]] = {}
 
 from app.agent.escalation import (
+    ESCALATION_PENDING_CONTACT_META_KEY,
+    EscalationAttemptResult,
     EscalationTurnContext,
     build_escalation_info,
     conversation_is_awaiting_human_team,
+    handoff_ask_contact,
     handoff_reply_awaiting_team,
     handoff_reply_for_status,
     handle_escalation_with_contact,
+    handle_pending_contact_stream_message,
     normalize_conversation_status,
     persist_visitor_contact,
     visitor_empty_reply_fallback,
+    visitor_meta_deflection_reply,
     visitor_non_substantive_reply,
 )
 from app.agent.product_cards import (
@@ -60,6 +65,7 @@ from app.agent.model_routing import (
 )
 from app.agent.turn_intent import (
     apply_turn_intent_grounding,
+    effective_is_chitchat,
     merge_routing_billing,
     run_turn_intent_classifier,
     shopify_tools_to_exclude,
@@ -93,8 +99,10 @@ from app.domains.plans.plan_limits import plan_model_policy_from_features
 from app.domains.conversations.service import (
     OPERATOR_ENGAGED_META_KEY,
     append_message,
+    get_conversation,
     list_messages_recent,
     merge_client_context_metadata,
+    normalize_conversation_metadata,
 )
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
 from app.domains.runtime.prompts import build_grounded_user_prompt
@@ -136,9 +144,74 @@ from app.domains.integrations.shopify.service import (
 from app.domains.integrations.shopify.tool_runners import run_product_details, run_similar_products
 
 
-async def _db_call(coro):
-    async with get_session_factory()() as db:
-        return await coro(db)
+def _is_db_pool_exhausted(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "max clients" in msg or "emaxconnsession" in msg
+
+
+async def _db_call(coro, *, retries: int = 4):
+    last: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            async with get_session_factory()() as db:
+                return await coro(db)
+        except Exception as exc:
+            last = exc
+            if _is_db_pool_exhausted(exc) and attempt < retries - 1:
+                await asyncio.sleep(0.25 * (2**attempt))
+                continue
+            raise
+    if last is not None:
+        raise last
+    raise RuntimeError("db_call failed without exception")
+
+
+async def _bootstrap_stream_turn_db(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    payload: RuntimeChatRequest,
+    history_limit: int,
+) -> tuple[dict[str, Any], dict[str, Any], list[Any], bool, dict[str, Any]]:
+    """One DB session for config, conversation, history, escalation state, and metadata."""
+    config = await _load_agent_runtime_config(db, user_id, payload.agent_id)
+    conv = await _resolve_or_create_conversation(
+        db,
+        user_id=user_id,
+        agent_id=payload.agent_id,
+        visitor_id=payload.visitor_id,
+        conversation_id=payload.conversation_id,
+        channel=payload.channel,
+    )
+    conversation_id = conv["id"]
+    history_rows: list[Any] = []
+    if payload.conversation_id:
+        history_rows = await list_messages_recent(
+            db,
+            user_id,
+            payload.conversation_id,
+            limit=history_limit,
+            skip_conversation_check=True,
+        )
+    elif (
+        history_limit > 0
+        and not conv.get("is_new")
+    ):
+        history_rows = await list_messages_recent(
+            db,
+            user_id,
+            conversation_id,
+            limit=history_limit,
+            skip_conversation_check=True,
+        )
+    awaiting_human_team = await conversation_is_awaiting_human_team(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    conv_row = await get_conversation(db, user_id, conversation_id)
+    conv_meta = normalize_conversation_metadata(conv_row.metadata)
+    return config, conv, history_rows, awaiting_human_team, conv_meta
 
 
 async def _load_human_escalation(
@@ -631,31 +704,14 @@ async def stream_chat(
 
     asyncio.create_task(refresh_plan_usage_snapshot_isolated(user_id))
 
-    config_coro = _db_call(lambda db: _load_agent_runtime_config(db, user_id, payload.agent_id))
-    conv_coro = _db_call(
-        lambda db: _resolve_or_create_conversation(
+    config, conv, history_rows, awaiting_human_team, conv_meta = await _db_call(
+        lambda db: _bootstrap_stream_turn_db(
             db,
             user_id=user_id,
-            agent_id=payload.agent_id,
-            visitor_id=payload.visitor_id,
-            conversation_id=payload.conversation_id,
-            channel=payload.channel,
+            payload=payload,
+            history_limit=history_limit,
         )
     )
-    if payload.conversation_id:
-        history_coro = _db_call(
-            lambda db: list_messages_recent(
-                db,
-                user_id,
-                payload.conversation_id,
-                limit=history_limit,
-                skip_conversation_check=True,
-            )
-        )
-        config, conv, history_rows = await asyncio.gather(config_coro, conv_coro, history_coro)
-    else:
-        config, conv = await asyncio.gather(config_coro, conv_coro)
-        history_rows = []
 
     conversation_id = conv["id"]
     shopify_task = asyncio.create_task(
@@ -665,18 +721,19 @@ async def stream_chat(
             conversation_id=conversation_id,
         )
     )
-    _, awaiting_human_team = await asyncio.gather(
-        _await_prior_turn_persist(user_id, conversation_id),
-        _db_call(
-            lambda db: conversation_is_awaiting_human_team(
-                db,
-                user_id=user_id,
-                conversation_id=conversation_id,
-            )
-        ),
+    turn_intent_task = asyncio.create_task(
+        run_turn_intent_classifier(
+            user_message=payload.message,
+            thread_summary=thread_summary_from_history(history_rows),
+            thread_had_order_lookup=thread_had_order_lookup_tool(history_rows),
+        )
     )
+    await _await_prior_turn_persist(user_id, conversation_id)
 
     if awaiting_human_team:
+        for task in (shopify_task, turn_intent_task):
+            if not task.done():
+                task.cancel()
         ack = handoff_reply_awaiting_team()
         yield format_sse("token", {"text": ack})
         yield format_sse(
@@ -701,6 +758,9 @@ async def stream_chat(
         return
 
     if not message_has_substantive_content(payload.message):
+        for task in (shopify_task, turn_intent_task):
+            if not task.done():
+                task.cancel()
         ack = visitor_non_substantive_reply()
         yield format_sse("token", {"text": ack})
         yield format_sse(
@@ -724,6 +784,9 @@ async def stream_chat(
         return
 
     if payload.product_action is not None:
+        for task in (shopify_task, turn_intent_task):
+            if not task.done():
+                task.cancel()
         human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
         model = str(config.get("model") or "gpt-4o-mini")
         async for frame in _stream_product_action_turn(
@@ -740,28 +803,140 @@ async def stream_chat(
 
     t_prep = time.perf_counter()
 
-    if (
-        not payload.conversation_id
-        and history_limit > 0
-        and not conv.get("is_new")
-        and not history_rows
-    ):
-        history_rows = await _db_call(
-            lambda db: list_messages_recent(
-                db,
-                user_id,
-                conversation_id,
-                limit=history_limit,
-                skip_conversation_check=True,
+    if conv_meta.get(ESCALATION_PENDING_CONTACT_META_KEY):
+        human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
+        if human_on:
+            for task in (shopify_task, turn_intent_task):
+                if not task.done():
+                    task.cancel()
+            for task in (shopify_task, turn_intent_task):
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            model_early = str(config.get("model") or "gpt-4o-mini")
+            esc_ctx_pending = EscalationTurnContext(
+                user_id=user_id,
+                agent_id=payload.agent_id,
+                conversation_id=conversation_id,
+                user_message=payload.message,
+                visitor_email=(payload.visitor_email or "").strip() or None,
+                visitor_name=(payload.visitor_name or "").strip() or None,
+                esc_cfg=esc_cfg,
             )
-        )
+            try:
+                async with get_session_factory()() as db:
+                    pending_attempt = await handle_pending_contact_stream_message(
+                        db,
+                        ctx=esc_ctx_pending,
+                        message=payload.message,
+                    )
+            except Exception:
+                log.exception("chat.pending_contact_failed")
+                pending_attempt = EscalationAttemptResult(
+                    occurred=False,
+                    contact_capture_required=True,
+                    reply=handoff_ask_contact(),
+                    conversation_status="open",
+                )
+            handoff = pending_attempt.reply
+            if first_token_ms is None:
+                first_token_ms = (time.perf_counter() - t_turn) * 1000.0
+            yield format_sse("token", {"text": handoff})
+            escalation_info_pending = build_escalation_info(
+                human_enabled=True,
+                esc_cfg=esc_cfg,
+                occurred=pending_attempt.occurred,
+                contact_capture_required=pending_attempt.contact_capture_required,
+            )
+            assistant_id = await _finalize_stream_turn_persist(
+                user_id=user_id,
+                agent_id=payload.agent_id,
+                conversation_id=conversation_id,
+                user_message=payload.message,
+                model=model_early,
+                answer=handoff,
+                usage_in=0,
+                usage_out=0,
+                tools_invoked=[ESCALATE_TO_HUMAN_TOOL_NAME],
+                rag_billing={},
+                classifier_billing=None,
+            )
+            yield format_sse(
+                "done",
+                {
+                    "conversation_id": str(conversation_id),
+                    "assistant_message_id": str(assistant_id) if assistant_id else None,
+                    "response": handoff,
+                    "model": model_early,
+                    "fallback_used": False,
+                    "tools_available_count": 0,
+                    "tools_invoked": [ESCALATE_TO_HUMAN_TOOL_NAME],
+                    "retrieval_count": 0,
+                    "retrieval_preview": [],
+                    "escalation": escalation_info_pending.model_dump(mode="json"),
+                    "contact_capture_required": pending_attempt.contact_capture_required,
+                    **_sse_conversation_fields(
+                        pending_attempt.conversation_status,
+                        escalation_occurred=pending_attempt.occurred,
+                    ),
+                },
+            )
+            return
 
-    turn_intent, turn_intent_billing = await run_turn_intent_classifier(
-        user_message=payload.message,
-        thread_summary=thread_summary_from_history(history_rows),
-        thread_had_order_lookup=thread_had_order_lookup_tool(history_rows),
-    )
-    chitchat_turn = turn_intent.is_greeting_or_small_talk
+    turn_intent, turn_intent_billing = await turn_intent_task
+    meta_deflect_turn = turn_intent.deflect_without_tools
+    chitchat_turn = effective_is_chitchat(turn_intent)
+
+    if meta_deflect_turn:
+        for task in (shopify_task,):
+            if not task.done():
+                task.cancel()
+        try:
+            await shopify_task
+        except asyncio.CancelledError:
+            pass
+        model_early = str(config.get("model") or "gpt-4o-mini")
+        ack = visitor_meta_deflection_reply()
+        if first_token_ms is None:
+            first_token_ms = (time.perf_counter() - t_turn) * 1000.0
+        yield format_sse("token", {"text": ack})
+        assistant_id = await _finalize_stream_turn_persist(
+            user_id=user_id,
+            agent_id=payload.agent_id,
+            conversation_id=conversation_id,
+            user_message=payload.message,
+            model=model_early,
+            answer=ack,
+            usage_in=0,
+            usage_out=0,
+            tools_invoked=[],
+            rag_billing={},
+            classifier_billing=turn_intent_billing,
+        )
+        yield format_sse(
+            "done",
+            {
+                "conversation_id": str(conversation_id),
+                "assistant_message_id": str(assistant_id) if assistant_id else None,
+                "response": ack,
+                "model": model_early,
+                "fallback_used": False,
+                "tools_available_count": 0,
+                "tools_invoked": [],
+                "retrieval_count": 0,
+                "retrieval_preview": [],
+                "escalation": build_escalation_info(
+                    human_enabled=False,
+                    esc_cfg={},
+                    occurred=False,
+                ).model_dump(mode="json"),
+                "contact_capture_required": False,
+                **_sse_conversation_fields(str(conv.get("status") or "open")),
+            },
+        )
+        return
+
     wants_human = payload.request_human or turn_intent.requests_human
 
     if wants_human:
@@ -917,10 +1092,10 @@ async def stream_chat(
         context_block = _build_context_block(chunks, user_message=payload.message)
 
     has_knowledge_tool = False
-    if (
+    if has_indexed_kb and (
         has_shopify_tools
-        and has_indexed_kb
-        and kb_skip_reason == "thread_shopify_tools"
+        or turn_intent.needs_knowledge_base
+        or kb_skip_reason == "thread_shopify_tools"
     ):
         tool_list = list(tool_list) + [
             build_search_knowledge_base_tool(
@@ -987,7 +1162,14 @@ async def stream_chat(
         has_shopify_tools
         or turn_intent.needs_order_lookup
         or turn_intent.needs_product_search
+        or turn_intent.needs_inventory_check
+        or turn_intent.needs_knowledge_base
         or (chitchat_turn and not turn_intent.bare_order_number)
+        or (
+            bool(history_rows)
+            and len(payload.message.strip()) <= 16
+            and not meta_deflect_turn
+        )
     ):
         grounded_user_content = apply_turn_intent_grounding(
             base_content=grounded_user_content,
@@ -1040,8 +1222,24 @@ async def stream_chat(
     contact_capture_required = False
 
     if escalation_enabled and wants_human:
-        async with get_session_factory()() as db:
-            attempt = await handle_escalation_with_contact(db, ctx=esc_ctx)
+        try:
+            async with get_session_factory()() as db:
+                if conv_meta.get(ESCALATION_PENDING_CONTACT_META_KEY):
+                    attempt = await handle_pending_contact_stream_message(
+                        db,
+                        ctx=esc_ctx,
+                        message=payload.message,
+                    )
+                else:
+                    attempt = await handle_escalation_with_contact(db, ctx=esc_ctx)
+        except Exception:
+            log.exception("chat.escalation_short_circuit_failed")
+            attempt = EscalationAttemptResult(
+                occurred=False,
+                contact_capture_required=True,
+                reply=handoff_ask_contact(),
+                conversation_status="open",
+            )
         handoff = attempt.reply
         contact_capture_required = attempt.contact_capture_required
         if first_token_ms is None:
