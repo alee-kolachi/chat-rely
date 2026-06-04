@@ -18,7 +18,23 @@ from app.domains.runtime.service import (
 
 SEARCH_KNOWLEDGE_BASE_TOOL_NAME = "search_knowledge_base"
 
+_SEARCH_KB_TOOL_DESCRIPTION = (
+    "Search the brand's indexed knowledge base for policies, FAQs, return rules, "
+    "shipping information, and other static site copy. "
+    "Use this for policy and FAQ questions — not for live catalog, product availability, "
+    "pricing, stock levels, or order status (use Shopify tools for those). "
+    "Do not call for greetings, thanks, or chitchat. "
+    "Call this before telling the customer you do not have information on a policy topic."
+)
+
+_SEARCH_KB_QUERY_DESCRIPTION = (
+    "Keywords or a short question to look up in the indexed knowledge base. "
+    "Use for policies, FAQs, returns, shipping rules, and static brand content. "
+    "Do not use for live catalog, product listings, pricing, stock, or order data."
+)
+
 KNOWLEDGE_TOOL_STATUS = "Searching our site and help content…"
+KNOWLEDGE_TOOL_PREAMBLE = "Let me check our policies and site info."
 
 
 def is_knowledge_tool_name(name: str) -> bool:
@@ -29,10 +45,7 @@ class SearchKnowledgeBaseInput(BaseModel):
     query: str = Field(
         min_length=1,
         max_length=500,
-        description=(
-            "What to look up in the indexed knowledge base: product categories, policies, "
-            "FAQs, shipping, returns, or other static site content."
-        ),
+        description=_SEARCH_KB_QUERY_DESCRIPTION,
     )
 
 
@@ -68,13 +81,7 @@ def build_search_knowledge_base_tool(
     return StructuredTool.from_function(
         coroutine=_search_knowledge_base,
         name=SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
-        description=(
-            "Search the brand's indexed website and knowledge sources for policies, FAQs, "
-            "product categories, collections, and static marketing copy. "
-            "Call this when the shopper asks about what the store sells, product types, "
-            "policies, or site content — not for live stock, orders, or prices (use Shopify tools). "
-            "Do not call for greetings, thanks, or chitchat."
-        ),
+        description=_SEARCH_KB_TOOL_DESCRIPTION,
         args_schema=SearchKnowledgeBaseInput,
     )
 
@@ -82,3 +89,8 @@ def build_search_knowledge_base_tool(
 def knowledge_tool_status_message(tool_name: str) -> str:
     _ = tool_name
     return KNOWLEDGE_TOOL_STATUS
+
+
+def knowledge_tool_preamble_message(tool_name: str) -> str:
+    _ = tool_name
+    return KNOWLEDGE_TOOL_PREAMBLE

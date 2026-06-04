@@ -111,6 +111,7 @@
    * - Breakpoints: md (768px) app chrome; lg (1024px) knowledge two-pane split.
    */
   .ds-dashboard-main-pad {
+    box-sizing: border-box;
     padding-left: var(--ds-app-page-pad-x);
     padding-right: var(--ds-app-page-pad-x);
     padding-top: var(--ds-app-page-pad-top);

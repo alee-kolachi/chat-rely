@@ -19,7 +19,7 @@ import {
   type AssistantStreamPhase,
 } from "@/components/chat/StreamingAssistantMessage";
 import { chatSseStream } from "@/lib/chat-sse";
-import { applyChatSseEvent, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
+import { applyChatSseEventToAssistantMessages, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
 import {
   productActionUserMessage,
   type ProductActionRequest,
@@ -41,7 +41,15 @@ import { DashboardSelectAgentEmptyState } from "@/components/dashboard/dashboard
 import { BackendApiError, backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import { isRenderableTranscriptMessage, parseMessageProductMetadata } from "@/lib/conversation-transcript";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
-import { effectiveWelcomeMessage } from "@/lib/agent-settings";
+import {
+  AGENT_REPLY_STYLE_HINT,
+  AGENT_REPLY_STYLE_OPTIONS,
+  DEFAULT_AGENT_REPLY_STYLE,
+  agentSystemPromptForReplyStyle,
+  agentSystemPromptFromAgent,
+  effectiveWelcomeMessage,
+  normalizeAgentReplyStyle,
+} from "@/lib/agent-settings";
 import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
 import { getWidgetPreviewContext } from "@/lib/widget-appearance";
@@ -82,15 +90,15 @@ const PLAYGROUND_CREATIVITY_DESCRIPTION =
 const PLAYGROUND_ACTIONS_DESCRIPTION =
   "Turn Shopify tools and human handoff on or off for this agent.";
 
-const PLAYGROUND_AGENT_DESCRIPTION =
-  "Choose a preset voice or write custom instructions for how the agent responds.";
+const PLAYGROUND_REPLY_STYLE_DESCRIPTION =
+  "Choose how replies sound. This does not change tools, knowledge search, or Shopify actions.";
+
+const PLAYGROUND_REPLY_STYLE_NOTE =
+  "Presets change reply voice only. Turn on actions and knowledge in the sections above.";
 
 const PLAYGROUND_SYSTEM_PROMPT_PLACEHOLDER = `e.g. Mention our 30-day return policy on order questions.
-Keep replies to 2–3 short sentences.
-Never guess stock or prices—search the catalog first.`;
-
-const PLAYGROUND_AGENT_TYPE_HINT =
-  "Brand Support: on-brand shop answers, warm and direct. General AI: flexible helper for any question. Customer Support: resolves issues step by step with a calm tone. Custom: you write the full system prompt.";
+Keep replies to 2-3 short sentences.
+Never guess stock or prices: search the catalog first.`;
 
 /** Uses global `.ds-app-field` (design-system tokens + focus ring). */
 const fieldControlClass = cn("ds-app-field");
@@ -112,6 +120,7 @@ const fieldControlPointerClass = cn(fieldControlClass, "cursor-pointer");
 type PlaygroundPreviewMessage = {
   from: "user" | "assistant";
   text: string;
+  clientMessageId: string;
   createdAt?: string;
   assistantMessageId?: string | null;
   feedbackVote?: 1 | -1 | null;
@@ -136,14 +145,15 @@ type PlaygroundConversationRow = {
   status: string;
 };
 
+function newPreviewMessageId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 const playgroundChatStorageKey = (agentId: string) => `chatrely.playground-chat.v1:${agentId}`;
 
-const PLAYGROUND_AGENT_TYPES = [
-  { value: "brand_support", label: "Brand Support Agent" },
-  { value: "general", label: "General AI Agent" },
-  { value: "customer_support", label: "Customer Support Agent" },
-  { value: "custom", label: "Custom Prompt" },
-] as const;
 
 function languagePreviewLabel(raw: string | null): string | null {
   if (!raw) return null;
@@ -226,6 +236,31 @@ function mergePlaygroundTranscriptFromServer(
   });
 }
 
+/** Client session restore: keep visitor id only while a thread is open. */
+function resolvePlaygroundChatSession(
+  stored: ReturnType<typeof readPlaygroundChatFromStorage>
+): {
+  previewMessages: PlaygroundPreviewMessage[];
+  conversationId: string | null;
+  visitorId: string;
+} {
+  const conversationId = stored?.conversationId ?? null;
+  if (!conversationId) {
+    return {
+      conversationId: null,
+      previewMessages: [],
+      visitorId: newPlaygroundVisitorId(),
+    };
+  }
+  const previewMessages = stored?.previewMessages ?? [];
+  const storedVisitorId = stored?.visitorId?.trim();
+  const visitorId =
+    storedVisitorId && storedVisitorId.length > 0
+      ? storedVisitorId
+      : newPlaygroundVisitorId();
+  return { conversationId, previewMessages, visitorId };
+}
+
 function readPlaygroundChatFromStorage(agentId: string): {
   previewMessages: PlaygroundPreviewMessage[];
   conversationId: string | null;
@@ -241,14 +276,23 @@ function readPlaygroundChatFromStorage(agentId: string): {
       visitorId?: unknown;
     };
     if (!parsed || !Array.isArray(parsed.previewMessages)) return null;
-    const previewMessages = parsed.previewMessages.filter(
-      (m): m is PlaygroundPreviewMessage =>
-        m !== null &&
-        typeof m === "object" &&
-        (m as { from?: string }).from !== undefined &&
-        ((m as { from: string }).from === "user" || (m as { from: string }).from === "assistant") &&
-        typeof (m as { text?: unknown }).text === "string"
-    );
+    const previewMessages = parsed.previewMessages
+      .filter(
+        (m): m is PlaygroundPreviewMessage =>
+          m !== null &&
+          typeof m === "object" &&
+          (m as { from?: string }).from !== undefined &&
+          ((m as { from: string }).from === "user" ||
+            (m as { from: string }).from === "assistant") &&
+          typeof (m as { text?: unknown }).text === "string"
+      )
+      .map((m) => ({
+        ...m,
+        clientMessageId:
+          typeof m.clientMessageId === "string" && m.clientMessageId.length > 0
+            ? m.clientMessageId
+            : newPreviewMessageId(),
+      }));
     const conversationId =
       typeof parsed.conversationId === "string" || parsed.conversationId === null
         ? parsed.conversationId
@@ -277,6 +321,10 @@ function mapApiMessageToPlaygroundPreview(m: {
   const row: PlaygroundPreviewMessage = {
     from,
     text: m.content ?? "",
+    clientMessageId:
+      m.id != null && String(m.id).length > 0
+        ? `api-${String(m.id)}`
+        : newPreviewMessageId(),
     ...(typeof m.created_at === "string" && m.created_at.length > 0
       ? { createdAt: m.created_at }
       : {}),
@@ -348,18 +396,9 @@ function PlaygroundPreviewConversation({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const [messageInput, setMessageInput] = useState("");
-  const [previewMessages, setPreviewMessages] = useState<PlaygroundPreviewMessage[]>(() => {
-    if (!agentId) return [];
-    return readPlaygroundChatFromStorage(agentId)?.previewMessages ?? [];
-  });
-  const [conversationId, setConversationId] = useState<string | null>(() => {
-    if (!agentId) return null;
-    return readPlaygroundChatFromStorage(agentId)?.conversationId ?? null;
-  });
-  const [visitorId, setVisitorId] = useState<string>(() => {
-    if (!agentId) return newPlaygroundVisitorId();
-    return readPlaygroundChatFromStorage(agentId)?.visitorId ?? "playground-preview";
-  });
+  const [previewMessages, setPreviewMessages] = useState<PlaygroundPreviewMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [visitorId, setVisitorId] = useState(() => newPlaygroundVisitorId());
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -367,6 +406,7 @@ function PlaygroundPreviewConversation({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyThreadLoading, setHistoryThreadLoading] = useState(false);
+  const [storedThreadRestoring, setStoredThreadRestoring] = useState(false);
   const [conversationStatus, setConversationStatus] = useState<string>("open");
   const [contactCaptureRequired, setContactCaptureRequired] = useState(false);
   const aiChatDisabled = isAiChatDisabledStatus(conversationStatus);
@@ -381,6 +421,8 @@ function PlaygroundPreviewConversation({
   const feedbackAckedRef = useRef<Map<string, 1 | -1 | null>>(new Map());
   const feedbackDesiredRef = useRef<Map<string, 1 | -1 | null>>(new Map());
   const feedbackDebounceRef = useRef<Map<string, number>>(new Map());
+  /** False until client sessionStorage is read (SSR hydrates empty; avoid wiping storage on first paint). */
+  const chatStorageReadyRef = useRef(false);
   useLayoutEffect(() => {
     blockThreadSyncRef.current = isSending || historyThreadLoading;
   }, [isSending, historyThreadLoading]);
@@ -411,7 +453,7 @@ function PlaygroundPreviewConversation({
   }, []);
 
   useEffect(() => {
-    if (!agentId) return;
+    if (!agentId || !chatStorageReadyRef.current) return;
     writePlaygroundChatToStorage(agentId, previewMessages, conversationId, visitorId);
   }, [agentId, previewMessages, conversationId, visitorId]);
 
@@ -467,36 +509,41 @@ function PlaygroundPreviewConversation({
     });
   }, [loadThreadForCache]);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      clearFeedbackSyncState();
-      setHistoryRows([]);
-      setHistoryLoaded(false);
-      setHistoryLoading(false);
-      setHistoryThreadLoading(false);
-      threadCacheRef.current = {};
-      threadRequestsRef.current.clear();
-      setThreadCacheState({});
+  useLayoutEffect(() => {
+    chatStorageReadyRef.current = false;
+    setStoredThreadRestoring(false);
+    clearFeedbackSyncState();
+    setHistoryRows([]);
+    setHistoryLoaded(false);
+    setHistoryLoading(false);
+    setHistoryThreadLoading(false);
+    threadCacheRef.current = {};
+    threadRequestsRef.current.clear();
+    setThreadCacheState({});
 
-      if (!agentId) {
-        setConversationId(null);
-        setVisitorId(newPlaygroundVisitorId());
-        setPreviewMessages([]);
-        setConversationStatus("open");
-        return;
-      }
+    if (!agentId) {
+      setConversationId(null);
+      setVisitorId(newPlaygroundVisitorId());
+      setPreviewMessages([]);
+      setConversationStatus("open");
+      chatStorageReadyRef.current = true;
+      return;
+    }
 
-      const stored = readPlaygroundChatFromStorage(agentId);
-      const nextMessages = stored?.previewMessages ?? [];
-      const nextConversationId = stored?.conversationId ?? null;
-      const nextVisitorId = stored?.visitorId ?? "playground-preview";
-      setConversationId(nextConversationId);
-      setVisitorId(nextVisitorId);
-      setPreviewMessages(nextMessages);
-      if (nextConversationId) {
-        cacheThread(nextConversationId, { visitorId: nextVisitorId, messages: nextMessages });
+    const session = resolvePlaygroundChatSession(readPlaygroundChatFromStorage(agentId));
+    setConversationId(session.conversationId);
+    setVisitorId(session.visitorId);
+    setPreviewMessages(session.previewMessages);
+    if (session.conversationId) {
+      cacheThread(session.conversationId, {
+        visitorId: session.visitorId,
+        messages: session.previewMessages,
+      });
+      if (session.previewMessages.length === 0) {
+        setStoredThreadRestoring(true);
       }
-    });
+    }
+    chatStorageReadyRef.current = true;
   }, [agentId, cacheThread, clearFeedbackSyncState]);
 
   useEffect(() => {
@@ -519,6 +566,10 @@ function PlaygroundPreviewConversation({
     let fallbackInterval: number | null = null;
     const ac = new AbortController();
     const liveThreadSyncRef = { current: false };
+
+    function finishStoredThreadRestore() {
+      setStoredThreadRestoring(false);
+    }
 
     function applyDetail(data: PlaygroundConversationDetailPayload) {
       if (cancelled || blockThreadSyncRef.current) return;
@@ -544,8 +595,8 @@ function PlaygroundPreviewConversation({
     }
 
     async function syncFromServer() {
-      if (blockThreadSyncRef.current) return;
       try {
+        if (blockThreadSyncRef.current) return;
         const data = await backendFetch<PlaygroundConversationDetailPayload>(
           `/api/v1/conversations/${encodeURIComponent(cid)}`
         );
@@ -557,6 +608,8 @@ function PlaygroundPreviewConversation({
           setConversationId(null);
           writePlaygroundChatToStorage(aid, previewMessages, null, visitorId);
         }
+      } finally {
+        finishStoredThreadRestore();
       }
     }
 
@@ -679,26 +732,23 @@ function PlaygroundPreviewConversation({
         }
         setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
       }
-      setPreviewMessages((prev) => {
-        if (prev.length === 0) return prev;
-        const last = prev[prev.length - 1];
-        if (last.from !== "assistant") return prev;
-        const patch = applyChatSseEvent(ev, {
-          text: last.text,
-          streamPhase: last.streamPhase ?? "thinking",
+      const patchMessages = () => {
+        setPreviewMessages((prev) => {
+          const next = applyChatSseEventToAssistantMessages(prev, ev, () => ({
+            from: "assistant" as const,
+            text: "",
+            clientMessageId: newPreviewMessageId(),
+            streamPhase: "thinking" as const,
+            createdAt: messageCreatedAtIso(),
+          }));
+          return next ?? prev;
         });
-        if (!patch) return prev;
-        const next = [...prev];
-        next[next.length - 1] = {
-          ...last,
-          ...patch,
-          from: "assistant",
-          ...(patch.assistantMessageId
-            ? { assistantMessageId: patch.assistantMessageId }
-            : {}),
-        };
-        return next;
-      });
+      };
+      if (ev.type === "preamble") {
+        flushSync(patchMessages);
+      } else {
+        patchMessages();
+      }
       if (ev.type === "error") {
         throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
       }
@@ -727,7 +777,10 @@ function PlaygroundPreviewConversation({
       const userMessage = productActionUserMessage(action);
       stickToBottomRef.current = true;
       blockThreadSyncRef.current = true;
-      setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage, createdAt: messageCreatedAtIso() }]);
+      setPreviewMessages((prev) => [
+        ...prev,
+        { from: "user", text: userMessage, clientMessageId: newPreviewMessageId(), createdAt: messageCreatedAtIso() },
+      ]);
       setIsSending(true);
       setChatError(null);
       chatAbortRef.current?.abort();
@@ -738,6 +791,7 @@ function PlaygroundPreviewConversation({
         {
           from: "assistant",
           text: "",
+          clientMessageId: newPreviewMessageId(),
           streamPhase: "thinking",
           createdAt: messageCreatedAtIso(),
         },
@@ -773,6 +827,7 @@ function PlaygroundPreviewConversation({
     const draft = (messageInputRef.current?.value ?? messageInput).trim();
     if (!agentId || !draft || isSending || historyThreadLoading || aiChatDisabled) return;
     stickToBottomRef.current = true;
+    setStoredThreadRestoring(false);
     // `blockThreadSyncRef` is otherwise updated in layout after commit; without this, an in-flight
     // poll can finish between optimistic updates and that effect and overwrite the transcript.
     blockThreadSyncRef.current = true;
@@ -782,7 +837,10 @@ function PlaygroundPreviewConversation({
       messageInputRef.current.value = "";
       resizePlaygroundComposer(messageInputRef.current);
     }
-    setPreviewMessages((prev) => [...prev, { from: "user", text: userMessage, createdAt: messageCreatedAtIso() }]);
+    setPreviewMessages((prev) => [
+      ...prev,
+      { from: "user", text: userMessage, clientMessageId: newPreviewMessageId(), createdAt: messageCreatedAtIso() },
+    ]);
     setIsSending(true);
     setChatError(null);
     chatAbortRef.current?.abort();
@@ -793,6 +851,7 @@ function PlaygroundPreviewConversation({
       {
         from: "assistant",
         text: "",
+        clientMessageId: newPreviewMessageId(),
         streamPhase: "thinking",
         createdAt: messageCreatedAtIso(),
       },
@@ -814,6 +873,7 @@ function PlaygroundPreviewConversation({
             next[next.length - 1] = {
               from: "assistant",
               text: "",
+              clientMessageId: next[next.length - 1]?.clientMessageId ?? newPreviewMessageId(),
               streamPhase: "thinking",
               createdAt: next[next.length - 1]?.createdAt ?? messageCreatedAtIso(),
             };
@@ -867,6 +927,7 @@ function PlaygroundPreviewConversation({
       {
         from: "assistant",
         text: data.handoff_message,
+        clientMessageId: newPreviewMessageId(),
         createdAt: messageCreatedAtIso(),
         streamPhase: "done",
       },
@@ -1190,10 +1251,10 @@ function PlaygroundPreviewConversation({
           </div>
         ) : (
           <div className="space-y-5 px-4 py-5 sm:px-5 sm:py-8">
-            {historyThreadLoading ? (
+            {historyThreadLoading || storedThreadRestoring ? (
               <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
             ) : null}
-            {!historyThreadLoading && previewMessages.length === 0 ? (
+            {!historyThreadLoading && !storedThreadRestoring && previewMessages.length === 0 ? (
               <div className="space-y-3">
                 <WidgetWelcomeMessageRow
                   message={emptyAssistantLine}
@@ -1240,7 +1301,7 @@ function PlaygroundPreviewConversation({
                   />
                 ) : null;
               return (
-                <div key={`${msg.from}-${index}`} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
+                <div key={msg.clientMessageId} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
                   {msg.from === "assistant" ? (
                     <div
                       className={cn(
@@ -1439,7 +1500,7 @@ export default function PlaygroundPage() {
   const shopifyConnected = Boolean(shopifyConnection?.connected);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [creativity, setCreativity] = useState<CreativityLevel>(0.5);
-  const [agentType, setAgentType] = useState<string>("brand_support");
+  const [agentType, setAgentType] = useState<string>(DEFAULT_AGENT_REPLY_STYLE);
   const [baseline, setBaseline] = useState<PlaygroundFormBaseline | null>(null);
   const [shopifyActionsOpen, setShopifyActionsOpen] = useState(true);
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
@@ -1470,7 +1531,7 @@ export default function PlaygroundPage() {
         setBaseline(null);
         setSystemPrompt("");
         setCreativity(0.5);
-        setAgentType("brand_support");
+        setAgentType(DEFAULT_AGENT_REPLY_STYLE);
       });
       return;
     }
@@ -1483,13 +1544,8 @@ export default function PlaygroundPage() {
     hydratedAgentIdRef.current = selectedAgentId;
     const behavior = (match.behavior_settings ?? {}) as Record<string, unknown>;
     const cr = normalizeCreativity(behavior.creativity);
-    const atRaw = behavior.agent_type;
-    const at =
-      typeof atRaw === "string" &&
-      PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
-        ? atRaw
-        : "brand_support";
-    const sp = match.system_prompt || "";
+    const at = normalizeAgentReplyStyle(behavior.agent_type);
+    const sp = agentSystemPromptFromAgent(at, match.system_prompt);
     queueMicrotask(() => {
       setSystemPrompt(sp);
       setCreativity(cr);
@@ -1546,26 +1602,24 @@ export default function PlaygroundPage() {
               creativity,
               agent_type: agentType,
             };
+            const promptToSave = agentSystemPromptForReplyStyle(agentType, systemPrompt);
             const updated = await backendFetch<{
               system_prompt: string;
               behavior_settings: Record<string, unknown>;
             }>(`/api/v1/agents/${selectedAgentId}`, {
               method: "PATCH",
-              body: JSON.stringify({ system_prompt: systemPrompt, behavior_settings }),
+              body: JSON.stringify({ system_prompt: promptToSave, behavior_settings }),
             });
 
             const cr = normalizeCreativity(updated.behavior_settings?.creativity);
-            const atRaw = updated.behavior_settings?.agent_type;
-            const at =
-              typeof atRaw === "string" &&
-              PLAYGROUND_AGENT_TYPES.some((t) => t.value === atRaw)
-                ? atRaw
-                : agentType;
-            setSystemPrompt(updated.system_prompt);
+            const at = normalizeAgentReplyStyle(
+              updated.behavior_settings?.agent_type ?? agentType
+            );
+            setSystemPrompt(agentSystemPromptFromAgent(at, updated.system_prompt));
             setCreativity(cr);
             setAgentType(at);
             setBaseline({
-              systemPrompt: updated.system_prompt,
+              systemPrompt: agentSystemPromptFromAgent(at, updated.system_prompt),
               creativity: cr,
               agentType: at,
             });
@@ -1797,39 +1851,51 @@ export default function PlaygroundPage() {
             <section className={playgroundSettingsCardClass}>
               <div className={playgroundSettingsCardHeaderClass}>
                 <h2 className={playgroundSettingsCardTitleClass}>Agent</h2>
-                <p className={playgroundSettingsCardDescriptionClass}>{PLAYGROUND_AGENT_DESCRIPTION}</p>
+                <p className={playgroundSettingsCardDescriptionClass}>
+                  {PLAYGROUND_REPLY_STYLE_DESCRIPTION}
+                </p>
               </div>
               <div className="space-y-6">
                 <div>
                   <div className="flex items-center gap-2">
-                    <label htmlFor="playground-agent-type" className={playgroundSettingsFieldLabelClass}>
-                      Agent type
+                    <label htmlFor="playground-reply-style" className={playgroundSettingsFieldLabelClass}>
+                      Reply style
                     </label>
                     <InfoHint
-                      text={PLAYGROUND_AGENT_TYPE_HINT}
-                      labelFor="Agent type"
+                      text={AGENT_REPLY_STYLE_HINT}
+                      labelFor="Reply style"
                       placement="right"
                       className="ml-0"
                     />
                   </div>
                   <select
-                    id="playground-agent-type"
+                    id="playground-reply-style"
                     className={cn(fieldControlPointerClass, "mt-3")}
                     value={agentType}
-                    onChange={(e) => setAgentType(e.target.value)}
+                    onChange={(e) => {
+                      const next = normalizeAgentReplyStyle(e.target.value);
+                      setAgentType(next);
+                      if (next === "custom") {
+                        const stored = selectedAgent?.system_prompt?.trim() ?? "";
+                        setSystemPrompt((prev) => (prev.trim() ? prev : stored));
+                      } else {
+                        setSystemPrompt("");
+                      }
+                    }}
                   >
-                    {PLAYGROUND_AGENT_TYPES.map((t) => (
+                    {AGENT_REPLY_STYLE_OPTIONS.map((t) => (
                       <option key={t.value} value={t.value}>
                         {t.label}
                       </option>
                     ))}
                   </select>
+                  <p className={playgroundSettingsCardDescriptionClass}>{PLAYGROUND_REPLY_STYLE_NOTE}</p>
                 </div>
 
                 <div className={cn(agentType !== "custom" && "opacity-55")}>
                   <div className="flex items-center justify-between gap-3">
                     <label htmlFor="playground-system-prompt" className={playgroundSettingsFieldLabelClass}>
-                      System prompt
+                      Custom instructions
                     </label>
                     {agentType === "custom" ? (
                       <button
@@ -1851,7 +1917,7 @@ export default function PlaygroundPage() {
                     placeholder={
                       agentType === "custom"
                         ? PLAYGROUND_SYSTEM_PROMPT_PLACEHOLDER
-                        : "Select Custom Prompt above to edit."
+                        : "Choose Write your own above to edit."
                     }
                     onChange={(e) => setSystemPrompt(e.target.value)}
                   />

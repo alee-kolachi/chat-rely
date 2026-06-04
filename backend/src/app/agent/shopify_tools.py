@@ -26,9 +26,20 @@ SHOPIFY_TOOL_STATUS: dict[str, str] = {
     "shopify_customer_context": "Loading your account details…",
 }
 
+SHOPIFY_TOOL_PREAMBLE: dict[str, str] = {
+    "shopify_product_search": "Let me search the store for that.",
+    "shopify_order_lookup": "Let me look up your order.",
+    "shopify_inventory_check": "Let me check stock on that for you.",
+    "shopify_customer_context": "Let me pull up your account info.",
+}
+
 
 def shopify_tool_status_message(tool_name: str) -> str:
     return SHOPIFY_TOOL_STATUS.get(tool_name, "Checking store data…")
+
+
+def shopify_tool_preamble_message(tool_name: str) -> str:
+    return SHOPIFY_TOOL_PREAMBLE.get(tool_name, "One moment while I look that up.")
 
 
 def is_shopify_tool_name(name: str) -> bool:

@@ -21,8 +21,16 @@ function tierIndex(slug: string): number {
   return i >= 0 ? i : 0;
 }
 
-function tierAtLeast(slug: string, minimum: (typeof TIER_ORDER)[number]): boolean {
+export function planTierAtLeast(
+  planSlug: string | null | undefined,
+  minimum: (typeof TIER_ORDER)[number]
+): boolean {
+  const slug = (planSlug ?? "").trim().toLowerCase() || "free";
   return tierIndex(slug) >= tierIndex(minimum);
+}
+
+function tierAtLeast(slug: string, minimum: (typeof TIER_ORDER)[number]): boolean {
+  return planTierAtLeast(slug, minimum);
 }
 
 function tierLabel(minimum: (typeof TIER_ORDER)[number]): string {

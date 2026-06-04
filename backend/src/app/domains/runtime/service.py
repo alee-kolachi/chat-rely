@@ -83,78 +83,65 @@ RAG_EMBED_CACHE_MAX_ITEMS = 512
 
 # Appended to system message when Shopify tools are bound. Overrides RAG-only “use fallback” behavior.
 _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK = (
-    "\n\n--- Live store catalog (Shopify connected, tools disabled) ---\n"
-    "Shopify is connected for this store, but no Shopify tools are enabled for this chat. "
-    "You cannot verify live catalog, prices, stock, orders, or customer records.\n"
-    "- Do not invent or imply specific products, prices, or inventory.\n"
-    "- For catalog questions (e.g. \"do you sell boots?\"), say you cannot check the live catalog "
-    "without enabled store tools. Use numbered knowledge excerpts only when they clearly apply; "
-    "otherwise give a brief next step.\n"
+    "\n\n--- Shopify connected, no tools enabled ---\n"
+    "Shopify is connected for this store but no tools are enabled for this chat. "
+    "Do not invent products, prices, stock, or order details. "
+    "For catalog or order questions, say you cannot check the live store right now "
+    "and suggest the customer contact support or visit the site. "
+    "Use knowledge-base excerpts only for policies and static copy when they clearly apply.\n"
 )
+
+
 def build_shopify_tools_runtime_block(*, has_order_lookup_tool: bool) -> str:
-    """Runtime Shopify appendix; order lines only when Order Lookup is bound."""
-    scope = (
-        "catalog, products, SKUs, prices, stock, orders, shipping/tracking, or customer-specific store records"
-        if has_order_lookup_tool
-        else "catalog, products, SKUs, prices, stock, or customer-specific store records"
-    )
-    lines = [
-        "\n\n--- Shopify tools (enabled for this chat) ---\n",
-        f"You MUST call the relevant Shopify Admin tools when the shopper asks about **this store’s** {scope}.\n",
-        "- **Multiple topics in one message** (e.g. order status and “do you sell boots?”): call every applicable "
-        "enabled tool in the **same** turn, then answer each part briefly.\n",
-        "- **Products / catalog / “do you sell…” / pricing / recommendations**: call `shopify_product_search` with "
-        "product name or brand keywords in `query`. On follow-ups (“the Timberland one”, sizing for “that boot”), "
-        "resolve the product from the thread first—pass keywords like `Timberland`, not vague phrases. "
-        "If `lookup_meta.not_found` is true, say the item is **not in this store’s catalog** (e.g. iPhones when "
-        "the store sells other goods) — do not invent availability or prices. "
-        "Do not use product search for stock, quantity, or order/shipping/tracking questions. "
-        "When product search returns results, keep your reply to one short intro sentence (under 12 words); "
-        "the chat UI shows product cards with images and links, so never list product names, prices, or bullets in text.\n",
-    ]
+    """
+    Lean appendix: covers ONLY what build_agent_system_prompt_for_tools does NOT.
+    - Product-card UI rule (UI-specific, not in system prompt)
+    - published_status:published broad-catalog query (tool-call detail)
+    - Inventory safety gate (last-resort reminder before denying stock)
+    - No-tools order path when order lookup disabled
+    """
+    lines = ["\n\n--- Shopify tools (runtime) ---\n"]
+
     if has_order_lookup_tool:
         lines.append(
-            "- **Order status / tracking / shipment**: call `shopify_order_lookup`. "
-            "Pass `order_name_or_number` if they gave an order # or name; pass `customer_email` if they gave email. "
-            "If the whole message is only an order number (e.g. `8842` or `#8842`), treat it as the order # and "
-            "call `shopify_order_lookup` immediately — do not treat it as chitchat or ask them to rephrase. "
-            "If neither order # nor email exists yet, ask briefly for one—then call the tool.\n"
+            "Order number only (e.g. `8842` or `#8842`): call `shopify_order_lookup` immediately "
+            "with that value — do not ask the customer to rephrase.\n"
         )
     else:
         lines.append(
-            "- **Order status / tracking / shipment**: Order Lookup is **not** enabled for this chat. "
-            "Do **not** call `shopify_product_search` for order, shipping, or tracking questions. "
-            "Tell the customer you cannot look up orders live and suggest contacting the store "
-            "(the merchant can enable Order Lookup in agent settings).\n"
+            "Order Lookup is **not** enabled. Do not call `shopify_product_search` for order, "
+            "tracking, or shipping questions. Explain you cannot check orders live.\n"
         )
-    lines.extend(
-        [
-            "- **Inventory / stock / in stock / out of stock / quantity on hand**: call `shopify_inventory_check` "
-            "(pass `sku` or `product_query`). Never use `shopify_product_search` for these questions.\n",
-            "- **Customer history / past purchases**: call `shopify_customer_context` when you have their email. "
-            "If `lookup_meta.not_found` is true, say you could not find a customer record for that email in this "
-            "store (common for new shoppers or test addresses) and offer to help another way.\n",
-            "**Inventory safety:** Never state that a product is unavailable, out of stock, or not carried until "
-            "you have results from the applicable Shopify tool (`shopify_product_search`, `shopify_inventory_check`, …). "
-            "When `shopify_product_search` returns `lookup_meta.not_found: true`, that **is** a tool result — tell the "
-            "shopper the item is not listed in this store’s catalog. "
-            "If you have not called the tool yet, reply briefly (e.g. “Let me check our catalog…”) and call the tool — "
-            "do not deny inventory based on guesses or on knowledge-base excerpts alone.\n",
-            "Knowledge base excerpts (if present) are **supplementary** marketing/site context; they do **not** replace "
-            "live Shopify data for accurate SKU/order/inventory answers.\n",
-        ]
+
+    lines.append(
+        "Broad catalog browse ('what do you sell', no category given): "
+        "call `shopify_product_search` with query `published_status:published`.\n"
     )
-    if has_order_lookup_tool:
-        lines.append(
-            "Do **not** reply with the canned fallback (“not fully sure…” / escalate-only) for store-specific questions "
-            "until you have **called the applicable tool(s)** at least once (unless the tool returned an error).\n"
-        )
+
+    lines.append(
+        "Product cards: when product search returns results, keep your text intro to one sentence "
+        "under 12 words — the UI renders product cards with images and links.\n"
+    )
+
+    lines.append(
+        "Inventory safety: never state a product is unavailable or not carried until you have called "
+        "`shopify_inventory_check` or `shopify_product_search` and received `lookup_meta.not_found: true`. "
+        "If you have not called the tool yet, do so before denying availability.\n"
+    )
+
     return "".join(lines)
+
+
+_SHOPIFY_NO_EXCERPT_GROUNDING = (
+    "No knowledge-base excerpts were retrieved for this turn. "
+    "Answer using the enabled Shopify tools only. "
+    "Do not invent or estimate products, prices, stock, or order details not returned by a tool.\n\n"
+)
+
 _TOOL_RAG_SUPPLEMENT_FOR_TOOLS = (
-    "\n\n---\n"
-    "Reminder: Shopify tools are enabled. If this question is about products or orders **in the connected store**, "
-    "the assistant must invoke the appropriate tool(s) before treating the answer as unknown or using only the "
-    "fallback message above."
+    "\n\nReminder: Shopify tools are enabled. "
+    "For questions about this store's products, orders, or inventory, "
+    "call the relevant tool before using the fallback message above.\n"
 )
 
 _embed_cache: OrderedDict[str, tuple[float, list[float]]] = OrderedDict()
@@ -365,17 +352,21 @@ def _build_open_chat_system_prompt(
 ) -> str:
     base = (system_prompt or "").strip()
     escalation_hint = (
-        " or offer to connect them with a human agent if that is available"
+        " or offer to connect them with a human agent"
         if human_escalation_enabled
         else ". Do not mention human escalation or handoff"
     )
     guidance = (
-        "You are a customer-support chatbot for this brand. No indexed excerpts were retrieved for this question, "
+        "You are a customer-support chatbot for this brand. "
+        "No indexed knowledge-base excerpts were retrieved for this turn, "
         "so do not invent catalog details, prices, or policies. "
-        "Respond helpfully to greetings and small talk; for product or policy questions, keep answers short, "
-        "acknowledge you don’t have their knowledge base context for this turn, and suggest what the customer could "
-        f"ask next or where on the site they might look (without making up URLs){escalation_hint}. "
-        "Use earlier messages in this thread for follow-ups when the user refers to something already discussed."
+        "For greetings and small talk, respond warmly and briefly. "
+        "For product or policy questions, be honest: acknowledge you do not have the specific details available "
+        "right now, suggest what the customer could ask or where on the site they might look "
+        f"(without inventing URLs){escalation_hint}. "
+        "Use earlier messages in this thread to resolve follow-ups when the customer refers to something already discussed. "
+        "Never fabricate information to appear more helpful — an honest 'I don't have that detail' "
+        "builds more trust than a confident wrong answer."
     )
     return f"{base}\n\n{guidance}".strip() if base else guidance
 
@@ -431,8 +422,8 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
     raw_agent_type = behavior.get("agent_type")
     agent_type = str(raw_agent_type).strip().lower() if isinstance(raw_agent_type, str) else "brand_support"
     fallback = row["fallback_message"] or (
-        f"Hello! I'm {row['name']}. I can use your website knowledge, but I am not fully sure yet. "
-        "Please clarify your request."
+        "I don't have enough information to answer that right now. "
+        "For the most accurate answer, please contact our support team or visit our website."
     )
     has_kb = bool(row.get("has_indexed_knowledge"))
     raw_tone_description = behavior.get("tone_description")

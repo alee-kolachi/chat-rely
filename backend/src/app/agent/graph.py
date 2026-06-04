@@ -27,13 +27,13 @@ from app.agent.llm import make_chat_model
 from app.agent.messages import text_delta_from_stream_chunk, text_from_model_message, usage_tokens_from_model_message
 from app.agent.knowledge_tools import (
     is_knowledge_tool_name,
-    knowledge_tool_status_message,
+    knowledge_tool_preamble_message,
 )
 from app.agent.shopify_tools import (
     MAX_SHOPIFY_TOOL_ROUNDS,
     invoke_shopify_tool_with_timeout,
     is_shopify_tool_name,
-    shopify_tool_status_message,
+    shopify_tool_preamble_message,
     tool_call_parts,
 )
 from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME, build_escalate_to_human_tool
@@ -126,16 +126,23 @@ def _route_after_shopify_tools(state: ChatGraphState) -> Literal["call_model", "
     return "call_model"
 
 
-def _pending_tool_status_message(ai: AIMessage) -> str:
+def _pending_tool_preamble_message(ai: AIMessage) -> str:
     for tc in ai.tool_calls or []:
         name, _, _ = tool_call_parts(tc)
-        if is_shopify_tool_name(name):
-            return shopify_tool_status_message(name)
-        if is_knowledge_tool_name(name):
-            return knowledge_tool_status_message(name)
         if name == ESCALATE_TO_HUMAN_TOOL_NAME:
-            return "Connecting you with our team…"
-    return "Checking…"
+            return "Let me connect you with our team."
+        if is_shopify_tool_name(name):
+            return shopify_tool_preamble_message(name)
+        if is_knowledge_tool_name(name):
+            return knowledge_tool_preamble_message(name)
+    return "One moment while I look that up."
+
+
+def _resolve_tool_preamble(ai: AIMessage, buffered_text: str) -> str:
+    model_line = (buffered_text or text_from_model_message(ai) or "").strip()
+    if model_line:
+        return model_line
+    return _pending_tool_preamble_message(ai)
 
 
 async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[str, Any]:
@@ -186,7 +193,9 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
         ) from exc
 
     if aggregated is not None and (aggregated.tool_calls or []):
-        writer({"type": "status", "text": _pending_tool_status_message(aggregated)})
+        preamble = _resolve_tool_preamble(aggregated, "".join(parts))
+        if preamble:
+            writer({"type": "preamble", "text": preamble})
         return {
             "messages": [aggregated],
             "model_round": model_round + 1,
@@ -310,9 +319,8 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
                     )
                 )
                 continue
-            writer({"type": "status", "text": shopify_tool_status_message(name)})
         elif is_knowledge_tool_name(name):
-            writer({"type": "status", "text": knowledge_tool_status_message(name)})
+            pass
         else:
             tool_messages.append(
                 ToolMessage(
@@ -444,7 +452,7 @@ async def stream_chat_graph(
     try:
         async for mode, chunk in graph.astream(initial, stream_mode=["custom", "updates"]):
             if mode == "custom" and isinstance(chunk, dict):
-                if chunk.get("type") in ("token", "status", "products"):
+                if chunk.get("type") in ("token", "status", "preamble", "products"):
                     yield chunk
             elif mode == "updates" and isinstance(chunk, dict):
                 for node_out in chunk.values():

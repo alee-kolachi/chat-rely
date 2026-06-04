@@ -86,6 +86,37 @@ export function planFeatureCardClass(included: boolean) {
   );
 }
 
+/** True when plan is loaded and the feature is not on the current plan. */
+export function planFeatureLocked(planResolved: boolean, included: boolean): boolean {
+  return planResolved && !included;
+}
+
+type PlanFeatureLabelProps = {
+  /** When set, overrides `included` / `planResolved` for crown visibility. */
+  showCrown?: boolean;
+  included?: boolean;
+  planResolved?: boolean;
+  children: ReactNode;
+  className?: string;
+};
+
+/** Label with premium crown when the feature is not on the current plan. */
+export function PlanFeatureLabel({
+  showCrown,
+  included = true,
+  planResolved = true,
+  children,
+  className,
+}: PlanFeatureLabelProps) {
+  const locked = showCrown ?? planFeatureLocked(planResolved, included);
+  return (
+    <div className={cn("flex items-center gap-2", className)}>
+      {children}
+      {locked ? <PlanCrownIcon className="size-3.5 shrink-0" title="Not on your plan" /> : null}
+    </div>
+  );
+}
+
 type PlanGatedBlockProps = {
   locked: boolean;
   tier?: PlanTierHint;

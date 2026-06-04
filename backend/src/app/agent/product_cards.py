@@ -4,10 +4,10 @@ from __future__ import annotations
 
 
 def shorten_answer_for_product_cards(answer: str) -> str:
-    """When the UI shows product cards, keep only a short intro line."""
+    """When the UI shows product cards, drop list dumps; keep a natural intro line."""
     trimmed = (answer or "").strip()
     if not trimmed:
-        return "Here are a few options:"
+        return ""
 
     lines = [line.strip() for line in trimmed.splitlines() if line.strip()]
     first = lines[0] if lines else trimmed
@@ -22,6 +22,6 @@ def shorten_answer_for_product_cards(answer: str) -> str:
     )
 
     if looks_like_list or len(first) > 100:
-        return "Here are a few options:"
+        return ""
 
     return first

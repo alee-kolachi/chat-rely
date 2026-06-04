@@ -107,9 +107,129 @@ async def test_product_search_not_found_after_keyword_retries(
     )
     payload = json.loads(out)
     assert payload["lookup_meta"]["not_found"] is True
-    assert payload["lookup_meta"]["retried_keywords"] is True
+    assert calls == ["timberland"]
     assert payload["lookup_meta"]["result_count"] == 0
-    assert len(calls) >= 2
+
+
+def test_needs_broad_catalog_retry_false_when_category_present() -> None:
+    assert tool_runners._needs_broad_catalog_retry("Do you sell clothes?") is False
+    assert tool_runners._needs_broad_catalog_retry("what do you sell") is True
+
+
+def test_catalog_search_queries_prefers_category_keywords() -> None:
+    assert tool_runners._catalog_search_queries("Do you sell clothes?") == [
+        "clothes",
+        "clothing",
+    ]
+    assert tool_runners._catalog_search_queries("Do you guys sell snowboard?") == ["snowboard"]
+
+
+@pytest.mark.asyncio
+async def test_product_search_do_you_sell_clothes_skips_broad_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def _fake_shopify_graphql(**kwargs):
+        q = str((kwargs.get("variables") or {}).get("q") or "")
+        calls.append(q)
+        return {"data": {"products": {"edges": []}}}
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_product_search(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        query="Do you sell clothes?",
+    )
+    payload = json.loads(out)
+    assert "published_status:published" not in calls
+    assert calls[:2] == ["clothes", "clothing"]
+    assert payload["lookup_meta"]["not_found"] is True
+    assert payload["lookup_meta"]["retried_broad"] is False
+
+
+@pytest.mark.asyncio
+async def test_product_search_vague_follow_up_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def _fake_shopify_graphql(**kwargs):
+        q = str((kwargs.get("variables") or {}).get("q") or "")
+        calls.append(q)
+        return {"data": {"products": {"edges": [{"node": {"title": "VANS Shoe"}}]}}}
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_product_search(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        query="give me some options that you have got",
+    )
+    payload = json.loads(out)
+    assert calls == []
+    assert payload["lookup_meta"]["not_found"] is True
+
+
+@pytest.mark.asyncio
+async def test_product_search_filters_irrelevant_catalog_hits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_shopify_graphql(**kwargs):
+        return {
+            "data": {
+                "products": {
+                    "edges": [
+                        {
+                            "node": {
+                                "title": "VANS | AUTHENTIC SHOE",
+                                "handle": "vans-shoe",
+                                "productType": "Shoes",
+                                "tags": ["footwear"],
+                                "onlineStoreUrl": None,
+                                "featuredImage": None,
+                                "priceRangeV2": {
+                                    "minVariantPrice": {"amount": "29.00", "currencyCode": "USD"}
+                                },
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_product_search(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        query="Do you sell clothes?",
+    )
+    payload = json.loads(out)
+    assert payload["lookup_meta"]["not_found"] is True
+    assert payload["data"]["products"]["edges"] == []
+
+
+@pytest.mark.asyncio
+async def test_product_search_generic_catalog_question_uses_broad_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def _fake_shopify_graphql(**kwargs):
+        q = str((kwargs.get("variables") or {}).get("q") or "")
+        calls.append(q)
+        if q == "published_status:published":
+            return {"data": {"products": {"edges": [{"node": {"title": "Any Product"}}]}}}
+        return {"data": {"products": {"edges": []}}}
+
+    monkeypatch.setattr(tool_runners, "shopify_graphql", _fake_shopify_graphql)
+    out = await tool_runners.run_product_search(
+        shop_domain="example.myshopify.com",
+        access_token="tok",
+        query="what do you sell",
+    )
+    payload = json.loads(out)
+    assert "published_status:published" in calls
+    assert payload["lookup_meta"]["not_found"] is False
 
 
 def test_product_search_max_results_from_config() -> None:

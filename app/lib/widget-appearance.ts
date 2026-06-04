@@ -55,6 +55,18 @@ export const WIDGET_FONT_OPTIONS: ReadonlyArray<{ value: WidgetFontFamily; label
   { value: "lato", label: "Lato" },
 ] as const;
 
+export const WIDGET_COLOR_RESOLVED_KEY: Record<
+  keyof WidgetAppearanceColors,
+  keyof ResolvedWidgetAppearance["colors"]
+> = {
+  header: "header",
+  user_bubble: "userBubble",
+  panel_background: "panelBackground",
+  assistant_bubble: "assistantBubble",
+  assistant_bubble_border: "assistantBubbleBorder",
+  composer_background: "composerBackground",
+};
+
 export const WIDGET_COLOR_FIELDS: ReadonlyArray<{
   key: keyof WidgetAppearanceColors;
   label: string;
@@ -150,6 +162,18 @@ function readColor(raw: unknown): string | undefined {
   return formatHex(raw) ?? undefined;
 }
 
+/** Live preview / resolved theme: full hex, or pad partial input for CSS. */
+function resolveAppearanceColor(raw: string | undefined, fallback: string): string {
+  if (!raw) return fallback;
+  const strict = formatHex(raw);
+  if (strict) return strict;
+  const cleaned = raw.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6);
+  if (cleaned.length > 0) {
+    return `#${cleaned.padEnd(6, "0").toUpperCase()}`;
+  }
+  return fallback;
+}
+
 export function normalizeWidgetThemeMode(raw: unknown): WidgetThemeMode {
   const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   return VALID_THEME_MODES.has(v as WidgetThemeMode) ? (v as WidgetThemeMode) : "light";
@@ -226,16 +250,35 @@ export function resolveWidgetAppearance(
     themeMode,
     fontFamily,
     colors: {
-      header: readColor(custom.header) ?? brand,
-      userBubble: readColor(custom.user_bubble) ?? brand,
-      panelBackground: readColor(custom.panel_background) ?? base.panelBackground,
-      assistantBubble: readColor(custom.assistant_bubble) ?? base.assistantBubble,
-      assistantBubbleBorder: readColor(custom.assistant_bubble_border) ?? base.assistantBubbleBorder,
-      composerBackground: readColor(custom.composer_background) ?? base.composerBackground,
+      header: resolveAppearanceColor(custom.header, brand),
+      userBubble: resolveAppearanceColor(custom.user_bubble, brand),
+      panelBackground: resolveAppearanceColor(custom.panel_background, base.panelBackground),
+      assistantBubble: resolveAppearanceColor(custom.assistant_bubble, base.assistantBubble),
+      assistantBubbleBorder: resolveAppearanceColor(
+        custom.assistant_bubble_border,
+        base.assistantBubbleBorder
+      ),
+      composerBackground: resolveAppearanceColor(
+        custom.composer_background,
+        base.composerBackground
+      ),
       textPrimary: base.textPrimary,
       textMuted: base.textMuted,
     },
   };
+}
+
+/** Returns a field label if any custom color is present but not 6 hex digits. */
+export function incompleteWidgetColorField(
+  colors: WidgetAppearanceColors | undefined
+): string | null {
+  if (!colors) return null;
+  for (const field of WIDGET_COLOR_FIELDS) {
+    const raw = colors[field.key];
+    if (!raw) continue;
+    if (!formatHex(raw)) return field.label;
+  }
+  return null;
 }
 
 export function widgetFontFamilyCss(font: WidgetFontFamily): string {

@@ -36,7 +36,7 @@ A **fast, accurate** support assistant for each merchant’s store:
 | Say what you’re checking, then call a tool (one short line) | Call tools silently or stack many without need |
 | Offer a concrete next step when data is missing | Give generic industry advice about “typical” stores |
 
-**Tone:** Polite, clear, on-brand (per merchant `system_prompt` / `agent_type` in `backend/src/app/domains/runtime/prompts/system.py`).
+**Tone:** Polite, clear, on-brand (per merchant reply style preset, `tone`, `tone_description`, and optional custom instructions in `backend/src/app/domains/runtime/prompts/system.py`).
 
 **Greetings / small talk:** Reply briefly without tools unless the user asks something substantive.
 
@@ -64,7 +64,7 @@ When enabled, the agent uses LangGraph with `tool_choice=auto`:
 
 | Layer | Location |
 |-------|----------|
-| Agent type voice | `resolve_agent_type_prompt()` in `prompts/system.py` |
+| Reply style preset (voice only) | `resolve_agent_type_prompt()` in `prompts/system.py` |
 | RAG / grounded chat | `build_system_prompt()` |
 | Tool-based agent | `build_agent_system_prompt_for_tools()` |
 | Escalation appendix | `escalation_tool_system_appendix()` in `escalation.py` |

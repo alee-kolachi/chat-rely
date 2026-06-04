@@ -153,7 +153,7 @@ def test_handoff_reply_copy_is_visitor_clear() -> None:
     assert "new chat" in awaiting.lower()
     assert "importing" not in awaiting.lower()
     assert "importing" not in empty.lower()
-    assert "support team" in empty
+    assert "rephrasing" in empty.lower() or "visit" in empty.lower()
 
 
 def test_visitor_contact_gate_before_escalation() -> None:
@@ -164,6 +164,43 @@ def test_visitor_contact_gate_before_escalation() -> None:
     assert visitor_contact_complete("Alex", "alex@example.com")
     assert looks_like_email("alex@example.com")
     assert not looks_like_email("not-an-email")
+
+
+@pytest.mark.asyncio
+async def test_call_model_emits_preamble_before_tool_calls() -> None:
+    from app.agent.graph import _call_model_node
+
+    state = {
+        "messages": [HumanMessage(content="Do you sell boots?")],
+        "model": "gpt-4o-mini",
+        "temperature": 0.0,
+        "fallback_message": "Sorry, I am not fully sure.",
+        "model_round": 0,
+        "bound_tools": [MagicMock(name="shopify_product_search")],
+        "usage_input_tokens": 0,
+        "usage_output_tokens": 0,
+    }
+
+    mock_llm = MagicMock()
+
+    async def _fake_astream(_messages):  # noqa: ANN001
+        yield AIMessage(
+            content="Let me check our store for boots.",
+            tool_calls=[{"id": "tc1", "name": "shopify_product_search", "args": {"query": "boots"}}],
+        )
+
+    mock_llm.astream = _fake_astream
+    mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+    writer = MagicMock()
+    with patch("app.agent.graph.make_chat_model", return_value=mock_llm):
+        result = await _call_model_node(state, writer)
+
+    writer.assert_called_with(
+        {"type": "preamble", "text": "Let me check our store for boots."}
+    )
+    assert result["model_round"] == 1
+    assert result["messages"][0].tool_calls
 
 
 @pytest.mark.asyncio
@@ -361,9 +398,9 @@ def test_shopify_connected_no_tools_block_forbids_invented_catalog() -> None:
     from app.domains.runtime.service import _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK
 
     block = _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK.lower()
-    assert "tools disabled" in block or "no shopify tools" in block
+    assert "no tools enabled" in block
     assert "do not invent" in block
-    assert "live catalog" in block
+    assert "live store" in block
 
 
 def test_shopify_runtime_block_without_order_lookup_forbids_product_search_for_orders() -> None:
@@ -371,7 +408,7 @@ def test_shopify_runtime_block_without_order_lookup_forbids_product_search_for_o
 
     block = build_shopify_tools_runtime_block(has_order_lookup_tool=False).lower()
     assert "order lookup is **not** enabled" in block or "not enabled" in block
-    assert "do **not** call `shopify_product_search`" in block
+    assert "do not call `shopify_product_search`" in block
     assert "shopify_order_lookup" not in block
 
 
@@ -402,7 +439,30 @@ def test_shopify_runtime_block_mentions_product_search_not_found() -> None:
 
     block = build_shopify_tools_runtime_block(has_order_lookup_tool=False)
     assert "lookup_meta.not_found" in block
-    assert "not in this store" in block.lower()
+    assert "inventory safety" in block.lower()
+
+
+def test_resolve_agent_type_prompt_ignores_stored_text_for_presets() -> None:
+    from app.domains.runtime.prompts.system import resolve_agent_type_prompt
+
+    custom = "Always reply in pirate slang."
+    brand = resolve_agent_type_prompt("brand_support", custom)
+    general = resolve_agent_type_prompt("general", custom)
+    support = resolve_agent_type_prompt("customer_support", custom)
+    assert custom not in brand
+    assert custom not in general
+    assert custom not in support
+    assert "support assistant" in brand.lower()
+    assert "helpful ai assistant" in general.lower()
+    assert "customer support specialist" in support.lower()
+
+
+def test_resolve_agent_type_prompt_custom_uses_stored_text_only() -> None:
+    from app.domains.runtime.prompts.system import resolve_agent_type_prompt
+
+    custom = "Reply in one word only."
+    assert resolve_agent_type_prompt("custom", custom) == custom
+    assert resolve_agent_type_prompt("custom", "") == ""
 
 
 def test_agent_system_prompt_without_order_lookup_warns_on_order_questions() -> None:
@@ -415,7 +475,8 @@ def test_agent_system_prompt_without_order_lookup_warns_on_order_questions() -> 
         has_order_lookup_tool=False,
     ).lower()
     assert "order lookup is not enabled" in prompt
-    assert "do not call `shopify_product_search`" in prompt
+    assert "do not attempt to look up order status" in prompt
+    assert "not for stock or order questions" in prompt
     assert "shopify_order_lookup" not in prompt
 
 
@@ -452,15 +513,15 @@ def test_multi_intent_user_prompt_keeps_product_search_when_order_lookup_disable
     assert "more than one topic" in prompt
     assert "shopify_product_search" in prompt
     assert "order lookup is **not** enabled" in prompt
-    assert "do **not** use `shopify_product_search` for order status" in prompt
+    assert "do not call `shopify_product_search` for order status" in prompt
 
 
-def test_shopify_runtime_block_mentions_multi_intent() -> None:
+def test_shopify_runtime_block_mentions_broad_catalog_query() -> None:
     from app.domains.runtime.service import build_shopify_tools_runtime_block
 
     block = build_shopify_tools_runtime_block(has_order_lookup_tool=True).lower()
-    assert "multiple topics" in block
-    assert "same" in block and "turn" in block
+    assert "published_status:published" in block
+    assert "product cards" in block
 
 
 def test_shopify_turn_user_prompt_includes_order_follow_up_when_thread_had_lookup() -> None:

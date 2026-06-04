@@ -456,7 +456,7 @@ def test_resolve_brand_instructions_includes_merchant_text() -> None:
     block = resolve_brand_instructions("Always offer to schedule a call.")
     assert "BRAND INSTRUCTIONS" in block
     assert "Always offer to schedule a call." in block
-    assert "Do not contradict facts" in block
+    assert "do not override facts" in block.lower()
 
 
 def test_resolve_language_instruction_auto_is_empty() -> None:
@@ -472,5 +472,5 @@ def test_resolve_language_instruction_maps_known_code() -> None:
 
     block = resolve_language_instruction("fr")
     assert "French" in block
-    assert "Default reply language" in block
+    assert "Reply in French by default" in block
 

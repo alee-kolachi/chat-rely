@@ -51,7 +51,7 @@ def test_apply_turn_intent_grounding_chitchat() -> None:
         has_product_search_tool=True,
         thread_had_order_lookup=False,
     )
-    assert "do **not** call any tools" in out.lower()
+    assert "do not call any tools" in out.lower()
     assert "hi bro" in out
 
 

@@ -90,12 +90,12 @@ def handoff_reply_open(*, seller_live: bool, estimated_minutes: int) -> str:
     if seller_live:
         n = max(1, int(estimated_minutes))
         return (
-            f"I’ve connected you with our team. Someone should reply within about {n} minutes. "
-            "If you think of anything else, you can add it here."
+            f"I've passed this to our support team. Someone should reply within about {n} minutes. "
+            "Feel free to add any extra details here while you wait."
         )
     return (
-        "I’ve passed this to our team. We’re not available for live chat at the moment, "
-        "but you’ll get an email follow-up as soon as someone can help."
+        "I've passed this to our support team. We're not available for live chat right now, "
+        "but you'll receive an email follow-up as soon as someone can help."
     )
 
 
@@ -105,8 +105,9 @@ def handoff_reply_already_escalated() -> str:
 
 def handoff_reply_awaiting_team() -> str:
     return (
-        "This chat is with our support team now. "
-        "The AI cannot reply here anymore. Start a new chat if you need assistant help."
+        "Your conversation has been handed off to our support team. "
+        "They'll follow up with you directly. "
+        "If you need immediate help, you can start a new chat."
     )
 
 
@@ -142,13 +143,13 @@ def visitor_contact_complete(name: str | None, email: str | None) -> bool:
 
 def visitor_empty_reply_fallback() -> str:
     return (
-        "I'm not sure about that right now. "
-        "Try asking in another way, or contact our support team if you need more help."
+        "I don't have enough information to answer that right now. "
+        "Try rephrasing your question, or visit our site for more details."
     )
 
 
 def visitor_non_substantive_reply() -> str:
-    return "I didn't catch a question. What can I help you with?"
+    return "I didn't catch a question there — what can I help you with?"
 
 
 @dataclass(frozen=True)
@@ -397,8 +398,12 @@ def build_escalation_info(
 
 def escalation_tool_system_appendix() -> str:
     return (
-        "You have one action: `escalate_to_human`. Call it when the visitor asks for a person or "
-        "human support, or when you cannot resolve their issue and they need your team. "
-        "Do not tell them they are connected to a human unless you have called this tool. "
-        "After calling it, the visitor will be asked for their name and email before the handoff completes."
+        "HUMAN ESCALATION\n"
+        "You have one escalation action: `escalate_to_human`. "
+        "Call it when the visitor explicitly asks for a person or human support, "
+        "when you have been unable to resolve their issue after a genuine attempt, "
+        "or when the situation clearly requires human judgment (e.g. complex disputes, legal concerns). "
+        "Do not tell the visitor they are connected to a human until you have called this tool and it has returned. "
+        "Do not offer escalation preemptively for questions you can answer. "
+        "After calling it, the visitor will be prompted for their name and email before the handoff completes."
     )
