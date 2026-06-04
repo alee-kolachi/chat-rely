@@ -341,7 +341,7 @@ function renderAssistantHtml(raw: string): string {
 
 function introTextForProductCards(text: string): string {
   const trimmed = text.trim();
-  if (!trimmed) return "Here are a few options:";
+  if (!trimmed) return "";
   const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const first = lines[0] ?? trimmed;
   const looksLikeProductList =
@@ -351,7 +351,7 @@ function introTextForProductCards(text: string): string {
     first.startsWith("**") ||
     first.startsWith("- ") ||
     first.includes("$");
-  if (looksLikeProductList || first.length > 100) return "Here are a few options:";
+  if (looksLikeProductList || first.length > 100) return "";
   return first;
 }
 
@@ -1303,14 +1303,18 @@ async function boot(): Promise<void> {
     retrying: boolean,
     productAction?: ProductActionRequest
   ): Promise<void> {
-    const { row, wrap, assistantEl, createdAt } = streamWrap;
-    const dotsEl = assistantEl.querySelector(".cr-thinking-dots");
+    let row = streamWrap.row;
+    let wrap = streamWrap.wrap;
+    let assistantEl = streamWrap.assistantEl;
+    let createdAt = streamWrap.createdAt;
+    let dotsEl = assistantEl.querySelector(".cr-thinking-dots");
     let pendingProducts: ProductCard[] | undefined;
     let pendingDetail: ProductDetail | undefined;
+    let statusEl: HTMLParagraphElement | null = null;
+
     const hideDots = (): void => {
       if (dotsEl instanceof HTMLElement) dotsEl.hidden = true;
     };
-    let statusEl: HTMLParagraphElement | null = null;
     const clearStatus = (): void => {
       statusEl?.remove();
       statusEl = null;
@@ -1326,6 +1330,29 @@ async function boot(): Promise<void> {
       statusEl.textContent = trimmed;
       hideDots();
       scrollMessages();
+    };
+    const commitAssistantBubble = (text: string): void => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      hideDots();
+      clearStatus();
+      assistantEl.setAttribute("data-plain", trimmed);
+      assistantEl.innerHTML = renderAssistantHtml(trimmed);
+      ensureMessageTimestamp(assistantEl, createdAt, "assistant");
+      chatMessages.push({ role: "assistant", text: trimmed, created_at: createdAt });
+      persistStore();
+      scrollMessages();
+    };
+    const startFollowUpBubble = (): void => {
+      const next = createAssistantStreamWrap();
+      row = next.row;
+      wrap = next.wrap;
+      assistantEl = next.assistantEl;
+      createdAt = next.createdAt;
+      dotsEl = assistantEl.querySelector(".cr-thinking-dots");
+      pendingProducts = undefined;
+      pendingDetail = undefined;
+      statusEl = null;
     };
 
     let gotDone = false;
@@ -1345,7 +1372,10 @@ async function boot(): Promise<void> {
             }
           : {}),
       })) {
-        if (ev.type === "status") showStatus(ev.text);
+        if (ev.type === "preamble") {
+          commitAssistantBubble(ev.text);
+          startFollowUpBubble();
+        } else if (ev.type === "status") showStatus(ev.text);
         else if (ev.type === "products") {
           pendingProducts = ev.products;
           pendingDetail = undefined;

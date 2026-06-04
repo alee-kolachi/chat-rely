@@ -5,6 +5,7 @@ import { parseProductCards, parseProductDetail } from "@/lib/product-card";
 /** SSE events from `POST /api/chat/stream`. */
 export type ChatSseEvent =
   | { type: "status"; text: string }
+  | { type: "preamble"; text: string }
   | { type: "token"; text: string }
   | { type: "products"; products: ProductCard[] }
   | { type: "product_detail"; product: ProductDetail }
@@ -37,6 +38,9 @@ function parseSseBlock(block: string): ChatSseEvent | null {
   }
   if (eventName === "status") {
     return { type: "status", text: String(data.text ?? "") };
+  }
+  if (eventName === "preamble") {
+    return { type: "preamble", text: String(data.text ?? "") };
   }
   if (eventName === "token") {
     return { type: "token", text: String(data.text ?? "") };

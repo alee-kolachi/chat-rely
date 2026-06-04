@@ -13,8 +13,7 @@ import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-time
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
 import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { AgentSettingsShell } from "@/components/agent-settings/agent-settings-shell";
-import { PlanTierBadge } from "@/components/ui/plan-tier-badge";
-import { PlanGatedBlock } from "@/components/ui/plan-unlock-footer";
+import { PlanFeatureLabel } from "@/components/ui/plan-unlock-footer";
 import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
@@ -31,14 +30,21 @@ import {
   type WidgetPosition,
 } from "@/lib/agent-settings";
 import { brandChromeClasses } from "@/lib/brand-chrome";
-import { planAllowsAdvancedAppearance, planHidesPoweredByChatrely } from "@/lib/widget-branding";
+import { effectivePlanSlug } from "@/lib/plan-slugs";
 import {
+  planHidesPoweredByChatrely,
+  planIncludesWidgetStyling,
+  widgetStylingAccess,
+} from "@/lib/widget-branding";
+import {
+  incompleteWidgetColorField,
   readWidgetAppearance,
   resolveWidgetAppearance,
   sanitizeWidgetAppearanceForPlan,
   widgetAppearanceToPayload,
   WIDGET_COLOR_FIELDS,
   WIDGET_COLOR_GROUPS,
+  WIDGET_COLOR_RESOLVED_KEY,
   WIDGET_FONT_OPTIONS,
   type WidgetAppearanceColors,
   type WidgetAppearanceSettings,
@@ -65,8 +71,13 @@ function AppearanceForm() {
     loading: integrationsLoading,
   } = useAgentIntegrationsBootstrap(selectedAgentId || undefined);
 
-  const planSlug = meData?.plan.slug ?? null;
-  const proAppearance = planAllowsAdvancedAppearance(planSlug);
+  const planSlug = effectivePlanSlug(meData?.plan);
+  const planResolved = !meLoading && meData != null;
+  const widgetStyling = useMemo(
+    () => widgetStylingAccess(meData?.plan, planResolved),
+    [meData?.plan?.slug, meData?.plan?.name, planResolved]
+  );
+  const widgetStylingIncluded = planIncludesWidgetStyling(meData?.plan);
 
   const initialBrand = useMemo(() => {
     const raw = selectedAgent?.behavior_settings?.brand_color;
@@ -126,7 +137,7 @@ function AppearanceForm() {
     [themeMode, fontFamily, customColors]
   );
 
-  const previewAppearance = proAppearance ? draftAppearance : {};
+  const previewAppearance = widgetStylingIncluded ? draftAppearance : {};
   const resolvedPreview = useMemo(
     () => resolveWidgetAppearance(previewAppearance, previewBrandColor),
     [previewAppearance, previewBrandColor]
@@ -185,14 +196,14 @@ function AppearanceForm() {
   const validHex = formatHex(hex) !== null;
 
   function updateCustomColor(key: keyof WidgetAppearanceColors, value: string) {
-    const formatted = formatHex(value);
+    const cleaned = normaliseHex(value);
     setCustomColors((prev) => {
       const next = { ...prev };
-      if (!formatted) {
+      if (!cleaned) {
         delete next[key];
         return next;
       }
-      next[key] = formatted;
+      next[key] = `#${cleaned}`;
       return next;
     });
   }
@@ -208,17 +219,24 @@ function AppearanceForm() {
       setError("Enter a valid 6-character hex color (e.g. 3B82F6).");
       return;
     }
+    const incompleteColor = incompleteWidgetColorField(customColors);
+    if (incompleteColor) {
+      setError(`${incompleteColor} must be 6 hex characters (e.g. FF24FF), or clear the field.`);
+      return;
+    }
     setIsSaving(true);
     setError(null);
     setSavedAt(null);
     try {
-      const appearancePayload = proAppearance ? widgetAppearanceToPayload(draftAppearance) : undefined;
+      const appearancePayload = widgetStylingIncluded
+        ? widgetAppearanceToPayload(draftAppearance)
+        : undefined;
       const partial: Record<string, unknown> = {
         brand_color: formatted,
         widget_position: position,
         greeting_message: welcome.trim() || undefined,
       };
-      if (proAppearance) {
+      if (widgetStylingIncluded) {
         partial.widget_appearance = appearancePayload ?? {};
       }
       let merged = mergeBehaviorSettings(selectedAgent?.behavior_settings, partial);
@@ -249,32 +267,17 @@ function AppearanceForm() {
   }
 
   function swatchColorForField(field: (typeof WIDGET_COLOR_FIELDS)[number]): string {
-    const custom = formatHex(customColors[field.key]?.replace("#", "") ?? "");
-    if (custom) return custom;
-    if (field.usesBrand) return previewBrandColor;
-    const c = resolvedPreview.colors;
-    switch (field.key) {
-      case "header":
-        return c.header;
-      case "user_bubble":
-        return c.userBubble;
-      case "panel_background":
-        return c.panelBackground;
-      case "assistant_bubble":
-        return c.assistantBubble;
-      case "assistant_bubble_border":
-        return c.assistantBubbleBorder;
-      case "composer_background":
-        return c.composerBackground;
-      default:
-        return previewBrandColor;
+    if (customColors[field.key]) {
+      return resolvedPreview.colors[WIDGET_COLOR_RESOLVED_KEY[field.key]];
     }
+    if (field.usesBrand) return previewBrandColor;
+    return resolvedPreview.colors[WIDGET_COLOR_RESOLVED_KEY[field.key]];
   }
 
   return (
     <>
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-stretch">
-      <div className="space-y-6">
+      <div className="relative z-10 min-w-0 space-y-6">
         {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
         {savedAt ? (
           <p className="text-sm font-medium text-emerald-600">
@@ -372,58 +375,57 @@ function AppearanceForm() {
 
         <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
           <div className="mb-6">
-            <div className="mb-1 flex items-center gap-2">
+            <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
               <h2 className="ds-app-section-title">Widget styling</h2>
-              {!proAppearance ? <PlanTierBadge tier="pro" /> : null}
-            </div>
+            </PlanFeatureLabel>
             <p className="text-ds-on-surface-variant text-sm leading-relaxed">
               Dark mode, fonts, and per-area colors for a white-label storefront widget.
             </p>
           </div>
 
-          <PlanGatedBlock
-            locked={!proAppearance}
-            tier="pro"
-            inset
-            calloutMessage="Pro plan required for widget styling"
-            contentClassName="space-y-6"
-          >
+          <div className="space-y-6">
             <div>
               <div className="mb-4">
-                <p className="text-ds-on-surface text-sm font-semibold">Theme &amp; font</p>
+                <PlanFeatureLabel showCrown={widgetStyling.showCrown}>
+                  <p className="text-ds-on-surface text-sm font-semibold">Theme &amp; font</p>
+                </PlanFeatureLabel>
               </div>
               <div className="space-y-6">
             <div>
-              <p className="text-ds-on-surface mb-1 text-sm font-semibold">Theme</p>
+              <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
+                <p className="text-ds-on-surface text-sm font-semibold">Theme</p>
+              </PlanFeatureLabel>
               <p className="ds-app-body-muted mb-3">Light or dark chat panel styling.</p>
               <div role="radiogroup" aria-label="Widget theme" className="grid grid-cols-2 gap-3">
                 <ThemeOption
                   value="light"
                   label="Light"
                   checked={themeMode === "light"}
-                  disabled={!proAppearance}
+                  disabled={widgetStyling.blockInteraction}
                   onSelect={() => setThemeMode("light")}
                 />
                 <ThemeOption
                   value="dark"
                   label="Dark"
                   checked={themeMode === "dark"}
-                  disabled={!proAppearance}
+                  disabled={widgetStyling.blockInteraction}
                   onSelect={() => setThemeMode("dark")}
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="widget-font" className="text-ds-on-surface mb-1 block text-sm font-semibold">
-                Font
-              </label>
+              <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
+                <label htmlFor="widget-font" className="text-ds-on-surface block text-sm font-semibold">
+                  Font
+                </label>
+              </PlanFeatureLabel>
               <p className="ds-app-body-muted mb-3">Typeface for widget copy on your site.</p>
               <select
                 id="widget-font"
                 className="ds-app-field w-full max-w-sm"
                 value={fontFamily}
-                disabled={!proAppearance}
+                disabled={widgetStyling.blockInteraction}
                 onChange={(e) => setFontFamily(e.target.value as WidgetFontFamily)}
               >
                 {WIDGET_FONT_OPTIONS.map((opt) => (
@@ -437,74 +439,98 @@ function AppearanceForm() {
             </div>
 
             <div>
-              <p className="text-ds-on-surface mb-4 text-sm font-semibold">Widget colors</p>
-              <p className="ds-app-body-muted mb-4 text-sm">
-                Override header, chat background, bubbles, and input area. Leave blank to use theme defaults.
-              </p>
+              <div className="mb-4">
+                <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
+                  <p className="text-ds-on-surface text-sm font-semibold">Widget colors</p>
+                </PlanFeatureLabel>
+                <p className="ds-app-body-muted text-sm">
+                  Override header, chat background, bubbles, and input area. Leave blank to use theme defaults.
+                </p>
+              </div>
               <div className="space-y-6">
-                {WIDGET_COLOR_GROUPS.map((group) => (
-                  <div key={group.title}>
-                    <p className="text-ds-on-surface text-sm font-semibold">{group.title}</p>
-                    <p className="ds-app-body-muted mb-3 text-xs">{group.description}</p>
-                    <div className="space-y-4">
-                      {WIDGET_COLOR_FIELDS.filter((field) =>
-                        (group.fields as readonly string[]).includes(field.key)
-                      ).map((field) => {
-                        const raw = customColors[field.key]?.replace("#", "") ?? "";
-                        const swatchHex = swatchColorForField(field);
-                        return (
-                          <div
-                            key={field.key}
-                            className="border-ds-outline-subtle rounded-ds-lg border bg-ds-app-canvas/60 p-3"
-                          >
-                            <p className="text-ds-on-surface text-sm font-medium">{field.label}</p>
-                            <p className="ds-app-body-muted mb-2 text-xs">{field.hint}</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className="border-ds-outline-subtle size-8 shrink-0 rounded-ds-md border"
-                                style={{ backgroundColor: swatchHex }}
-                                aria-hidden
-                              />
-                              <div className="border-ds-outline-subtle flex items-center overflow-hidden rounded-ds-md border">
-                                <span className="ds-app-body-muted px-2 font-mono">#</span>
-                                <input
-                                  className="ds-app-field ds-app-field-canvas w-24 border-0 py-2 font-mono text-xs uppercase focus:ring-0"
-                                  value={raw}
-                                  placeholder={field.usesBrand ? "Brand" : "Auto"}
-                                  disabled={!proAppearance}
-                                  onChange={(e) => updateCustomColor(field.key, e.target.value)}
-                                  aria-label={`${field.label} hex color`}
-                                  spellCheck={false}
+                {WIDGET_COLOR_GROUPS.map((group) => {
+                  const groupFields = WIDGET_COLOR_FIELDS.filter((field) =>
+                    (group.fields as readonly string[]).includes(field.key)
+                  );
+                  return (
+                    <div key={group.title}>
+                      <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-0">
+                        <p className="text-ds-on-surface text-sm font-semibold">{group.title}</p>
+                      </PlanFeatureLabel>
+                      <p className="ds-app-body-muted mb-3 text-xs">{group.description}</p>
+                      <div className="space-y-4">
+                        {groupFields.map((field) => {
+                          const raw = customColors[field.key]?.replace("#", "") ?? "";
+                          const swatchHex = swatchColorForField(field);
+                          const hexIncomplete = raw.length > 0 && raw.length < 6;
+                          const showFieldHeading =
+                            groupFields.length > 1 || field.label !== group.title;
+                          return (
+                            <div
+                              key={field.key}
+                              className="border-ds-outline-subtle rounded-ds-lg border bg-ds-app-canvas/60 p-3"
+                            >
+                              {showFieldHeading ? (
+                                <>
+                                  <p className="text-ds-on-surface text-sm font-medium">{field.label}</p>
+                                  <p className="ds-app-body-muted mb-2 text-xs">{field.hint}</p>
+                                </>
+                              ) : null}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className="border-ds-outline-subtle size-8 shrink-0 rounded-ds-md border"
+                                  style={{ backgroundColor: swatchHex }}
+                                  aria-hidden
                                 />
+                                <div className="border-ds-outline-subtle flex items-center overflow-hidden rounded-ds-md border">
+                                  <span className="ds-app-body-muted px-2 font-mono">#</span>
+                                  <input
+                                    className="ds-app-field ds-app-field-canvas w-24 border-0 py-2 font-mono text-xs uppercase focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
+                                    value={raw}
+                                    placeholder={field.usesBrand ? "Brand" : "Auto"}
+                                    disabled={widgetStyling.blockInteraction}
+                                    onChange={(e) => updateCustomColor(field.key, e.target.value)}
+                                    aria-label={`${field.label} hex color`}
+                                    spellCheck={false}
+                                  />
+                                </div>
+                                {raw ? (
+                                  <button
+                                    type="button"
+                                    className="text-ds-on-surface-variant text-xs font-medium hover:text-ds-on-surface disabled:cursor-not-allowed disabled:opacity-60"
+                                    disabled={widgetStyling.blockInteraction}
+                                    onClick={() => updateCustomColor(field.key, "")}
+                                  >
+                                    Clear
+                                  </button>
+                                ) : null}
                               </div>
-                              {raw ? (
-                                <button
-                                  type="button"
-                                  className="text-ds-on-surface-variant text-xs font-medium hover:text-ds-on-surface"
-                                  disabled={!proAppearance}
-                                  onClick={() => updateCustomColor(field.key, "")}
-                                >
-                                  Clear
-                                </button>
+                              {hexIncomplete ? (
+                                <p className="mt-2 text-xs font-medium text-amber-700">
+                                  Enter 6 hex characters (e.g. FF24FF). Preview uses a padded color until
+                                  complete.
+                                </p>
                               ) : null}
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
+              </div>
+              <div className="flex justify-end pt-2">
                 <button
                   type="button"
-                  className="text-ds-on-surface-variant text-xs font-medium hover:text-ds-on-surface"
-                  disabled={!proAppearance}
+                  className={appButtonClassName("default", { size: "sm" })}
+                  disabled={widgetStyling.blockInteraction}
                   onClick={resetAdvancedColors}
                 >
-                  Reset widget colors to theme defaults
+                  Reset to theme defaults
                 </button>
               </div>
             </div>
-          </PlanGatedBlock>
+          </div>
         </section>
       </div>
 
@@ -677,3 +703,4 @@ function ThemeOption({
     </button>
   );
 }
+

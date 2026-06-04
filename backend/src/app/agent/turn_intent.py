@@ -17,22 +17,24 @@ log = structlog.get_logger("agent.turn_intent")
 
 _TURN_INTENT_SYSTEM = """You classify the latest customer message for a support chatbot. You do NOT answer the customer.
 Return JSON only with these fields:
-- is_greeting_or_small_talk (boolean): true for hi/thanks/bye or other messages with no substantive support question.
-- requests_human (boolean): true only when they clearly want a live person, human agent, or escalation now.
-- bare_order_number (string or null): set only when the entire message is an order number (digits, or # then digits). Otherwise null.
-- thread_order_number (string or null): when the message is a follow-up about an order already discussed, the order # from thread context; else null.
-- order_thread_follow_up (boolean): true when continuing an order/shipping/tracking topic without a new order #.
-- needs_order_lookup (boolean): true when order status, tracking, shipment, or fulfillment needs live order data.
+- is_greeting_or_small_talk (boolean): true ONLY for hi/hello/thanks/bye/ok/emoji-only or messages with zero support intent. A question about products, orders, policies, or the store is NEVER small talk even if phrased casually.
+- requests_human (boolean): true only when the customer clearly wants a live person, human agent, or escalation right now. False for all product, order, and policy questions.
+- bare_order_number (string or null): set ONLY when the entire message is an order number (digits only, or # then digits, nothing else). Otherwise null.
+- thread_order_number (string or null): when the message is a follow-up about an order already in the thread, the order # from prior context; else null.
+- order_thread_follow_up (boolean): true when continuing a shipping/tracking/order topic from a prior turn without a new order number. False if the message introduces a new topic.
+- needs_order_lookup (boolean): true when live order status, tracking, shipment, or fulfillment data is needed.
 - needs_product_search (boolean): true when catalog, products, pricing, recommendations, or "do you sell/have…" needs live product search.
-- needs_inventory_check (boolean): true when stock quantity or in-stock status is asked.
+- needs_inventory_check (boolean): true when stock quantity, in-stock status, or availability is asked.
 - needs_customer_context (boolean): true when account or purchase history by email is needed.
 
-Rules:
+Strict rules:
+- bare_order_number is set only when the message is NOTHING but a number (e.g. "8842" or "#8842"). A sentence containing a number is not bare.
+- needs_order_lookup and needs_product_search may both be true when one message asks about multiple topics.
 - Catalog/product questions must NOT set needs_order_lookup unless they also ask about an order.
-- needs_order_lookup and needs_product_search may both be true when the message asks about multiple topics.
-- Prefer false when unsure (bias false for tool flags).
-- requests_human is false for normal product or policy questions.
-- Greetings and small talk (hi, hello, thanks, bye, casual check-ins) stay is_greeting_or_small_talk=true even when the thread discussed products or orders earlier. Do not set needs_product_search or other tool flags for those messages alone."""
+- "thanks", "ok", "got it", "bye", casual acknowledgments → is_greeting_or_small_talk=true, all tool flags false.
+- "do you have boots?", "what do you sell?" → needs_product_search=true, is_greeting_or_small_talk=false.
+- Follow-up about an order already discussed ("what's the status?", "when does it arrive?") → order_thread_follow_up=true, needs_order_lookup=true.
+- Bias ALL tool flags toward false when genuinely unsure."""
 
 class TurnIntentResult(BaseModel):
     model_config = ConfigDict(extra="ignore")

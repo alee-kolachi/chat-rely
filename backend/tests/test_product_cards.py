@@ -16,4 +16,4 @@ def test_shorten_answer_for_product_cards_strips_markdown_list() -> None:
         "**Timberland Boot** - Price: $299\n"
         "**Dr Martens** - Price: $249"
     )
-    assert shorten_answer_for_product_cards(raw) == "Here are a few options:"
+    assert shorten_answer_for_product_cards(raw) == ""

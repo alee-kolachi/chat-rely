@@ -52,7 +52,7 @@ export function DashboardScreenTopbar({ rightExtras }: DashboardScreenTopbarProp
   const planChip = meData?.plan ? planChipLabel(meData.plan) : null;
 
   return (
-    <header className="border-ds-outline bg-ds-surface sticky top-0 z-[70] flex h-14 min-w-0 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-4 md:static md:z-auto md:h-16 md:gap-3 md:px-8">
+    <header className="border-ds-outline bg-ds-surface relative z-10 flex h-14 min-w-0 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-4 md:h-16 md:gap-3 md:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3 md:gap-4">
         <DashboardMobileNavTrigger />
         <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:gap-2 md:max-w-lg md:gap-3">

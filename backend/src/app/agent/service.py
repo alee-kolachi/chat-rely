@@ -30,7 +30,9 @@ from app.agent.escalation import (
     visitor_empty_reply_fallback,
     visitor_non_substantive_reply,
 )
-from app.agent.product_cards import shorten_answer_for_product_cards
+from app.agent.product_cards import (
+    shorten_answer_for_product_cards,
+)
 from app.agent.graph import append_escalation_tool_prompt, stream_chat_graph
 from app.agent.knowledge_tools import build_search_knowledge_base_tool
 
@@ -110,6 +112,8 @@ from app.domains.runtime.prompts.system import (
 from app.domains.runtime.schemas import RuntimeChatRequest, message_has_substantive_content, RuntimeEscalationInfo, ProductActionRequest
 from app.domains.runtime.service import (
     _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK,
+    _SHOPIFY_NO_EXCERPT_GROUNDING,
+    _TOOL_RAG_SUPPLEMENT_FOR_TOOLS,
     build_shopify_tools_runtime_block,
     _apply_usage_limit_model_downgrade,
     _build_context_block,
@@ -539,7 +543,7 @@ async def _stream_product_action_turn(
     tools_invoked: list[str] = []
 
     if action.type == "details":
-        yield format_sse("status", {"text": "Loading product details…"})
+        yield format_sse("preamble", {"text": "Let me grab the details on that item."})
         raw = await run_product_details(
             shop_domain=shop_domain,
             access_token=access_token,
@@ -557,10 +561,10 @@ async def _stream_product_action_turn(
             answer = "I couldn't find that product in this store's catalog."
         else:
             product_detail = detail
-            answer = "Here are the details:"
+            answer = ""
             yield format_sse("product_detail", {"product": product_detail})
     else:
-        yield format_sse("status", {"text": "Finding similar products…"})
+        yield format_sse("preamble", {"text": "Let me find similar items in the catalog."})
         raw = await run_similar_products(
             shop_domain=shop_domain,
             access_token=access_token,
@@ -575,7 +579,7 @@ async def _stream_product_action_turn(
         cards = parsed.get("ui_cards") if isinstance(parsed, dict) else None
         if isinstance(cards, list) and cards:
             products = [c for c in cards if isinstance(c, dict)]
-            answer = "Here are similar items:"
+            answer = ""
             yield format_sse("products", {"products": products})
         else:
             answer = "I couldn't find similar products in this store's catalog."
@@ -958,6 +962,7 @@ async def stream_chat(
     fallback_message = str(config["fallback_message"])
 
     grounded_user_content = payload.message
+
     if context_block:
         grounded_user_content = build_grounded_user_prompt(
             context_block,
@@ -968,12 +973,16 @@ async def stream_chat(
             thread_has_prior_turns=bool(history_rows),
             thread_had_order_lookup=thread_had_order_lookup,
         )
-    elif has_shopify_tools and history_rows:
-        grounded_user_content = build_shopify_turn_user_prompt(
+        if has_shopify_tools:
+            grounded_user_content = f"{grounded_user_content}{_TOOL_RAG_SUPPLEMENT_FOR_TOOLS}".strip()
+    elif has_shopify_tools:
+        thread_block = build_shopify_turn_user_prompt(
             payload.message,
-            thread_has_prior_turns=True,
+            thread_has_prior_turns=bool(history_rows),
             thread_had_order_lookup=thread_had_order_lookup,
         )
+        grounded_user_content = f"{_SHOPIFY_NO_EXCERPT_GROUNDING}{thread_block}"
+
     if (
         has_shopify_tools
         or turn_intent.needs_order_lookup
@@ -991,7 +1000,6 @@ async def stream_chat(
     elif (
         has_indexed_kb
         and not context_block
-        and kb_skip_reason in {"rag_budget_exceeded", "thread_state", "ok"}
         and not chitchat_turn
         and not has_shopify_tools
     ):
@@ -1079,6 +1087,8 @@ async def stream_chat(
                     yield format_sse("token", {"text": str(ev.get("text") or "")})
                 elif ev.get("type") == "status":
                     yield format_sse("status", {"text": str(ev.get("text") or "")})
+                elif ev.get("type") == "preamble":
+                    yield format_sse("preamble", {"text": str(ev.get("text") or "")})
                 elif ev.get("type") == "products":
                     cards = ev.get("products") or []
                     if isinstance(cards, list):

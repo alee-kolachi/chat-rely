@@ -9,7 +9,7 @@ import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
 import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
 import { chatSseStream } from "@/lib/chat-sse";
-import { applyChatSseEvent, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
+import { applyChatSseEventToAssistantMessages, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
 import {
   productActionUserMessage,
   type ProductActionRequest,
@@ -247,21 +247,14 @@ export default function AgentPreviewOnboardingPage() {
         setConversationId(ev.conversation_id);
       }
       setMessages((prev) => {
-        if (prev.length === 0) return prev;
-        const last = prev[prev.length - 1];
-        if (last.from !== "assistant") return prev;
-        const patch = applyChatSseEvent(ev, {
-          text: last.text,
-          streamPhase: last.streamPhase ?? "thinking",
-        });
-        if (!patch) return prev;
-        const next = [...prev];
-        next[next.length - 1] = {
-          ...last,
-          ...patch,
-          from: "assistant",
-        };
-        return next;
+        const next = applyChatSseEventToAssistantMessages(prev, ev, () => ({
+          from: "assistant" as const,
+          text: "",
+          streamPhase: "thinking" as const,
+          statusLine: null,
+          createdAt: messageCreatedAtIso(),
+        }));
+        return next ?? prev;
       });
       if (ev.type === "done") {
         const reply = typeof ev.response === "string" ? ev.response.trim() : "";

@@ -2,7 +2,7 @@ import type { ChatSseEvent } from "@/lib/chat-sse";
 import type { AssistantStreamPhase } from "@/components/chat/StreamingAssistantMessage";
 import type { ProductCard, ProductDetail } from "@/lib/product-card";
 import { parseProductCards, parseProductDetail } from "@/lib/product-card";
-import { introTextForProductCards } from "@/lib/product-intro";
+import { stripProductListDump } from "@/lib/product-intro";
 
 export type StreamingAssistantPatch = {
   text?: string;
@@ -13,6 +13,8 @@ export type StreamingAssistantPatch = {
   statusLine?: string | null;
   products?: ProductCard[] | null;
   productDetail?: ProductDetail | null;
+  /** Commit the current assistant bubble and start a fresh one for the rest of the turn. */
+  splitAfterCommit?: boolean;
 };
 
 /** Stream finished from the client's perspective; safe to re-enable the composer. */
@@ -27,6 +29,16 @@ export function applyChatSseEvent(
     streamPhase: AssistantStreamPhase;
   }
 ): StreamingAssistantPatch | null {
+  if (ev.type === "preamble") {
+    const line = ev.text.trim();
+    if (!line) return null;
+    return {
+      text: line,
+      streamPhase: "done",
+      statusLine: null,
+      splitAfterCommit: true,
+    };
+  }
   if (ev.type === "status") {
     const line = ev.text.trim();
     if (!line) return null;
@@ -42,18 +54,20 @@ export function applyChatSseEvent(
     };
   }
   if (ev.type === "products") {
+    const nextText = stripProductListDump(current.text) || current.text;
     return {
       products: ev.products,
       productDetail: null,
-      text: introTextForProductCards(current.text),
+      ...(nextText !== current.text ? { text: nextText } : {}),
       streamPhase: current.streamPhase === "done" ? "done" : "streaming",
     };
   }
   if (ev.type === "product_detail") {
+    const nextText = stripProductListDump(current.text) || current.text;
     return {
       productDetail: ev.product,
       products: null,
-      text: introTextForProductCards(current.text),
+      ...(nextText !== current.text ? { text: nextText } : {}),
       streamPhase: current.streamPhase === "done" ? "done" : "streaming",
     };
   }
@@ -63,7 +77,8 @@ export function applyChatSseEvent(
     const products = parseProductCards(ev.products);
     const productDetail = parseProductDetail(ev.product_detail);
     const hasRich = Boolean(products?.length || productDetail);
-    const text = hasRich ? introTextForProductCards(merged) : merged;
+    const stripped = stripProductListDump(merged);
+    const text = hasRich ? stripped || merged : merged;
     return {
       text,
       streamPhase: "done",
@@ -83,4 +98,40 @@ export function applyChatSseEvent(
     };
   }
   return null;
+}
+
+/** Apply one SSE event to the trailing assistant message; may append a new assistant bubble. */
+export function applyChatSseEventToAssistantMessages<
+  T extends {
+    from: string;
+    text: string;
+    streamPhase?: AssistantStreamPhase;
+    statusLine?: string | null;
+  },
+>(
+  messages: T[],
+  ev: ChatSseEvent,
+  createFollowUpAssistant: () => T
+): T[] | null {
+  if (messages.length === 0) return null;
+  const last = messages[messages.length - 1];
+  if (last.from !== "assistant") return null;
+  const patch = applyChatSseEvent(ev, {
+    text: last.text,
+    streamPhase: last.streamPhase ?? "thinking",
+  });
+  if (!patch) return null;
+  const { splitAfterCommit, ...rest } = patch;
+  const next = [...messages];
+  next[next.length - 1] = {
+    ...last,
+    ...rest,
+    ...(rest.assistantMessageId !== undefined
+      ? { assistantMessageId: rest.assistantMessageId }
+      : {}),
+  } as T;
+  if (splitAfterCommit) {
+    next.push(createFollowUpAssistant());
+  }
+  return next;
 }

@@ -5,7 +5,7 @@ import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots
 import { ProductCarousel } from "@/components/chat/product-carousel";
 import { ProductDetailView } from "@/components/chat/product-detail-view";
 import { ToolActivityLine } from "@/components/chat/tool-activity-line";
-import { introTextForProductCards } from "@/lib/product-intro";
+import { stripProductListDump } from "@/lib/product-intro";
 import { cn } from "@/lib/utils";
 import type { ProductCard, ProductDetail } from "@/lib/product-card";
 
@@ -79,7 +79,7 @@ export function StreamingAssistantMessage({
     onShowSimilarProducts &&
     (phase === "streaming" || phase === "done");
   const hasRichUi = showRichProducts || showRichDetail;
-  const introText = hasRichUi ? introTextForProductCards(trimmed) : trimmed;
+  const introText = hasRichUi ? stripProductListDump(trimmed) : trimmed;
   const showText =
     introText.length > 0 &&
     (phase === "streaming" || phase === "done") &&

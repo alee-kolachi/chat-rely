@@ -47,6 +47,47 @@ export function creativityBandLabel(value: number): string {
   return match?.label ?? "Balanced";
 }
 
+/** Stored in `behavior_settings.agent_type`. Controls reply voice only, not tools or knowledge. */
+export const AGENT_REPLY_STYLE_OPTIONS = [
+  { value: "brand_support", label: "Default (recommended)" },
+  { value: "general", label: "Neutral" },
+  { value: "customer_support", label: "Calm resolver" },
+  { value: "custom", label: "Write your own" },
+] as const;
+
+export type AgentReplyStyle = (typeof AGENT_REPLY_STYLE_OPTIONS)[number]["value"];
+
+export const DEFAULT_AGENT_REPLY_STYLE: AgentReplyStyle = "brand_support";
+
+export const AGENT_REPLY_STYLE_HINT =
+  "Default: on-brand, warm shop replies. Neutral: balanced, less brand framing. Calm resolver: de-escalation, one question per turn, clear next steps. Write your own: your text replaces the preset voice block (grounding rules still apply). Every option uses the same tools, knowledge, and Shopify actions.";
+
+export function normalizeAgentReplyStyle(raw: unknown): AgentReplyStyle {
+  const key = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (AGENT_REPLY_STYLE_OPTIONS.some((t) => t.value === key)) {
+    return key as AgentReplyStyle;
+  }
+  return DEFAULT_AGENT_REPLY_STYLE;
+}
+
+/** `agents.system_prompt` applies only when reply style is Write your own. */
+export function agentSystemPromptForReplyStyle(
+  agentType: string,
+  systemPrompt: string
+): string {
+  return normalizeAgentReplyStyle(agentType) === "custom" ? systemPrompt.trim() : "";
+}
+
+export function agentSystemPromptFromAgent(
+  agentType: unknown,
+  storedSystemPrompt: string | null | undefined
+): string {
+  return agentSystemPromptForReplyStyle(
+    normalizeAgentReplyStyle(agentType),
+    storedSystemPrompt ?? ""
+  );
+}
+
 export type AgentBehaviorSettings = {
   tone?: AgentTone | string;
   /** Merchant brand voice and sales playbook; injected into the agent system prompt at runtime. */

@@ -13,7 +13,13 @@ import { SetDashboardTopbarExtrasProvider } from "@/components/layout/dashboard-
 import { DashboardMobileNavProvider } from "@/components/layout/dashboard-topbar";
 import { NotificationsProvider } from "@/components/layout/notifications-context";
 
-export function DashboardShell({ children }: { children: ReactNode }) {
+export function DashboardShell({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   const pathname = usePathname();
   const [topbarExtras, setTopbarExtras] = useState<ReactNode>(null);
   /** Full-height workspaces scroll inside their panes; outer main stays viewport-tall. */
@@ -29,7 +35,12 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         <NotificationsProvider>
           <SetDashboardTopbarExtrasProvider setExtras={setTopbarExtras}>
             <DashboardMobileNavProvider>
-              <div className="bg-ds-neutral text-ds-on-surface flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-1 overflow-hidden">
+              <div
+                className={cn(
+                  "bg-ds-neutral text-ds-on-surface flex h-full min-h-0 w-full flex-1 overflow-hidden",
+                  className,
+                )}
+              >
                 <DashboardSidebar />
                 <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-ds-surface">
                   <DashboardScreenTopbar rightExtras={topbarExtras} />
@@ -38,7 +49,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                       "relative z-0 flex min-h-0 flex-1 flex-col overflow-x-hidden overscroll-y-contain bg-ds-app-canvas",
                       workspaceMain
                         ? "overflow-hidden p-0"
-                        : "ds-dashboard-main-pad overflow-y-auto",
+                        : "ds-dashboard-main-pad min-h-0 overflow-y-auto",
                     )}
                   >
                     {children}

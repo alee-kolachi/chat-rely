@@ -1,7 +1,7 @@
-/** Keep assistant copy to one intro line when product cards render in the UI. */
-export function introTextForProductCards(text: string): string {
+/** Drop raw product list dumps; keep natural one-line intros from the model. */
+export function stripProductListDump(text: string): string {
   const trimmed = text.trim();
-  if (!trimmed) return "Here are a few options:";
+  if (!trimmed) return "";
 
   const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const first = lines[0] ?? trimmed;
@@ -15,8 +15,13 @@ export function introTextForProductCards(text: string): string {
     /\$\d/.test(first);
 
   if (looksLikeProductList || first.length > 100) {
-    return "Here are a few options:";
+    return "";
   }
 
   return first;
+}
+
+/** @deprecated Use stripProductListDump */
+export function introTextForProductCards(text: string): string {
+  return stripProductListDump(text);
 }
