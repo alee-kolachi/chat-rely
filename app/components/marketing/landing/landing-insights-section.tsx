@@ -43,7 +43,7 @@ export function LandingInsightsSection() {
               <h2 className="mkt-display mt-6 text-4xl sm:text-5xl">Latest from ChatRely</h2>
             </div>
             <Link href="/about" className="mkt-pill mkt-pill-outline shrink-0">
-              View all posts →
+              View all posts
             </Link>
           </div>
         </LandingReveal>

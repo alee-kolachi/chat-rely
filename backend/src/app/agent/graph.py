@@ -23,6 +23,7 @@ from app.agent.escalation import (
     escalation_tool_system_appendix,
     handle_escalation_with_contact,
 )
+from app.domains.runtime.service import response_used_fallback
 from app.agent.llm import make_chat_model
 from app.agent.messages import text_delta_from_stream_chunk, text_from_model_message, usage_tokens_from_model_message
 from app.agent.knowledge_tools import (
@@ -213,6 +214,12 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
         text = fallback_message.strip()
         fallback_used = True
         writer({"type": "token", "text": text})
+    else:
+        fallback_used = response_used_fallback(
+            text,
+            fallback_message=str(fallback_message or ""),
+            explicit=fallback_used,
+        )
 
     return {
         "messages": [AIMessage(content=text)],
@@ -474,12 +481,19 @@ async def stream_chat_graph(
         fallback = str(fallback_message or "").strip()
         if fallback:
             answer = fallback
+            final_state["fallback_used"] = True
             yield {"type": "token", "text": fallback}
+
+    fallback_used = response_used_fallback(
+        answer,
+        fallback_message=str(fallback_message or ""),
+        explicit=bool(final_state.get("fallback_used")),
+    )
 
     yield {
         "type": "done",
         "response": answer,
-        "fallback_used": bool(final_state.get("fallback_used")),
+        "fallback_used": fallback_used,
         "usage_input_tokens": int(final_state.get("usage_input_tokens") or 0),
         "usage_output_tokens": int(final_state.get("usage_output_tokens") or 0),
         "tools_invoked": list(final_state.get("tools_invoked") or []),

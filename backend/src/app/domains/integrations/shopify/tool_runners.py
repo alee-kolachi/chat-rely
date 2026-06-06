@@ -20,6 +20,82 @@ def _product_edges(data: dict[str, object]) -> list[object]:
     return list(edges) if isinstance(edges, list) else []
 
 
+def _variant_inventory_quantity(variant_node: object) -> int:
+    if not isinstance(variant_node, dict):
+        return 0
+    raw = variant_node.get("inventoryQuantity")
+    try:
+        return int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+def _product_node_has_stock(node: object) -> bool:
+    if not isinstance(node, dict):
+        return False
+    variants = node.get("variants")
+    if not isinstance(variants, dict):
+        return True
+    edges = variants.get("edges")
+    if not isinstance(edges, list) or not edges:
+        return True
+    saw_inventory = False
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        variant_node = edge.get("node")
+        if not isinstance(variant_node, dict):
+            continue
+        if "inventoryQuantity" not in variant_node:
+            continue
+        saw_inventory = True
+        if _variant_inventory_quantity(variant_node) > 0:
+            return True
+    return not saw_inventory
+
+
+def _filter_product_data_by_stock(
+    data: dict[str, object], *, include_out_of_stock: bool
+) -> dict[str, object]:
+    if include_out_of_stock:
+        return data
+    products = data.get("products")
+    if not isinstance(products, dict):
+        return data
+    edges = products.get("edges")
+    if not isinstance(edges, list):
+        return data
+    kept: list[object] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        node = edge.get("node")
+        if _product_node_has_stock(node):
+            kept.append(edge)
+    return {**data, "products": {**products, "edges": kept}}
+
+
+def _strip_customer_lifetime_value(data: dict[str, object]) -> dict[str, object]:
+    customers = data.get("customers")
+    if not isinstance(customers, dict):
+        return data
+    edges = customers.get("edges")
+    if not isinstance(edges, list):
+        return data
+    next_edges: list[object] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            next_edges.append(edge)
+            continue
+        node = edge.get("node")
+        if not isinstance(node, dict):
+            next_edges.append(edge)
+            continue
+        trimmed = {k: v for k, v in node.items() if k != "amountSpent"}
+        next_edges.append({**edge, "node": trimmed})
+    return {**data, "customers": {**customers, "edges": next_edges}}
+
+
 _PRODUCT_SEARCH_NODE_FIELDS = """
             title
             handle
@@ -375,7 +451,12 @@ def _filter_product_data_by_relevance(data: dict[str, object], query: str) -> di
 
 
 async def run_product_search(
-    *, shop_domain: str, access_token: str, query: str, max_results: int = 5
+    *,
+    shop_domain: str,
+    access_token: str,
+    query: str,
+    max_results: int = 5,
+    include_out_of_stock: bool = False,
 ) -> str:
     q = _strip_catalog_search_noise((query or "").strip())
     if not q:
@@ -437,6 +518,7 @@ async def run_product_search(
             variables={"q": "published_status:published", "n": n2},
         )
         data = _filter_product_data_by_relevance(dict(body2.get("data") or {}), q)
+    data = _filter_product_data_by_stock(data, include_out_of_stock=include_out_of_stock)
     final_count = len(_product_edges(data))
     log.info(
         "runtime.shopify_product_search_result",
@@ -445,6 +527,7 @@ async def run_product_search(
         retried_keywords=retried_keywords,
         retried_broad=retried_broad,
         final_count=final_count,
+        include_out_of_stock=include_out_of_stock,
     )
 
     lookup_meta: dict[str, object] = {
@@ -831,6 +914,7 @@ async def run_customer_context(
     access_token: str,
     email: str,
     recent_orders: int = 5,
+    include_lifetime_value: bool = True,
 ) -> str:
     em = (email or "").strip()
     if not em or "@" not in em:
@@ -876,6 +960,8 @@ async def run_customer_context(
         variables={"q": f"email:{em}", "orderCount": ro},
     )
     data = body.get("data") or {}
+    if isinstance(data, dict) and not include_lifetime_value:
+        data = _strip_customer_lifetime_value(data)
     customers = ((data.get("customers") or {}).get("edges") or []) if isinstance(data, dict) else []
     count = len(customers) if isinstance(customers, list) else 0
     lookup_meta: dict[str, object] = {

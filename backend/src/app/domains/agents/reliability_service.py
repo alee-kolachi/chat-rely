@@ -126,4 +126,7 @@ async def update_reliability(
         )
 
     await db.commit()
+    from app.domains.runtime.service import invalidate_agent_runtime_config_cache
+
+    await invalidate_agent_runtime_config_cache(user_id=user_id, agent_id=agent_id)
     return AgentReliabilityDTO.model_validate(row)

@@ -167,6 +167,27 @@ def test_visitor_contact_gate_before_escalation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_set_escalation_pending_contact_uses_literal_jsonb_key() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    from app.agent.escalation import ESCALATION_PENDING_CONTACT_META_KEY, _set_escalation_pending_contact
+
+    db = MagicMock()
+    db.execute = AsyncMock()
+    db.commit = AsyncMock()
+    await _set_escalation_pending_contact(
+        db,
+        user_id=uuid4(),
+        conversation_id=uuid4(),
+        pending=True,
+    )
+    sql = str(db.execute.call_args[0][0])
+    assert ":pending_key" not in sql
+    assert f"'{ESCALATION_PENDING_CONTACT_META_KEY}'" in sql
+
+
+@pytest.mark.asyncio
 async def test_call_model_emits_preamble_before_tool_calls() -> None:
     from app.agent.graph import _call_model_node
 
@@ -629,3 +650,54 @@ async def test_shopify_tools_node_reuses_cache_across_rounds() -> None:
     assert first["tools_invoked"] == ["shopify_product_search"]
     assert second["tools_invoked"] == ["shopify_product_search"]
     assert second["messages"][0].content == '{"products":[{"title":"Boot"}]}'
+
+
+def test_count_consecutive_unresolved_assistant_turns() -> None:
+    from app.domains.runtime.service import count_consecutive_unresolved_assistant_turns
+
+    fallback = "Sorry, I am not fully sure."
+    history = [
+        {"role": "user", "content": "q1"},
+        {"role": "assistant", "content": "Here is the answer you needed."},
+        {"role": "user", "content": "q2"},
+        {"role": "assistant", "content": fallback},
+        {"role": "user", "content": "q3"},
+        {"role": "assistant", "content": fallback},
+    ]
+    assert count_consecutive_unresolved_assistant_turns(history, fallback_message=fallback) == 2
+
+    resolved_tail = history + [
+        {"role": "user", "content": "q4"},
+        {"role": "assistant", "content": "Here is the answer you needed."},
+    ]
+    assert count_consecutive_unresolved_assistant_turns(resolved_tail, fallback_message=fallback) == 0
+
+
+def test_unresolved_escalation_appendix_is_actionable() -> None:
+    from app.agent.escalation import unresolved_escalation_system_appendix
+
+    text = unresolved_escalation_system_appendix()
+    assert "escalate_to_human" in text
+    assert "UNRESOLVED STREAK" in text
+
+
+def test_response_used_fallback_detects_configured_copy() -> None:
+    from app.domains.runtime.service import response_used_fallback
+
+    custom = "Please email support@example.com for help."
+    assert response_used_fallback(custom, fallback_message=custom, explicit=False) is True
+    assert response_used_fallback("Here is your answer.", fallback_message=custom, explicit=False) is False
+    assert response_used_fallback("", fallback_message=custom, explicit=True) is True
+
+
+def test_count_unresolved_uses_message_metadata() -> None:
+    from app.domains.runtime.service import count_consecutive_unresolved_assistant_turns
+
+    history = [
+        {"role": "assistant", "content": "Looks resolved.", "metadata": {}},
+        {"role": "assistant", "content": "Different wording.", "metadata": {"fallback_used": True}},
+    ]
+    assert (
+        count_consecutive_unresolved_assistant_turns(history, fallback_message="unused fallback")
+        == 1
+    )

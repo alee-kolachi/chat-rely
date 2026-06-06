@@ -270,6 +270,74 @@ async def append_message(
     return message
 
 
+async def merge_message_metadata(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    message_id: UUID,
+    patch: dict[str, Any],
+) -> None:
+    if not patch:
+        return
+    await db.execute(
+        text(
+            """
+            update public.messages
+            set metadata = coalesce(metadata, '{}'::jsonb) || cast(:patch as jsonb)
+            where id = :message_id and user_id = :user_id
+            """
+        ),
+        {
+            "message_id": str(message_id),
+            "user_id": str(user_id),
+            "patch": json.dumps(patch),
+        },
+    )
+    await db.commit()
+
+
+async def merge_conversation_metadata(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    patch: dict[str, Any],
+) -> None:
+    if not patch:
+        return
+    await db.execute(
+        text(
+            """
+            update public.conversations
+            set metadata = coalesce(metadata, '{}'::jsonb) || cast(:patch as jsonb),
+                updated_at = now()
+            where id = :conversation_id and user_id = :user_id
+            """
+        ),
+        {
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+            "patch": json.dumps(patch),
+        },
+    )
+    await db.commit()
+
+
+def region_from_bcp47_locale(locale: str | None) -> str | None:
+    """ISO 3166-1 alpha-2 from a BCP 47 tag (e.g. en-US → US)."""
+    if not locale:
+        return None
+    tag = locale.strip().replace("_", "-")
+    if "-" not in tag:
+        return None
+    parts = tag.split("-")
+    for part in reversed(parts[1:]):
+        candidate = part.strip()
+        if len(candidate) == 2 and candidate.isalpha():
+            return candidate.upper()
+    return None
+
+
 async def merge_client_context_metadata(
     db: AsyncSession,
     *,
@@ -281,10 +349,15 @@ async def merge_client_context_metadata(
     patch: dict[str, str] = {}
     if locale and (lo := locale.strip()[:64]):
         patch["locale"] = lo
+    cc: str | None = None
     if country_code:
-        cc = country_code.strip().upper()
-        if len(cc) == 2 and cc.isalpha():
-            patch["country_code"] = cc
+        raw = country_code.strip().upper()
+        if len(raw) == 2 and raw.isalpha():
+            cc = raw
+    if cc is None and locale:
+        cc = region_from_bcp47_locale(locale)
+    if cc:
+        patch["country_code"] = cc
     if not patch:
         return
     await db.execute(

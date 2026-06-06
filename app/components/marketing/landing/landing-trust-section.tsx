@@ -1,5 +1,15 @@
 import type { LucideIcon } from "lucide-react";
-import { BookOpen, MessageSquare, Plug, Rocket, Ticket, Wand2 } from "lucide-react";
+import {
+  BarChart3,
+  BookOpen,
+  MessageSquare,
+  Palette,
+  Plug,
+  Smile,
+  ThumbsUp,
+  Ticket,
+  Wand2,
+} from "lucide-react";
 import { LandingReveal } from "@/components/marketing/landing/landing-reveal";
 import { LandingSectionLabel } from "@/components/marketing/landing/landing-section-label";
 
@@ -34,9 +44,24 @@ const features: {
     icon: Ticket,
   },
   {
-    title: "Deploy",
-    body: "Install on Shopify or paste one embed snippet on your storefront.",
-    icon: Rocket,
+    title: "Widget appearance",
+    body: "Custom colors, fonts, and welcome copy so the chat matches your storefront.",
+    icon: Palette,
+  },
+  {
+    title: "Visitor feedback",
+    body: "Shoppers thumb assistant replies in the widget. Summaries roll up on Pro.",
+    icon: ThumbsUp,
+  },
+  {
+    title: "Analytics",
+    body: "Conversation volume, resolution rate, and top shopper topics by plan.",
+    icon: BarChart3,
+  },
+  {
+    title: "Customer sentiment",
+    body: "Positive, neutral, and negative trends from shopper messages on Standard and Pro.",
+    icon: Smile,
   },
 ];
 
@@ -50,12 +75,16 @@ function FeatureCard({
   icon: LucideIcon;
 }) {
   return (
-    <article className="flex h-full flex-col rounded-[24px] border border-white/10 bg-white/[0.03] p-6 transition-colors duration-300 hover:border-ds-primary/35 hover:bg-white/[0.05] sm:p-7">
-      <div className="flex size-11 items-center justify-center rounded-xl border border-ds-primary/30 bg-ds-primary/15">
-        <Icon className="size-5 text-ds-primary" strokeWidth={1.75} aria-hidden />
+    <article className="group h-full rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 transition-all duration-300 hover:border-ds-primary/35 hover:bg-white/[0.05] hover:shadow-[0_16px_40px_rgba(138,5,255,0.12)] sm:p-7">
+      <div className="flex items-start gap-4">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-ds-primary/25 bg-ds-primary/10 transition-colors duration-300 group-hover:border-ds-primary/40 group-hover:bg-ds-primary/15">
+          <Icon className="size-[18px] text-ds-primary" strokeWidth={1.75} aria-hidden />
+        </div>
+        <div className="min-w-0">
+          <h3 className="mkt-display text-base leading-snug !text-white">{title}</h3>
+          <p className="mkt-font mt-2.5 text-sm leading-[1.6] text-white/60">{body}</p>
+        </div>
       </div>
-      <h3 className="mkt-display mt-5 text-xl !text-white">{title}</h3>
-      <p className="mkt-font mt-2 text-sm leading-relaxed text-white/65">{body}</p>
     </article>
   );
 }
@@ -65,13 +94,17 @@ export function LandingTrustSection() {
     <section className="bg-black px-6 py-16 text-white sm:py-20">
       <div className="mx-auto max-w-[1100px]">
         <LandingReveal>
-          <LandingSectionLabel tone="dark">Built for merchants</LandingSectionLabel>
+          <LandingSectionLabel tone="dark">Merchant dashboard</LandingSectionLabel>
           <h2 className="mkt-display mt-5 max-w-3xl text-4xl !text-white sm:text-5xl">
-            Your dashboard, from setup to support
+            One place to set up, run, and improve store support
           </h2>
+          <p className="mkt-font mt-4 max-w-2xl text-base leading-relaxed text-white/65">
+            Launch your agent, brand the widget, review every chat, and track analytics, sentiment, and visitor
+            feedback from the same workspace.
+          </p>
         </LandingReveal>
 
-        <div className="mt-8 grid gap-4 sm:mt-10 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-8 grid gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-5">
           {features.map((feature, index) => (
             <LandingReveal key={feature.title} delayMs={index * 60}>
               <FeatureCard {...feature} />

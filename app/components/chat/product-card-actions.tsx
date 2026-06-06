@@ -50,15 +50,22 @@ export function ProductCardActions({
         <Sparkles className="size-3 shrink-0" aria-hidden />
         Similar
       </button>
-      <a
-        href={product.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={buttonBase}
-      >
-        <ExternalLink className="size-3 shrink-0" aria-hidden />
-        View
-      </a>
+      {disabled ? (
+        <button type="button" disabled className={buttonBase}>
+          <ExternalLink className="size-3 shrink-0" aria-hidden />
+          View
+        </button>
+      ) : (
+        <a
+          href={product.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={buttonBase}
+        >
+          <ExternalLink className="size-3 shrink-0" aria-hidden />
+          View
+        </a>
+      )}
     </div>
   );
 }

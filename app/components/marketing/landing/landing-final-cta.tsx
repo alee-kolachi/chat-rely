@@ -8,20 +8,19 @@ export function LandingFinalCta() {
     <section className="bg-ds-primary px-6 py-20 sm:py-24">
       <div className="mx-auto max-w-[1100px]">
         <LandingReveal>
-          <LandingSectionLabel tone="primary">See it in action</LandingSectionLabel>
+          <LandingSectionLabel tone="primary">Get started</LandingSectionLabel>
         </LandingReveal>
 
         <div className="mt-6 grid items-center gap-12 lg:grid-cols-2">
           <LandingReveal>
             <h2 className="mkt-display max-w-xl text-4xl !text-ds-on-primary sm:text-5xl">
-              Test every reply in Playground before shoppers do
+              Put AI support on your Shopify store
             </h2>
             <p className="mkt-body mt-5 max-w-lg !text-ds-on-primary/85">
-              Send test messages against your live store data and knowledge base. Tune tone and fix gaps before you embed
-              the widget.
+              Free plan, no credit card. Connect Shopify, add your help content, and go live with one embed snippet.
             </p>
             <Link href="/signup" className="mkt-pill mkt-pill-dark mt-8 inline-flex px-8 py-3.5 text-base sm:mt-10">
-              Start free →
+              Create your agent
             </Link>
           </LandingReveal>
 

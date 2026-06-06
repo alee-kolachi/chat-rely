@@ -92,6 +92,33 @@ def _product_search_max_results_from_config(config: dict[str, Any] | None) -> in
     return max(1, min(n, 20))
 
 
+def _product_search_include_out_of_stock_from_config(config: dict[str, Any] | None) -> bool:
+    if not config:
+        return False
+    raw = config.get("includeOutOfStock", config.get("include_out_of_stock", False))
+    return bool(raw)
+
+
+def _customer_context_recent_orders_from_config(config: dict[str, Any] | None) -> int:
+    if not config:
+        return 5
+    raw = config.get("recentOrderCount", config.get("recent_orders", 5))
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 5
+    return max(1, min(n, 25))
+
+
+def _customer_context_include_lifetime_value_from_config(config: dict[str, Any] | None) -> bool:
+    if not config:
+        return True
+    raw = config.get("includeLifetimeValue", config.get("include_lifetime_value", True))
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(raw)
+
+
 def _make_product_search_input(default_max_results: int) -> type[BaseModel]:
     class ProductSearchInput(BaseModel):
         query: str = Field(description=_PRODUCT_SEARCH_QUERY_DESCRIPTION)
@@ -113,9 +140,17 @@ class InventoryInput(BaseModel):
     product_query: str | None = Field(default=None, description=_INVENTORY_PRODUCT_QUERY_DESCRIPTION)
 
 
-class CustomerContextInput(BaseModel):
-    email: str = Field(description=_CUSTOMER_EMAIL_FIELD_DESCRIPTION)
-    recent_orders: int = Field(default=5, ge=1, le=25, description="How many recent orders to include.")
+def _make_customer_context_input(default_recent_orders: int) -> type[BaseModel]:
+    class CustomerContextInput(BaseModel):
+        email: str = Field(description=_CUSTOMER_EMAIL_FIELD_DESCRIPTION)
+        recent_orders: int = Field(
+            default=default_recent_orders,
+            ge=1,
+            le=25,
+            description="How many recent orders to include.",
+        )
+
+    return CustomerContextInput
 
 
 def build_shopify_langchain_tools(
@@ -134,6 +169,7 @@ def build_shopify_langchain_tools(
 
         product_cfg = (action_configs or {}).get("shopify.product_search") or {}
         default_max_results = _product_search_max_results_from_config(product_cfg)
+        include_out_of_stock = _product_search_include_out_of_stock_from_config(product_cfg)
         product_search_input = _make_product_search_input(default_max_results)
 
         async def _product_search(query: str, max_results: int = default_max_results) -> str:
@@ -147,6 +183,7 @@ def build_shopify_langchain_tools(
                 access_token=access_token,
                 query=query,
                 max_results=effective,
+                include_out_of_stock=include_out_of_stock,
             )
 
         tools.append(
@@ -197,13 +234,18 @@ def build_shopify_langchain_tools(
         )
 
     if "shopify.customer_context" in enabled_action_keys:
+        customer_cfg = (action_configs or {}).get("shopify.customer_context") or {}
+        default_recent_orders = _customer_context_recent_orders_from_config(customer_cfg)
+        include_lifetime_value = _customer_context_include_lifetime_value_from_config(customer_cfg)
+        customer_context_input = _make_customer_context_input(default_recent_orders)
 
-        async def _customer(email: str, recent_orders: int = 5) -> str:
+        async def _customer(email: str, recent_orders: int = default_recent_orders) -> str:
             return await run_customer_context(
                 shop_domain=shop_domain,
                 access_token=access_token,
                 email=email,
                 recent_orders=recent_orders,
+                include_lifetime_value=include_lifetime_value,
             )
 
         tools.append(
@@ -211,7 +253,7 @@ def build_shopify_langchain_tools(
                 coroutine=_customer,
                 name="shopify_customer_context",
                 description=_CUSTOMER_CONTEXT_DESCRIPTION,
-                args_schema=CustomerContextInput,
+                args_schema=customer_context_input,
             )
         )
 

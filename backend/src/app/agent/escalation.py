@@ -208,14 +208,17 @@ async def _set_escalation_pending_contact(
     conversation_id: UUID,
     pending: bool,
 ) -> None:
+    # Key is literal: bound params as jsonb_build_object keys make asyncpg raise
+    # AmbiguousParameterError (could not determine data type of parameter).
+    pending_key = ESCALATION_PENDING_CONTACT_META_KEY
     await db.execute(
         text(
-            """
+            f"""
             update public.conversations
             set metadata = case
-                  when :pending then coalesce(metadata, '{}'::jsonb)
-                    || jsonb_build_object('escalation_pending_contact', true)
-                  else coalesce(metadata, '{}'::jsonb) - 'escalation_pending_contact'
+                  when :pending then coalesce(metadata, '{{}}'::jsonb)
+                    || jsonb_build_object('{pending_key}', true)
+                  else coalesce(metadata, '{{}}'::jsonb) - '{pending_key}'
                 end,
                 updated_at = now()
             where id = cast(:conversation_id as uuid) and user_id = cast(:user_id as uuid)
@@ -464,4 +467,13 @@ def escalation_tool_system_appendix() -> str:
         "Do not tell the visitor they are connected to a human until you have called this tool and it has returned. "
         "Do not offer escalation preemptively for questions you can answer. "
         "After calling it, the visitor will be prompted for their name and email before the handoff completes."
+    )
+
+
+def unresolved_escalation_system_appendix() -> str:
+    return (
+        "UNRESOLVED STREAK\n"
+        "Recent replies in this thread could not fully resolve the customer's question. "
+        "On this turn, briefly acknowledge the gap, offer to connect them with a human team member, "
+        "and call `escalate_to_human` if they accept or if you still cannot answer from tools or the index."
     )

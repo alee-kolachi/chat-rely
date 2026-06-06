@@ -398,6 +398,7 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
             select
               a.id, a.name, a.model, a.system_prompt, a.behavior_settings,
               rs.min_retrieval_similarity, rs.fallback_message,
+              rs.inactivity_timeout_minutes, rs.max_unresolved_turns_before_escalation,
               exists (
                 select 1
                 from public.knowledge_chunks c
@@ -447,6 +448,10 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
         "creativity": creativity,
         "min_retrieval_similarity": float(row["min_retrieval_similarity"] or 0.52),
         "fallback_message": fallback,
+        "inactivity_timeout_minutes": int(row["inactivity_timeout_minutes"] or 30),
+        "max_unresolved_turns_before_escalation": int(
+            row["max_unresolved_turns_before_escalation"] or 2
+        ),
         "has_indexed_knowledge": has_kb,
     }
     async with _kb_index_cache_lock:
@@ -1099,6 +1104,47 @@ def _looks_like_fallback_response(answer: str, fallback_message: str) -> bool:
     if f and a == f:
         return True
     return "not fully sure based on available information" in a
+
+
+def response_used_fallback(
+    answer: str,
+    *,
+    fallback_message: str,
+    explicit: bool = False,
+) -> bool:
+    """True when the turn relied on the configured fallback (empty model output or fallback copy)."""
+    if explicit:
+        return True
+    return _looks_like_fallback_response(answer, fallback_message)
+
+
+def count_consecutive_unresolved_assistant_turns(
+    history_rows: list[Any],
+    *,
+    fallback_message: str,
+) -> int:
+    """Trailing assistant replies that match the configured fallback / vague-answer pattern."""
+    streak = 0
+    for row in reversed(history_rows):
+        role = getattr(row, "role", None)
+        if role is None and isinstance(row, dict):
+            role = row.get("role")
+        if role != "assistant":
+            continue
+        meta = getattr(row, "metadata", None)
+        if meta is None and isinstance(row, dict):
+            meta = row.get("metadata")
+        if isinstance(meta, dict) and meta.get("fallback_used") is True:
+            streak += 1
+            continue
+        content = getattr(row, "content", None)
+        if content is None and isinstance(row, dict):
+            content = row.get("content")
+        if _looks_like_fallback_response(str(content or ""), fallback_message):
+            streak += 1
+        else:
+            break
+    return streak
 
 
 async def _record_embedding_rag_events(

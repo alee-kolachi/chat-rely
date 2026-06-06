@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActionDetailTabs } from "@/components/actions/action-detail-tabs";
 import type { ApiActionCatalogEntry } from "@/components/actions/action-catalog-types";
 import { ActionToggle } from "@/components/actions/action-toggle";
@@ -16,12 +17,16 @@ import {
 import { getShopifyAction } from "@/components/actions/shopify-actions-data";
 import type { ShopifyActionStatus } from "@/components/actions/shopify-actions-data";
 import { useActionCatalog } from "@/components/actions/use-action-catalog";
+import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import { useActionDrafts } from "@/hooks/use-action-drafts";
 import { unsavedChangesMessage } from "@/lib/action-draft-utils";
 import { actionSlugToKey } from "@/lib/action-keys";
+import { BackendApiError } from "@/lib/backend-api";
 import { appButtonClassName } from "@/lib/button-styles";
+import { partitionShopifyActionsForRuntime } from "@/lib/shopify-runtime-cap";
+import { shopifyShopSubdomain, startShopifyOAuth } from "@/lib/shopify-oauth";
 
 function mapApiStatusForBadge(status: ApiActionCatalogEntry["status"]): ShopifyActionStatus {
   if (status === "live") return "live";
@@ -31,12 +36,19 @@ function mapApiStatusForBadge(status: ApiActionCatalogEntry["status"]): ShopifyA
 
 export default function ActionDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const actionId = typeof params?.actionId === "string" ? params.actionId : "";
   const shopifyAction = getShopifyAction(actionId);
   const { selectedAgentId } = useDashboardAgent();
   const { data: catalog, loading, error: catalogError, refresh } = useActionCatalog(selectedAgentId || undefined);
+  const { data: integrations, loading: integrationsLoading } = useAgentIntegrationsBootstrap(
+    selectedAgentId || undefined,
+    { includeWebsitePreview: false }
+  );
+  const shopify = integrations?.shopify;
   const [banner, setBanner] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [reconnectBusy, setReconnectBusy] = useState(false);
 
   const actionKey = actionSlugToKey(actionId);
   const apiEntry = useMemo(
@@ -53,6 +65,7 @@ export default function ActionDetailPage() {
     changeCount,
     cancelAll,
     saveAll,
+    drafts,
   } = useActionDrafts(selectedAgentId || undefined, catalog?.entries);
 
   const badgeStatus = apiEntry
@@ -90,6 +103,58 @@ export default function ActionDetailPage() {
     () => parseHumanEscalationConfig(escalationConfigRaw),
     [escalationConfigRaw]
   );
+
+  const shopifyConfig = getConfigDraft(actionKey);
+  const shopifyServerConfig = useMemo(
+    () => (apiEntry?.config ?? {}) as Record<string, unknown>,
+    [apiEntry?.config]
+  );
+
+  const actionEnabledOnServer = Boolean(apiEntry?.enabled);
+  const hasUnsavedEnableChange = enabled !== actionEnabledOnServer;
+  const shopifyConnected = Boolean(shopify?.connected && shopify.shop_domain);
+  const scopesSatisfied = Boolean(apiEntry?.scopes_satisfied);
+
+  const runtimeActive = useMemo(() => {
+    if (!catalog || !apiEntry || apiEntry.status !== "live" || !actionEnabledOnServer) {
+      return false;
+    }
+    const enabledLiveKeys = catalog.entries
+      .filter((entry) => entry.status === "live" && entry.enabled && entry.action_key.startsWith("shopify."))
+      .map((entry) => entry.action_key);
+    const cap = catalog.max_enabled_shopify_actions ?? 0;
+    const { activeKeys } = partitionShopifyActionsForRuntime(enabledLiveKeys, cap);
+    return activeKeys.has(actionKey);
+  }, [catalog, apiEntry, actionEnabledOnServer, actionKey]);
+
+  const handleReconnectShopify = useCallback(async () => {
+    setBanner(null);
+    if (!selectedAgentId) {
+      setBanner("Select an agent in the header before reconnecting Shopify.");
+      return;
+    }
+    if (!shopifyConnected || !shopify?.shop_domain) {
+      router.push("/actions#shopify-integration");
+      return;
+    }
+    setReconnectBusy(true);
+    try {
+      await startShopifyOAuth({
+        agentId: selectedAgentId,
+        shop: shopifyShopSubdomain(shopify.shop_domain),
+        returnTo: `/actions/${actionId}`,
+      });
+    } catch (e) {
+      const msg =
+        e instanceof BackendApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not start Shopify sign-in";
+      setBanner(msg);
+      setReconnectBusy(false);
+    }
+  }, [selectedAgentId, shopifyConnected, shopify?.shop_domain, actionId, router]);
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
@@ -337,6 +402,17 @@ export default function ActionDetailPage() {
             action={action}
             catalogEntry={apiEntry ?? null}
             selectedAgentId={selectedAgentId ?? null}
+            config={shopifyConfig}
+            serverConfig={shopifyServerConfig}
+            onConfigChange={(next) => setConfigDraft(actionKey, next)}
+            shopifyConnected={shopifyConnected}
+            scopesSatisfied={scopesSatisfied}
+            actionEnabledOnServer={actionEnabledOnServer}
+            hasUnsavedEnableChange={hasUnsavedEnableChange}
+            hasUnsavedConfigChange={isDirty && Boolean(drafts?.[actionKey]?.config)}
+            runtimeActive={runtimeActive}
+            reconnectBusy={reconnectBusy || integrationsLoading}
+            onReconnectShopify={handleReconnectShopify}
           />
         </div>
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useState } from "react";
 import { MarketingSiteFooter } from "@/components/marketing/marketing-site-footer";
-import { PricingFeatureMatrix } from "@/components/marketing/pricing-sections";
+import { PricingPagePlans } from "@/components/marketing/pricing-sections";
 import { useSessionPresent } from "@/hooks/use-session-present";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import type { PricingTierSlug } from "@/lib/marketing/pricing-catalog";
@@ -93,11 +93,14 @@ export function MarketingPricingClient() {
     <main className="flex-1 bg-ds-surface text-ds-on-surface">
       <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
         <div className="mb-10 text-center sm:mb-14">
-          <h1 className="text-3xl font-black tracking-tight text-ds-primary sm:text-4xl md:text-6xl">
-            Predictable pricing, scalable plans
+          <h1 className="text-3xl font-black tracking-tight text-ds-on-surface sm:text-4xl md:text-5xl">
+            Plans &amp; pricing
           </h1>
-          <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-5 sm:max-w-2xl sm:text-xl">
-            Simple conversation limits, not message credits. Compare plans below.
+          <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-4 sm:max-w-2xl sm:text-lg">
+            Find the right plan for your store.
+          </p>
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-ds-on-surface-variant sm:text-base">
+            Essential AI on every tier. Simple conversation limits, not message credits.
           </p>
         </div>
 
@@ -113,7 +116,7 @@ export function MarketingPricingClient() {
         ) : null}
 
         <div className="mb-20 sm:mb-24">
-          <PricingFeatureMatrix
+          <PricingPagePlans
             isAuthenticated={showDashboard}
             onPlanCheckout={showDashboard ? onPlanCheckout : undefined}
             checkoutBusySlug={checkoutBusySlug}
@@ -121,8 +124,8 @@ export function MarketingPricingClient() {
         </div>
 
         <section className="mx-auto mb-32 max-w-3xl font-sans">
-          <h2 className="mb-12 text-center text-3xl font-black tracking-tight text-ds-on-surface">
-            Frequently Asked Questions
+          <h2 className="mb-12 text-center text-2xl font-bold tracking-tight text-ds-on-surface sm:text-3xl">
+            Common questions about pricing
           </h2>
           <div className="space-y-4">
             {faqs.map((faq, index) => {

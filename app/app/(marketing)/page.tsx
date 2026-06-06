@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { LandingComparisonSection } from "@/components/marketing/landing/landing-comparison-section";
-import { LandingCustomerStory } from "@/components/marketing/landing/landing-customer-story";
 import { LandingFinalCta } from "@/components/marketing/landing/landing-final-cta";
 import { LandingFooter } from "@/components/marketing/landing/landing-footer";
 import { LandingHeroSection } from "@/components/marketing/landing/landing-hero-section";
@@ -9,9 +8,9 @@ import { LandingHowItWorks } from "@/components/marketing/landing/landing-how-it
 import { LandingTrustSection } from "@/components/marketing/landing/landing-trust-section";
 
 export const metadata: Metadata = {
-  title: "AI support agents for Shopify stores",
+  title: "AI chatbot for Shopify stores",
   description:
-    "Grounded AI support for Shopify: live store data, your knowledge, human handoff, and predictable conversation pricing.",
+    "ChatRely is the AI chatbot for your Shopify storefront. Live catalog and order answers, your help content, and human handoff. Free plan, no credit card required.",
 };
 
 export default function LandingPage() {
@@ -22,7 +21,6 @@ export default function LandingPage() {
       <LandingComparisonSection />
       <LandingTrustSection />
       <LandingProductSection />
-      <LandingCustomerStory />
       <LandingFinalCta />
       <LandingFooter />
     </main>

@@ -98,7 +98,16 @@ async def build_agent_analytics(
             ),
             country_rows as (
               select
-                coalesce(nullif(upper(trim(cr.metadata->>'country_code')), ''), 'UNKNOWN') as code,
+                coalesce(
+                  nullif(upper(trim(cr.metadata->>'country_code')), ''),
+                  upper(
+                    (regexp_match(
+                      replace(trim(coalesce(cr.metadata->>'locale', '')), '_', '-'),
+                      '-([A-Za-z]{2})$'
+                    ))[1]
+                  ),
+                  'UNKNOWN'
+                ) as code,
                 count(*)::int as n
               from convo_range cr
               group by 1

@@ -79,6 +79,7 @@ import {
   readConversationStatus,
 } from "@/lib/escalated-conversation";
 import { readContactCaptureRequired } from "@/lib/visitor-contact";
+import { clientChatContext } from "@/lib/client-context";
 import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
 
 const PLAYGROUND_CREATIVITY_HINT =
@@ -708,6 +709,7 @@ function PlaygroundPreviewConversation({
         system_prompt_override: agentType === "custom" ? systemPrompt : null,
         creativity_override: creativity,
         visitor_id: thread.visitorId,
+        ...clientChatContext(),
         ...(productAction
           ? {
               product_action: {

@@ -41,8 +41,7 @@ function RateLimitsForm() {
       setError(null);
       setSavedAt(null);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgent?.id]);
+  }, [initial.max_messages, initial.window_seconds, initial.limit_message]);
 
   const dirty =
     maxMessages !== initial.max_messages ||

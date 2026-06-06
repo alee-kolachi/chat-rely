@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
-  LEGAL_SUPPORT_EMAIL,
-  LegalList,
-  LegalPageShell,
-  LegalParagraph,
-  LegalSection,
-} from "@/components/marketing/legal-page-shell";
+  COMPANY_CONTACT_EMAIL,
+  CompanyList,
+  CompanyPageShell,
+  CompanyParagraph,
+  CompanySection,
+} from "@/components/marketing/company-page-shell";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -15,23 +15,23 @@ export const metadata: Metadata = {
 
 export default function ContactPage() {
   return (
-    <LegalPageShell
+    <CompanyPageShell
       title="Contact ChatRely"
       description="We read every message. Reach out for product help, billing, security, or partnerships."
-      showLastUpdated={false}
+      activeHref="/contact"
     >
-      <LegalSection title="Email">
-        <LegalParagraph>
+      <CompanySection title="Email">
+        <CompanyParagraph>
           The fastest way to reach us is{" "}
-          <a href={`mailto:${LEGAL_SUPPORT_EMAIL}`} className="font-semibold text-ds-primary">
-            {LEGAL_SUPPORT_EMAIL}
+          <a href={`mailto:${COMPANY_CONTACT_EMAIL}`} className="font-semibold text-ds-primary">
+            {COMPANY_CONTACT_EMAIL}
           </a>
           . Include your store URL if you already use ChatRely so we can look up your account.
-        </LegalParagraph>
-      </LegalSection>
+        </CompanyParagraph>
+      </CompanySection>
 
-      <LegalSection title="What we can help with">
-        <LegalList
+      <CompanySection title="What we can help with">
+        <CompanyList
           items={[
             "Product questions, onboarding, and how to set up your agent.",
             "Billing, plans, and usage on your account.",
@@ -39,23 +39,23 @@ export default function ContactPage() {
             "Partnerships and press inquiries.",
           ]}
         />
-      </LegalSection>
+      </CompanySection>
 
-      <LegalSection title="Response time">
-        <LegalParagraph>
+      <CompanySection title="Response time">
+        <CompanyParagraph>
           We aim to reply within one business day. Urgent billing or outage issues get priority.
-        </LegalParagraph>
-      </LegalSection>
+        </CompanyParagraph>
+      </CompanySection>
 
-      <LegalSection title="Already a customer?">
-        <LegalParagraph>
+      <CompanySection title="Already a customer?">
+        <CompanyParagraph>
           Log in to review conversations, update knowledge, or change agent settings in your{" "}
           <Link href="/login" className="font-semibold text-ds-primary">
             dashboard
           </Link>
           . Many setup questions are faster there than over email.
-        </LegalParagraph>
-        <LegalParagraph>
+        </CompanyParagraph>
+        <CompanyParagraph>
           New to ChatRely?{" "}
           <Link href="/signup" className="font-semibold text-ds-primary">
             Start free
@@ -65,8 +65,8 @@ export default function ContactPage() {
             pricing
           </Link>
           .
-        </LegalParagraph>
-      </LegalSection>
-    </LegalPageShell>
+        </CompanyParagraph>
+      </CompanySection>
+    </CompanyPageShell>
   );
 }

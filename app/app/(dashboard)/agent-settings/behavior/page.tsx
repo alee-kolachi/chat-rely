@@ -68,8 +68,7 @@ function BehaviorForm() {
       setSavedAt(null);
       void loadReliability(agentId);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgentId]);
+  }, [selectedAgentId, selectedAgent?.behavior_settings, loadReliability]);
 
   const initialBehavior = useMemo(
     () => ({

@@ -252,8 +252,12 @@ async def compute_turn_signals(
     structured = llm.with_structured_output(TurnSignals, include_raw=True)
     sys = SystemMessage(
         content=(
-            "Given one user message and the assistant reply, classify briefly. "
-            "knowledge_gap=true if the assistant lacked grounded facts/policy."
+            "Given one user message and the assistant reply, classify the exchange briefly. "
+            "customer_sentiment: positive when the shopper sounds satisfied or grateful; "
+            "negative when unhappy or dissatisfied; frustrated when angry, impatient, or "
+            "repeatedly blocked; otherwise neutral. "
+            "knowledge_gap=true when the assistant lacked grounded facts or policy. "
+            "likely_resolved=true when this reply reasonably answered the shopper's question."
         )
     )
     human = HumanMessage(
@@ -447,7 +451,7 @@ async def _upsert_outcome_row(
 
 
 async def close_idle_conversations_global(db: AsyncSession) -> int:
-    """Runs DB idle closer (30-minute inactivity → idle_closed)."""
+    """Runs DB idle closer (per-agent inactivity timeout → idle_closed)."""
     result = await db.execute(text("select public.close_idle_conversations() as n"))
     row = result.mappings().one()
     n = int(row["n"])

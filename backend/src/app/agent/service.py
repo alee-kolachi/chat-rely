@@ -31,6 +31,7 @@ from app.agent.escalation import (
     handle_pending_contact_stream_message,
     normalize_conversation_status,
     persist_visitor_contact,
+    unresolved_escalation_system_appendix,
     visitor_empty_reply_fallback,
     visitor_meta_deflection_reply,
     visitor_non_substantive_reply,
@@ -84,9 +85,11 @@ from app.domains.actions.service import get_human_escalation_for_runtime, list_e
 from app.domains.billing.cost_events import (
     COST_KIND_LLM_MAIN,
     COST_KIND_LLM_ROUTING,
+    COST_KIND_LLM_TURN_SIGNALS,
     COST_KIND_TOOL_SHOPIFY,
     record_cost_event,
 )
+from app.domains.conversation_outcomes.service import compute_turn_signals
 from app.domains.billing.usage_gate import (
     count_conversation_premium_turns,
     fetch_plan_model_policy_cached,
@@ -103,6 +106,8 @@ from app.domains.conversations.service import (
     list_messages_recent,
     merge_client_context_metadata,
     normalize_conversation_metadata,
+    merge_conversation_metadata,
+    merge_message_metadata,
 )
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
 from app.domains.runtime.prompts import build_grounded_user_prompt
@@ -126,7 +131,9 @@ from app.domains.runtime.service import (
     _apply_usage_limit_model_downgrade,
     _build_context_block,
     _build_open_chat_system_prompt,
+    count_consecutive_unresolved_assistant_turns,
     _load_agent_runtime_config,
+    response_used_fallback,
     _load_shopify_tools_fast,
     _log_retrieval_trace,
     _log_runtime_turn_timing,
@@ -332,6 +339,7 @@ async def _persist_stream_turn(
     classifier_billing: dict[str, Any] | None,
     products: list[dict[str, Any]] | None = None,
     product_detail: dict[str, Any] | None = None,
+    fallback_used: bool = False,
 ) -> UUID | None:
     assistant_id: UUID | None = None
     metadata: dict[str, Any] = {}
@@ -341,6 +349,8 @@ async def _persist_stream_turn(
         metadata["products"] = products
     if product_detail:
         metadata["product_detail"] = product_detail
+    if fallback_used:
+        metadata["fallback_used"] = True
     async with get_session_factory()() as db:
         user_message_row = await append_message(
             db,
@@ -410,6 +420,13 @@ async def _persist_stream_turn(
                     turn_user_message_id=user_message_row.id,
                     metadata={"tool_name": tool_name},
                 )
+        if fallback_used:
+            await merge_conversation_metadata(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                patch={"fallback_used": True},
+            )
     return assistant_id
 
 
@@ -428,6 +445,7 @@ def _schedule_stream_turn_persist(
     classifier_billing: dict[str, Any] | None,
     products: list[dict[str, Any]] | None = None,
     product_detail: dict[str, Any] | None = None,
+    fallback_used: bool = False,
 ) -> None:
     async def _run() -> None:
         await _await_prior_turn_persist(user_id, conversation_id)
@@ -446,6 +464,7 @@ def _schedule_stream_turn_persist(
                 classifier_billing=classifier_billing,
                 products=products,
                 product_detail=product_detail,
+                fallback_used=fallback_used,
             )
         except Exception:
             log.exception(
@@ -478,11 +497,12 @@ async def _finalize_stream_turn_persist(
     classifier_billing: dict[str, Any] | None,
     products: list[dict[str, Any]] | None = None,
     product_detail: dict[str, Any] | None = None,
+    fallback_used: bool = False,
 ) -> UUID | None:
     """Persist the turn before emitting ``done`` so clients receive ``assistant_message_id``."""
     await _await_prior_turn_persist(user_id, conversation_id)
     try:
-        return await _persist_stream_turn(
+        assistant_id = await _persist_stream_turn(
             user_id=user_id,
             agent_id=agent_id,
             conversation_id=conversation_id,
@@ -496,7 +516,18 @@ async def _finalize_stream_turn_persist(
             classifier_billing=classifier_billing,
             products=products,
             product_detail=product_detail,
+            fallback_used=fallback_used,
         )
+        if assistant_id and answer.strip():
+            await _attach_turn_signals(
+                user_id=user_id,
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                assistant_message_id=assistant_id,
+                user_message=user_message,
+                assistant_reply=answer,
+            )
+        return assistant_id
     except Exception:
         log.exception(
             "chat.persist_turn_failed",
@@ -504,6 +535,47 @@ async def _finalize_stream_turn_persist(
             conversation_id=str(conversation_id),
         )
         return None
+
+
+async def _attach_turn_signals(
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    conversation_id: UUID,
+    assistant_message_id: UUID,
+    user_message: str,
+    assistant_reply: str,
+) -> None:
+    try:
+        signals, in_t, out_t = await compute_turn_signals(user_message, assistant_reply)
+        if signals is None:
+            return
+        settings = get_settings()
+        async with get_session_factory()() as db:
+            await merge_message_metadata(
+                db,
+                user_id=user_id,
+                message_id=assistant_message_id,
+                patch={"turn_signals": signals.model_dump()},
+            )
+            if in_t or out_t:
+                await record_cost_event(
+                    db,
+                    conversation_id=conversation_id,
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    kind=COST_KIND_LLM_TURN_SIGNALS,
+                    provider_model=settings.openai_chat_model or "gpt-4o-mini",
+                    input_tokens=in_t,
+                    output_tokens=out_t,
+                )
+    except Exception:
+        log.exception(
+            "turn_signals.persist_failed",
+            user_id=str(user_id),
+            conversation_id=str(conversation_id),
+            assistant_message_id=str(assistant_message_id),
+        )
 
 
 def _defer_post_stream_metadata(
@@ -526,7 +598,11 @@ def _defer_post_stream_metadata(
                 )
                 await persist_visitor_contact(db, ctx=esc_ctx)
         except Exception:
-            pass
+            log.exception(
+                "chat.post_stream_metadata_failed",
+                user_id=str(user_id),
+                conversation_id=str(conversation_id),
+            )
 
     asyncio.create_task(_run())
 
@@ -714,6 +790,16 @@ async def stream_chat(
     )
 
     conversation_id = conv["id"]
+    if payload.locale or payload.country_code:
+        await _db_call(
+            lambda db: merge_client_context_metadata(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                locale=payload.locale,
+                country_code=payload.country_code,
+            )
+        )
     shopify_task = asyncio.create_task(
         _load_shopify_tools_fast(
             user_id=user_id,
@@ -1135,6 +1221,16 @@ async def stream_chat(
         tools_enabled=escalation_enabled,
     )
     fallback_message = str(config["fallback_message"])
+    max_unresolved_turns = int(config.get("max_unresolved_turns_before_escalation") or 2)
+    if escalation_enabled and max_unresolved_turns >= 1:
+        unresolved_streak = count_consecutive_unresolved_assistant_turns(
+            history_rows,
+            fallback_message=fallback_message,
+        )
+        if unresolved_streak >= max_unresolved_turns:
+            system_prompt = (
+                f"{system_prompt}\n\n{unresolved_escalation_system_appendix()}"
+            ).strip()
 
     grounded_user_content = payload.message
 
@@ -1361,6 +1457,12 @@ async def stream_chat(
         else str(conv.get("status") or "open")
     )
 
+    turn_fallback_used = response_used_fallback(
+        answer,
+        fallback_message=fallback_message,
+        explicit=bool(done_payload.get("fallback_used")),
+    )
+
     assistant_id = await _finalize_stream_turn_persist(
         user_id=user_id,
         agent_id=payload.agent_id,
@@ -1375,6 +1477,7 @@ async def stream_chat(
         classifier_billing=classifier_billing,
         products=stream_products or None,
         product_detail=stream_product_detail,
+        fallback_used=turn_fallback_used,
     )
 
     yield format_sse(
@@ -1384,7 +1487,7 @@ async def stream_chat(
             "assistant_message_id": str(assistant_id) if assistant_id else None,
             "response": answer,
             "model": model,
-            "fallback_used": bool(done_payload.get("fallback_used")),
+            "fallback_used": turn_fallback_used,
             "tools_available_count": tools_bound_count,
             "tools_invoked": tools_invoked,
             "retrieval_count": retrieval_count,

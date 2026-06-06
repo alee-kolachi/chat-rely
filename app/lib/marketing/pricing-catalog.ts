@@ -57,6 +57,48 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
   },
 ];
 
+/** Feature bullets on the marketing pricing page cards (Hunter-style layout). */
+export const PRICING_CARD_BULLETS: Record<PricingTierSlug, readonly string[]> = {
+  free: [
+    "1 agent",
+    "30 conversations per month",
+    "Essential AI",
+    "Website knowledge",
+    "Shopify connect",
+    "500 KB training content",
+    "Always on",
+  ],
+  hobby: [
+    "Everything in Free",
+    "250 conversations per month",
+    "3 AI actions per agent",
+    "Basic analytics",
+    "15 MB training content",
+    "Always on",
+  ],
+  standard: [
+    "Everything in Hobby",
+    "2 agents",
+    "1,000 conversations per month",
+    "Smart resolution",
+    "5 AI actions per agent",
+    "Advanced analytics",
+    "Sources suggestions",
+    "40 MB training content",
+    "Always on",
+  ],
+  pro: [
+    "Everything in Standard",
+    "5 agents",
+    "5,000 conversations per month",
+    "Visitor feedback summaries",
+    "8 AI actions per agent",
+    "Remove Powered by ChatRely",
+    "100 MB training content",
+    "Always on",
+  ],
+};
+
 /** Short bullets for onboarding plan cards. Home teaser uses the feature row list. */
 export const PRICING_TEASER_BULLETS: Record<PricingTierSlug, readonly string[]> = {
   free: ["1 agent · essential AI", "Website knowledge · Shopify connect", "30 conversations / mo · always on"],

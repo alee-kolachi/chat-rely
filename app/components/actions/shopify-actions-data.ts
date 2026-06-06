@@ -59,14 +59,6 @@ export const shopifyActions: ShopifyAction[] = [
       "Call when the user asks about availability, price, variants, or wants a product recommendation.",
     configFields: [
       {
-        type: "multi",
-        key: "searchableFields",
-        label: "Searchable fields",
-        options: ["title", "tags", "sku", "vendor", "product_type"],
-        defaultValue: ["title", "tags", "sku"],
-        help: "Fields the agent will match the customer query against.",
-      },
-      {
         type: "number",
         key: "maxResults",
         label: "Max results",
@@ -76,17 +68,11 @@ export const shopifyActions: ShopifyAction[] = [
         help: "Maximum number of products returned per call.",
       },
       {
-        type: "select",
-        key: "language",
-        label: "Response language",
-        options: ["Auto detect", "English", "French", "Spanish", "German"],
-        defaultValue: "Auto detect",
-      },
-      {
         type: "toggle",
         key: "includeOutOfStock",
         label: "Include out-of-stock products",
         defaultValue: false,
+        help: "When off, products with no in-stock variants are omitted from results.",
       },
     ],
     testFields: [
@@ -125,22 +111,7 @@ export const shopifyActions: ShopifyAction[] = [
     ],
     triggerGuidance:
       "Call when the user asks about order status, tracking, delivery dates, or carrier info.",
-    configFields: [
-      {
-        type: "text",
-        key: "lookupIdentifiers",
-        label: "Lookup identifiers",
-        defaultValue: "Order number, customer email",
-        help: "What the agent sends to Shopify. Phone lookup is not supported.",
-      },
-      {
-        type: "text",
-        key: "statusAndTracking",
-        label: "Status and tracking",
-        defaultValue: "From Shopify when available",
-        help: "Fulfillment, payment status, and tracking links come from live order data. Status filters and tracking toggles are not configurable yet.",
-      },
-    ],
+    configFields: [],
     testFields: [
       { key: "orderNumber", label: "Order number", placeholder: "8842", defaultValue: "8842" },
     ],

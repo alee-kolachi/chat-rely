@@ -1,103 +1,110 @@
-import Link from "next/link";
-import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import { BookOpen, LayoutGrid, MessagesSquare, RefreshCw } from "lucide-react";
+import { LandingReveal } from "@/components/marketing/landing/landing-reveal";
 import { LandingSectionLabel } from "@/components/marketing/landing/landing-section-label";
-import {
-  StorySceneAccurate,
-  StorySceneHandoff,
-  StorySceneShopify,
-} from "@/components/marketing/landing/story/scenes";
 import { cn } from "@/lib/utils";
 
-const FEATURE_MEDIA_WIDTH = "max-w-[360px]";
+type PanelTheme = "gray" | "purple";
 
-const features = [
+const panels: {
+  theme: PanelTheme;
+  label: string;
+  title: string;
+  body: string;
+  icon: LucideIcon;
+}[] = [
   {
-    title: "Always on, even during your biggest sales",
-    body: "Flash sale at midnight. Black Friday traffic spike. Your agent stays live through all of it. No credit cliff. No \"unavailable\" message. Just your brand showing up when it matters most.",
-    tint: "bg-[#f5e6a3]",
-    scene: <StorySceneShopify />,
+    theme: "gray",
+    label: "Flat pricing",
+    title: "No message credits. No mid-month shutdown.",
+    body: "Monthly plans cap conversations, not individual replies. Your widget stays live when traffic spikes instead of hitting a credit wall.",
+    icon: MessagesSquare,
   },
   {
-    title: "Answers from your live store, not last week's upload",
-    body: "Price drop on Tuesday? New product Wednesday? Policy update Thursday? Your agent already knows. ChatRely stays connected to your Shopify admin, so what customers hear always matches what your store actually says.",
-    tint: "bg-[#f5e6a3]",
-    scene: <StorySceneAccurate />,
+    theme: "purple",
+    label: "Live data",
+    title: "Shopify and your sources at answer time.",
+    body: "Orders, stock, and catalog are fetched when the shopper asks. Policies and FAQs come from your search index, not a stale spreadsheet upload.",
+    icon: RefreshCw,
   },
   {
-    title: "Does the work, doesn't just answer the question",
-    body: "Pulls up real order status. Opens a support ticket with the full conversation attached. Sends the follow-up email. Hands off to your team with everything they need to act, not a blank screen and a frustrated customer starting over.",
-    tint: "bg-[#e5937f]",
-    scene: <StorySceneHandoff />,
+    theme: "purple",
+    label: "Grounded answers",
+    title: "Q&A, your index, and Shopify tools.",
+    body: "Q&A pairs are indexed with your site content and files, then retrieved at reply time. Live catalog and orders come from Shopify tools. The agent stays in those sources and says when it is not sure. Avg resolution confidence appears in analytics after chats close.",
+    icon: BookOpen,
   },
-] as const;
+  {
+    theme: "gray",
+    label: "Storefront sales",
+    title: "Product cards in chat, not a FAQ wall.",
+    body: "Catalog search returns swipeable cards with image, price, and live stock. Shoppers browse and compare products inside the thread instead of getting a static answer block.",
+    icon: LayoutGrid,
+  },
+];
 
-function FeatureStoryCard({ tint, scene }: { tint: string; scene: ReactNode }) {
+function PanelIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <div
-      className={`${tint} relative aspect-square w-full overflow-hidden rounded-[28px] border border-black/5 p-4 sm:p-5`}
+      className="flex size-20 shrink-0 items-center justify-center self-center rounded-2xl border border-ds-primary/20 bg-ds-primary/10 sm:size-24 lg:self-start"
+      aria-hidden
     >
-      <div className="h-full w-full">{scene}</div>
+      <Icon className="size-9 text-ds-primary sm:size-10" strokeWidth={1.5} />
     </div>
+  );
+}
+
+function SwitchPanel({
+  theme,
+  label,
+  title,
+  body,
+  icon,
+}: {
+  theme: PanelTheme;
+  label: string;
+  title: string;
+  body: string;
+  icon: LucideIcon;
+}) {
+  const isPurple = theme === "purple";
+
+  return (
+    <article
+      className={cn(
+        "flex h-full flex-col items-center gap-6 px-6 py-9 sm:px-8 sm:py-10 lg:flex-row lg:items-start lg:justify-between lg:gap-8 lg:px-10 lg:py-11",
+        isPurple ? "bg-[#faf7ff]" : "bg-[#fafafa]",
+      )}
+    >
+      <div className="w-full max-w-md flex-1 text-center lg:text-left">
+        <p className="mkt-font text-[11px] font-semibold uppercase tracking-[0.14em] text-ds-primary">{label}</p>
+        <h3 className="mkt-display mt-3 text-[1.625rem] leading-snug text-ds-on-surface sm:text-[1.75rem]">{title}</h3>
+        <p className="mkt-font mt-3 text-sm leading-relaxed text-ds-on-surface-variant sm:text-[0.9375rem]">{body}</p>
+      </div>
+
+      <PanelIcon icon={icon} />
+    </article>
   );
 }
 
 export function LandingProductSection() {
   return (
-    <section id="product" className="bg-ds-surface px-6 py-20 sm:py-24">
-      <div className="mx-auto max-w-[1100px]">
-        <LandingSectionLabel tone="light">Product</LandingSectionLabel>
-
-        <div className="mt-6">
-          <h2 className="mkt-display max-w-4xl text-5xl sm:text-6xl">
-            Support that stays on, stays accurate, and gets things done
+    <section id="product" className="bg-ds-surface">
+      <div className="mx-auto max-w-[1100px] px-6 pb-8 pt-14 sm:pb-10 sm:pt-16">
+        <LandingReveal>
+          <LandingSectionLabel tone="light">Problems we solve</LandingSectionLabel>
+          <h2 className="mkt-display mt-5 max-w-2xl text-3xl sm:text-4xl">
+            What breaks on other support bots
           </h2>
-          <p className="mkt-body mt-5 max-w-3xl">
-            ChatRely connects directly to your live Shopify store, looking up orders, handling returns, and escalating
-            with full context, so your customers never hit an error screen and your team never starts from scratch.
-          </p>
-        </div>
+        </LandingReveal>
+      </div>
 
-        <div className="mt-14 space-y-20 sm:space-y-24">
-          {features.map((feature, index) => {
-            const reversed = index % 2 === 1;
-
-            return (
-              <article
-                key={feature.title}
-                className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-x-20 xl:gap-x-24"
-              >
-                <div
-                  className={cn(
-                    "flex w-full justify-center",
-                    reversed ? "lg:order-2 lg:justify-start" : "lg:justify-end",
-                  )}
-                >
-                  <div className={cn("w-full", FEATURE_MEDIA_WIDTH)}>
-                    <FeatureStoryCard tint={feature.tint} scene={feature.scene} />
-                  </div>
-                </div>
-
-                <div
-                  className={cn(
-                    "flex w-full justify-center",
-                    reversed ? "lg:order-1 lg:justify-end" : "lg:justify-start",
-                  )}
-                >
-                  <div className={cn("w-full text-left", FEATURE_MEDIA_WIDTH)}>
-                    <h3 className="mkt-display text-3xl sm:text-4xl">{feature.title}</h3>
-                    <p className="mkt-body mt-4">{feature.body}</p>
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-
-        <div className="mt-12 flex justify-center sm:mt-14">
-          <Link href="/pricing" className="mkt-pill mkt-pill-outline">
-            Explore plans →
-          </Link>
-        </div>
+      <div className="grid grid-cols-1 gap-px bg-ds-outline lg:grid-cols-2 lg:auto-rows-fr">
+        {panels.map((panel, index) => (
+          <LandingReveal key={panel.title} className="h-full" delayMs={index * 60}>
+            <SwitchPanel {...panel} />
+          </LandingReveal>
+        ))}
       </div>
     </section>
   );

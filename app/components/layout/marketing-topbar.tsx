@@ -63,7 +63,7 @@ export function MarketingTopbar() {
         <div className="flex items-center gap-2 sm:gap-3">
           {showDashboard ? (
             <Link href="/dashboard" className="mkt-pill mkt-pill-dark hidden px-4 py-2 md:inline-flex">
-              Open dashboard →
+              Open dashboard
             </Link>
           ) : (
             <>
@@ -74,7 +74,7 @@ export function MarketingTopbar() {
                 Log in
               </Link>
               <Link href="/signup" className="mkt-pill mkt-pill-dark px-4 py-2 text-[13px]">
-                Start free →
+                Start free
               </Link>
             </>
           )}

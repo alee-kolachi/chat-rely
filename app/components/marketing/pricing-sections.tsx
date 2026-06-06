@@ -5,6 +5,7 @@ import { Fragment, useMemo } from "react";
 
 import { InfoHint } from "@/components/ui/info-hint";
 import {
+  PRICING_CARD_BULLETS,
   PRICING_DETAIL_SECTIONS,
   PRICING_TEASER_BULLETS,
   PRICING_TIER_CARDS,
@@ -17,6 +18,26 @@ import {
 import { formatMonthlyPrice } from "@/hooks/use-public-plans";
 
 export type PricingCardsVariant = "teaser" | "onboarding";
+
+function pricingCardCtaLabel(
+  plan: (typeof PRICING_TIER_CARDS)[number],
+  context: PricingCardsVariant | "pricing",
+  isAuthenticated: boolean,
+  checkoutBusy: boolean,
+  onPlanCheckout?: (slug: PricingTierSlug) => void,
+): string {
+  if (checkoutBusy) {
+    return plan.slug === "free" && context === "onboarding" ? "Continuing…" : "Opening checkout…";
+  }
+  if (context === "onboarding" && plan.slug === "free") {
+    return "Continue with Free";
+  }
+  if (onPlanCheckout) {
+    return plan.slug === "free" && isAuthenticated ? "Open dashboard" : "Get started";
+  }
+  const { label } = planCta(plan.slug, isAuthenticated);
+  return label === "Choose plan" ? "Get started" : label;
+}
 
 function planCta(slug: string, isAuthenticated: boolean): { href: string; label: string } {
   if (slug === "free") {
@@ -440,6 +461,263 @@ function PricingMatrixFeatureBody() {
   );
 }
 
+function PricingCardCheckIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={`size-4 shrink-0 ${className}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+    </svg>
+  );
+}
+
+function hunterCardCtaClassName(highlighted: boolean) {
+  return highlighted
+    ? "bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
+    : "border-2 border-ds-primary text-ds-primary hover:bg-ds-primary hover:text-ds-on-primary";
+}
+
+type PricingPlanCardProps = {
+  plan: (typeof PRICING_TIER_CARDS)[number];
+  highlighted?: boolean;
+  context?: PricingCardsVariant | "pricing";
+  isAuthenticated: boolean;
+  onPlanCheckout?: (slug: PricingTierSlug) => void;
+  checkoutBusySlug?: string | null;
+};
+
+function PricingPlanCard({
+  plan,
+  highlighted = false,
+  context = "pricing",
+  isAuthenticated,
+  onPlanCheckout,
+  checkoutBusySlug = null,
+}: PricingPlanCardProps) {
+  const { price, period } = formatMonthlyPrice(plan.monthlyPriceCents);
+  const cta = planCta(plan.slug, isAuthenticated);
+  const checkoutBusy = checkoutBusySlug === plan.slug;
+  const bullets = PRICING_CARD_BULLETS[plan.slug];
+  const ctaLabel = pricingCardCtaLabel(plan, context, isAuthenticated, checkoutBusy, onPlanCheckout);
+
+  const ctaClass = `mt-6 inline-flex w-full min-h-11 items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70 ${hunterCardCtaClassName(highlighted)}`;
+
+  return (
+    <article
+      className={`flex h-full flex-col rounded-2xl border bg-white p-6 shadow-[0_1px_3px_rgba(15,23,42,0.06)] sm:p-7 ${
+        highlighted
+          ? "border-ds-primary/35 ring-2 ring-ds-primary/15"
+          : "border-ds-outline"
+      }`}
+    >
+      <div className="mb-1 flex min-h-[1.5rem] items-center">
+        {highlighted ? (
+          <span className="inline-flex rounded-full bg-ds-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ds-on-primary">
+            Popular
+          </span>
+        ) : null}
+      </div>
+      <h3 className="text-lg font-semibold tracking-tight text-ds-on-surface">{plan.name}</h3>
+      <div className="mt-4 flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+        <span className="text-4xl font-bold tabular-nums tracking-tight text-ds-on-surface">{price}</span>
+        {period ? (
+          <span className="text-sm font-medium text-ds-on-surface-variant">{period}</span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-sm leading-snug text-ds-on-surface-variant">{plan.tagline}</p>
+      {onPlanCheckout ? (
+        <button
+          type="button"
+          disabled={checkoutBusy}
+          onClick={() => onPlanCheckout(plan.slug)}
+          className={ctaClass}
+        >
+          {ctaLabel}
+        </button>
+      ) : (
+        <Link href={cta.href} className={ctaClass}>
+          {ctaLabel}
+        </Link>
+      )}
+      <div className="border-ds-outline/70 mt-6 border-t pt-6">
+        <ul className="space-y-3 text-sm leading-snug text-ds-on-surface">
+          {bullets.map((line) => (
+            <li key={line} className="flex gap-2.5">
+              <span className="mt-0.5 inline-flex size-5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700">
+                <PricingCardCheckIcon />
+              </span>
+              <span className="min-w-0">{line}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+type PricingPlanCardsGridProps = {
+  context?: PricingCardsVariant | "pricing";
+  isAuthenticated?: boolean;
+  onPlanCheckout?: (slug: PricingTierSlug) => void;
+  checkoutBusySlug?: string | null;
+};
+
+/** Hunter-style separate plan cards in a responsive grid. */
+export function PricingPlanCardsGrid({
+  context = "pricing",
+  isAuthenticated = false,
+  onPlanCheckout,
+  checkoutBusySlug = null,
+}: PricingPlanCardsGridProps) {
+  return (
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
+      {PRICING_TIER_CARDS.map((plan) => (
+        <PricingPlanCard
+          key={plan.slug}
+          plan={plan}
+          highlighted={plan.slug === "standard"}
+          context={context}
+          isAuthenticated={isAuthenticated}
+          onPlanCheckout={onPlanCheckout}
+          checkoutBusySlug={checkoutBusySlug}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PricingComparisonPlanHeader({
+  isAuthenticated,
+  onPlanCheckout,
+  checkoutBusySlug = null,
+}: {
+  isAuthenticated: boolean;
+  onPlanCheckout?: (slug: PricingTierSlug) => void;
+  checkoutBusySlug?: string | null;
+}) {
+  return (
+    <tr className="border-b border-ds-outline bg-white">
+      <th
+        scope="col"
+        className="sticky left-0 z-10 bg-white px-4 py-4 text-left text-sm font-semibold text-ds-on-surface sm:px-5"
+      >
+        <span className="sr-only">Feature</span>
+      </th>
+      {PRICING_TIER_CARDS.map((plan) => {
+        const { price, period } = formatMonthlyPrice(plan.monthlyPriceCents);
+        const cta = planCta(plan.slug, isAuthenticated);
+        const checkoutBusy = checkoutBusySlug === plan.slug;
+        const highlighted = plan.slug === "standard";
+
+        return (
+          <th
+            key={plan.slug}
+            scope="col"
+            className={`min-w-[9rem] px-3 py-4 text-center align-top sm:min-w-[10rem] sm:px-4 ${
+              highlighted ? "bg-ds-primary/[0.04]" : ""
+            }`}
+          >
+            <p className="text-sm font-semibold text-ds-on-surface">{plan.name}</p>
+            <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight text-ds-on-surface">
+              {price}
+              {period ? (
+                <span className="text-ds-on-surface-variant text-sm font-medium"> {period}</span>
+              ) : null}
+            </p>
+            {onPlanCheckout ? (
+              <button
+                type="button"
+                disabled={checkoutBusy}
+                onClick={() => onPlanCheckout(plan.slug)}
+                className={`mt-3 inline-flex min-h-9 w-full max-w-[9.5rem] items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70 sm:text-sm ${hunterCardCtaClassName(highlighted)}`}
+              >
+                {checkoutBusy ? "Opening…" : plan.slug === "free" ? "Get started" : "Get started"}
+              </button>
+            ) : (
+              <Link
+                href={cta.href}
+                className={`mt-3 inline-flex min-h-9 w-full max-w-[9.5rem] items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${hunterCardCtaClassName(highlighted)}`}
+              >
+                Get started
+              </Link>
+            )}
+          </th>
+        );
+      })}
+    </tr>
+  );
+}
+
+type PricingComparisonTableProps = {
+  isAuthenticated?: boolean;
+  onPlanCheckout?: (slug: PricingTierSlug) => void;
+  checkoutBusySlug?: string | null;
+};
+
+/** Feature comparison table below the plan cards. */
+export function PricingComparisonTable({
+  isAuthenticated = false,
+  onPlanCheckout,
+  checkoutBusySlug = null,
+}: PricingComparisonTableProps) {
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-ds-outline bg-white shadow-sm">
+      <table className="w-full min-w-[48rem] border-collapse text-left">
+        <PricingTableColgroup />
+        <thead>
+          <PricingComparisonPlanHeader
+            isAuthenticated={isAuthenticated}
+            onPlanCheckout={onPlanCheckout}
+            checkoutBusySlug={checkoutBusySlug}
+          />
+        </thead>
+        <tbody>
+          <PricingMatrixFeatureBody />
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type PricingPagePlansProps = {
+  isAuthenticated?: boolean;
+  onPlanCheckout?: (slug: PricingTierSlug) => void;
+  checkoutBusySlug?: string | null;
+};
+
+/** Full marketing pricing page: Hunter-style cards plus comparison table. */
+export function PricingPagePlans({
+  isAuthenticated = false,
+  onPlanCheckout,
+  checkoutBusySlug = null,
+}: PricingPagePlansProps) {
+  return (
+    <div className="space-y-16 sm:space-y-20">
+      <PricingPlanCardsGrid
+        context="pricing"
+        isAuthenticated={isAuthenticated}
+        onPlanCheckout={onPlanCheckout}
+        checkoutBusySlug={checkoutBusySlug}
+      />
+      <section>
+        <h2 className="mb-8 text-center text-2xl font-bold tracking-tight text-ds-on-surface sm:text-3xl">
+          Compare plans and features
+        </h2>
+        <PricingComparisonTable
+          isAuthenticated={isAuthenticated}
+          onPlanCheckout={onPlanCheckout}
+          checkoutBusySlug={checkoutBusySlug}
+        />
+      </section>
+    </div>
+  );
+}
+
 /** Full pricing table: desktop = sticky united plan cards + scrolling feature rows; mobile = stacked plan cards. */
 type PricingFeatureMatrixProps = {
   isAuthenticated?: boolean;
@@ -528,8 +806,6 @@ export function PricingCards({
   onPlanCheckout,
   checkoutBusySlug = null,
 }: PricingCardsProps) {
-  const isOnboarding = variant === "onboarding";
-
   if (loadError) {
     return (
       <div className="border-ds-outline text-ds-on-surface-variant rounded-ds-xl border bg-ds-surface p-6 text-center text-sm">
@@ -539,17 +815,11 @@ export function PricingCards({
   }
 
   return (
-    <div className={unitedPlanChrome(isOnboarding ? "onboarding" : "teaser").shell}>
-      <PricingUnitedPlanColumns
-        density={isOnboarding ? "onboarding" : "landing"}
-        isAuthenticated={isAuthenticated}
-        showTagline
-        showFeatureRows={!isOnboarding}
-        showTeaserBullets={isOnboarding}
-        onPlanCheckout={isOnboarding ? onPlanCheckout : undefined}
-        checkoutBusySlug={checkoutBusySlug}
-        variant={variant}
-      />
-    </div>
+    <PricingPlanCardsGrid
+      context={variant}
+      isAuthenticated={isAuthenticated}
+      onPlanCheckout={variant === "onboarding" ? onPlanCheckout : undefined}
+      checkoutBusySlug={checkoutBusySlug}
+    />
   );
 }

@@ -10,6 +10,7 @@ from langchain_core.messages import BaseMessage
 
 from app.agent.llm import make_chat_model
 from app.agent.messages import text_delta_from_stream_chunk, usage_tokens_from_model_message
+from app.domains.runtime.service import response_used_fallback
 
 
 def format_sse(event: str, data: dict[str, Any]) -> str:
@@ -39,11 +40,16 @@ async def stream_llm_sse(
             usage_out += out_t
 
     final = "".join(parts).strip()
-    fallback_used = False
+    explicit_fallback = False
     if not final and fallback_message:
         final = fallback_message.strip()
-        fallback_used = True
+        explicit_fallback = True
         yield format_sse("token", {"text": final})
+    fallback_used = response_used_fallback(
+        final,
+        fallback_message=fallback_message,
+        explicit=explicit_fallback,
+    )
 
     yield format_sse(
         "done",

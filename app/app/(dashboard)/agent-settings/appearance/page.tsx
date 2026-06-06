@@ -143,9 +143,10 @@ function AppearanceForm() {
     [previewAppearance, previewBrandColor]
   );
   const previewSampleTimestamp = useMemo(() => new Date().toISOString(), []);
-  const previewBrandChrome = useMemo(
-    () => brandChromeClasses(resolvedPreview.colors.header),
-    [resolvedPreview.colors.header]
+  const previewAccentColor = resolvedPreview.colors.header;
+  const previewAccentChrome = useMemo(
+    () => brandChromeClasses(previewAccentColor),
+    [previewAccentColor]
   );
 
   const agentDisplayName = selectedAgent?.name?.trim() || "Support";
@@ -379,18 +380,11 @@ function AppearanceForm() {
               <h2 className="ds-app-section-title">Widget styling</h2>
             </PlanFeatureLabel>
             <p className="text-ds-on-surface-variant text-sm leading-relaxed">
-              Dark mode, fonts, and per-area colors for a white-label storefront widget.
+              Dark mode and font for your storefront widget.
             </p>
           </div>
 
           <div className="space-y-6">
-            <div>
-              <div className="mb-4">
-                <PlanFeatureLabel showCrown={widgetStyling.showCrown}>
-                  <p className="text-ds-on-surface text-sm font-semibold">Theme &amp; font</p>
-                </PlanFeatureLabel>
-              </div>
-              <div className="space-y-6">
             <div>
               <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
                 <p className="text-ds-on-surface text-sm font-semibold">Theme</p>
@@ -435,101 +429,98 @@ function AppearanceForm() {
                 ))}
               </select>
             </div>
-              </div>
-            </div>
+          </div>
+        </section>
 
-            <div>
-              <div className="mb-4">
-                <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
-                  <p className="text-ds-on-surface text-sm font-semibold">Widget colors</p>
-                </PlanFeatureLabel>
-                <p className="ds-app-body-muted text-sm">
-                  Override header, chat background, bubbles, and input area. Leave blank to use theme defaults.
-                </p>
-              </div>
-              <div className="space-y-6">
-                {WIDGET_COLOR_GROUPS.map((group) => {
-                  const groupFields = WIDGET_COLOR_FIELDS.filter((field) =>
-                    (group.fields as readonly string[]).includes(field.key)
-                  );
-                  return (
-                    <div key={group.title}>
-                      <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-0">
-                        <p className="text-ds-on-surface text-sm font-semibold">{group.title}</p>
-                      </PlanFeatureLabel>
-                      <p className="ds-app-body-muted mb-3 text-xs">{group.description}</p>
-                      <div className="space-y-4">
-                        {groupFields.map((field) => {
-                          const raw = customColors[field.key]?.replace("#", "") ?? "";
-                          const swatchHex = swatchColorForField(field);
-                          const hexIncomplete = raw.length > 0 && raw.length < 6;
-                          const showFieldHeading =
-                            groupFields.length > 1 || field.label !== group.title;
-                          return (
-                            <div
-                              key={field.key}
-                              className="border-ds-outline-subtle rounded-ds-lg border bg-ds-app-canvas/60 p-3"
-                            >
-                              {showFieldHeading ? (
-                                <>
-                                  <p className="text-ds-on-surface text-sm font-medium">{field.label}</p>
-                                  <p className="ds-app-body-muted mb-2 text-xs">{field.hint}</p>
-                                </>
-                              ) : null}
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span
-                                  className="border-ds-outline-subtle size-8 shrink-0 rounded-ds-md border"
-                                  style={{ backgroundColor: swatchHex }}
-                                  aria-hidden
-                                />
-                                <div className="border-ds-outline-subtle flex items-center overflow-hidden rounded-ds-md border">
-                                  <span className="ds-app-body-muted px-2 font-mono">#</span>
-                                  <input
-                                    className="ds-app-field ds-app-field-canvas w-24 border-0 py-2 font-mono text-xs uppercase focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
-                                    value={raw}
-                                    placeholder={field.usesBrand ? "Brand" : "Auto"}
-                                    disabled={widgetStyling.blockInteraction}
-                                    onChange={(e) => updateCustomColor(field.key, e.target.value)}
-                                    aria-label={`${field.label} hex color`}
-                                    spellCheck={false}
-                                  />
-                                </div>
-                                {raw ? (
-                                  <button
-                                    type="button"
-                                    className="text-ds-on-surface-variant text-xs font-medium hover:text-ds-on-surface disabled:cursor-not-allowed disabled:opacity-60"
-                                    disabled={widgetStyling.blockInteraction}
-                                    onClick={() => updateCustomColor(field.key, "")}
-                                  >
-                                    Clear
-                                  </button>
-                                ) : null}
-                              </div>
-                              {hexIncomplete ? (
-                                <p className="mt-2 text-xs font-medium text-amber-700">
-                                  Enter 6 hex characters (e.g. FF24FF). Preview uses a padded color until
-                                  complete.
-                                </p>
-                              ) : null}
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+          <div className="mb-6">
+            <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
+              <h2 className="ds-app-section-title">Widget colors</h2>
+            </PlanFeatureLabel>
+            <p className="text-ds-on-surface-variant text-sm leading-relaxed">
+              Override header, chat background, bubbles, and input area. Leave blank to use theme defaults.
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {WIDGET_COLOR_GROUPS.map((group) => {
+              const groupFields = WIDGET_COLOR_FIELDS.filter((field) =>
+                (group.fields as readonly string[]).includes(field.key)
+              );
+              return (
+                <div key={group.title}>
+                  <p className="text-ds-on-surface text-sm font-semibold">{group.title}</p>
+                  <p className="ds-app-body-muted mb-3 text-xs">{group.description}</p>
+                  <div className="space-y-4">
+                    {groupFields.map((field) => {
+                      const raw = customColors[field.key]?.replace("#", "") ?? "";
+                      const swatchHex = swatchColorForField(field);
+                      const hexIncomplete = raw.length > 0 && raw.length < 6;
+                      const showFieldHeading =
+                        groupFields.length > 1 || field.label !== group.title;
+                      return (
+                        <div
+                          key={field.key}
+                          className="border-ds-outline-subtle rounded-ds-lg border bg-ds-surface p-3"
+                        >
+                          {showFieldHeading ? (
+                            <>
+                              <p className="text-ds-on-surface text-sm font-medium">{field.label}</p>
+                              <p className="ds-app-body-muted mb-2 text-xs">{field.hint}</p>
+                            </>
+                          ) : null}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className="border-ds-outline-subtle size-8 shrink-0 rounded-ds-md border"
+                              style={{ backgroundColor: swatchHex }}
+                              aria-hidden
+                            />
+                            <div className="border-ds-outline-subtle flex items-center overflow-hidden rounded-ds-md border bg-ds-surface">
+                              <span className="ds-app-body-muted px-2 font-mono">#</span>
+                              <input
+                                className="ds-app-field w-24 border-0 bg-ds-surface py-2 font-mono text-xs uppercase focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
+                                value={raw}
+                                placeholder={field.usesBrand ? "Brand" : "Auto"}
+                                disabled={widgetStyling.blockInteraction}
+                                onChange={(e) => updateCustomColor(field.key, e.target.value)}
+                                aria-label={`${field.label} hex color`}
+                                spellCheck={false}
+                              />
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-end pt-2">
-                <button
-                  type="button"
-                  className={appButtonClassName("default", { size: "sm" })}
-                  disabled={widgetStyling.blockInteraction}
-                  onClick={resetAdvancedColors}
-                >
-                  Reset to theme defaults
-                </button>
-              </div>
-            </div>
+                            {raw ? (
+                              <button
+                                type="button"
+                                className="text-ds-on-surface-variant text-xs font-medium hover:text-ds-on-surface disabled:cursor-not-allowed disabled:opacity-60"
+                                disabled={widgetStyling.blockInteraction}
+                                onClick={() => updateCustomColor(field.key, "")}
+                              >
+                                Clear
+                              </button>
+                            ) : null}
+                          </div>
+                          {hexIncomplete ? (
+                            <p className="mt-2 text-xs font-medium text-amber-700">
+                              Enter 6 hex characters (e.g. FF24FF). Preview uses a padded color until
+                              complete.
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-6 flex justify-end">
+            <button
+              type="button"
+              className={appButtonClassName("default", { size: "sm" })}
+              disabled={widgetStyling.blockInteraction}
+              onClick={resetAdvancedColors}
+            >
+              Reset to theme defaults
+            </button>
           </div>
         </section>
       </div>
@@ -555,8 +546,11 @@ function AppearanceForm() {
                       Write a message…
                     </span>
                     <span
-                      className="mb-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] text-white"
-                      style={{ backgroundColor: previewBrandColor }}
+                      className={cn(
+                        "mb-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[10px]",
+                        previewAccentChrome.fabIconClass
+                      )}
+                      style={{ backgroundColor: previewAccentColor }}
                       aria-hidden
                     >
                       <Send className="size-4" strokeWidth={1.8} />
@@ -603,9 +597,9 @@ function AppearanceForm() {
             <WidgetBrandAvatar
               logoUrl={websiteLogoUrl}
               logoPending={websiteLogoPending}
-              hasBrand={Boolean(previewBrandColor)}
-              chrome={previewBrandChrome}
-              brandColorHex={previewBrandColor}
+              hasBrand
+              chrome={previewAccentChrome}
+              brandColorHex={previewAccentColor}
               size="launcher"
             />
           </div>

@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
 import { CHAT_RELY_LOGO_PATH } from "@/components/branding/chat-rely-wordmark";
+import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
+import {
+  LandingProductCarousel,
+  preloadLandingProductImages,
+} from "@/components/marketing/landing/landing-product-carousel";
+import { LANDING_DEMO_SHOE_PRODUCTS } from "@/lib/marketing/landing-demo-products";
+import type { ProductCard } from "@/lib/product-card";
 import { cn } from "@/lib/utils";
 
 /** Shared message shape for demo playback and future live chat. */
@@ -10,6 +17,7 @@ export type HeroChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  products?: ProductCard[];
 };
 
 export type HeroChatDemoTurn = {
@@ -17,6 +25,7 @@ export type HeroChatDemoTurn = {
   userMessage: string;
   steps: readonly string[];
   agentReply: string;
+  products?: ProductCard[];
 };
 
 export const HERO_CHAT_DEMO_SCRIPT: HeroChatDemoTurn[] = [
@@ -27,10 +36,11 @@ export const HERO_CHAT_DEMO_SCRIPT: HeroChatDemoTurn[] = [
     agentReply: "Order #1042 shipped yesterday. Tracking: 1Z999AA10123456784.",
   },
   {
-    id: "stock",
-    userMessage: "Is the blue hoodie in stock in size M?",
-    steps: ["Identifying intent", "Searching catalog", "Checking inventory"],
-    agentReply: "Yes, the blue hoodie in M is in stock. 12 units available at your nearest warehouse.",
+    id: "catalog",
+    userMessage: "Show me running shoes in size 9.",
+    steps: ["Searching catalog", "Checking inventory"],
+    agentReply: "Here are running shoes in size 9 from your live catalog:",
+    products: LANDING_DEMO_SHOE_PRODUCTS,
   },
   {
     id: "return",
@@ -113,8 +123,23 @@ function TypingBubble() {
   );
 }
 
+const ASSISTANT_BUBBLE_CLASS =
+  "mkt-chat-message rounded-2xl rounded-tl-md border border-ds-outline bg-white px-3 py-2 text-ds-on-surface-variant shadow-sm";
+
 function ChatBubble({ message }: { message: HeroChatMessage }) {
   const isUser = message.role === "user";
+  const hasProducts = !isUser && Boolean(message.products?.length);
+
+  if (hasProducts && message.products) {
+    return (
+      <div className={cn("flex justify-start", MSG_IN_ANIMATION)}>
+        <div className="flex w-full min-w-0 max-w-[95%] flex-col gap-2">
+          <div className={cn(ASSISTANT_BUBBLE_CLASS, "max-w-full text-left")}>{message.content}</div>
+          <LandingProductCarousel products={message.products} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex", MSG_IN_ANIMATION, isUser ? "justify-end" : "justify-start")}>
@@ -122,7 +147,7 @@ function ChatBubble({ message }: { message: HeroChatMessage }) {
         className={
           isUser
             ? "mkt-chat-message max-w-[85%] rounded-2xl rounded-tr-md bg-[#2f2f2f] px-3 py-2 text-left !text-white"
-            : "mkt-chat-message max-w-[90%] rounded-2xl rounded-tl-md border border-ds-outline bg-white px-3 py-2 text-ds-on-surface-variant shadow-sm"
+            : cn(ASSISTANT_BUBBLE_CLASS, "max-w-[90%]")
         }
       >
         {message.content}
@@ -139,7 +164,41 @@ type HeroChatDemoProps = {
   mode?: "demo" | "live";
 };
 
+function useAutoRevealOffset(
+  viewportRef: RefObject<HTMLDivElement | null>,
+  contentRef: RefObject<HTMLDivElement | null>,
+  deps: unknown[],
+) {
+  const [offset, setOffset] = useState(0);
+
+  const updateOffset = () => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) return;
+    const overflow = content.scrollHeight - viewport.clientHeight;
+    setOffset(overflow > 0 ? overflow : 0);
+  };
+
+  useLayoutEffect(() => {
+    updateOffset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- caller passes explicit reveal triggers
+  }, deps);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(updateOffset);
+    observer.observe(content);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resize observer follows same reveal triggers
+  }, deps);
+
+  return offset;
+}
+
 export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMessages, mode = "demo" }: HeroChatDemoProps) {
+  const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<HeroChatMessage[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
   const [visibleStep, setVisibleStep] = useState(-1);
@@ -149,6 +208,18 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
   const [playbackKey, setPlaybackKey] = useState(0);
 
   const displayMessages = mode === "live" && liveMessages ? liveMessages : messages;
+  const contentOffset = useAutoRevealOffset(messagesViewportRef, messagesContentRef, [
+    displayMessages,
+    activeSteps,
+    showTyping,
+    visibleStep,
+    stepsFadingOut,
+    playbackKey,
+  ]);
+
+  useEffect(() => {
+    preloadLandingProductImages(LANDING_DEMO_SHOE_PRODUCTS);
+  }, []);
 
   useEffect(() => {
     if (mode !== "demo") return;
@@ -208,7 +279,12 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
       schedule(elapsed, () => {
         setMessages((current) => [
           ...current,
-          { id: `${cycleKey}-${turn.id}-assistant`, role: "assistant", content: turn.agentReply },
+          {
+            id: `${cycleKey}-${turn.id}-assistant`,
+            role: "assistant",
+            content: turn.agentReply,
+            products: turn.products,
+          },
         ]);
         setShowTyping(false);
       });
@@ -225,7 +301,7 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
   }, [playbackKey, mode, script]);
 
   return (
-    <div className="flex h-[min(600px,70vh)] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border border-ds-outline bg-white shadow-ds-lg">
+    <div className="pointer-events-none flex h-[min(600px,70vh)] w-full max-w-[460px] flex-col overflow-hidden rounded-[28px] border border-ds-outline bg-white shadow-ds-lg">
       <div className="flex shrink-0 items-center gap-2 border-b border-ds-outline/80 bg-white px-3 py-2 sm:px-4">
         {/* eslint-disable-next-line @next/next/no-img-element -- static SVG from /public */}
         <img
@@ -250,29 +326,39 @@ export function HeroChatDemo({ script = HERO_CHAT_DEMO_SCRIPT, messages: liveMes
       </div>
 
       <div
-        className="min-h-0 flex-1 space-y-3 overflow-hidden p-4 sm:p-5 mkt-chat-message"
+        ref={messagesViewportRef}
+        className="min-h-0 flex-1 overflow-hidden p-4 sm:p-5 mkt-chat-message"
         style={{ background: MESSAGE_AREA_GRADIENT }}
         aria-live="polite"
         aria-relevant="additions"
       >
-        {displayMessages.map((message) => (
-          <ChatBubble key={message.id} message={message} />
-        ))}
+        <div
+          ref={messagesContentRef}
+          className="space-y-3 pb-8 transition-transform duration-500 ease-out will-change-transform"
+          style={{ transform: `translateY(-${contentOffset}px)` }}
+        >
+          {displayMessages.map((message) => (
+            <ChatBubble key={message.id} message={message} />
+          ))}
 
-        {mode === "demo" && activeSteps ? (
-          <ThinkingSteps steps={activeSteps} visibleStep={visibleStep} fadingOut={stepsFadingOut} />
-        ) : null}
+          {mode === "demo" && activeSteps ? (
+            <ThinkingSteps steps={activeSteps} visibleStep={visibleStep} fadingOut={stepsFadingOut} />
+          ) : null}
 
-        {mode === "demo" && showTyping ? <TypingBubble /> : null}
+          {mode === "demo" && showTyping ? <TypingBubble /> : null}
+        </div>
       </div>
 
-      <div className="shrink-0 border-t border-ds-outline bg-white px-4 py-3">
-        <div
-          className="mkt-chat-message rounded-full border border-ds-outline bg-ds-surface px-3 py-2 text-ds-on-surface-variant"
-          aria-hidden
-        >
-          Message…
+      <div className="shrink-0 border-t border-ds-outline bg-white">
+        <div className="px-4 py-3">
+          <div
+            className="mkt-chat-message rounded-full border border-ds-outline bg-ds-surface px-3 py-2 text-ds-on-surface-variant"
+            aria-hidden
+          >
+            Message…
+          </div>
         </div>
+        <PoweredByChatRely compact className="border-t border-ds-outline/70 bg-ds-surface/60" />
       </div>
     </div>
   );

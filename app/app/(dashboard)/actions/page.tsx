@@ -28,7 +28,8 @@ import { InfoHint } from "@/components/ui/info-hint";
 import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import { useActionDrafts } from "@/hooks/use-action-drafts";
 import { unsavedChangesMessage } from "@/lib/action-draft-utils";
-import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { BackendApiError } from "@/lib/backend-api";
+import { shopifyShopSubdomain, startShopifyOAuth } from "@/lib/shopify-oauth";
 import { shopifyActionSlugToKey } from "@/lib/shopify-action-keys";
 import { SHOPIFY_ADMIN_STOREFRONT_HINT } from "@/lib/shopify-connection-copy";
 import { partitionShopifyActionsForRuntime } from "@/lib/shopify-runtime-cap";
@@ -186,13 +187,11 @@ function ActionsPageContent() {
     }
     setConnectBusy(true);
     try {
-      const returnTo = encodeURIComponent(SHOPIFY_OAUTH_RETURN_TO);
-      const res = await backendFetch<{ authorization_url: string }>(
-        `/api/v1/integrations/shopify/oauth/start?agent_id=${encodeURIComponent(selectedAgentId)}&shop=${encodeURIComponent(
-          shopDraft.trim()
-        )}&return_to=${returnTo}`
-      );
-      window.location.href = res.authorization_url;
+      await startShopifyOAuth({
+        agentId: selectedAgentId,
+        shop: shopDraft,
+        returnTo: SHOPIFY_OAUTH_RETURN_TO,
+      });
     } catch (e) {
       const msg =
         e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not start OAuth";
@@ -207,7 +206,7 @@ function ActionsPageContent() {
 
   useEffect(() => {
     if (shopify?.connected && shopify.shop_domain) {
-      const sub = shopify.shop_domain.replace(/\.myshopify\.com$/i, "");
+      const sub = shopifyShopSubdomain(shopify.shop_domain);
       queueMicrotask(() => setShopDraft((prev) => (prev.trim() ? prev : sub)));
     }
   }, [shopify?.connected, shopify?.shop_domain]);

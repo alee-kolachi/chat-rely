@@ -7,6 +7,7 @@ import {
 } from "@/components/chat/playground-style-chat-panel";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
+import { clientChatContext } from "@/lib/client-context";
 import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
 import { chatSseStream } from "@/lib/chat-sse";
 import { applyChatSseEventToAssistantMessages, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
@@ -231,6 +232,7 @@ export default function AgentPreviewOnboardingPage() {
         message: userMessage,
         conversation_id: conversationId,
         visitor_id: visitorIdRef.current,
+        ...clientChatContext(),
         ...(productAction
           ? {
               product_action: {

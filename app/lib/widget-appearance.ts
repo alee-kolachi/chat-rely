@@ -73,7 +73,12 @@ export const WIDGET_COLOR_FIELDS: ReadonlyArray<{
   hint: string;
   usesBrand?: boolean;
 }> = [
-  { key: "header", label: "Header", hint: "Top bar behind agent name.", usesBrand: true },
+  {
+    key: "header",
+    label: "Brand accent",
+    hint: "Header bar, send button, and storefront launcher.",
+    usesBrand: true,
+  },
   { key: "user_bubble", label: "Visitor messages", hint: "Background for customer replies.", usesBrand: true },
   { key: "panel_background", label: "Chat background", hint: "Main conversation area." },
   { key: "assistant_bubble", label: "Assistant messages", hint: "Background for bot replies." },
@@ -88,8 +93,9 @@ export const WIDGET_COLOR_GROUPS: ReadonlyArray<{
   fields: ReadonlyArray<(typeof WIDGET_COLOR_FIELDS)[number]["key"]>;
 }> = [
   {
-    title: "Header",
-    description: "Top bar behind the agent name and actions.",
+    title: "Brand accent",
+    description:
+      "Chat header, send button, and storefront launcher. Leave blank to use your brand color from Basics.",
     fields: ["header"],
   },
   {

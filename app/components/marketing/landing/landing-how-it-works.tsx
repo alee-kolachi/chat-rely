@@ -4,16 +4,20 @@ import { cn } from "@/lib/utils";
 
 const steps = [
   {
-    title: "Connect your store",
-    body: "Link Shopify in one click. Products, policies, and inventory sync automatically.",
+    title: "Add your help content",
+    body: "Add site pages, FAQs, and policy docs the agent can search.",
   },
   {
-    title: "Set your rules",
-    body: "Choose what your agent handles and what it escalates. Five minutes to set up.",
+    title: "Connect Shopify",
+    body: "Link your store for live catalog, inventory, and order answers.",
   },
   {
-    title: "Go live",
-    body: "Embed one line of code or install via Shopify. Your agent goes live immediately.",
+    title: "Test in Playground",
+    body: "Send test messages against your real setup before go-live.",
+  },
+  {
+    title: "Embed on your store",
+    body: "Paste one snippet. The widget goes live on your storefront.",
   },
 ] as const;
 
@@ -44,19 +48,14 @@ function StepNode({ number, compact = false }: { number: number; compact?: boole
 
 function StepCopy({
   step,
-  number,
   align = "center",
 }: {
   step: (typeof steps)[number];
-  number: number;
   align?: "center" | "left";
 }) {
   return (
     <div className={align === "center" ? "text-center" : "text-left"}>
-      <p className="mkt-font text-[11px] font-semibold uppercase tracking-[0.16em] text-ds-primary transition-colors duration-300 group-hover/step:text-white/90">
-        Step {number}
-      </p>
-      <h3 className="mkt-display mt-3 text-xl !text-white transition-colors duration-300 group-hover/step:!text-white sm:text-2xl">
+      <h3 className="mkt-display text-xl !text-white transition-colors duration-300 group-hover/step:!text-white sm:text-2xl">
         {step.title}
       </h3>
       <p className="mkt-font mt-3 text-sm leading-relaxed text-white/60 transition-colors duration-300 group-hover/step:text-white/75 sm:text-[0.9375rem]">
@@ -68,12 +67,10 @@ function StepCopy({
 
 function StepCard({
   step,
-  number,
   align = "center",
   className,
 }: {
   step: (typeof steps)[number];
-  number: number;
   align?: "center" | "left";
   className?: string;
 }) {
@@ -84,14 +81,14 @@ function StepCard({
         className,
       )}
     >
-      <StepCopy step={step} number={number} align={align} />
+      <StepCopy step={step} align={align} />
     </div>
   );
 }
 
 export function LandingHowItWorks() {
   return (
-    <section className="relative overflow-hidden bg-[#070707] px-6 py-16 sm:py-24">
+    <section className="relative overflow-hidden bg-[#070707] px-6 py-20 sm:py-28 lg:py-32">
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(138,5,255,0.18),transparent)]"
         aria-hidden
@@ -103,26 +100,26 @@ export function LandingHowItWorks() {
         </LandingReveal>
 
         {/* Desktop */}
-        <ol className="relative mt-16 hidden md:grid md:grid-cols-3 md:gap-6 lg:gap-10">
+        <ol className="relative mt-20 hidden md:grid md:grid-cols-4 md:gap-5 lg:gap-8">
           <div
-            className="pointer-events-none absolute top-10 right-[calc(16.67%+2.75rem)] left-[calc(16.67%+2.75rem)] h-0.5 bg-gradient-to-r from-ds-primary/30 via-ds-primary to-ds-primary/30 sm:top-11"
+            className="pointer-events-none absolute top-10 right-[calc(12.5%+2.75rem)] left-[calc(12.5%+2.75rem)] h-0.5 bg-gradient-to-r from-ds-primary/30 via-ds-primary to-ds-primary/30 sm:top-11"
             aria-hidden
           />
 
           {steps.map((step, index) => (
             <li key={step.title} className="group/step flex flex-col items-center">
-              <div className="flex w-full max-w-[300px] cursor-default flex-col items-center">
+              <div className="flex w-full max-w-[240px] cursor-default flex-col items-center lg:max-w-[260px]">
                 <StepNode number={index + 1} />
-                <StepCard step={step} number={index + 1} className="mt-8 w-full px-5 py-6" />
+                <StepCard step={step} className="mt-8 w-full px-5 py-7 lg:py-8" />
               </div>
             </li>
           ))}
         </ol>
 
         {/* Mobile */}
-        <ol className="mt-12 space-y-0 md:hidden">
+        <ol className="mt-14 space-y-0 md:hidden">
           {steps.map((step, index) => (
-            <li key={step.title} className="group/step relative flex gap-5 pb-10 last:pb-0">
+            <li key={step.title} className="group/step relative flex gap-5 pb-12 last:pb-0">
               <div className="flex flex-col items-center">
                 <StepNode number={index + 1} compact />
                 {index < steps.length - 1 ? (
@@ -132,7 +129,7 @@ export function LandingHowItWorks() {
                   />
                 ) : null}
               </div>
-              <StepCard step={step} number={index + 1} align="left" className="flex-1 px-5 py-5 pt-3" />
+              <StepCard step={step} align="left" className="flex-1 px-5 py-5 pt-3" />
             </li>
           ))}
         </ol>
