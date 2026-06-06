@@ -2,6 +2,9 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { CHAT_RELY_LOGO_PATH } from "@/components/branding/chat-rely-wordmark";
 
+/** Spacing for the embed-style strip under the composer (playground, appearance, widget preview). */
+export const WIDGET_POWERED_BY_STRIP_CLASS = "bg-transparent px-5 pt-2.5 pb-4";
+
 type PoweredByChatRelyProps = {
   className?: string;
   /** Smaller icon + text (widget-style strip). */

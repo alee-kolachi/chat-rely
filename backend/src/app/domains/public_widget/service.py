@@ -22,7 +22,14 @@ from app.domains.public_widget.schemas import (
     PublicWidgetVisitorContactRequest,
     PublicWidgetVisitorContactResponse,
 )
-from app.domains.public_widget.welcome import resolve_welcome_message
+from app.domains.public_widget.welcome import resolve_welcome_message, resolve_welcome_messages
+from app.domains.public_widget.welcome_screen import (
+    resolve_welcome_screen_button_label,
+    resolve_welcome_screen_description,
+    resolve_welcome_screen_enabled,
+    resolve_welcome_screen_headline,
+    resolve_welcome_screen_social_links,
+)
 
 WidgetPosition = Literal["bottom_right", "bottom_left"]
 
@@ -85,6 +92,7 @@ def build_public_widget_config(ctx: PublicWidgetAgentContext) -> PublicWidgetCon
     position: WidgetPosition = cast(WidgetPosition, raw_pos if raw_pos in ("bottom_right", "bottom_left") else "bottom_right")
     brand = b.get("brand_color")
     brand_color = str(brand).strip() if isinstance(brand, str) and brand.strip() else None
+    greeting_messages = resolve_welcome_messages(ctx.name, b)
     greeting_message = resolve_welcome_message(ctx.name, b)
     return PublicWidgetConfigResponse(
         agent_id=ctx.agent_id,
@@ -92,6 +100,12 @@ def build_public_widget_config(ctx: PublicWidgetAgentContext) -> PublicWidgetCon
         brand_color=brand_color,
         widget_position=position,
         greeting_message=greeting_message,
+        greeting_messages=greeting_messages,
+        welcome_screen_enabled=resolve_welcome_screen_enabled(b),
+        welcome_screen_headline=resolve_welcome_screen_headline(b),
+        welcome_screen_description=resolve_welcome_screen_description(b),
+        welcome_screen_button_label=resolve_welcome_screen_button_label(b),
+        welcome_screen_social_links=resolve_welcome_screen_social_links(b),
     )
 
 

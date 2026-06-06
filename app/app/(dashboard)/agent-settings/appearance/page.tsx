@@ -1,16 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Send } from "lucide-react";
-import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import {
   WidgetChatShell,
-  WidgetPreviewUserBubble,
-  WidgetWelcomeMessageRow,
+  WidgetComposerPreview,
+  WidgetWelcomeMessages,
 } from "@/components/chat/widget-chat-shell";
-import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
+import { WidgetWelcomeScreen } from "@/components/chat/widget-welcome-screen";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+import {
+  PoweredByChatRely,
+  WIDGET_POWERED_BY_STRIP_CLASS,
+} from "@/components/branding/powered-by-chatrely";
 import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { AgentSettingsShell } from "@/components/agent-settings/agent-settings-shell";
 import { PlanFeatureLabel } from "@/components/ui/plan-unlock-footer";
@@ -20,13 +21,20 @@ import { useMeContext } from "@/components/layout/me-context-provider";
 import { backendFetch } from "@/lib/backend-api";
 import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
 import {
-  WELCOME_MESSAGE_MAX,
-  defaultWelcomeMessage,
-  effectiveWelcomeMessage,
+  applyWelcomeScreenToBehaviorRecord,
+  effectiveWelcomeMessages,
   formatHex,
   mergeBehaviorSettings,
   normaliseHex,
+  normalizeWelcomeScreenSettings,
   readBehaviorString,
+  welcomeScreenSettingsForForm,
+  WELCOME_SCREEN_BUTTON_LABEL_MAX,
+  WELCOME_SCREEN_DESCRIPTION_MAX,
+  WELCOME_SCREEN_HEADLINE_MAX,
+  WELCOME_SCREEN_SOCIAL_LABEL_MAX,
+  WELCOME_SCREEN_SOCIAL_URL_MAX,
+  type WelcomeScreenSocialLink,
   type WidgetPosition,
 } from "@/lib/agent-settings";
 import { brandChromeClasses } from "@/lib/brand-chrome";
@@ -94,14 +102,15 @@ function AppearanceForm() {
     [selectedAgent?.behavior_settings]
   );
 
-  const initialGreeting = useMemo(
-    () => readBehaviorString(selectedAgent?.behavior_settings, "greeting_message"),
+  const agentDisplayName = selectedAgent?.name?.trim() || "Support";
+
+  const initialWelcomeScreen = useMemo(
+    () => welcomeScreenSettingsForForm(selectedAgent?.behavior_settings),
     [selectedAgent?.behavior_settings]
   );
 
   const [hex, setHex] = useState<string>(initialBrand.replace("#", ""));
   const [position, setPosition] = useState<WidgetPosition>(initialPosition);
-  const [welcome, setWelcome] = useState<string>(initialGreeting);
   const [themeMode, setThemeMode] = useState<WidgetThemeMode>(initialAppearance.theme_mode ?? "light");
   const [fontFamily, setFontFamily] = useState<WidgetFontFamily>(
     initialAppearance.font_family ?? "geist"
@@ -109,6 +118,18 @@ function AppearanceForm() {
   const [customColors, setCustomColors] = useState<WidgetAppearanceColors>(
     initialAppearance.colors ?? {}
   );
+  const [welcomeScreenEnabled, setWelcomeScreenEnabled] = useState(initialWelcomeScreen.enabled);
+  const [welcomeScreenHeadline, setWelcomeScreenHeadline] = useState(initialWelcomeScreen.headline);
+  const [welcomeScreenDescription, setWelcomeScreenDescription] = useState(
+    initialWelcomeScreen.description
+  );
+  const [welcomeScreenButtonLabel, setWelcomeScreenButtonLabel] = useState(
+    initialWelcomeScreen.buttonLabel
+  );
+  const [socialLinks, setSocialLinks] = useState<[WelcomeScreenSocialLink, WelcomeScreenSocialLink]>(
+    initialWelcomeScreen.socialLinks
+  );
+  const [previewChatOpen, setPreviewChatOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -117,14 +138,23 @@ function AppearanceForm() {
     queueMicrotask(() => {
       setHex(initialBrand.replace("#", ""));
       setPosition(initialPosition);
-      setWelcome(initialGreeting);
       setThemeMode(initialAppearance.theme_mode ?? "light");
       setFontFamily(initialAppearance.font_family ?? "geist");
       setCustomColors(initialAppearance.colors ?? {});
+      setWelcomeScreenEnabled(initialWelcomeScreen.enabled);
+      setWelcomeScreenHeadline(initialWelcomeScreen.headline);
+      setWelcomeScreenDescription(initialWelcomeScreen.description);
+      setWelcomeScreenButtonLabel(initialWelcomeScreen.buttonLabel);
+      setSocialLinks(initialWelcomeScreen.socialLinks);
+      setPreviewChatOpen(false);
       setError(null);
       setSavedAt(null);
     });
-  }, [selectedAgent?.id, initialBrand, initialPosition, initialGreeting, initialAppearance]);
+  }, [selectedAgent?.id, initialBrand, initialPosition, initialAppearance, initialWelcomeScreen]);
+
+  useEffect(() => {
+    if (!welcomeScreenEnabled) setPreviewChatOpen(false);
+  }, [welcomeScreenEnabled]);
 
   const previewBrandColor = useMemo(() => formatHex(hex) ?? BRAND_COLOR_PRESETS[0].hex, [hex]);
 
@@ -142,14 +172,11 @@ function AppearanceForm() {
     () => resolveWidgetAppearance(previewAppearance, previewBrandColor),
     [previewAppearance, previewBrandColor]
   );
-  const previewSampleTimestamp = useMemo(() => new Date().toISOString(), []);
   const previewAccentColor = resolvedPreview.colors.header;
   const previewAccentChrome = useMemo(
     () => brandChromeClasses(previewAccentColor),
     [previewAccentColor]
   );
-
-  const agentDisplayName = selectedAgent?.name?.trim() || "Support";
 
   const websiteLogoPending = Boolean(selectedAgentId && integrationsLoading);
   const websiteLogoUrl = useMemo(() => {
@@ -159,13 +186,48 @@ function AppearanceForm() {
     return faviconServiceUrl(raw) || null;
   }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
 
-  const previewMessage = useMemo(() => {
-    const behavior = {
-      ...(selectedAgent?.behavior_settings ?? {}),
-      greeting_message: welcome.trim() || undefined,
-    };
-    return effectiveWelcomeMessage(behavior, agentDisplayName);
-  }, [selectedAgent?.behavior_settings, welcome, agentDisplayName]);
+  const welcomeScreenPreview = useMemo(
+    () =>
+      normalizeWelcomeScreenSettings({
+        enabled: welcomeScreenEnabled,
+        headline: welcomeScreenHeadline,
+        description: welcomeScreenDescription,
+        buttonLabel: welcomeScreenButtonLabel,
+        socialLinks,
+      }),
+    [
+      welcomeScreenEnabled,
+      welcomeScreenHeadline,
+      welcomeScreenDescription,
+      welcomeScreenButtonLabel,
+      socialLinks,
+    ]
+  );
+
+  const welcomeScreenDirty = useMemo(
+    () =>
+      welcomeScreenEnabled !== initialWelcomeScreen.enabled ||
+      welcomeScreenHeadline !== initialWelcomeScreen.headline ||
+      welcomeScreenDescription !== initialWelcomeScreen.description ||
+      welcomeScreenButtonLabel !== initialWelcomeScreen.buttonLabel ||
+      socialLinks[0].label !== initialWelcomeScreen.socialLinks[0].label ||
+      socialLinks[0].url !== initialWelcomeScreen.socialLinks[0].url ||
+      socialLinks[1].label !== initialWelcomeScreen.socialLinks[1].label ||
+      socialLinks[1].url !== initialWelcomeScreen.socialLinks[1].url,
+    [
+      welcomeScreenEnabled,
+      welcomeScreenHeadline,
+      welcomeScreenDescription,
+      welcomeScreenButtonLabel,
+      socialLinks,
+      initialWelcomeScreen,
+    ]
+  );
+
+  const previewWelcomeMessages = useMemo(
+    () => effectiveWelcomeMessages(selectedAgent?.behavior_settings, agentDisplayName),
+    [selectedAgent?.behavior_settings, agentDisplayName]
+  );
 
   const hidePoweredByPlan = useMemo(
     () => !meLoading && planHidesPoweredByChatrely(planSlug),
@@ -189,10 +251,10 @@ function AppearanceForm() {
     return (
       formatted !== initialBrand ||
       position !== initialPosition ||
-      welcome.trim() !== initialGreeting.trim() ||
-      appearanceDirty
+      appearanceDirty ||
+      welcomeScreenDirty
     );
-  }, [hex, position, welcome, initialBrand, initialPosition, initialGreeting, appearanceDirty]);
+  }, [hex, position, initialBrand, initialPosition, appearanceDirty, welcomeScreenDirty]);
 
   const validHex = formatHex(hex) !== null;
 
@@ -235,13 +297,12 @@ function AppearanceForm() {
       const partial: Record<string, unknown> = {
         brand_color: formatted,
         widget_position: position,
-        greeting_message: welcome.trim() || undefined,
       };
       if (widgetStylingIncluded) {
         partial.widget_appearance = appearancePayload ?? {};
       }
       let merged = mergeBehaviorSettings(selectedAgent?.behavior_settings, partial);
-      if (!welcome.trim()) delete (merged as Record<string, unknown>).greeting_message;
+      applyWelcomeScreenToBehaviorRecord(merged as Record<string, unknown>, welcomeScreenPreview);
       merged = sanitizeWidgetAppearanceForPlan(merged, planSlug);
       await backendFetch(`/api/v1/agents/${selectedAgentId}`, {
         method: "PATCH",
@@ -259,12 +320,31 @@ function AppearanceForm() {
   function handleCancel() {
     setHex(initialBrand.replace("#", ""));
     setPosition(initialPosition);
-    setWelcome(initialGreeting);
     setThemeMode(initialAppearance.theme_mode ?? "light");
     setFontFamily(initialAppearance.font_family ?? "geist");
     setCustomColors(initialAppearance.colors ?? {});
+    setWelcomeScreenEnabled(initialWelcomeScreen.enabled);
+    setWelcomeScreenHeadline(initialWelcomeScreen.headline);
+    setWelcomeScreenDescription(initialWelcomeScreen.description);
+    setWelcomeScreenButtonLabel(initialWelcomeScreen.buttonLabel);
+    setSocialLinks(initialWelcomeScreen.socialLinks);
     setError(null);
     setSavedAt(null);
+  }
+
+  function updateSocialLink(
+    index: 0 | 1,
+    field: keyof WelcomeScreenSocialLink,
+    value: string
+  ): void {
+    setSocialLinks((prev) => {
+      const next: [WelcomeScreenSocialLink, WelcomeScreenSocialLink] = [
+        { ...prev[0] },
+        { ...prev[1] },
+      ];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
   }
 
   function swatchColorForField(field: (typeof WIDGET_COLOR_FIELDS)[number]): string {
@@ -288,29 +368,142 @@ function AppearanceForm() {
         <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
           <h2 className="ds-app-section-title mb-1">Basics</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
-          Brand color, welcome message, and launcher position for your storefront widget.
+          Welcome screen, brand color, and launcher position for your storefront widget.
         </p>
 
         <div className="space-y-6">
           <div>
-            <label htmlFor="appearance-welcome-message" className="text-ds-on-surface mb-1 block text-sm font-semibold">
-              Welcome message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
+            <p className="text-ds-on-surface mb-1 text-sm font-semibold">Welcome screen</p>
+            <p className="ds-app-body-muted mb-4">
+              Home view visitors see before chat. Uses your brand accent color below.
+            </p>
+            <label className="mb-4 flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                className="border-ds-outline text-ds-primary size-4 rounded border"
+                checked={welcomeScreenEnabled}
+                onChange={(e) => setWelcomeScreenEnabled(e.target.checked)}
+              />
+              <span className="text-ds-on-surface text-sm font-medium">Show welcome screen in widget</span>
             </label>
-            <p className="ds-app-body-muted mb-2">
-              First message customers see when they open chat. Leave blank to use:{" "}
-              {defaultWelcomeMessage(agentDisplayName)}
-            </p>
-            <textarea
-              id="appearance-welcome-message"
-              className="ds-app-field min-h-[5rem] rounded-ds-lg leading-relaxed"
-              value={welcome}
-              onChange={(e) => setWelcome(e.target.value)}
-              maxLength={WELCOME_MESSAGE_MAX}
-              placeholder={defaultWelcomeMessage(agentDisplayName)}
-            />
-            <p className="text-ds-on-surface-variant mt-1 text-right text-[11px] tabular-nums">
-              {welcome.length}/{WELCOME_MESSAGE_MAX}
-            </p>
+            <div className={welcomeScreenEnabled ? "space-y-4" : "pointer-events-none space-y-4 opacity-50"}>
+              <div className="border-ds-outline-subtle space-y-4 rounded-ds-lg border p-4">
+                <p className="text-ds-on-surface text-sm font-semibold">Welcome card</p>
+                <p className="ds-app-body-muted -mt-2 text-sm">
+                  Headline on the accent banner, bot intro, and chat button.
+                </p>
+                <div>
+                  <label htmlFor="appearance-welcome-screen-headline" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                    Headline
+                  </label>
+                  <input
+                    id="appearance-welcome-screen-headline"
+                    className="ds-app-field rounded-ds-lg"
+                    value={welcomeScreenHeadline}
+                    onChange={(e) => setWelcomeScreenHeadline(e.target.value)}
+                    maxLength={WELCOME_SCREEN_HEADLINE_MAX}
+                    disabled={!welcomeScreenEnabled}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="appearance-welcome-screen-description" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                    Bot description
+                  </label>
+                  <textarea
+                    id="appearance-welcome-screen-description"
+                    rows={3}
+                    className="ds-app-field ds-app-field--compact rounded-ds-lg leading-relaxed"
+                    value={welcomeScreenDescription}
+                    onChange={(e) => setWelcomeScreenDescription(e.target.value)}
+                    maxLength={WELCOME_SCREEN_DESCRIPTION_MAX}
+                    disabled={!welcomeScreenEnabled}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="appearance-welcome-screen-button" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                    Button label
+                  </label>
+                  <input
+                    id="appearance-welcome-screen-button"
+                    className="ds-app-field rounded-ds-lg"
+                    value={welcomeScreenButtonLabel}
+                    onChange={(e) => setWelcomeScreenButtonLabel(e.target.value)}
+                    maxLength={WELCOME_SCREEN_BUTTON_LABEL_MAX}
+                    disabled={!welcomeScreenEnabled}
+                  />
+                </div>
+              </div>
+              <div className="border-ds-outline-subtle space-y-4 rounded-ds-lg border p-4">
+                <p className="text-ds-on-surface text-sm font-semibold">Social links</p>
+                <p className="ds-app-body-muted -mt-2 text-sm">
+                  Optional cards below the main welcome card. Links open in a new tab.
+                </p>
+                <div className="space-y-3">
+                  <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
+                    Link 1
+                  </p>
+                  <div>
+                    <label htmlFor="appearance-social-1-label" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                      Label
+                    </label>
+                    <input
+                      id="appearance-social-1-label"
+                      className="ds-app-field rounded-ds-lg"
+                      value={socialLinks[0].label}
+                      onChange={(e) => updateSocialLink(0, "label", e.target.value)}
+                      maxLength={WELCOME_SCREEN_SOCIAL_LABEL_MAX}
+                      disabled={!welcomeScreenEnabled}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="appearance-social-1-url" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                      URL
+                    </label>
+                    <input
+                      id="appearance-social-1-url"
+                      className="ds-app-field rounded-ds-lg"
+                      value={socialLinks[0].url}
+                      onChange={(e) => updateSocialLink(0, "url", e.target.value)}
+                      maxLength={WELCOME_SCREEN_SOCIAL_URL_MAX}
+                      placeholder="https://instagram.com/yourstore"
+                      disabled={!welcomeScreenEnabled}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
+                    Link 2
+                  </p>
+                  <div>
+                    <label htmlFor="appearance-social-2-label" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                      Label
+                    </label>
+                    <input
+                      id="appearance-social-2-label"
+                      className="ds-app-field rounded-ds-lg"
+                      value={socialLinks[1].label}
+                      onChange={(e) => updateSocialLink(1, "label", e.target.value)}
+                      maxLength={WELCOME_SCREEN_SOCIAL_LABEL_MAX}
+                      disabled={!welcomeScreenEnabled}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="appearance-social-2-url" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                      URL
+                    </label>
+                    <input
+                      id="appearance-social-2-url"
+                      className="ds-app-field rounded-ds-lg"
+                      value={socialLinks[1].url}
+                      onChange={(e) => updateSocialLink(1, "url", e.target.value)}
+                      maxLength={WELCOME_SCREEN_SOCIAL_URL_MAX}
+                      placeholder="https://tiktok.com/@yourstore"
+                      disabled={!welcomeScreenEnabled}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -527,67 +720,70 @@ function AppearanceForm() {
 
       <div className="lg:sticky lg:top-6 lg:self-start">
         <div className="mx-auto flex w-full max-w-[26rem] flex-col items-center">
-          <WidgetChatShell
-            agentName={agentDisplayName}
-            brandColorHex={previewBrandColor}
-            widgetAppearance={previewAppearance}
-            websiteLogoUrl={websiteLogoUrl}
-            websiteLogoPending={websiteLogoPending}
-            className="w-full"
-            shellHeightClass="h-[min(37.5rem,85vh)] w-full"
-            footer={
-              <div className="flex flex-col">
-                <div className="px-3 py-2.5">
-                  <div
-                    className="pointer-events-none flex min-h-11 w-full items-end gap-1 rounded-xl border border-ds-outline bg-ds-surface px-2 py-1 pl-3 shadow-ds-sm"
-                    style={{ backgroundColor: resolvedPreview.colors.composerBackground }}
-                  >
-                    <span className="min-h-9 flex-1 py-2 text-xs text-ds-on-surface-variant">
-                      Write a message…
-                    </span>
-                    <span
-                      className={cn(
-                        "mb-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[10px]",
-                        previewAccentChrome.fabIconClass
-                      )}
-                      style={{ backgroundColor: previewAccentColor }}
-                      aria-hidden
-                    >
-                      <Send className="size-4" strokeWidth={1.8} />
-                    </span>
-                  </div>
-                </div>
-                {!hidePoweredByPlan ? (
-                  <PoweredByChatRely compact className="bg-transparent px-3 pb-2.5 pt-0" />
-                ) : null}
-              </div>
-            }
+          <div
+            className="flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border border-ds-outline shadow-[0_20px_55px_rgba(15,23,42,0.06)]"
+            style={{ backgroundColor: resolvedPreview.colors.panelBackground }}
           >
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4">
-              <WidgetWelcomeMessageRow
-                message={previewMessage}
-                resolved={resolvedPreview}
-                brandColorHex={previewBrandColor}
-                websiteLogoUrl={websiteLogoUrl}
-                websiteLogoPending={websiteLogoPending}
-              />
-              <div className="flex justify-end">
-                <WidgetPreviewUserBubble resolved={resolvedPreview}>
-                  <UserBubbleBody
-                    timestamp={
-                      <MessageTimestamp
-                        variant="bubble"
-                        value={previewSampleTimestamp}
-                        tone="on-primary"
+            {welcomeScreenEnabled ? (
+              previewChatOpen ? (
+                <WidgetChatShell
+                  agentName={agentDisplayName}
+                  brandColorHex={previewBrandColor}
+                  widgetAppearance={previewAppearance}
+                  websiteLogoUrl={websiteLogoUrl}
+                  websiteLogoPending={websiteLogoPending}
+                  shellHeightClass="h-full"
+                  className="h-full max-w-none rounded-none border-0 shadow-none"
+                  footerBorderless
+                  onHeaderBack={() => setPreviewChatOpen(false)}
+                  headerBackLabel="Back to welcome screen"
+                  footer={
+                    <>
+                      <WidgetComposerPreview
+                        brandColorHex={previewBrandColor}
+                        accentColor={previewAccentColor}
+                        className={hidePoweredByPlan ? "pb-3.5" : undefined}
                       />
-                    }
-                  >
-                    Sample visitor reply
-                  </UserBubbleBody>
-                </WidgetPreviewUserBubble>
+                      {!hidePoweredByPlan ? (
+                        <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
+                      ) : null}
+                    </>
+                  }
+                >
+                  <div className="h-full space-y-3 overflow-y-auto p-4 sm:p-5">
+                    <WidgetWelcomeMessages
+                      messages={previewWelcomeMessages}
+                      resolved={resolvedPreview}
+                      brandColorHex={previewBrandColor}
+                      websiteLogoUrl={websiteLogoUrl}
+                      websiteLogoPending={websiteLogoPending}
+                    />
+                  </div>
+                </WidgetChatShell>
+              ) : (
+                <WidgetWelcomeScreen
+                  agentName={agentDisplayName}
+                  brandColorHex={previewBrandColor}
+                  panelBackgroundHex={resolvedPreview.colors.panelBackground}
+                  headline={welcomeScreenPreview.headline}
+                  description={welcomeScreenPreview.description}
+                  buttonLabel={welcomeScreenPreview.buttonLabel}
+                  socialLinks={welcomeScreenPreview.socialLinks}
+                  websiteLogoUrl={websiteLogoUrl}
+                  websiteLogoPending={websiteLogoPending}
+                  hidePoweredBy={hidePoweredByPlan}
+                  className="min-h-0 flex-1"
+                  onChatClick={() => setPreviewChatOpen(true)}
+                />
+              )
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+                <p className="ds-app-body-muted text-sm">
+                  Welcome screen is off. Visitors open chat directly.
+                </p>
               </div>
-            </div>
-          </WidgetChatShell>
+            )}
+          </div>
           <div
             className={cn(
               "mt-3 flex w-full shrink-0",

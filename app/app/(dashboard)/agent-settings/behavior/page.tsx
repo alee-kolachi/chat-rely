@@ -10,9 +10,11 @@ import {
   LANGUAGE_OPTIONS,
   WELCOME_MESSAGE_MAX,
   type AgentReliabilityRecord,
-  defaultWelcomeMessage,
+  defaultWelcomeMessages,
+  greetingMessagesMatchDefault,
   mergeBehaviorSettings,
   readBehaviorString,
+  welcomeMessagesForForm,
 } from "@/lib/agent-settings";
 
 export default function AgentSettingsBehaviorPage() {
@@ -26,7 +28,14 @@ export default function AgentSettingsBehaviorPage() {
 function BehaviorForm() {
   const { selectedAgent, selectedAgentId, refreshAgents } = useDashboardAgent();
 
-  const [greeting, setGreeting] = useState<string>("");
+  const agentDisplayName = selectedAgent?.name?.trim() || "Support";
+
+  const initialWelcomeMessages = useMemo(
+    () => welcomeMessagesForForm(selectedAgent?.behavior_settings, agentDisplayName),
+    [selectedAgent?.behavior_settings, agentDisplayName]
+  );
+
+  const [welcomeMessages, setWelcomeMessages] = useState<[string, string]>(initialWelcomeMessages);
   const [language, setLanguage] = useState<string>("auto");
   const [fallback, setFallback] = useState<string>("");
   const [inactivity, setInactivity] = useState<number>(30);
@@ -58,36 +67,38 @@ function BehaviorForm() {
 
   useEffect(() => {
     if (!selectedAgentId) return;
-    const nextGreeting = readBehaviorString(selectedAgent?.behavior_settings, "greeting_message");
+    const nextWelcomeMessages = welcomeMessagesForForm(selectedAgent?.behavior_settings, agentDisplayName);
     const nextLanguage = readBehaviorString(selectedAgent?.behavior_settings, "language") || "auto";
     const agentId = selectedAgentId;
     queueMicrotask(() => {
-      setGreeting(nextGreeting);
+      setWelcomeMessages(nextWelcomeMessages);
       setLanguage(nextLanguage);
       setError(null);
       setSavedAt(null);
       void loadReliability(agentId);
     });
-  }, [selectedAgentId, selectedAgent?.behavior_settings, loadReliability]);
+  }, [selectedAgentId, selectedAgent?.behavior_settings, agentDisplayName, loadReliability]);
 
   const initialBehavior = useMemo(
     () => ({
-      greeting: readBehaviorString(selectedAgent?.behavior_settings, "greeting_message"),
+      welcomeMessages: initialWelcomeMessages,
       language: readBehaviorString(selectedAgent?.behavior_settings, "language") || "auto",
     }),
-    [selectedAgent?.behavior_settings]
+    [selectedAgent?.behavior_settings, initialWelcomeMessages]
   );
 
   const dirty = useMemo(() => {
     const behaviorChanged =
-      greeting.trim() !== initialBehavior.greeting.trim() || language !== initialBehavior.language;
+      welcomeMessages[0] !== initialBehavior.welcomeMessages[0] ||
+      welcomeMessages[1] !== initialBehavior.welcomeMessages[1] ||
+      language !== initialBehavior.language;
     if (!reliability) return behaviorChanged;
     const reliabilityChanged =
       fallback.trim() !== reliability.fallback_message.trim() ||
       inactivity !== reliability.inactivity_timeout_minutes ||
       maxUnresolved !== reliability.max_unresolved_turns_before_escalation;
     return behaviorChanged || reliabilityChanged;
-  }, [greeting, language, fallback, inactivity, maxUnresolved, initialBehavior, reliability]);
+  }, [welcomeMessages, language, fallback, inactivity, maxUnresolved, initialBehavior, reliability]);
 
   const inactivityValid = inactivity >= 5 && inactivity <= 240;
   const unresolvedValid = maxUnresolved >= 1;
@@ -101,7 +112,9 @@ function BehaviorForm() {
     setSavedAt(null);
     try {
       const behaviorChanged =
-        greeting.trim() !== initialBehavior.greeting.trim() || language !== initialBehavior.language;
+        welcomeMessages[0] !== initialBehavior.welcomeMessages[0] ||
+        welcomeMessages[1] !== initialBehavior.welcomeMessages[1] ||
+        language !== initialBehavior.language;
 
       const reliabilityChanged =
         !reliability ||
@@ -112,12 +125,26 @@ function BehaviorForm() {
       const saveTasks: Promise<void>[] = [];
 
       if (behaviorChanged) {
-        const merged = mergeBehaviorSettings(selectedAgent?.behavior_settings, {
-          greeting_message: greeting.trim() || undefined,
+        const defaults = defaultWelcomeMessages(agentDisplayName);
+        const savedWelcome: [string, string] = [
+          (welcomeMessages[0].trim() || defaults[0]).slice(0, WELCOME_MESSAGE_MAX),
+          (welcomeMessages[1].trim() || defaults[1]).slice(0, WELCOME_MESSAGE_MAX),
+        ];
+        const partial: Record<string, unknown> = {
           language: language === "auto" ? undefined : language,
-        });
-        if (!greeting.trim()) delete (merged as Record<string, unknown>).greeting_message;
-        if (language === "auto") delete (merged as Record<string, unknown>).language;
+        };
+        if (!greetingMessagesMatchDefault(savedWelcome, agentDisplayName)) {
+          partial.greeting_messages = savedWelcome;
+        }
+        const merged = mergeBehaviorSettings(selectedAgent?.behavior_settings, partial);
+        const mergedRecord = merged as Record<string, unknown>;
+        if (greetingMessagesMatchDefault(savedWelcome, agentDisplayName)) {
+          delete mergedRecord.greeting_messages;
+          delete mergedRecord.greeting_message;
+        } else {
+          delete mergedRecord.greeting_message;
+        }
+        if (language === "auto") delete mergedRecord.language;
         saveTasks.push(
           backendFetch(`/api/v1/agents/${selectedAgentId}`, {
             method: "PATCH",
@@ -152,7 +179,7 @@ function BehaviorForm() {
   }
 
   function handleCancel() {
-    setGreeting(initialBehavior.greeting);
+    setWelcomeMessages(initialBehavior.welcomeMessages);
     setLanguage(initialBehavior.language);
     if (reliability) {
       setFallback(reliability.fallback_message);
@@ -179,24 +206,50 @@ function BehaviorForm() {
 
         <div className="space-y-6">
           <div>
-            <label htmlFor="welcome-message" className="text-ds-on-surface mb-1 block text-sm font-semibold">
-              Welcome message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
-            </label>
-            <p className="ds-app-body-muted mb-2">
-              First message customers see in the widget and playground. Leave blank to use:{" "}
-              {defaultWelcomeMessage(selectedAgent?.name)}
+            <p className="text-ds-on-surface mb-1 text-sm font-semibold">
+              Welcome messages <span className="text-ds-on-surface-variant font-normal">(optional)</span>
             </p>
-            <textarea
-              id="welcome-message"
-              className="ds-app-field min-h-[5rem] rounded-ds-lg leading-relaxed"
-              value={greeting}
-              onChange={(e) => setGreeting(e.target.value)}
-              maxLength={WELCOME_MESSAGE_MAX}
-              placeholder={defaultWelcomeMessage(selectedAgent?.name)}
-            />
-            <p className="text-ds-on-surface-variant mt-1 text-right text-[11px] tabular-nums">
-              {greeting.length}/{WELCOME_MESSAGE_MAX}
+            <p className="ds-app-body-muted mb-4">
+              First messages in chat after a visitor opens the widget from your welcome screen.
             </p>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="welcome-message-1" className="text-ds-on-surface-variant mb-1 block text-xs font-semibold uppercase tracking-wide">
+                  Message 1
+                </label>
+                <textarea
+                  id="welcome-message-1"
+                  rows={3}
+                  className="ds-app-field ds-app-field--compact rounded-ds-lg leading-relaxed"
+                  value={welcomeMessages[0]}
+                  onChange={(e) =>
+                    setWelcomeMessages((prev) => [e.target.value, prev[1]] as [string, string])
+                  }
+                  maxLength={WELCOME_MESSAGE_MAX}
+                />
+                <p className="text-ds-on-surface-variant mt-1 text-right text-[11px] tabular-nums">
+                  {welcomeMessages[0].length}/{WELCOME_MESSAGE_MAX}
+                </p>
+              </div>
+              <div>
+                <label htmlFor="welcome-message-2" className="text-ds-on-surface-variant mb-1 block text-xs font-semibold uppercase tracking-wide">
+                  Message 2
+                </label>
+                <textarea
+                  id="welcome-message-2"
+                  rows={3}
+                  className="ds-app-field ds-app-field--compact rounded-ds-lg leading-relaxed"
+                  value={welcomeMessages[1]}
+                  onChange={(e) =>
+                    setWelcomeMessages((prev) => [prev[0], e.target.value] as [string, string])
+                  }
+                  maxLength={WELCOME_MESSAGE_MAX}
+                />
+                <p className="text-ds-on-surface-variant mt-1 text-right text-[11px] tabular-nums">
+                  {welcomeMessages[1].length}/{WELCOME_MESSAGE_MAX}
+                </p>
+              </div>
+            </div>
           </div>
 
           <div>

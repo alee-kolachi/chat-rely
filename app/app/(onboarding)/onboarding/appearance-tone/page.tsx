@@ -12,7 +12,8 @@ import {
   WELCOME_MESSAGE_MAX,
   type AgentTone,
   defaultWelcomeMessage,
-  effectiveWelcomeMessage,
+  defaultWelcomeMessages,
+  effectiveWelcomeMessages,
   readBehaviorString,
 } from "@/lib/agent-settings";
 import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
@@ -147,18 +148,18 @@ export default function AppearanceToneOnboardingPage() {
     [behaviorSettings, previewBrandColor],
   );
 
-  const previewAssistantMessage = useMemo(() => {
+  const previewAssistantMessages = useMemo(() => {
     const behavior = { greeting_message: welcome.trim() || undefined };
-    return effectiveWelcomeMessage(behavior, agentName);
+    return effectiveWelcomeMessages(behavior, agentName);
   }, [welcome, agentName]);
 
   const previewMessages = useMemo(
     () => [
-      {
+      ...previewAssistantMessages.map((text) => ({
         from: "assistant" as const,
-        text: previewAssistantMessage,
+        text,
         streamPhase: "done" as const,
-      },
+      })),
       {
         from: "user" as const,
         text: "Sample visitor reply",
@@ -166,7 +167,7 @@ export default function AppearanceToneOnboardingPage() {
         createdAt: previewSampleTimestamp,
       },
     ],
-    [previewAssistantMessage, previewSampleTimestamp],
+    [previewAssistantMessages, previewSampleTimestamp],
   );
 
   async function handleContinue() {
@@ -247,8 +248,13 @@ export default function AppearanceToneOnboardingPage() {
                         Welcome message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
                       </label>
                       <p className="ds-app-body-muted mb-2 text-sm">
-                        First message customers see. Leave blank to use: {defaultWelcomeMessage(agentName)}
+                        First messages customers see. Leave blank to use:
                       </p>
+                      <ul className="ds-app-body-muted mb-2 list-disc space-y-1 pl-5 text-sm">
+                        {defaultWelcomeMessages(agentName).map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
                       <textarea
                         id="onboarding-welcome"
                         className="ds-app-field min-h-[4.5rem] w-full rounded-ds-lg text-sm leading-relaxed"

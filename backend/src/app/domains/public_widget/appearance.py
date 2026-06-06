@@ -111,6 +111,24 @@ def parse_widget_appearance_from_behavior(
     return appearance
 
 
+def _mix_hex(foreground: str, background: str, foreground_weight: float) -> str:
+    fg = foreground.lstrip("#")
+    bg = background.lstrip("#")
+    w = max(0.0, min(1.0, foreground_weight))
+    parts: list[str] = []
+    for i in (0, 2, 4):
+        blended = round(int(fg[i : i + 2], 16) * w + int(bg[i : i + 2], 16) * (1.0 - w))
+        parts.append(f"{blended:02X}")
+    return f"#{''.join(parts)}"
+
+
+def default_accent_panel_background(brand_color: str, theme_mode: WidgetThemeMode = "light") -> str:
+    """Light chat panel: 5% accent, 95% white."""
+    if theme_mode == "dark":
+        return _mix_hex(brand_color, "#0F172A", 0.05)
+    return _mix_hex(brand_color, "#FFFFFF", 0.05)
+
+
 def resolve_widget_appearance_colors(
     appearance: PublicWidgetAppearance | None,
     brand_color: str | None,
@@ -123,7 +141,7 @@ def resolve_widget_appearance_colors(
     return {
         "header": custom.get("header") or brand,
         "user_bubble": custom.get("user_bubble") or brand,
-        "panel_background": custom.get("panel_background") or base["panel_background"],
+        "panel_background": custom.get("panel_background") or default_accent_panel_background(brand, theme_mode),
         "assistant_bubble": custom.get("assistant_bubble") or base["assistant_bubble"],
         "assistant_bubble_border": custom.get("assistant_bubble_border") or base["assistant_bubble_border"],
         "composer_background": custom.get("composer_background") or base["composer_background"],

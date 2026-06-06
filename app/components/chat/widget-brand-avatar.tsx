@@ -19,7 +19,7 @@ export function WidgetBrandAvatar({
   logoPending: boolean;
   hasBrand: boolean;
   chrome: WidgetBrandChrome;
-  size: "header" | "bubble" | "launcher";
+  size: "header" | "bubble" | "launcher" | "welcome";
   brandColorHex?: string | null;
 }) {
   const [imageState, setImageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
@@ -45,6 +45,8 @@ export function WidgetBrandAvatar({
           "flex size-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ring-black/10",
         size === "bubble" &&
           "border-ds-outline flex size-7 shrink-0 items-center justify-center rounded-full border bg-white shadow-sm",
+        size === "welcome" &&
+          "border-ds-outline flex aspect-square h-full min-h-16 w-auto shrink-0 items-center justify-center self-stretch rounded-xl border bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]",
         size === "launcher" && "text-xl",
         size === "header" &&
           (hasBrand && chrome
@@ -58,7 +60,13 @@ export function WidgetBrandAvatar({
         <span aria-hidden>💬</span>
       ) : (
         <Bot
-          className={size === "header" ? "size-4" : "text-ds-on-surface-variant size-3.5"}
+          className={
+            size === "header"
+              ? "size-4"
+              : size === "welcome"
+                ? "text-ds-on-surface-variant size-6"
+                : "text-ds-on-surface-variant size-3.5"
+          }
           strokeWidth={1.8}
           aria-hidden
         />
@@ -76,9 +84,18 @@ export function WidgetBrandAvatar({
         />
       );
     }
-    return size === "header" ? (
-      <div className="size-9 shrink-0 animate-pulse rounded-lg bg-black/10 ring-1 ring-black/10" aria-hidden />
-    ) : (
+    if (size === "header") {
+      return <div className="size-9 shrink-0 animate-pulse rounded-lg bg-black/10 ring-1 ring-black/10" aria-hidden />;
+    }
+    if (size === "welcome") {
+      return (
+        <div
+          className="border-ds-outline aspect-square h-full min-h-16 w-auto shrink-0 animate-pulse self-stretch rounded-xl border bg-ds-sidebar"
+          aria-hidden
+        />
+      );
+    }
+    return (
       <div
         className="border-ds-outline size-7 shrink-0 animate-pulse rounded-full border bg-ds-sidebar"
         aria-hidden
@@ -119,13 +136,19 @@ export function WidgetBrandAvatar({
   const shellClass =
     size === "header"
       ? "relative flex max-h-9 min-h-9 min-w-9 max-w-[10rem] shrink-0 items-center"
-      : "border-ds-outline relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm";
+      : size === "welcome"
+        ? "border-ds-outline relative flex aspect-square h-full min-h-16 w-auto shrink-0 items-center justify-center self-stretch overflow-hidden rounded-xl border bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
+        : "border-ds-outline relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm";
 
   return (
     <div className={shellClass}>
       {imageState !== "loaded" ? (
         <div
-          className={cn("absolute inset-0 animate-pulse bg-black/10", size === "bubble" && "rounded-full")}
+          className={cn(
+            "absolute inset-0 animate-pulse bg-black/10",
+            size === "bubble" && "rounded-full",
+            size === "welcome" && "rounded-xl"
+          )}
           aria-hidden
         />
       ) : null}
@@ -136,11 +159,13 @@ export function WidgetBrandAvatar({
         className={cn(
           size === "header"
             ? "relative z-[1] block max-h-9 w-auto max-w-[10rem] object-contain transition-opacity"
-            : "relative z-[1] size-full object-contain p-0.5 transition-opacity",
+            : size === "welcome"
+              ? "relative z-[1] size-full object-contain p-1.5 transition-opacity"
+              : "relative z-[1] size-full object-contain p-0.5 transition-opacity",
           imageState === "loaded" ? "opacity-100" : "opacity-0"
         )}
-        width={size === "header" ? 160 : 28}
-        height={size === "header" ? 36 : 28}
+        width={size === "header" ? 160 : size === "welcome" ? 56 : 28}
+        height={size === "header" ? 36 : size === "welcome" ? 56 : 28}
         referrerPolicy="no-referrer"
         onLoad={() => setImageState("loaded")}
         onError={() => setImageState("error")}

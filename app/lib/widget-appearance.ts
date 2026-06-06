@@ -120,6 +120,18 @@ export const WIDGET_COLOR_GROUPS: ReadonlyArray<{
   },
 ] as const;
 
+/** Default chat / welcome panel: 5% accent, 95% white (light) or dark base. */
+export function defaultAccentPanelBackground(
+  brandColorHex: string | null | undefined,
+  themeMode: WidgetThemeMode = "light"
+): string {
+  const accent = parseBrandColorHex(brandColorHex) ?? "#831C91";
+  if (themeMode === "dark") {
+    return `color-mix(in srgb, ${accent} 5%, #0F172A)`;
+  }
+  return `color-mix(in srgb, ${accent} 5%, #ffffff)`;
+}
+
 const THEME_DEFAULTS: Record<
   WidgetThemeMode,
   Omit<ResolvedWidgetAppearance["colors"], "header" | "userBubble">
@@ -258,7 +270,10 @@ export function resolveWidgetAppearance(
     colors: {
       header: resolveAppearanceColor(custom.header, brand),
       userBubble: resolveAppearanceColor(custom.user_bubble, brand),
-      panelBackground: resolveAppearanceColor(custom.panel_background, base.panelBackground),
+      panelBackground: resolveAppearanceColor(
+        custom.panel_background,
+        defaultAccentPanelBackground(brand, themeMode)
+      ),
       assistantBubble: resolveAppearanceColor(custom.assistant_bubble, base.assistantBubble),
       assistantBubbleBorder: resolveAppearanceColor(
         custom.assistant_bubble_border,

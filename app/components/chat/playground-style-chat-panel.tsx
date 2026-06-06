@@ -88,8 +88,7 @@ export function PlaygroundStyleChatPanel({
     <div
       className={cn(
         "border-ds-outline flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
-        "h-full max-h-full",
-        shellHeightClass ?? "xl:h-[min(37.5rem,85vh)]"
+        shellHeightClass ?? "h-[min(37.5rem,85vh)] max-h-full shrink-0"
       )}
       style={{
         backgroundColor: resolved.colors.panelBackground,
@@ -239,7 +238,7 @@ export function PlaygroundStyleChatPanel({
 
       <div
         className="shrink-0 px-4 pb-2.5 pt-2 sm:px-5"
-        style={{ backgroundColor: resolved.colors.composerBackground }}
+        style={{ backgroundColor: resolved.colors.panelBackground }}
       >
         <div className="flex flex-col gap-1">
           <PlaygroundComposer
@@ -254,7 +253,7 @@ export function PlaygroundStyleChatPanel({
             hasBrand={hasBrand}
             chrome={headerChrome}
             shellStyle={{
-              backgroundColor: resolved.colors.composerBackground,
+              backgroundColor: "#FFFFFF",
             }}
             submitType="submit"
           />

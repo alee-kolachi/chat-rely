@@ -95,6 +95,11 @@ export type AgentBehaviorSettings = {
   brand_color?: string;
   widget_position?: WidgetPosition;
   greeting_message?: string;
+  greeting_messages?: string[];
+  welcome_screen_enabled?: boolean;
+  welcome_screen_headline?: string;
+  welcome_screen_description?: string;
+  welcome_screen_button_label?: string;
   language?: string;
   rate_limit?: AgentRateLimit;
   creativity?: CreativityLevel | number;
@@ -152,23 +157,247 @@ export function readBehaviorString(
 
 const WELCOME_MESSAGE_MAX = 500;
 
-/** Default first bubble when the merchant leaves welcome message blank. */
-export function defaultWelcomeMessage(agentName: string | null | undefined): string {
+/** Default welcome bubbles when the merchant leaves welcome message blank. */
+export function defaultWelcomeMessages(agentName: string | null | undefined): string[] {
   const name = (agentName ?? "").trim() || "Support";
-  return `Hi there! I'm ${name}. What can I help you with today?`;
+  return [
+    `Hey there! I'm ${name}, your support assistant. Let's find the best match for you.`,
+    "Can I get your name and what you're looking for today?",
+  ];
+}
+
+/** Joined default copy for textarea placeholders. */
+export function defaultWelcomeMessage(agentName: string | null | undefined): string {
+  return defaultWelcomeMessages(agentName).join("\n\n");
+}
+
+function readStoredGreetingMessages(
+  behavior: Record<string, unknown> | null | undefined
+): string[] | null {
+  const raw = behavior?.greeting_messages;
+  if (Array.isArray(raw)) {
+    const msgs = raw
+      .filter((line): line is string => typeof line === "string")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    if (msgs.length) return msgs;
+  }
+  const legacy = readBehaviorString(behavior, "greeting_message").trim();
+  if (legacy) return [legacy];
+  return null;
+}
+
+/** Two welcome lines for settings forms (always returns a pair). */
+export function welcomeMessagesForForm(
+  behavior: Record<string, unknown> | null | undefined,
+  agentName: string | null | undefined
+): [string, string] {
+  const defaults = defaultWelcomeMessages(agentName);
+  const stored = readStoredGreetingMessages(behavior);
+  if (!stored) return [defaults[0], defaults[1]];
+  if (stored.length >= 2) return [stored[0], stored[1]];
+  return [stored[0], defaults[1]];
 }
 
 /** Stored custom welcome or agent-name default (what customers see). */
+export function effectiveWelcomeMessages(
+  behavior: Record<string, unknown> | null | undefined,
+  agentName: string | null | undefined
+): string[] {
+  const defaults = defaultWelcomeMessages(agentName);
+  const stored = readStoredGreetingMessages(behavior);
+  if (!stored) return defaults;
+  if (stored.length >= 2) {
+    return stored.map((line) => line.slice(0, WELCOME_MESSAGE_MAX));
+  }
+  return [stored[0].slice(0, WELCOME_MESSAGE_MAX)];
+}
+
+export function greetingMessagesMatchDefault(
+  messages: readonly string[],
+  agentName: string | null | undefined
+): boolean {
+  const defaults = defaultWelcomeMessages(agentName);
+  return (
+    (messages[0]?.trim() || defaults[0]) === defaults[0] &&
+    (messages[1]?.trim() || defaults[1]) === defaults[1]
+  );
+}
+
+/** First welcome bubble (legacy single-bubble callers). */
 export function effectiveWelcomeMessage(
   behavior: Record<string, unknown> | null | undefined,
   agentName: string | null | undefined
 ): string {
-  const custom = readBehaviorString(behavior, "greeting_message").trim();
-  if (custom) return custom.slice(0, WELCOME_MESSAGE_MAX);
-  return defaultWelcomeMessage(agentName);
+  return effectiveWelcomeMessages(behavior, agentName)[0] ?? "";
 }
 
 export { WELCOME_MESSAGE_MAX };
+
+export const WELCOME_SCREEN_HEADLINE_MAX = 120;
+export const WELCOME_SCREEN_DESCRIPTION_MAX = 200;
+export const WELCOME_SCREEN_BUTTON_LABEL_MAX = 40;
+
+export const DEFAULT_WELCOME_SCREEN_HEADLINE = "How can we help?";
+export const DEFAULT_WELCOME_SCREEN_DESCRIPTION =
+  "Ask about orders, products, or store policies.";
+export const DEFAULT_WELCOME_SCREEN_BUTTON_LABEL = "Chat with us";
+
+export const WELCOME_SCREEN_SOCIAL_LABEL_MAX = 80;
+export const WELCOME_SCREEN_SOCIAL_URL_MAX = 500;
+
+export type WelcomeScreenSocialLink = {
+  label: string;
+  url: string;
+};
+
+export const DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS: [WelcomeScreenSocialLink, WelcomeScreenSocialLink] = [
+  { label: "Follow us on Instagram", url: "" },
+  { label: "Follow us on TikTok", url: "" },
+];
+
+export type WelcomeScreenSettings = {
+  enabled: boolean;
+  headline: string;
+  description: string;
+  buttonLabel: string;
+  socialLinks: [WelcomeScreenSocialLink, WelcomeScreenSocialLink];
+};
+
+export function readWelcomeScreenEnabled(
+  behavior: Record<string, unknown> | null | undefined
+): boolean {
+  const raw = behavior?.welcome_screen_enabled;
+  return typeof raw === "boolean" ? raw : true;
+}
+
+function readWelcomeScreenSocialLinks(
+  behavior: Record<string, unknown> | null | undefined
+): [WelcomeScreenSocialLink, WelcomeScreenSocialLink] {
+  const raw = behavior?.welcome_screen_social_links;
+  const defaults = DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS;
+  if (!Array.isArray(raw)) return defaults;
+  const normalize = (item: unknown, fallback: WelcomeScreenSocialLink): WelcomeScreenSocialLink => {
+    if (!item || typeof item !== "object") return fallback;
+    const row = item as Record<string, unknown>;
+    const label = typeof row.label === "string" && row.label.trim() ? row.label.trim() : fallback.label;
+    const url = typeof row.url === "string" ? row.url.trim() : "";
+    return {
+      label: label.slice(0, WELCOME_SCREEN_SOCIAL_LABEL_MAX),
+      url: url.slice(0, WELCOME_SCREEN_SOCIAL_URL_MAX),
+    };
+  };
+  return [normalize(raw[0], defaults[0]), normalize(raw[1], defaults[1])];
+}
+
+export function socialLinksMatchDefault(
+  links: readonly [WelcomeScreenSocialLink, WelcomeScreenSocialLink]
+): boolean {
+  return (
+    links[0].label === DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS[0].label &&
+    links[0].url === DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS[0].url &&
+    links[1].label === DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS[1].label &&
+    links[1].url === DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS[1].url
+  );
+}
+
+export function resolveWelcomeScreenSettings(
+  behavior: Record<string, unknown> | null | undefined
+): WelcomeScreenSettings {
+  const headline = readBehaviorString(behavior, "welcome_screen_headline").trim();
+  const description = readBehaviorString(behavior, "welcome_screen_description").trim();
+  const buttonLabel = readBehaviorString(behavior, "welcome_screen_button_label").trim();
+  return {
+    enabled: readWelcomeScreenEnabled(behavior),
+    headline: headline || DEFAULT_WELCOME_SCREEN_HEADLINE,
+    description: description || DEFAULT_WELCOME_SCREEN_DESCRIPTION,
+    buttonLabel: buttonLabel || DEFAULT_WELCOME_SCREEN_BUTTON_LABEL,
+    socialLinks: readWelcomeScreenSocialLinks(behavior),
+  };
+}
+
+export function welcomeScreenSettingsForForm(
+  behavior: Record<string, unknown> | null | undefined
+): WelcomeScreenSettings {
+  return resolveWelcomeScreenSettings(behavior);
+}
+
+export function welcomeScreenMatchesDefault(settings: WelcomeScreenSettings): boolean {
+  return (
+    settings.enabled &&
+    settings.headline === DEFAULT_WELCOME_SCREEN_HEADLINE &&
+    settings.description === DEFAULT_WELCOME_SCREEN_DESCRIPTION &&
+    settings.buttonLabel === DEFAULT_WELCOME_SCREEN_BUTTON_LABEL
+  );
+}
+
+function normalizeSocialLink(
+  link: WelcomeScreenSocialLink,
+  fallback: WelcomeScreenSocialLink
+): WelcomeScreenSocialLink {
+  return {
+    label: (link.label.trim() || fallback.label).slice(0, WELCOME_SCREEN_SOCIAL_LABEL_MAX),
+    url: link.url.trim().slice(0, WELCOME_SCREEN_SOCIAL_URL_MAX),
+  };
+}
+
+export function normalizeWelcomeScreenSettings(settings: WelcomeScreenSettings): WelcomeScreenSettings {
+  return {
+    enabled: settings.enabled,
+    headline: (settings.headline.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE).slice(
+      0,
+      WELCOME_SCREEN_HEADLINE_MAX
+    ),
+    description: (settings.description.trim() || DEFAULT_WELCOME_SCREEN_DESCRIPTION).slice(
+      0,
+      WELCOME_SCREEN_DESCRIPTION_MAX
+    ),
+    buttonLabel: (settings.buttonLabel.trim() || DEFAULT_WELCOME_SCREEN_BUTTON_LABEL).slice(
+      0,
+      WELCOME_SCREEN_BUTTON_LABEL_MAX
+    ),
+    socialLinks: [
+      normalizeSocialLink(settings.socialLinks[0], DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS[0]),
+      normalizeSocialLink(settings.socialLinks[1], DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS[1]),
+    ],
+  };
+}
+
+/** Apply welcome screen fields onto a behavior_settings object (clears default values). */
+export function applyWelcomeScreenToBehaviorRecord(
+  record: Record<string, unknown>,
+  settings: WelcomeScreenSettings
+): void {
+  const normalized = normalizeWelcomeScreenSettings(settings);
+  record.welcome_screen_enabled = normalized.enabled;
+  if (normalized.headline !== DEFAULT_WELCOME_SCREEN_HEADLINE) {
+    record.welcome_screen_headline = normalized.headline;
+  } else {
+    delete record.welcome_screen_headline;
+  }
+  if (normalized.description !== DEFAULT_WELCOME_SCREEN_DESCRIPTION) {
+    record.welcome_screen_description = normalized.description;
+  } else {
+    delete record.welcome_screen_description;
+  }
+  if (normalized.buttonLabel !== DEFAULT_WELCOME_SCREEN_BUTTON_LABEL) {
+    record.welcome_screen_button_label = normalized.buttonLabel;
+  } else {
+    delete record.welcome_screen_button_label;
+  }
+  if (normalized.enabled) {
+    delete record.welcome_screen_enabled;
+  }
+  if (socialLinksMatchDefault(normalized.socialLinks)) {
+    delete record.welcome_screen_social_links;
+  } else {
+    record.welcome_screen_social_links = normalized.socialLinks.map((link) => ({
+      label: link.label,
+      url: link.url,
+    }));
+  }
+}
 
 /** Read a nested rate_limit object with safe defaults. */
 export function readRateLimit(

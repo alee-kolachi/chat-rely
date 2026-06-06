@@ -9,6 +9,10 @@ import {
   type ProductDetail,
   type WidgetConfig,
 } from "./api";
+import {
+  detectWelcomeSocialPlatform,
+  SOCIAL_PLATFORM_ICONS,
+} from "./welcome-social-platform";
 import { clientChatContext } from "./client-context";
 
 declare global {
@@ -50,9 +54,11 @@ const ICON_REFRESH =
 const ICON_LIST =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>';
 const ICON_SEND =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>';
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></svg>';
 const ICON_CHEVRON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
+const ICON_ARROW_RIGHT_BOLD =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>';
 const ICON_CLOSE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
@@ -276,6 +282,14 @@ const GOOGLE_FONT_URLS: Record<string, string> = {
   lato: "https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap",
 };
 
+function defaultAccentPanelBackground(brandHex: string, themeMode: "light" | "dark"): string {
+  const accent = normalizeHexColor(brandHex, DEFAULT_ACCENT);
+  if (themeMode === "dark") {
+    return `color-mix(in srgb, ${accent} 5%, #0F172A)`;
+  }
+  return `color-mix(in srgb, ${accent} 5%, #ffffff)`;
+}
+
 function resolveWidgetTheme(cfg: WidgetConfig, brandHex: string): ResolvedWidgetTheme {
   const appearance = cfg.widget_appearance;
   const themeMode = appearance?.theme_mode === "dark" ? "dark" : "light";
@@ -288,7 +302,10 @@ function resolveWidgetTheme(cfg: WidgetConfig, brandHex: string): ResolvedWidget
     fontFamily,
     headerColor: normalizeHexColor(custom.header, brandHex),
     userBubbleColor: normalizeHexColor(custom.user_bubble, brandHex),
-    panelBackground: normalizeHexColor(custom.panel_background, base.panelBackground),
+    panelBackground: normalizeHexColor(
+      custom.panel_background,
+      defaultAccentPanelBackground(brandHex, themeMode)
+    ),
     assistantBubble: normalizeHexColor(custom.assistant_bubble, base.assistantBubble),
     assistantBubbleBorder: normalizeHexColor(custom.assistant_bubble_border, base.assistantBubbleBorder),
     composerBackground: normalizeHexColor(custom.composer_background, base.composerBackground),
@@ -331,6 +348,66 @@ function applyWidgetAppearance(host: HTMLElement, root: HTMLElement, theme: Reso
   }
 }
 
+type WelcomeSocialLink = { label: string; url: string };
+
+function welcomeSocialLinksFromConfig(cfg: WidgetConfig): WelcomeSocialLink[] {
+  const defaults: WelcomeSocialLink[] = [
+    { label: "Follow us on Instagram", url: "" },
+    { label: "Follow us on TikTok", url: "" },
+  ];
+  const raw = cfg.welcome_screen_social_links;
+  if (!Array.isArray(raw)) return defaults;
+  const normalize = (item: unknown, fallback: WelcomeSocialLink): WelcomeSocialLink => {
+    if (!item || typeof item !== "object") return fallback;
+    const row = item as Record<string, unknown>;
+    const label =
+      typeof row.label === "string" && row.label.trim() ? row.label.trim().slice(0, 80) : fallback.label;
+    const url = typeof row.url === "string" ? row.url.trim().slice(0, 500) : "";
+    return { label, url };
+  };
+  return [normalize(raw[0], defaults[0]), normalize(raw[1], defaults[1])];
+}
+
+function isExternalUrl(url: string): boolean {
+  const trimmed = url.trim();
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+}
+
+function createWelcomeSocialCard(link: WelcomeSocialLink): HTMLElement {
+  const clickable = isExternalUrl(link.url);
+  const card = clickable ? document.createElement("a") : document.createElement("div");
+  card.className = clickable
+    ? "cr-welcome-social-card"
+    : "cr-welcome-social-card cr-welcome-social-card--static";
+  if (clickable) {
+    const anchor = card as HTMLAnchorElement;
+    anchor.href = link.url.trim();
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+  }
+  const platformEl = document.createElement("span");
+  platformEl.className = "cr-welcome-social-platform";
+  const platform = detectWelcomeSocialPlatform(link.label, link.url);
+  platformEl.innerHTML = SOCIAL_PLATFORM_ICONS[platform];
+  const labelEl = document.createElement("span");
+  labelEl.className = "cr-welcome-social-label";
+  labelEl.textContent = link.label;
+  const iconEl = document.createElement("span");
+  iconEl.className = "cr-welcome-social-icon";
+  iconEl.innerHTML = ICON_ARROW_RIGHT_BOLD;
+  card.append(platformEl, labelEl, iconEl);
+  return card;
+}
+
+function greetingMessagesFromConfig(cfg: WidgetConfig): string[] {
+  const fromList = cfg.greeting_messages;
+  if (Array.isArray(fromList) && fromList.length) {
+    return fromList.map((line) => String(line).trim()).filter(Boolean);
+  }
+  const single = (cfg.greeting_message || "").trim();
+  return single ? [single] : [];
+}
+
 function renderAssistantHtml(raw: string): string {
   const esc = raw
     .replace(/&/g, "&amp;")
@@ -340,20 +417,31 @@ function renderAssistantHtml(raw: string): string {
   return esc.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br>");
 }
 
+function looksLikeProductListLine(line: string): boolean {
+  const s = line.trim();
+  if (!s) return false;
+  if (s.startsWith("**") || s.startsWith("- ") || s.startsWith("![") || s.startsWith("|")) return true;
+  if (s.includes(" - Price:") || s.includes("Price:")) return true;
+  if (/^\d[.)]/.test(s)) return true;
+  if (s.includes("$") && (s.includes("http://") || s.includes("https://") || s.includes("**"))) return true;
+  return false;
+}
+
 function introTextForProductCards(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return "";
   const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return "";
+  const introLines: string[] = [];
+  for (const line of lines) {
+    if (looksLikeProductListLine(line)) break;
+    introLines.push(line);
+  }
+  const intro = introLines.join(" ").trim();
+  if (intro && !looksLikeProductListLine(intro) && intro.length <= 160) return intro;
   const first = lines[0] ?? trimmed;
-  const looksLikeProductList =
-    lines.length > 1 ||
-    first.includes(" - Price:") ||
-    first.includes("Price:") ||
-    first.startsWith("**") ||
-    first.startsWith("- ") ||
-    first.includes("$");
-  if (looksLikeProductList || first.length > 100) return "";
-  return first;
+  if (!looksLikeProductListLine(first) && first.length <= 100) return first;
+  return "";
 }
 
 const ICON_INFO =
@@ -861,7 +949,101 @@ async function boot(): Promise<void> {
   const historyView = document.createElement("div");
   historyView.className = "cr-history cr-view--hidden";
 
-  body.append(messages, historyView);
+  const welcomeView = document.createElement("div");
+  welcomeView.className = "cr-welcome cr-view--hidden";
+
+  const welcomeHero = document.createElement("div");
+  welcomeHero.className = "cr-welcome-hero";
+  const welcomeHeadline = document.createElement("h2");
+  welcomeHeadline.className = "cr-welcome-headline";
+  welcomeHeadline.textContent = (cfg.welcome_screen_headline || "How can we help?").trim();
+  welcomeHero.appendChild(welcomeHeadline);
+
+  const welcomeContent = document.createElement("div");
+  welcomeContent.className = "cr-welcome-content";
+
+  const welcomeCard = document.createElement("div");
+  welcomeCard.className = "cr-welcome-card";
+
+  const welcomeCardRow = document.createElement("div");
+  welcomeCardRow.className = "cr-welcome-card-row";
+  const welcomeCardAvatar = document.createElement("div");
+  welcomeCardAvatar.className = "cr-avatar-wrap cr-avatar-wrap--welcome cr-welcome-card-avatar";
+  if (cfg.avatar_url) {
+    const welcomeAvatarImg = document.createElement("img");
+    welcomeAvatarImg.className = "cr-avatar-img";
+    welcomeAvatarImg.alt = "";
+    welcomeAvatarImg.referrerPolicy = "no-referrer";
+    welcomeAvatarImg.src = cfg.avatar_url;
+    welcomeAvatarImg.onerror = () => {
+      welcomeCardAvatar.textContent = headerAvatarFallback.textContent || "?";
+      welcomeCardAvatar.style.display = "flex";
+      welcomeCardAvatar.style.alignItems = "center";
+      welcomeCardAvatar.style.justifyContent = "center";
+      welcomeCardAvatar.style.fontWeight = "700";
+      welcomeCardAvatar.style.fontSize = "18px";
+      welcomeCardAvatar.style.color = widgetAccent;
+    };
+    welcomeCardAvatar.appendChild(welcomeAvatarImg);
+  } else {
+    welcomeCardAvatar.textContent = headerAvatarFallback.textContent || "?";
+    welcomeCardAvatar.style.display = "flex";
+    welcomeCardAvatar.style.alignItems = "center";
+    welcomeCardAvatar.style.justifyContent = "center";
+    welcomeCardAvatar.style.fontWeight = "700";
+    welcomeCardAvatar.style.fontSize = "18px";
+    welcomeCardAvatar.style.color = widgetAccent;
+  }
+  const welcomeCardCopy = document.createElement("div");
+  welcomeCardCopy.className = "cr-welcome-card-copy";
+  const welcomeCardName = document.createElement("p");
+  welcomeCardName.className = "cr-welcome-card-name";
+  welcomeCardName.textContent = cfg.name || "Chat";
+  const welcomeCardDesc = document.createElement("p");
+  welcomeCardDesc.className = "cr-welcome-card-desc";
+  welcomeCardDesc.textContent = (
+    cfg.welcome_screen_description || "Ask about orders, products, or store policies."
+  ).trim();
+  welcomeCardCopy.append(welcomeCardName, welcomeCardDesc);
+  welcomeCardRow.append(welcomeCardAvatar, welcomeCardCopy);
+
+  const welcomeCta = document.createElement("button");
+  welcomeCta.type = "button";
+  welcomeCta.className = "cr-welcome-cta";
+  welcomeCta.style.backgroundColor = widgetAccent;
+  welcomeCta.textContent = (cfg.welcome_screen_button_label || "Chat with us").trim();
+
+  welcomeCard.append(welcomeCardRow, welcomeCta);
+
+  const welcomeSocialList = document.createElement("div");
+  welcomeSocialList.className = "cr-welcome-social-list";
+  for (const link of welcomeSocialLinksFromConfig(cfg)) {
+    welcomeSocialList.appendChild(createWelcomeSocialCard(link));
+  }
+
+  const welcomeSpacer = document.createElement("div");
+  welcomeSpacer.className = "cr-welcome-spacer";
+
+  const welcomePowered = document.createElement("div");
+  welcomePowered.className = "cr-welcome-powered";
+  if (!cfg.hide_powered_by_chatrely) {
+    welcomePowered.innerHTML = poweredByChatRelyHtml(apiBase);
+  } else {
+    welcomePowered.hidden = true;
+  }
+
+  const welcomeCardWrap = document.createElement("div");
+  welcomeCardWrap.className = "cr-welcome-card-wrap";
+  welcomeCardWrap.appendChild(welcomeCard);
+
+  const welcomePanel = document.createElement("div");
+  welcomePanel.className = "cr-welcome-panel";
+  welcomePanel.append(welcomeSocialList, welcomeSpacer, welcomePowered);
+
+  welcomeContent.append(welcomeCardWrap, welcomePanel);
+  welcomeView.append(welcomeHero, welcomeContent);
+
+  body.append(welcomeView, messages, historyView);
 
   const composer = document.createElement("div");
   composer.className = "cr-composer";
@@ -946,6 +1128,52 @@ async function boot(): Promise<void> {
   let historyOpen = false;
   let sending = false;
   let panelOpen = false;
+  let greetingsRendered = false;
+  type BodyView = "welcome" | "chat" | "history";
+  let bodyView: BodyView = "chat";
+
+  function welcomeScreenEnabled(): boolean {
+    return cfg.welcome_screen_enabled !== false;
+  }
+
+  function applyBodyView(): void {
+    const welcome = bodyView === "welcome";
+    const history = bodyView === "history";
+    const chat = bodyView === "chat";
+
+    welcomeView.classList.toggle("cr-view--hidden", !welcome);
+    messages.classList.toggle("cr-view--hidden", !chat);
+    historyView.classList.toggle("cr-view--hidden", !history);
+    header.classList.toggle("cr-view--hidden", welcome);
+    composer.classList.toggle("cr-view--hidden", welcome);
+
+    composerRow.classList.toggle("cr-view--hidden", !chat || contactCaptureRequired);
+    composerContact.classList.toggle("cr-view--hidden", history || !contactCaptureRequired);
+    composerHint.classList.toggle("cr-view--hidden", !history);
+    composerEscalated.classList.toggle(
+      "cr-view--hidden",
+      history || contactCaptureRequired || !isEscalatedStatus(conversationStatus)
+    );
+    poweredByEl.classList.toggle("cr-view--hidden", welcome || contactCaptureRequired);
+    welcomePowered.hidden = Boolean(cfg.hide_powered_by_chatrely) || !welcome;
+  }
+
+  function ensureChatGreetings(): void {
+    if (greetingsRendered || chatMessages.length > 0) return;
+    greetingMessagesFromConfig(cfg).forEach((text, index) => {
+      appendAssistantMessage({ text }, true, false, index === 0);
+    });
+    greetingsRendered = true;
+  }
+
+  function openChatView(): void {
+    if (historyOpen) setHistoryOpen(false);
+    bodyView = "chat";
+    applyBodyView();
+    ensureChatGreetings();
+    scrollMessages();
+  }
+
   let conversationStatus = "open";
   let contactCaptureRequired = false;
 
@@ -965,13 +1193,11 @@ async function boot(): Promise<void> {
 
   function setContactCaptureRequired(next: boolean): void {
     contactCaptureRequired = next;
-    composerContact.classList.toggle("cr-view--hidden", !next || historyOpen);
-    composerRow.classList.toggle("cr-view--hidden", next);
-    poweredByEl.classList.toggle("cr-view--hidden", next);
     if (!next) {
       contactErrorEl.classList.add("cr-view--hidden");
       contactErrorEl.textContent = "";
     }
+    applyBodyView();
   }
 
   function isEscalatedStatus(status: string | null | undefined): boolean {
@@ -979,11 +1205,10 @@ async function boot(): Promise<void> {
   }
 
   function setAiChatDisabled(disabled: boolean): void {
-    composerEscalated.classList.toggle("cr-view--hidden", !disabled || historyOpen || contactCaptureRequired);
-    composerRow.classList.toggle("cr-view--hidden", contactCaptureRequired || historyOpen);
     input.disabled = disabled || contactCaptureRequired;
     input.placeholder = disabled ? "Start a new chat to talk to the AI" : "Message…";
     send.disabled = disabled || contactCaptureRequired || sending || !input.value.trim();
+    applyBodyView();
   }
 
   function applyConversationStatus(status: string | null | undefined): void {
@@ -1111,7 +1336,8 @@ async function boot(): Promise<void> {
   function appendAssistantMessage(
     msg: Pick<StoredMessage, "text" | "products" | "product_detail" | "created_at">,
     html = true,
-    record = true
+    record = true,
+    showAvatar = true
   ): HTMLDivElement {
     const iso = messageCreatedAtIso(msg.created_at);
     if (record) {
@@ -1126,7 +1352,15 @@ async function boot(): Promise<void> {
     }
     const row = document.createElement("div");
     row.className = "cr-msg-row cr-msg-row--assistant";
-    row.appendChild(createBubbleAvatar());
+    if (showAvatar) {
+      row.appendChild(createBubbleAvatar());
+    } else {
+      const spacer = document.createElement("div");
+      spacer.className = "cr-avatar-wrap cr-avatar-wrap--bubble";
+      spacer.setAttribute("aria-hidden", "true");
+      spacer.style.visibility = "hidden";
+      row.appendChild(spacer);
+    }
     const col = document.createElement("div");
     col.className = "cr-msg-col";
     const wrap = document.createElement("div");
@@ -1251,16 +1485,16 @@ async function boot(): Promise<void> {
     historyBtn.classList.toggle("cr-header-btn--active", next);
     historyBtn.setAttribute("aria-label", next ? "Close conversations list" : "Browse conversations");
     historyBtn.title = next ? "Back to chat" : "Browse conversations";
-    messages.classList.toggle("cr-view--hidden", next);
-    historyView.classList.toggle("cr-view--hidden", !next);
-    composerRow.classList.toggle("cr-view--hidden", next || contactCaptureRequired);
-    composerContact.classList.toggle("cr-view--hidden", next || !contactCaptureRequired);
-    composerHint.classList.toggle("cr-view--hidden", !next);
-    composerEscalated.classList.toggle(
-      "cr-view--hidden",
-      next || contactCaptureRequired || !isEscalatedStatus(conversationStatus)
-    );
+    if (next) {
+      bodyView = "history";
+    } else if (welcomeScreenEnabled() && chatMessages.length === 0 && !greetingsRendered) {
+      bodyView = "welcome";
+    } else {
+      bodyView = "chat";
+    }
+    applyBodyView();
     if (next) renderHistory();
+    else if (bodyView === "chat") ensureChatGreetings();
   }
 
   function resetChat(): void {
@@ -1275,8 +1509,14 @@ async function boot(): Promise<void> {
     setHistoryOpen(false);
     setContactCaptureRequired(false);
     applyConversationStatus("open");
-    const greeting = (cfg.greeting_message || "").trim();
-    if (greeting) appendAssistantMessage({ text: greeting }, true, false);
+    greetingsRendered = false;
+    if (welcomeScreenEnabled()) {
+      bodyView = "welcome";
+    } else {
+      bodyView = "chat";
+      ensureChatGreetings();
+    }
+    applyBodyView();
     updatePoweredByVisibility();
   }
 
@@ -1428,11 +1668,20 @@ async function boot(): Promise<void> {
             (typeof ev.response === "string" ? ev.response : "").trim() ||
             (assistantEl.getAttribute("data-plain") || "").trim() ||
             EMPTY_REPLY_FALLBACK;
-          assistantEl.innerHTML = renderAssistantHtml(introTextForProductCards(reply));
+          const hasRichProducts =
+            Boolean(pendingDetail) ||
+            Boolean(pendingProducts?.length) ||
+            (Array.isArray(ev.products) && ev.products.length > 0) ||
+            Boolean(ev.product_detail && typeof ev.product_detail === "object");
+          let displayText = hasRichProducts ? introTextForProductCards(reply) : reply;
+          if (hasRichProducts && !displayText.trim()) {
+            displayText = introTextForProductCards(assistantEl.getAttribute("data-plain") || "");
+          }
+          assistantEl.innerHTML = renderAssistantHtml(displayText);
           ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           const stored: StoredMessage = {
             role: "assistant",
-            text: introTextForProductCards(reply),
+            text: displayText,
             created_at: createdAt,
           };
           if (pendingDetail) stored.product_detail = pendingDetail;
@@ -1562,11 +1811,20 @@ async function boot(): Promise<void> {
     }
   }
 
-  const greeting = (cfg.greeting_message || "").trim();
-  if (chatMessages.length) renderChatMessages();
-  else if (greeting) appendAssistantMessage({ text: greeting }, true, false);
+  if (chatMessages.length) {
+    renderChatMessages();
+    bodyView = "chat";
+    greetingsRendered = true;
+  } else if (welcomeScreenEnabled()) {
+    bodyView = "welcome";
+  } else {
+    bodyView = "chat";
+    ensureChatGreetings();
+  }
+  applyBodyView();
   updatePoweredByVisibility();
 
+  welcomeCta.addEventListener("click", () => openChatView());
   resetBtn.addEventListener("click", resetChat);
   historyBtn.addEventListener("click", () => setHistoryOpen(!historyOpen));
   launcher.addEventListener("click", () => setPanelOpen(!panelOpen));

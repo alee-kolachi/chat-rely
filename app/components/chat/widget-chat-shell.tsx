@@ -2,8 +2,14 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect } from "react";
+import { ChevronLeft } from "lucide-react";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+import {
+  widgetComposerFieldClass,
+  widgetComposerSendButtonClass,
+} from "@/components/chat/playground-composer";
+import { WidgetSendIcon } from "@/components/chat/widget-send-icon";
 import {
   resolveWidgetAppearance,
   type ResolvedWidgetAppearance,
@@ -21,6 +27,9 @@ export type WidgetChatShellProps = {
   websiteLogoPending?: boolean;
   statusLine?: string;
   headerActions?: ReactNode;
+  /** Appearance preview: return to welcome screen from chat preview. */
+  onHeaderBack?: () => void;
+  headerBackLabel?: string;
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
@@ -55,6 +64,8 @@ export function WidgetChatShell({
   websiteLogoPending = false,
   statusLine,
   headerActions,
+  onHeaderBack,
+  headerBackLabel = "Back to welcome screen",
   children,
   footer,
   className,
@@ -84,7 +95,7 @@ export function WidgetChatShell({
       : undefined;
 
   const footerStyle: CSSProperties = {
-    backgroundColor: resolved.colors.composerBackground,
+    backgroundColor: resolved.colors.panelBackground,
     borderColor: resolved.colors.assistantBubbleBorder,
   };
 
@@ -104,7 +115,23 @@ export function WidgetChatShell({
         )}
         style={headerStyle}
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          {onHeaderBack ? (
+            <button
+              type="button"
+              onClick={onHeaderBack}
+              aria-label={headerBackLabel}
+              title={headerBackLabel}
+              className={cn(
+                "inline-flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors",
+                headerChrome.lightBg
+                  ? "text-ds-on-surface-variant hover:bg-black/6 hover:text-ds-on-surface"
+                  : "text-white/80 hover:bg-white/12 hover:text-white"
+              )}
+            >
+              <ChevronLeft className="size-5" strokeWidth={2} aria-hidden />
+            </button>
+          ) : null}
           <WidgetBrandAvatar
             logoUrl={websiteLogoUrl ?? null}
             logoPending={websiteLogoPending}
@@ -181,12 +208,14 @@ export function WidgetWelcomeMessageRow({
   brandColorHex,
   websiteLogoUrl,
   websiteLogoPending = false,
+  showAvatar = true,
 }: {
   message: string;
   resolved: ResolvedWidgetAppearance;
   brandColorHex?: string | null;
   websiteLogoUrl?: string | null;
   websiteLogoPending?: boolean;
+  showAvatar?: boolean;
 }) {
   const brand = parseBrandColorHex(brandColorHex) ?? "#831C91";
   const chrome = brandChromeClasses(resolved.colors.header);
@@ -195,14 +224,18 @@ export function WidgetWelcomeMessageRow({
   return (
     <div className="flex justify-start">
       <div className="flex max-w-[90%] gap-3">
-        <WidgetBrandAvatar
-          logoUrl={websiteLogoUrl ?? null}
-          logoPending={websiteLogoPending}
-          hasBrand={hasBrand}
-          chrome={chrome}
-          brandColorHex={brand}
-          size="bubble"
-        />
+        {showAvatar ? (
+          <WidgetBrandAvatar
+            logoUrl={websiteLogoUrl ?? null}
+            logoPending={websiteLogoPending}
+            hasBrand={hasBrand}
+            chrome={chrome}
+            brandColorHex={brand}
+            size="bubble"
+          />
+        ) : (
+          <div className="size-7 shrink-0" aria-hidden />
+        )}
         <div
           className="rounded-2xl rounded-tl-none border px-4 py-3 text-sm leading-relaxed shadow-sm"
           style={{
@@ -215,6 +248,36 @@ export function WidgetWelcomeMessageRow({
         </div>
       </div>
     </div>
+  );
+}
+
+export function WidgetWelcomeMessages({
+  messages,
+  resolved,
+  brandColorHex,
+  websiteLogoUrl,
+  websiteLogoPending = false,
+}: {
+  messages: string[];
+  resolved: ResolvedWidgetAppearance;
+  brandColorHex?: string | null;
+  websiteLogoUrl?: string | null;
+  websiteLogoPending?: boolean;
+}) {
+  return (
+    <>
+      {messages.map((message, index) => (
+        <WidgetWelcomeMessageRow
+          key={`${index}-${message.slice(0, 24)}`}
+          message={message}
+          resolved={resolved}
+          brandColorHex={brandColorHex}
+          websiteLogoUrl={websiteLogoUrl}
+          websiteLogoPending={websiteLogoPending}
+          showAvatar={index === 0}
+        />
+      ))}
+    </>
   );
 }
 
@@ -235,6 +298,42 @@ export function WidgetPreviewUserBubble({
       }}
     >
       {children}
+    </div>
+  );
+}
+
+/** Static composer row for appearance preview; matches live widget field + send chrome. */
+export function WidgetComposerPreview({
+  placeholder = "Write a message…",
+  brandColorHex,
+  accentColor,
+  className,
+}: {
+  placeholder?: string;
+  brandColorHex?: string | null;
+  accentColor: string;
+  className?: string;
+}) {
+  const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
+  const chrome = brandChromeClasses(accentColor);
+
+  return (
+    <div className={cn("px-5 pt-2.5 pb-2.5", className)}>
+      <div className={cn(widgetComposerFieldClass, "pointer-events-none")}>
+        <span className="min-h-9 flex-1 py-2 text-sm leading-snug text-ds-on-surface-variant/70">
+          {placeholder}
+        </span>
+        <span
+          className={cn(
+            widgetComposerSendButtonClass,
+            hasBrand ? chrome.fabIconClass : "text-ds-on-primary"
+          )}
+          style={{ backgroundColor: accentColor }}
+          aria-hidden
+        >
+          <WidgetSendIcon className="size-4" />
+        </span>
+      </div>
     </div>
   );
 }

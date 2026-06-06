@@ -25,8 +25,15 @@ class PublicWidgetConfigResponse(BaseModel):
     name: str
     brand_color: str | None = None
     widget_position: Literal["bottom_right", "bottom_left"] = "bottom_right"
-    """Optional first assistant bubble shown when the chat opens."""
+    """First assistant bubble when the chat opens (legacy single-bubble clients)."""
     greeting_message: str | None = None
+    """Ordered welcome bubbles; custom greeting is one item, default is two."""
+    greeting_messages: list[str] | None = None
+    welcome_screen_enabled: bool = True
+    welcome_screen_headline: str | None = None
+    welcome_screen_description: str | None = None
+    welcome_screen_button_label: str | None = None
+    welcome_screen_social_links: list[dict[str, str]] | None = None
     """True when ``human.escalate`` is enabled for this agent (widget may show Escalate button)."""
     human_escalation_available: bool = False
     """Optional logo URL for header (e.g. favicon from primary website knowledge source)."""

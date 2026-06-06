@@ -8,7 +8,6 @@ import {
   History,
   List,
   RefreshCw,
-  Send,
   Settings2,
   ShoppingBag,
   UserRound,
@@ -47,10 +46,13 @@ import {
   DEFAULT_AGENT_REPLY_STYLE,
   agentSystemPromptForReplyStyle,
   agentSystemPromptFromAgent,
-  effectiveWelcomeMessage,
+  effectiveWelcomeMessages,
   normalizeAgentReplyStyle,
 } from "@/lib/agent-settings";
-import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
+import {
+  PoweredByChatRely,
+  WIDGET_POWERED_BY_STRIP_CLASS,
+} from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
 import { getWidgetPreviewContext } from "@/lib/widget-appearance";
 import { InfoHint } from "@/components/ui/info-hint";
@@ -69,7 +71,7 @@ import { EscalatedChatNotice } from "@/components/chat/escalated-chat-notice";
 import { VisitorContactForm } from "@/components/chat/visitor-contact-form";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
-import { WidgetWelcomeMessageRow } from "@/components/chat/widget-chat-shell";
+import { WidgetWelcomeMessages } from "@/components/chat/widget-chat-shell";
 import {
   PlaygroundComposer,
   resizePlaygroundComposer,
@@ -1086,7 +1088,7 @@ function PlaygroundPreviewConversation({
   const displayName = (agentName?.trim() || "Assistant preview").trim();
   const toneDescription = toneDescriptionRaw?.trim() || null;
   const languageLabel = languagePreviewLabel(languageRaw);
-  const emptyAssistantLine = effectiveWelcomeMessage(behaviorSettings, agentName);
+  const emptyAssistantLines = effectiveWelcomeMessages(behaviorSettings, agentName);
 
   const headerToolbarIconBtnClass = useMemo(
     () =>
@@ -1105,9 +1107,8 @@ function PlaygroundPreviewConversation({
   return (
     <div
       className={cn(
-        "border-ds-outline flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
-        "h-full max-h-full",
-        "xl:h-[min(37.5rem,85vh)]"
+        "border-ds-outline flex min-h-0 w-full max-w-[26rem] shrink-0 flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+        "h-[min(37.5rem,85vh)] max-h-full"
       )}
       style={{
         backgroundColor: appearanceResolved.colors.panelBackground,
@@ -1258,8 +1259,8 @@ function PlaygroundPreviewConversation({
             ) : null}
             {!historyThreadLoading && !storedThreadRestoring && previewMessages.length === 0 ? (
               <div className="space-y-3">
-                <WidgetWelcomeMessageRow
-                  message={emptyAssistantLine}
+                <WidgetWelcomeMessages
+                  messages={emptyAssistantLines}
                   resolved={appearanceResolved}
                   brandColorHex={brandColorHex}
                   websiteLogoUrl={websiteLogoUrl}
@@ -1420,7 +1421,7 @@ function PlaygroundPreviewConversation({
 
       <div
         className="shrink-0 px-4 pb-2.5 pt-2 sm:px-5"
-        style={{ backgroundColor: appearanceResolved.colors.composerBackground }}
+        style={{ backgroundColor: appearanceResolved.colors.panelBackground }}
       >
         {historyOpen ? (
           <>
@@ -1458,10 +1459,10 @@ function PlaygroundPreviewConversation({
               brandColorHex={brandColorHex}
               hasBrand={hasBrand}
               chrome={chrome}
-              shellStyle={{ backgroundColor: appearanceResolved.colors.composerBackground }}
+              shellStyle={{ backgroundColor: "#FFFFFF" }}
             />
             {!hidePoweredByPlan ? (
-              <PoweredByChatRely compact className="bg-transparent px-0 py-0" />
+              <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
             ) : null}
             {footerError ? <p className="text-rose-600 text-sm">{footerError}</p> : null}
           </div>
@@ -2008,6 +2009,3 @@ function IconRefresh({ className }: { className?: string }) {
   return <RefreshCw className={className} strokeWidth={1.8} aria-hidden />;
 }
 
-function IconSend({ className }: { className?: string }) {
-  return <Send className={className} strokeWidth={1.8} aria-hidden />;
-}

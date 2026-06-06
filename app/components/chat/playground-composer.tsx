@@ -1,18 +1,25 @@
 "use client";
 
 import { useLayoutEffect, type CSSProperties, type FormEvent, type KeyboardEvent, RefObject } from "react";
-import { Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brandChromeClasses } from "@/lib/brand-chrome";
+import { WidgetSendIcon } from "@/components/chat/widget-send-icon";
 
 export const PLAYGROUND_COMPOSER_MAX_LINES = 3;
 
 type Chrome = ReturnType<typeof brandChromeClasses>;
 
-const shellClass = cn(
-  "flex w-full min-h-11 items-end gap-1 rounded-xl border border-ds-outline bg-ds-surface px-2 py-1 pl-3 shadow-ds-sm",
+/** Matches live widget `.cr-composer-field` (12px radius). */
+export const widgetComposerFieldClass = cn(
+  "flex w-full min-h-11 items-end gap-1 rounded-[12px] border border-ds-outline bg-white px-2 py-1 pl-3 shadow-ds-sm",
   "transition-[border-color,box-shadow] duration-150",
   "focus-within:border-ds-primary focus-within:ring-2 focus-within:ring-ds-primary/20"
+);
+
+/** Matches live widget `.cr-send` (10px radius, 36px square). */
+export const widgetComposerSendButtonClass = cn(
+  "mb-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] border-0 transition-opacity",
+  "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
 );
 
 const inputClass = cn(
@@ -102,8 +109,7 @@ export function PlaygroundComposer({
       disabled={sendDisabled || disabled}
       onClick={submitType === "button" ? (e) => onSend(e) : undefined}
       className={cn(
-        "mb-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] border-0 transition-opacity",
-        "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40",
+        widgetComposerSendButtonClass,
         hasBrand && chrome
           ? cn(chrome.fabIconClass, "cursor-pointer hover:opacity-90")
           : "cursor-pointer bg-ds-primary text-ds-on-primary hover:bg-ds-primary-hover"
@@ -111,13 +117,13 @@ export function PlaygroundComposer({
       style={hasBrand && brandColorHex ? { backgroundColor: brandColorHex } : undefined}
       aria-label="Send"
     >
-      <Send className="size-4" strokeWidth={1.8} aria-hidden />
+      <WidgetSendIcon className="size-4" />
     </button>
   );
 
   if (submitType === "submit") {
     return (
-      <form className={cn(shellClass, "gap-1")} style={shellStyle} onSubmit={onSend}>
+      <form className={cn(widgetComposerFieldClass, "gap-1")} style={shellStyle} onSubmit={onSend}>
         {textarea}
         {sendButton}
       </form>
@@ -125,7 +131,7 @@ export function PlaygroundComposer({
   }
 
   return (
-    <div className={shellClass} style={shellStyle}>
+    <div className={widgetComposerFieldClass} style={shellStyle}>
       {textarea}
       {sendButton}
     </div>

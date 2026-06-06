@@ -361,6 +361,11 @@
     padding: 0.875rem 1rem;
   }
 
+  textarea.ds-app-field.ds-app-field--compact {
+    min-height: 0;
+    padding: 0.5rem 0.75rem;
+  }
+
   .chat-turn1-user,
   .chat-turn1-bot,
   .chat-turn2-user,

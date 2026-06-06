@@ -19,6 +19,12 @@ export type WidgetConfig = {
   brand_color: string | null;
   widget_position: "bottom_right" | "bottom_left";
   greeting_message?: string | null;
+  greeting_messages?: string[] | null;
+  welcome_screen_enabled?: boolean;
+  welcome_screen_headline?: string | null;
+  welcome_screen_description?: string | null;
+  welcome_screen_button_label?: string | null;
+  welcome_screen_social_links?: Array<{ label: string; url: string }> | null;
   human_escalation_available?: boolean;
   avatar_url?: string | null;
   attachments_ui_enabled?: boolean;

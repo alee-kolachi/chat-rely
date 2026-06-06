@@ -52,7 +52,15 @@ def test_public_widget_config_ok(client: TestClient, monkeypatch: pytest.MonkeyP
     assert isinstance(body.get("attachments_ui_enabled"), bool)
     assert body.get("hide_powered_by_chatrely") is False
     assert body.get("message_feedback_enabled") is False
-    assert body.get("greeting_message") == "Hi there! I'm Store Bot. What can I help you with today?"
+    assert body.get("greeting_message") == (
+        "Hey there! I'm Store Bot, your support assistant. Let's find the best match for you."
+    )
+    assert body.get("greeting_messages") == [
+        "Hey there! I'm Store Bot, your support assistant. Let's find the best match for you.",
+        "Can I get your name and what you're looking for today?",
+    ]
+    assert body.get("welcome_screen_enabled") is True
+    assert body.get("welcome_screen_headline") == "How can we help?"
 
 
 def test_public_widget_config_custom_greeting(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -75,7 +83,9 @@ def test_public_widget_config_custom_greeting(client: TestClient, monkeypatch: p
     monkeypatch.setattr("app.domains.public_widget.service.fetch_active_plan_slug", _plan_hobby)
     r = client.get("/api/v1/public/widget/config", headers={"X-ChatRely-Agent-Key": "test-key"})
     assert r.status_code == 200
-    assert r.json().get("greeting_message") == "Welcome to our shop!"
+    body = r.json()
+    assert body.get("greeting_message") == "Welcome to our shop!"
+    assert body.get("greeting_messages") == ["Welcome to our shop!"]
 
 
 def test_public_widget_config_hides_powered_by_on_pro(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
