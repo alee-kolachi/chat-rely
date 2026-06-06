@@ -41,11 +41,10 @@ export default function ActionDetailPage() {
   const shopifyAction = getShopifyAction(actionId);
   const { selectedAgentId } = useDashboardAgent();
   const { data: catalog, loading, error: catalogError, refresh } = useActionCatalog(selectedAgentId || undefined);
-  const { data: integrations, loading: integrationsLoading } = useAgentIntegrationsBootstrap(
+  const { shopify, loading: integrationsLoading } = useAgentIntegrationsBootstrap(
     selectedAgentId || undefined,
     { includeWebsitePreview: false }
   );
-  const shopify = integrations?.shopify;
   const [banner, setBanner] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [reconnectBusy, setReconnectBusy] = useState(false);
