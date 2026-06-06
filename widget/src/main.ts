@@ -9,6 +9,7 @@ import {
   type ProductDetail,
   type WidgetConfig,
 } from "./api";
+import { clientChatContext } from "./client-context";
 
 declare global {
   interface Window {
@@ -744,9 +745,10 @@ async function boot(): Promise<void> {
   const brandHex = cfg.brand_color ? normalizeHexColor(cfg.brand_color, DEFAULT_ACCENT) : null;
   const accent = brandHex ?? DEFAULT_ACCENT;
   const theme = resolveWidgetTheme(cfg, accent);
+  const widgetAccent = theme.headerColor;
   const headerChrome = brandChromeClasses(theme.headerColor);
   const userChrome = brandChromeClasses(theme.userBubbleColor);
-  const launcherChrome = brandChromeClasses(accent);
+  const launcherChrome = brandChromeClasses(widgetAccent);
   const hasBrand = Boolean(brandHex);
   const bottomLeft = cfg.widget_position === "bottom_left";
 
@@ -755,7 +757,7 @@ async function boot(): Promise<void> {
 
   const host = document.createElement("div");
   host.id = "chatrely-widget-host";
-  host.style.setProperty("--cr-accent", accent);
+  host.style.setProperty("--cr-accent", widgetAccent);
   host.style.setProperty("--cr-launcher-icon", launcherChrome.launcherIcon);
 
   const root = document.createElement("div");
@@ -768,7 +770,7 @@ async function boot(): Promise<void> {
   launcher.className = "cr-launcher";
   launcher.setAttribute("aria-label", "Open chat");
   launcher.setAttribute("aria-expanded", "false");
-  launcher.style.background = accent;
+  launcher.style.background = widgetAccent;
 
   const launcherInitial =
     (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
@@ -1361,7 +1363,7 @@ async function boot(): Promise<void> {
         message: userText,
         conversation_id: conversationId,
         visitor_id: visitorId,
-        locale: navigator.language,
+        ...clientChatContext(),
         ...(productAction
           ? {
               product_action: {
