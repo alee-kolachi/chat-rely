@@ -1,4 +1,4 @@
-"""Plan-aware model selection: default cheap model, gated premium turns, throttle delays."""
+"""Plan-aware model selection: essential (mini) vs premium (4o) by plan and conversation usage."""
 
 from __future__ import annotations
 
@@ -146,6 +146,37 @@ async def run_complexity_classifier(
     return result, billing
 
 
+def resolve_turn_model_by_plan_usage(
+    *,
+    policy: PlanModelPolicy,
+    conversations_used: int,
+    included_conversations: int,
+) -> TurnModelDecision:
+    """Free always uses essential (mini). Paid plans use premium (4o) until the monthly conversation cap."""
+    default = policy.default_chat_model
+    premium = policy.premium_chat_model
+    slug = (policy.plan_slug or "free").strip().lower()
+
+    if slug == "free":
+        return TurnModelDecision(model=default, used_premium=False, classifier_ran=False)
+
+    included = max(0, int(included_conversations))
+    used = max(0, int(conversations_used))
+    if included > 0 and used < included:
+        return TurnModelDecision(
+            model=premium,
+            used_premium=True,
+            classifier_ran=False,
+            classifier_reason="under_conversation_limit",
+        )
+    return TurnModelDecision(
+        model=default,
+        used_premium=False,
+        classifier_ran=False,
+        classifier_reason="over_conversation_limit",
+    )
+
+
 def resolve_turn_model_sync(
     *,
     policy: PlanModelPolicy,
@@ -155,6 +186,7 @@ def resolve_turn_model_sync(
     classifier: ClassifierResult | None,
     routing_enabled: bool,
 ) -> TurnModelDecision:
+    """Legacy classifier path (tests / fallback). Production turns use ``resolve_turn_model_by_plan_usage``."""
     default = policy.default_chat_model
     premium = policy.premium_chat_model
 
@@ -248,13 +280,19 @@ async def apply_throttle_delay(
     *,
     throttle_tier: str | None,
     policy: PlanModelPolicy,
-    premium_turns_used: int,
+    conversations_used: int,
+    included_conversations: int,
+    premium_turns_used: int = 0,
 ) -> int:
-    """Sleep before LLM when over conversation cap or premium budget exhausted. Returns delay ms applied."""
+    """Sleep before LLM when over the monthly conversation cap. Returns delay ms applied."""
     tier = (throttle_tier or "").strip().lower()
     delay_ms = 0
+    included = max(0, int(included_conversations))
+    used = max(0, int(conversations_used))
     if tier == "strong":
         delay_ms = int(policy.throttle_policy.get("strong_delay_ms") or 0)
+    elif included > 0 and used >= included:
+        delay_ms = int(policy.throttle_policy.get("soft_delay_ms") or 0)
     elif policy.included_premium_turns > 0 and premium_turns_used >= policy.included_premium_turns:
         delay_ms = int(policy.throttle_policy.get("soft_delay_ms") or 0)
 

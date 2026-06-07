@@ -5,7 +5,7 @@ import { MarketingPricingClient } from "./pricing-client";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "ChatRely plans by conversations, agents, automations, and analytics. Essential AI on every tier, smart resolution on Standard and Pro.",
+    "ChatRely plans by premium AI conversations, agents, Shopify actions, and analytics. Unlimited essential AI after your cap.",
 };
 
 export default function PricingPage() {

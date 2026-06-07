@@ -91,9 +91,6 @@ export function buildPlanEntitlementSections(
   const { storage: storageBytes, crawl: crawlBytes } = resolveStorageBytes(plan);
   const maxActions =
     plan.limits?.max_enabled_actions_per_agent ?? featureInt(features, "max_enabled_actions_per_agent");
-  const premiumIncluded = featureInt(features, "included_premium_turns");
-  const premiumUsed = usageSnapshot?.premium_turns_used ?? 0;
-
   const knowledgeRows: PlanEntitlementRow[] = [
     {
       label: "Training content",
@@ -121,15 +118,9 @@ export function buildPlanEntitlementSections(
       label: "Shopify integration",
       value: !featureBool(features, "shopify_enabled")
         ? "Not included"
-        : maxActions > 0
-          ? "Connect + live actions"
-          : "Connect",
+        : "Connect + live actions",
       included: featureBool(features, "shopify_enabled"),
-      upgradeNote: !featureBool(features, "shopify_enabled")
-        ? tierLabel("hobby")
-        : maxActions === 0
-          ? "Live store tools on Hobby+"
-          : undefined,
+      upgradeNote: !featureBool(features, "shopify_enabled") ? tierLabel("hobby") : undefined,
       minimumTier: !featureBool(features, "shopify_enabled") ? "hobby" : undefined,
     },
     {
@@ -147,7 +138,7 @@ export function buildPlanEntitlementSections(
       minimumTier: "hobby",
     },
     {
-      label: "Source suggestions",
+      label: "Knowledge gap suggestions",
       value: tierAtLeast(slug, "standard") ? "Included" : "Not included",
       included: tierAtLeast(slug, "standard"),
       upgradeNote: tierAtLeast(slug, "standard") ? undefined : tierLabel("standard"),
@@ -180,36 +171,34 @@ export function buildPlanEntitlementSections(
     },
   ];
 
-  const intelligenceRows: PlanEntitlementRow[] = [];
-  if (premiumIncluded > 0) {
-    intelligenceRows.push({
-      label: "Smart resolution (this cycle)",
-      value: `${premiumUsed.toLocaleString()} / ${premiumIncluded.toLocaleString()}`,
+  const includedConversations =
+    usageSnapshot?.included_conversations ?? plan.included_conversations ?? 0;
+  const usedConversations = usageSnapshot?.conversations_used ?? 0;
+
+  const intelligenceRows: PlanEntitlementRow[] = [
+    {
+      label: "Premium AI",
+      value:
+        slug === "free"
+          ? "Not included"
+          : usedConversations < includedConversations
+            ? "Active this cycle"
+            : "Cap reached (essential AI)",
+      included: slug !== "free",
+      upgradeNote: slug === "free" ? tierLabel("hobby") : undefined,
+      minimumTier: slug === "free" ? "hobby" : undefined,
+    },
+    {
+      label: "Essential AI",
+      value: slug === "free" ? "Always" : "After premium cap",
       included: true,
-    });
-  } else {
-    intelligenceRows.push({
-      label: "Smart resolution",
-      value: "Not included",
-      included: false,
-      upgradeNote: tierLabel("standard"),
-      minimumTier: "standard",
-    });
-  }
-  intelligenceRows.push({
-    label: "Advanced AI models",
-    value: tierAtLeast(slug, "hobby") ? "Included" : "Not included",
-    included: tierAtLeast(slug, "hobby"),
-    upgradeNote: tierAtLeast(slug, "hobby") ? undefined : tierLabel("hobby"),
-    minimumTier: "hobby",
-  });
-  if (tierAtLeast(slug, "pro")) {
-    intelligenceRows.push({
-      label: "Priority smart resolution",
-      value: "Coming soon",
-      included: false,
-    });
-  }
+    },
+    {
+      label: "Unlimited essential AI",
+      value: "Included",
+      included: true,
+    },
+  ];
 
   const brandRows: PlanEntitlementRow[] = [
     {

@@ -16,7 +16,7 @@ export function LandingPricingTeaser() {
           Compare all plans &amp; features
         </Link>
         <p className="ds-app-body-muted max-w-md">
-          Essential AI on every plan. Standard and Pro add smart resolution for complex issues. Chat stays on.
+          Premium AI on paid plans. Unlimited essential AI after your cap. Chat never goes offline.
         </p>
       </div>
     </>

@@ -49,6 +49,16 @@ def build_thread_ack_user_prompt(user_message: str) -> str:
     )
 
 
+def build_intake_reply_user_prompt(user_message: str) -> str:
+    return (
+        "The customer is sharing their name or contact info only — they have not asked about "
+        "a product, order, or policy yet.\n"
+        "Acknowledge them briefly by name if given. Ask what they would like help with today. "
+        "Do **not** call any tools (no order lookup, catalog search, or knowledge search).\n\n"
+        f"Customer message:\n{user_message}"
+    )
+
+
 def build_chitchat_user_prompt(user_message: str) -> str:
     return (
         "The customer's message is a greeting or small talk — no product, order, or policy question.\n"

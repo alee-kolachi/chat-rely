@@ -274,7 +274,7 @@ export function WidgetWelcomeMessages({
           brandColorHex={brandColorHex}
           websiteLogoUrl={websiteLogoUrl}
           websiteLogoPending={websiteLogoPending}
-          showAvatar={index === 0}
+          showAvatar
         />
       ))}
     </>

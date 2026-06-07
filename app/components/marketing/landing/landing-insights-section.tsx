@@ -17,7 +17,7 @@ const posts = [
     cover: "playground",
   },
   {
-    title: "When to enable smart resolution",
+    title: "When premium AI helps most",
     category: "Product",
     date: "Feb 23, 2026",
     cover: "resolution",

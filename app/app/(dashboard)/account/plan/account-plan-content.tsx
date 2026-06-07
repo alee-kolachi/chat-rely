@@ -421,11 +421,6 @@ export function AccountPlanContent() {
     };
   }, [searchParams, ctx]);
 
-  const premiumIncluded = ctx
-    ? Number(ctx.plan.features?.included_premium_turns ?? ctx.usage_snapshot?.included_premium_turns ?? 0)
-    : 0;
-  const premiumUsed = ctx?.usage_snapshot?.premium_turns_used ?? 0;
-
   return (
     <div className="ds-app-shell">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
@@ -519,8 +514,8 @@ export function AccountPlanContent() {
               ) : null}
               {ctx.usage_snapshot?.throttle_tier === "strong" ? (
                 <p className="mt-4 rounded-ds-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  You passed your included conversations for this cycle. Chat stays on, but replies may be slower
-                  until the cycle resets or you upgrade.
+                  You passed your premium AI conversation cap. Chat stays on with essential AI, but replies may be
+                  slower until the cycle resets or you upgrade.
                 </p>
               ) : null}
             </article>
@@ -546,23 +541,17 @@ export function AccountPlanContent() {
                   localeReady={localeReady}
                 />
                 <PlanResourceMetricCard
-                  label="Conversations"
-                  hint="Closed chats with visitor messages, assistant replies, or tool activity."
+                  label="Premium AI conversations"
+                  hint={
+                    ctx.plan.slug === "free"
+                      ? "Essential AI only on Free."
+                      : "Premium AI until this cap, then unlimited essential AI."
+                  }
                   used={ctx.usage_snapshot?.conversations_used ?? 0}
                   included={ctx.plan.included_conversations}
                   loading={loading}
                   localeReady={localeReady}
                 />
-                {premiumIncluded > 0 ? (
-                  <PlanResourceMetricCard
-                    label="Smart resolution turns"
-                    hint="Advanced-model replies for harder questions. Most turns stay on Essential AI."
-                    used={premiumUsed}
-                    included={premiumIncluded}
-                    loading={loading}
-                    localeReady={localeReady}
-                  />
-                ) : null}
               </div>
             </article>
 

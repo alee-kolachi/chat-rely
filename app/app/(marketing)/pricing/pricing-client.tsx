@@ -100,7 +100,7 @@ export function MarketingPricingClient() {
             Find the right plan for your store.
           </p>
           <p className="mx-auto mt-2 max-w-2xl text-sm text-ds-on-surface-variant sm:text-base">
-            Essential AI on every tier. Simple conversation limits, not message credits.
+            Premium AI conversations on paid plans. Unlimited essential AI after your cap.
           </p>
         </div>
 

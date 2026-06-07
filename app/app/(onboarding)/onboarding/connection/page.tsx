@@ -446,9 +446,9 @@ export default function ConnectionOnboardingPage() {
                         <p className="text-ds-on-surface-variant mt-1 text-xs leading-relaxed">
                           {isFreePlan ? (
                             <>
-                              <span className="text-ds-on-surface font-medium">Free plan:</span> you can link Shopify
-                              here. Live product and order answers in chat need{" "}
-                              <span className="text-ds-on-surface font-medium">Hobby</span> or higher.
+                              <span className="text-ds-on-surface font-medium">Free plan:</span> Shopify connect and live
+                              store tools need <span className="text-ds-on-surface font-medium">Hobby</span> or higher.
+                              You can skip this step and upgrade later.
                             </>
                           ) : connected && hasScopes ? (
                             "Your agent can read products, orders, and policies when shoppers ask. Read-only, no charges."

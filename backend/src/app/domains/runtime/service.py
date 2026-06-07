@@ -115,8 +115,10 @@ def build_shopify_tools_runtime_block(*, has_order_lookup_tool: bool) -> str:
         )
 
     lines.append(
-        "Broad catalog browse ('what do you sell', no category given): "
-        "call `shopify_product_search` with query `published_status:published`.\n"
+        "Broad catalog browse only when the customer gives no product or category "
+        "('what do you sell', 'show me your products'): use query `published_status:published`. "
+        "When they name a category or product (boots, snowboards, jackets), pass those keywords only — "
+        "not `published_status:published`.\n"
     )
 
     lines.append(
@@ -236,6 +238,7 @@ async def _load_shopify_tools_fast(
     user_id: UUID,
     agent_id: UUID,
     conversation_id: UUID | None = None,
+    customer_message: str | None = None,
 ) -> tuple[list[Any], dict[str, float], bool]:
     """Load Shopify LangChain tools only (no router LLM).
 
@@ -287,6 +290,7 @@ async def _load_shopify_tools_fast(
                 conn_pair[1],
                 keys,
                 action_configs=action_configs,
+                customer_message=customer_message,
             )
         timings["build_tools_ms"] = (time.perf_counter() - t2) * 1000.0
         timings["router_llm_ms"] = 0.0
@@ -453,6 +457,7 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
             row["max_unresolved_turns_before_escalation"] or 2
         ),
         "has_indexed_knowledge": has_kb,
+        "behavior_settings": behavior,
     }
     async with _kb_index_cache_lock:
         _kb_index_cache[str(agent_id)] = (time.time(), has_kb)

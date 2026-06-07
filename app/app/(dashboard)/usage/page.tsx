@@ -87,10 +87,6 @@ export default function UsagePage() {
   const usedAgents = agents.length;
   const agentsPct = maxAgents ? Math.min(100, (usedAgents / maxAgents) * 100) : 0;
 
-  const includedPremium = snap?.included_premium_turns ?? 0;
-  const usedPremium = snap?.premium_turns_used ?? 0;
-  const premiumPct = includedPremium ? Math.min(100, (usedPremium / includedPremium) * 100) : 0;
-
   const includedKnowledge = knowledgeUsage?.included_storage_bytes ?? ctx?.plan.limits?.max_total_knowledge_bytes ?? 0;
   const usedKnowledge = knowledgeUsage?.used_storage_bytes ?? 0;
   const knowledgePct = includedKnowledge ? Math.min(100, (usedKnowledge / includedKnowledge) * 100) : 0;
@@ -188,8 +184,12 @@ export default function UsagePage() {
           aria-busy={loading || agentsLoading || knowledgeLoading}
         >
           <UsageMetricCard
-            label="Conversations"
-            hint="Closed chats with visitor messages, assistant replies, or tool activity."
+            label="Premium AI conversations"
+            hint={
+              ctx?.plan.slug === "free"
+                ? "Essential AI only on Free. Counts closed chats with visitor messages, assistant replies, or tool activity."
+                : "Premium AI until this cap. After that, unlimited essential AI continues."
+            }
             usedLabel={formatLocaleNumber(usedConversations, localeReady)}
             includedLabel={formatLocaleNumber(includedConversations, localeReady)}
             loading={loading}
@@ -207,17 +207,6 @@ export default function UsagePage() {
             overIncluded={maxAgents > 0 && usedAgents > maxAgents}
           />
 
-          {includedPremium > 0 ? (
-            <UsageMetricCard
-              label="Smart resolution turns"
-              hint="Advanced-model replies for harder questions. Not every conversation uses one; most turns stay on Essential AI."
-              usedLabel={formatLocaleNumber(usedPremium, localeReady)}
-              includedLabel={formatLocaleNumber(includedPremium, localeReady)}
-              loading={loading}
-              pct={premiumPct}
-              overIncluded={usedPremium > includedPremium}
-            />
-          ) : null}
 
           {includedKnowledge > 0 ? (
             <UsageMetricCard

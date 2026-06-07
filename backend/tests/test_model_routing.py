@@ -6,6 +6,7 @@ import pytest
 
 from app.agent.model_routing import (
     ClassifierResult,
+    resolve_turn_model_by_plan_usage,
     resolve_turn_model_sync,
     should_run_classifier,
 )
@@ -16,7 +17,7 @@ from app.domains.runtime.service import _apply_usage_limit_model_downgrade, _res
 def _policy(
     slug: str = "standard",
     *,
-    included_premium: int = 250,
+    included_premium: int = 0,
 ) -> PlanModelPolicy:
     return PlanModelPolicy(
         plan_slug=slug,
@@ -27,8 +28,38 @@ def _policy(
     )
 
 
+def test_resolve_turn_model_by_plan_usage_free_always_mini() -> None:
+    decision = resolve_turn_model_by_plan_usage(
+        policy=_policy("free"),
+        conversations_used=0,
+        included_conversations=30,
+    )
+    assert decision.model == "gpt-4o-mini"
+    assert decision.used_premium is False
+
+
+def test_resolve_turn_model_by_plan_usage_paid_under_cap_uses_premium() -> None:
+    decision = resolve_turn_model_by_plan_usage(
+        policy=_policy("hobby"),
+        conversations_used=100,
+        included_conversations=250,
+    )
+    assert decision.model == "gpt-4o"
+    assert decision.used_premium is True
+
+
+def test_resolve_turn_model_by_plan_usage_paid_at_cap_uses_mini() -> None:
+    decision = resolve_turn_model_by_plan_usage(
+        policy=_policy("standard"),
+        conversations_used=1000,
+        included_conversations=1000,
+    )
+    assert decision.model == "gpt-4o-mini"
+    assert decision.used_premium is False
+
+
 def test_should_run_classifier_skips_greeting_flag() -> None:
-    policy = _policy()
+    policy = _policy(included_premium=250)
     assert not should_run_classifier(
         policy=policy,
         throttle_tier="normal",
@@ -62,7 +93,7 @@ def test_should_run_classifier_hobby_never() -> None:
 
 
 def test_should_run_classifier_strong_throttle_never() -> None:
-    policy = _policy()
+    policy = _policy(included_premium=250)
     assert not should_run_classifier(
         policy=policy,
         throttle_tier="strong",
@@ -74,7 +105,7 @@ def test_should_run_classifier_strong_throttle_never() -> None:
 
 
 def test_resolve_turn_model_sync_uses_premium_when_classifier_says_so() -> None:
-    policy = _policy()
+    policy = _policy(included_premium=250)
     decision = resolve_turn_model_sync(
         policy=policy,
         throttle_tier="normal",
@@ -88,7 +119,7 @@ def test_resolve_turn_model_sync_uses_premium_when_classifier_says_so() -> None:
 
 
 def test_resolve_turn_model_sync_stays_cheap_when_no_budget() -> None:
-    policy = _policy()
+    policy = _policy(included_premium=250)
     decision = resolve_turn_model_sync(
         policy=policy,
         throttle_tier="normal",

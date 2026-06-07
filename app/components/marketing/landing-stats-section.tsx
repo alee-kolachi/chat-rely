@@ -9,7 +9,7 @@ const CAPABILITIES = [
   },
   {
     title: "Essential AI, always on",
-    description: "Fast replies on every plan. Standard and Pro add smart resolution for harder questions.",
+    description: "Premium AI on paid plans. Unlimited essential AI after your monthly cap.",
   },
   {
     title: "Human handoff",

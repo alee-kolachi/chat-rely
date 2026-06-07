@@ -16,4 +16,15 @@ def test_shorten_answer_for_product_cards_strips_markdown_list() -> None:
         "**Timberland Boot** - Price: $299\n"
         "**Dr Martens** - Price: $249"
     )
-    assert shorten_answer_for_product_cards(raw) == ""
+    assert shorten_answer_for_product_cards(raw) == "We have boots:"
+
+
+def test_shorten_answer_for_product_cards_keeps_intro_before_numbered_list() -> None:
+    raw = (
+        "We have several snowboards available. Here are a few options:\n\n"
+        "1. **[The Minimal Snowboard](https://example.com)** - $885.95"
+    )
+    assert (
+        shorten_answer_for_product_cards(raw)
+        == "We have several snowboards available. Here are a few options:"
+    )

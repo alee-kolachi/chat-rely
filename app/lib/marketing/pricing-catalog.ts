@@ -29,7 +29,7 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
     monthlyPriceCents: 0,
     includedConversations: 30,
     displayCostPerConversation: "$0.000",
-    tagline: "Start free, always on",
+    tagline: "Start free on essential AI",
   },
   {
     slug: "hobby",
@@ -61,50 +61,50 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
 export const PRICING_CARD_BULLETS: Record<PricingTierSlug, readonly string[]> = {
   free: [
     "1 agent",
-    "30 conversations per month",
+    "30 essential AI conversations per month",
     "Essential AI",
     "Website knowledge",
-    "Shopify connect",
     "500 KB training content",
-    "Always on",
+    "Unlimited essential AI after cap",
   ],
   hobby: [
     "Everything in Free",
-    "250 conversations per month",
-    "3 AI actions per agent",
+    "250 premium AI conversations per month",
+    "Premium AI",
+    "1 Shopify action per agent",
+    "Shopify connect",
     "Basic analytics",
-    "15 MB training content",
-    "Always on",
+    "5 MB training content",
+    "Unlimited essential AI after cap",
   ],
   standard: [
     "Everything in Hobby",
     "2 agents",
-    "1,000 conversations per month",
-    "Smart resolution",
-    "5 AI actions per agent",
+    "1,000 premium AI conversations per month",
+    "5 Shopify actions per agent",
     "Advanced analytics",
-    "Sources suggestions",
+    "Knowledge gap suggestions",
     "40 MB training content",
-    "Always on",
+    "Unlimited essential AI after cap",
   ],
   pro: [
     "Everything in Standard",
     "5 agents",
-    "5,000 conversations per month",
-    "Visitor feedback summaries",
-    "8 AI actions per agent",
+    "5,000 premium AI conversations per month",
+    "Visitor feedback and summaries",
+    "All 6 Shopify actions per agent",
     "Remove Powered by ChatRely",
     "100 MB training content",
-    "Always on",
+    "Unlimited essential AI after cap",
   ],
 };
 
 /** Short bullets for onboarding plan cards. Home teaser uses the feature row list. */
 export const PRICING_TEASER_BULLETS: Record<PricingTierSlug, readonly string[]> = {
-  free: ["1 agent · essential AI", "Website knowledge · Shopify connect", "30 conversations / mo · always on"],
-  hobby: ["Shopify + AI actions", "Essential AI", "250 conversations / mo · always on"],
-  standard: ["Smart resolution for complex issues", "2 agents · analytics", "1,000 conversations / mo"],
-  pro: ["Smart resolution · visitor feedback", "5 agents · white-label", "5,000 conversations / mo"],
+  free: ["1 agent · essential AI", "Website knowledge", "30 essential AI conversations / mo"],
+  hobby: ["Premium AI", "Shopify + 1 action", "250 premium conversations / mo"],
+  standard: ["Premium AI", "2 agents · analytics", "1,000 premium conversations / mo"],
+  pro: ["Premium AI", "Visitor feedback · white-label", "5,000 premium conversations / mo"],
 };
 
 export type PricingDetailSection = {
@@ -126,9 +126,9 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Conversations / month",
+        label: "Premium AI conversations / month",
         cells: {
-          free: { kind: "text", value: "30 · $0.000" },
+          free: { kind: "text", value: "30 · essential only" },
           hobby: { kind: "text", value: "250 · $0.145" },
           standard: { kind: "text", value: "1,000 · $0.099" },
           pro: { kind: "text", value: "5,000 · $0.080" },
@@ -138,16 +138,16 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         label: "AI actions per agent",
         cells: {
           free: { kind: "text", value: "0" },
-          hobby: { kind: "text", value: "3" },
+          hobby: { kind: "text", value: "1" },
           standard: { kind: "text", value: "5" },
-          pro: { kind: "text", value: "8" },
+          pro: { kind: "text", value: "6" },
         },
       },
       {
         label: "Training content size",
         cells: {
           free: { kind: "text", value: "500 KB" },
-          hobby: { kind: "text", value: "15 MB" },
+          hobby: { kind: "text", value: "5 MB" },
           standard: { kind: "text", value: "40 MB" },
           pro: { kind: "text", value: "100 MB" },
         },
@@ -171,7 +171,7 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Sources suggestions",
+        label: "Knowledge gap suggestions",
         cells: {
           free: { kind: "dash" },
           hobby: { kind: "dash" },
@@ -203,7 +203,7 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Visitor thumbs & feedback summaries (widget)",
+        label: "Visitor feedback and summaries (widget)",
         cells: {
           free: { kind: "dash" },
           hobby: { kind: "dash" },
@@ -219,7 +219,7 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
       {
         label: "Shopify",
         cells: {
-          free: { kind: "tick" },
+          free: { kind: "dash" },
           hobby: { kind: "tick" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
@@ -231,34 +231,25 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
     title: "AI",
     rows: [
       {
-        label: "Essential AI (always on)",
+        label: "Premium AI",
         cells: {
-          free: { kind: "tick" },
+          free: { kind: "dash" },
           hobby: { kind: "tick" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
         },
       },
       {
-        label: "Smart resolution for complex issues",
+        label: "Essential AI",
         cells: {
-          free: { kind: "dash" },
-          hobby: { kind: "dash" },
-          standard: { kind: "tick" },
-          pro: { kind: "tick" },
+          free: { kind: "text", value: "Always" },
+          hobby: { kind: "text", value: "After premium cap" },
+          standard: { kind: "text", value: "After premium cap" },
+          pro: { kind: "text", value: "After premium cap" },
         },
       },
       {
-        label: "Priority smart resolution (shared capacity)",
-        cells: {
-          free: { kind: "dash" },
-          hobby: { kind: "dash" },
-          standard: { kind: "dash" },
-          pro: { kind: "comingSoon" },
-        },
-      },
-      {
-        label: "Always on (may slow when busy)",
+        label: "Unlimited essential AI conversations",
         cells: {
           free: { kind: "tick" },
           hobby: { kind: "tick" },
@@ -289,10 +280,10 @@ export const PRICING_AI_FOOTNOTES: { title: string; lines: string[] }[] = [
   {
     title: "How AI works on every plan",
     lines: [
-      "Essential AI handles most chats and is included in your monthly conversations.",
-      "Standard and Pro use smart resolution on harder questions within a shared monthly allowance.",
-      "Pro priority resolution is rolling out next. Until then, Pro uses the same smart resolution with a higher allowance.",
-      "Chat stays on when you are busy. Heavy periods may reply a bit slower.",
+      "Paid plans use premium AI until your monthly conversation cap.",
+      "Free uses essential AI only.",
+      "After the premium cap, chat stays on with unlimited essential AI. Replies may be slower and less accurate.",
+      "Busy periods may add a short delay. Your visitors are never shown an offline error.",
     ],
   },
 ];
@@ -314,10 +305,10 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
 
 /** Shorter row labels on the home landing teaser cards. */
 export const LANDING_COMPACT_LABELS: Record<string, string> = {
-  "Essential AI (always on)": "Essential AI",
-  "Smart resolution for complex issues": "Smart resolution",
-  "Priority smart resolution (shared capacity)": "Priority resolution",
-  "Always on (may slow when busy)": "Always on",
+  "Unlimited essential AI conversations": "Unlimited essential AI",
+  "Premium AI conversations / month": "Premium conversations",
+  "Knowledge gap suggestions": "Knowledge gap suggestions",
+  "Visitor feedback and summaries (widget)": "Visitor feedback",
   Attachments: "Attachments",
   "Auto retrain agents": "Auto retrain",
   "Remove Powered by ChatRely": "Remove branding",
@@ -325,43 +316,40 @@ export const LANDING_COMPACT_LABELS: Record<string, string> = {
 
 /** Hover tooltips only where the row benefits from extra context (paired with the info icon). */
 export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
-  "Conversations / month":
-    "Monthly cap. The dollar figure helps compare plans. You pay the subscription, not per chat.",
+  "Premium AI conversations / month":
+    "Monthly cap on premium AI conversations. The dollar figure helps compare plans. You pay the subscription, not per chat.",
   "AI actions per agent": "Shopify automations each agent can run at once.",
   "Training content size": "Total size of files and pages used to train agents.",
   Attachments: "Visitors send files in the widget. Rolling out soon on paid plans.",
   "Auto retrain agents": "Refresh agents when knowledge changes. Coming soon on Standard and Pro.",
-  "Sources suggestions": "After chats close, Standard and Pro suggest topics to add in Knowledge.",
+  "Knowledge gap suggestions":
+    "After chats close, Standard and Pro suggest topics to add in Knowledge based on what shoppers asked.",
   "Advanced analytics": "Deeper metrics on Standard and Pro. Hobby keeps core KPIs.",
-  "Visitor thumbs & feedback summaries (widget)":
+  "Visitor feedback and summaries (widget)":
     "Visitors rate replies in the widget. Pro summarizes themes on the dashboard.",
-  "Essential AI (always on)": "Default AI on every plan. Fast and included in your conversations.",
-  "Smart resolution for complex issues":
-    "Harder questions use deeper reasoning on Standard and Pro (shared monthly capacity).",
-  "Priority smart resolution (shared capacity)":
-    "Larger pool on Pro, rolling out next. Smart resolution is on Standard and Pro today.",
-  "Always on (may slow when busy)": "Chat stays on. Busy periods may reply a bit slower.",
+  "Premium AI": "Paid plans use premium AI until your monthly conversation cap.",
+  "Essential AI": "Free always uses essential AI. Paid plans switch here after the premium cap.",
+  "Unlimited essential AI conversations":
+    "Chat never goes offline. After the premium cap, unlimited conversations continue on essential AI.",
   "Remove Powered by ChatRely":
     "Pro hides “Powered by ChatRely” in the widget until the visitor sends a message on other plans.",
-  Shopify:
-    "Free links your store (OAuth). Hobby and above add live product and order tools in chat via AI actions.",
+  Shopify: "Hobby and above connect Shopify and run live product and order tools in chat via AI actions.",
 };
 
 /** Pricing rows that show an info hint (skip self-explanatory labels like Agents). */
 export const PRICING_ROW_TOOLTIP_LABELS = new Set<string>([
   "Shopify",
-  "Conversations / month",
+  "Premium AI conversations / month",
   "AI actions per agent",
   "Training content size",
   "Attachments",
   "Auto retrain agents",
-  "Sources suggestions",
+  "Knowledge gap suggestions",
   "Advanced analytics",
-  "Visitor thumbs & feedback summaries (widget)",
-  "Essential AI (always on)",
-  "Smart resolution for complex issues",
-  "Priority smart resolution (shared capacity)",
-  "Always on (may slow when busy)",
+  "Visitor feedback and summaries (widget)",
+  "Premium AI",
+  "Essential AI",
+  "Unlimited essential AI conversations",
   "Remove Powered by ChatRely",
 ]);
 
@@ -385,19 +373,18 @@ export type LandingTierFeatureRow = {
 /** Landing home teaser cards: info icons only on a few high-signal rows. */
 export const LANDING_TEASER_TOOLTIP_KEYS = new Set<string>([
   "Channels:Shopify",
-  "usage:Conversations / month",
+  "usage:Premium AI conversations / month",
   "usage:AI actions per agent",
   "usage:Training content size",
   "usage:Attachments",
   "usage:Auto retrain agents",
-  "AI:Priority smart resolution (shared capacity)",
+  "AI:Unlimited essential AI conversations",
 ]);
 
 /** Show “Soon” on landing plan cards for these rows (still hidden in the full matrix when dash). */
 export const LANDING_TEASER_SOON_KEYS = new Set<string>([
   "usage:Attachments",
   "usage:Auto retrain agents",
-  "AI:Priority smart resolution (shared capacity)",
 ]);
 
 const _PREVIOUS_TIER: Record<PricingTierSlug, PricingTierSlug | null> = {
@@ -434,7 +421,7 @@ function _iterTeaserMatrixRows(): _TeaserMatrixRow[] {
   for (const section of PRICING_DETAIL_SECTIONS) {
     if (section.title === "Usage") {
       for (const row of section.rows) {
-        if (row.label === "Conversations / month") continue;
+        if (row.label === "Premium AI conversations / month") continue;
         rows.push({ key: `usage:${row.label}`, matrixLabel: row.label, cells: row.cells });
       }
       continue;
@@ -512,13 +499,13 @@ export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierF
   }
 
   const convRow: LandingTierFeatureRow = {
-    key: "usage:Conversations / month",
-    displayLabel: _compactLabel("Conversations / month"),
+    key: "usage:Premium AI conversations / month",
+    displayLabel: _compactLabel("Premium AI conversations / month"),
     value: card.includedConversations.toLocaleString(),
-    mutedSuffix: card.displayCostPerConversation,
+    mutedSuffix: slug === "free" ? "essential only" : card.displayCostPerConversation,
     tooltip:
-      LANDING_TEASER_TOOLTIP_KEYS.has("usage:Conversations / month")
-        ? pricingRowTooltip("Conversations / month")
+      LANDING_TEASER_TOOLTIP_KEYS.has("usage:Premium AI conversations / month")
+        ? pricingRowTooltip("Premium AI conversations / month")
         : undefined,
   };
 
