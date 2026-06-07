@@ -57,15 +57,6 @@ type Conversation = {
   visitor_online?: boolean;
 };
 
-type ConversationMessage = {
-  id: string;
-  role: string;
-  content: string;
-  created_at: string;
-  tool_call_payload?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
-};
-
 type ConversationSummaryState = {
   summary: string | null;
   key_points: string[];
@@ -79,7 +70,7 @@ type WorkspaceStreamPayload = {
   conversations: Conversation[];
   detail: {
     conversation: { id: string };
-    messages: ConversationMessage[];
+    messages: ConversationMessageRow[];
   } | null;
 };
 
@@ -104,8 +95,8 @@ function ConversationsPageContent() {
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [, setMessagesByConversation] = useState<Record<string, ConversationMessage[]>>({});
+  const [messages, setMessages] = useState<ConversationMessageRow[]>([]);
+  const [, setMessagesByConversation] = useState<Record<string, ConversationMessageRow[]>>({});
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -128,7 +119,7 @@ function ConversationsPageContent() {
   const selectedConversationIdRef = useRef<string | null>(null);
   const skipNextMessagesRefreshRef = useRef(false);
   const messagesRequestIdRef = useRef(0);
-  const messagesByConversationRef = useRef<Record<string, ConversationMessage[]>>({});
+  const messagesByConversationRef = useRef<Record<string, ConversationMessageRow[]>>({});
   const conversationsCountRef = useRef(0);
   const [isWideLayout, setIsWideLayout] = useState(false);
   const isWideLayoutRef = useRef(false);
@@ -151,7 +142,7 @@ function ConversationsPageContent() {
     conversationsCountRef.current = conversations.length;
   }, [conversations.length]);
 
-  const cacheMessages = useCallback((conversationId: string, nextMessages: ConversationMessage[]) => {
+  const cacheMessages = useCallback((conversationId: string, nextMessages: ConversationMessageRow[]) => {
     messagesByConversationRef.current = {
       ...messagesByConversationRef.current,
       [conversationId]: nextMessages,
@@ -228,7 +219,7 @@ function ConversationsPageContent() {
         conversations: Conversation[];
         detail: {
           conversation: { id: string };
-          messages: ConversationMessage[];
+          messages: ConversationMessageRow[];
         } | null;
       }>(path);
       setConversations(data.conversations);
@@ -406,7 +397,7 @@ function ConversationsPageContent() {
         setError(null);
       }
       try {
-        const data = await backendFetch<{ messages: ConversationMessage[] }>(
+        const data = await backendFetch<{ messages: ConversationMessageRow[] }>(
           `/api/v1/conversations/${conversationId}`
         );
         const visible = data.messages.filter(isRenderableTranscriptMessage);
@@ -485,7 +476,7 @@ function ConversationsPageContent() {
       setConversations(data.conversations);
       setLoading(false);
       if (data.detail) {
-        const visible = data.detail.messages.filter(isRenderableTranscriptMessage) as ConversationMessageRow[];
+        const visible = data.detail.messages.filter(isRenderableTranscriptMessage);
         const detailId = data.detail.conversation.id;
         setMessages((prev) => {
           if (detailId !== selectedConversationIdRef.current) return visible;
@@ -601,7 +592,7 @@ function ConversationsPageContent() {
 
     try {
       const result = await backendFetch<{
-        message: ConversationMessage;
+        message: ConversationMessageRow;
         visitor_online: boolean;
         visitor_email: string | null;
       }>(`/api/v1/conversations/${conversationId}/messages`, {
@@ -619,7 +610,7 @@ function ConversationsPageContent() {
       if (selectedConversationIdRef.current === conversationId) {
         setMessages((prev) => {
           const withoutPending = prev.filter((m) => m.id !== optimisticId);
-          const saved = result.message as ConversationMessageRow;
+          const saved = result.message;
           if (withoutPending.some((m) => m.id === saved.id)) return withoutPending;
           return [...withoutPending, saved];
         });
@@ -956,6 +947,7 @@ function ConversationsPageContent() {
                 <ConversationMessagesSkeleton />
               ) : (
                 messages.filter(isRenderableTranscriptMessage).map((message) => {
+                  const messageContent = message.content ?? "";
                   const hasCarousel =
                     message.role === "assistant" && messageHasProductCarousel(message.metadata);
                   const messageTime = (
@@ -975,7 +967,7 @@ function ConversationsPageContent() {
                   >
                     {message.role === "assistant" && hasCarousel ? (
                       <TranscriptAssistantMessage
-                        content={message.content}
+                        content={messageContent}
                         metadata={message.metadata}
                         bubbleFooter={assistantTime}
                       />
@@ -990,12 +982,12 @@ function ConversationsPageContent() {
                     >
                       {message.role === "assistant" ? (
                         <TranscriptAssistantMessage
-                          content={message.content}
+                          content={messageContent}
                           metadata={message.metadata}
                           bubbleFooter={assistantTime}
                         />
                       ) : (
-                        <UserBubbleBody timestamp={messageTime}>{message.content}</UserBubbleBody>
+                        <UserBubbleBody timestamp={messageTime}>{messageContent}</UserBubbleBody>
                       )}
                     </div>
                     )}

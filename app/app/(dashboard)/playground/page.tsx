@@ -840,7 +840,7 @@ function PlaygroundPreviewConversation({
       if (ev.type === "error") {
         throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
       }
-      if (ev.type === "done" || ev.type === "error") {
+      if (ev.type === "done") {
         setIsSending(false);
       }
     }
