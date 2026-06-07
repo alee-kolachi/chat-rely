@@ -60,6 +60,11 @@ export type ChatSseEvent =
   | { type: "product_detail"; product: ProductDetail }
   | { type: "start"; conversation_id?: string }
   | ({
+      type: "ready";
+      conversation_id?: string;
+      response?: string;
+    } & Record<string, unknown>)
+  | ({
       type: "done";
       conversation_id?: string;
       assistant_message_id?: string | null;
@@ -142,6 +147,7 @@ function parseSseBlock(block: string): ChatSseEvent | null {
     if (!product) return null;
     return { type: "product_detail", product };
   }
+  if (eventName === "ready") return { type: "ready", ...data };
   if (eventName === "done") return { type: "done", ...data };
   if (eventName === "error") {
     return { type: "error", message: String(data.message ?? "Chat failed") };
@@ -230,6 +236,9 @@ export async function postWidgetVisitorContact(
   handoff_message: string;
   conversation_status: string;
   contact_capture_required: boolean;
+  seller_live?: boolean;
+  estimated_minutes?: number | null;
+  channel_hint?: string | null;
 }> {
   const url = `${apiBase}/api/v1/public/widget/visitor-contact`;
   const res = await fetch(url, {
@@ -249,7 +258,98 @@ export async function postWidgetVisitorContact(
     handoff_message: string;
     conversation_status: string;
     contact_capture_required: boolean;
+    seller_live?: boolean;
+    estimated_minutes?: number | null;
+    channel_hint?: string | null;
   };
+}
+
+export type WidgetThreadMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+export type WidgetHandoffContext = {
+  seller_live: boolean;
+  estimated_minutes: number | null;
+  channel_hint: "live" | "email" | null;
+};
+
+export type WidgetThreadResponse = {
+  conversation_status: string;
+  operator_engaged: boolean;
+  conversation_active: boolean;
+  visitor_online: boolean;
+  handoff_banner: string | null;
+  handoff: WidgetHandoffContext | null;
+  messages: WidgetThreadMessage[];
+};
+
+export async function postWidgetPresence(
+  apiBase: string,
+  agentKey: string,
+  body: { conversation_id: string; visitor_id: string }
+): Promise<void> {
+  const url = `${apiBase}/api/v1/public/widget/presence`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-ChatRely-Agent-Key": agentKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await safeJson(res);
+    const msg = err?.error?.message ?? `Presence failed (${res.status})`;
+    throw new Error(msg);
+  }
+}
+
+export async function postWidgetVisitorMessage(
+  apiBase: string,
+  agentKey: string,
+  body: { conversation_id: string; visitor_id: string; message: string }
+): Promise<WidgetThreadMessage> {
+  const url = `${apiBase}/api/v1/public/widget/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-ChatRely-Agent-Key": agentKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await safeJson(res);
+    const msg = err?.error?.message ?? `Message failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return (await res.json()) as WidgetThreadMessage;
+}
+
+export async function fetchWidgetThread(
+  apiBase: string,
+  agentKey: string,
+  body: { conversation_id: string; visitor_id: string; since?: string | null }
+): Promise<WidgetThreadResponse> {
+  const url = `${apiBase}/api/v1/public/widget/thread`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-ChatRely-Agent-Key": agentKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await safeJson(res);
+    const msg = err?.error?.message ?? `Thread sync failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return (await res.json()) as WidgetThreadResponse;
 }
 
 export async function postWidgetMessageFeedback(

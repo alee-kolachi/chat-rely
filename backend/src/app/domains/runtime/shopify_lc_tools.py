@@ -19,8 +19,10 @@ _PRODUCT_SEARCH_DESCRIPTION = (
     "Use for catalog browsing, product discovery, recommendations, and pricing questions. "
     "Do not use for stock quantity or in-stock status (use shopify_inventory_check for that). "
     "Do not use for order status, tracking, or fulfillment. "
-    "When lookup_meta.not_found is true, tell the customer the item is not in this store's catalog — "
-    "do not invent availability, suggest alternatives from outside the catalog, or imply the item exists elsewhere."
+    "When lookup_meta.not_found is true for a specific search, say that item or category is not in this store's catalog. "
+    "If the customer also asked what the store sells, run a second search with published_status:published "
+    "and show those results. "
+    "Do not invent availability or imply the item exists elsewhere."
 )
 
 _PRODUCT_SEARCH_NO_ORDER_SUFFIX = (
@@ -29,9 +31,11 @@ _PRODUCT_SEARCH_NO_ORDER_SUFFIX = (
 )
 
 _PRODUCT_SEARCH_QUERY_DESCRIPTION = (
-    "One product or category keyword (e.g. 'boots', 'snowboard', 'gift card') OR "
-    "'published_status:published' for a general catalog browse. "
-    "Do not pass the customer's full sentence. "
+    "One product or category keyword (e.g. 'boots', 'snowboard', 'gift card'), "
+    "a short multi-word product phrase when they name several terms (e.g. 'blue ski jacket'), "
+    "OR 'published_status:published' for a general catalog browse only. "
+    "For 'do you sell [item]?' pass that item's keywords — do not use published_status:published. "
+    "Do not pass the customer's full sentence or a single incidental word from their phrase. "
     "Use thread context for follow-ups — pass the resolved product/category name, not pronouns."
 )
 

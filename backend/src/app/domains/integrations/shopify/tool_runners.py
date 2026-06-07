@@ -385,10 +385,50 @@ def _needs_broad_catalog_retry(query: str) -> bool:
     return _is_generic_catalog_question(query)
 
 
+def _shopify_query_from_keywords(keywords: list[str]) -> str:
+    """Prefer a multi-word phrase when the customer named several product terms."""
+    if not keywords:
+        return ""
+    if len(keywords) == 1:
+        return keywords[0]
+    return " ".join(keywords[:4])
+
+
+def _is_broad_catalog_shopify_query(shopify_query: str) -> bool:
+    return (shopify_query or "").strip().lower() == "published_status:published"
+
+
+def _filter_cards_for_customer_relevance(
+    cards: list[dict[str, str]],
+    *,
+    shopify_query: str,
+    relevance_query: str | None,
+) -> list[dict[str, str]]:
+    """Drop catalog hits that do not match what the visitor asked for."""
+    if not cards or not relevance_query:
+        return cards
+    if _is_broad_catalog_shopify_query(shopify_query):
+        return cards
+    rel_keywords = _product_keywords_from_query(relevance_query)
+    if not rel_keywords:
+        return cards
+    if len(rel_keywords) == 1:
+        kw = rel_keywords[0]
+        return [c for c in cards if kw in str(c.get("title") or "").lower()]
+    min_hits = min(2, len(rel_keywords))
+    filtered: list[dict[str, str]] = []
+    for card in cards:
+        title = str(card.get("title") or "").lower()
+        hits = sum(1 for kw in rel_keywords if kw in title)
+        if hits >= min_hits:
+            filtered.append(card)
+    return filtered
+
+
 def _resolve_shopify_product_search_query(query: str) -> tuple[str, bool]:
     """
     One Shopify Admin query per tool call. Broad browse uses published_status:published;
-    otherwise prefer the model's keyword or the strongest term from a conversational query.
+    otherwise prefer the model's keyword or product terms from a conversational query.
     """
     q = _strip_catalog_search_noise((query or "").strip())
     if not q:
@@ -397,9 +437,9 @@ def _resolve_shopify_product_search_query(query: str) -> tuple[str, bool]:
         return q, True
     if _needs_broad_catalog_retry(q):
         return "published_status:published", True
-    keywords = sorted(_product_keywords_from_query(q), key=len, reverse=True)
+    keywords = _product_keywords_from_query(q)
     if keywords:
-        return keywords[0], False
+        return _shopify_query_from_keywords(keywords), False
     return q, False
 
 
@@ -469,6 +509,22 @@ async def run_product_search(
             "The item is not listed in Shopify — do not claim it is available."
         )
     ui_cards = normalize_product_search_ui_cards(data, shop_domain, max_results=20)
+    pre_filter_count = len(ui_cards)
+    ui_cards = _filter_cards_for_customer_relevance(
+        ui_cards,
+        shopify_query=shopify_q,
+        relevance_query=relevance_query,
+    )
+    if ui_cards:
+        lookup_meta["result_count"] = len(ui_cards)
+        lookup_meta["not_found"] = False
+    elif pre_filter_count > 0:
+        lookup_meta["result_count"] = 0
+        lookup_meta["not_found"] = True
+        lookup_meta["message"] = (
+            "No matching product for this search in the connected store catalog. "
+            "The item is not listed in Shopify — do not claim it is available."
+        )
     payload: dict[str, object] = {"data": data, "lookup_meta": lookup_meta}
     if ui_cards:
         payload["ui_cards"] = ui_cards

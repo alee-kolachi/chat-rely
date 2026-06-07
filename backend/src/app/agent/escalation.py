@@ -73,6 +73,18 @@ async def conversation_is_awaiting_human_team(
     return ticket.first() is not None
 
 
+def escalation_handoff_api_fields(esc_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Structured handoff for visitor-contact and thread sync APIs."""
+    seller_live = seller_is_available_for_live_chat(esc_cfg)
+    estimated_minutes = int(esc_cfg.get("estimated_response_minutes", 15)) if seller_live else None
+    channel_hint: str | None = "live" if seller_live else "email"
+    return {
+        "seller_live": seller_live,
+        "estimated_minutes": estimated_minutes,
+        "channel_hint": channel_hint,
+    }
+
+
 def handoff_reply_for_status(
     *,
     conversation_status: str,
@@ -105,9 +117,38 @@ def handoff_reply_already_escalated() -> str:
 
 def handoff_reply_awaiting_team() -> str:
     return (
-        "Your conversation has been handed off to our support team. "
-        "They'll follow up with you directly. "
-        "If you need immediate help, you can start a new chat."
+        "Thanks, we've added that to your request. "
+        "Our support team will follow up with you directly."
+    )
+
+
+def visitor_follow_up_ack() -> str:
+    return handoff_reply_awaiting_team()
+
+
+def build_escalated_widget_banner(
+    *,
+    seller_live: bool,
+    estimated_minutes: int | None = None,
+    channel_hint: str | None = None,
+) -> str:
+    """Copy shown in the widget after escalation (not the generic AI-disabled line)."""
+    if seller_live:
+        n = max(1, int(estimated_minutes or 15))
+        return (
+            f"Our team is on it. Someone should reply within about {n} minutes. "
+            "You can add more details here while you wait."
+        )
+    if channel_hint == "email":
+        return (
+            "We're not available for live chat right now. "
+            "Our team will reach out by email. "
+            "Start a new chat if you need the AI again."
+        )
+    return (
+        "We're not available for live chat right now. "
+        "Our team will reach out as soon as they're back. "
+        "Start a new chat if you need the AI again."
     )
 
 
@@ -116,6 +157,43 @@ def handoff_ask_contact() -> str:
         "Before I connect you with our team, please share your name and email "
         "so we can follow up."
     )
+
+
+def handoff_ask_name() -> str:
+    return "Thanks. What's your name so our team can follow up?"
+
+
+def handoff_ask_email() -> str:
+    return "Thanks. What's your email so our team can follow up?"
+
+
+def parse_contact_fields_from_message(
+    message: str,
+    *,
+    existing_name: str | None,
+    existing_email: str | None,
+) -> tuple[str | None, str | None]:
+    """Parse name and/or email from a visitor chat line (supports multi-line messages)."""
+    name = (existing_name or "").strip() or None
+    email = (existing_email or "").strip() or None
+    text = (message or "").strip()
+    if not text:
+        return name, email
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) >= 2:
+        for ln in lines:
+            if looks_like_email(ln):
+                email = ln
+            elif not name:
+                name = ln
+        return name, email
+
+    if looks_like_email(text):
+        return name, text
+    if not name:
+        return text, email
+    return name, email
 
 
 def looks_like_email(value: str) -> bool:
@@ -317,12 +395,12 @@ async def handle_pending_contact_stream_message(
         visitor_name=ctx.visitor_name,
         visitor_email=ctx.visitor_email,
     )
-    text = (message or "").strip()
-    if looks_like_email(text):
-        email = text
-    elif not (name or "").strip():
-        name = text
-    elif not looks_like_email(text):
+    name, email = parse_contact_fields_from_message(
+        message,
+        existing_name=name,
+        existing_email=email,
+    )
+    if email and not looks_like_email(email):
         return EscalationAttemptResult(
             occurred=False,
             contact_capture_required=True,
@@ -340,7 +418,52 @@ async def handle_pending_contact_stream_message(
         esc_cfg=ctx.esc_cfg,
     )
     await persist_visitor_contact(db, ctx=enriched)
-    return await handle_escalation_with_contact(db, ctx=enriched)
+    conv = await get_conversation(db, ctx.user_id, ctx.conversation_id)
+    meta = dict(conv.metadata or {})
+    name, email = resolve_visitor_contact(
+        meta,
+        visitor_name=enriched.visitor_name,
+        visitor_email=enriched.visitor_email,
+    )
+    status = normalize_conversation_status(conv.status)
+
+    if visitor_contact_complete(name, email):
+        await _set_escalation_pending_contact(
+            db,
+            user_id=ctx.user_id,
+            conversation_id=ctx.conversation_id,
+            pending=False,
+        )
+        occurred = await perform_escalation(db, ctx=enriched)
+        next_status = "escalated" if occurred else status
+        return EscalationAttemptResult(
+            occurred=occurred,
+            contact_capture_required=False,
+            reply=handoff_reply_for_status(conversation_status=next_status, esc_cfg=ctx.esc_cfg),
+            conversation_status=next_status,
+        )
+
+    if (name or "").strip() and not looks_like_email(email or ""):
+        return EscalationAttemptResult(
+            occurred=False,
+            contact_capture_required=True,
+            reply=handoff_ask_email(),
+            conversation_status=status,
+        )
+    if looks_like_email(email or "") and not (name or "").strip():
+        return EscalationAttemptResult(
+            occurred=False,
+            contact_capture_required=True,
+            reply=handoff_ask_name(),
+            conversation_status=status,
+        )
+
+    return EscalationAttemptResult(
+        occurred=False,
+        contact_capture_required=True,
+        reply=handoff_ask_contact(),
+        conversation_status=status,
+    )
 
 
 async def submit_visitor_contact_for_escalation(
@@ -431,6 +554,19 @@ async def perform_escalation(
         user_message=ctx.user_message,
         customer_email=email,
         customer_name=name,
+    )
+    from app.domains.public_widget.thread import store_escalation_handoff_metadata
+
+    seller_live = seller_is_available_for_live_chat(ctx.esc_cfg)
+    est = int(ctx.esc_cfg.get("estimated_response_minutes", 15)) if seller_live else None
+    channel = "live" if seller_live else "email"
+    await store_escalation_handoff_metadata(
+        db,
+        user_id=ctx.user_id,
+        conversation_id=ctx.conversation_id,
+        seller_live=seller_live,
+        estimated_minutes=est,
+        channel_hint=channel,
     )
     return True
 

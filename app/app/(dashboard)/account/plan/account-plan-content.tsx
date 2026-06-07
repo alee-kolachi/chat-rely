@@ -514,8 +514,8 @@ export function AccountPlanContent() {
               ) : null}
               {ctx.usage_snapshot?.throttle_tier === "strong" ? (
                 <p className="mt-4 rounded-ds-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  You passed your premium AI conversation cap. Chat stays on with essential AI, but replies may be
-                  slower until the cycle resets or you upgrade.
+                  You passed your included conversation allowance. Replies now use normal models. Chat stays on until the
+                  cycle resets or you upgrade.
                 </p>
               ) : null}
             </article>
@@ -541,12 +541,8 @@ export function AccountPlanContent() {
                   localeReady={localeReady}
                 />
                 <PlanResourceMetricCard
-                  label="Premium AI conversations"
-                  hint={
-                    ctx.plan.slug === "free"
-                      ? "Essential AI only on Free."
-                      : "Premium AI until this cap, then unlimited essential AI."
-                  }
+                  label="Included conversations"
+                  hint="Premium models on paid plans within this allowance, then normal models. Counts closed chats with visitor messages, replies, or tool use."
                   used={ctx.usage_snapshot?.conversations_used ?? 0}
                   included={ctx.plan.included_conversations}
                   loading={loading}

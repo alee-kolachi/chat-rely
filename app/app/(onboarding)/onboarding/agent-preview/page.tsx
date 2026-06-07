@@ -10,7 +10,10 @@ import { parseBrandColorHex } from "@/lib/brand-chrome";
 import { clientChatContext } from "@/lib/client-context";
 import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
 import { chatSseStream } from "@/lib/chat-sse";
-import { applyChatSseEventToAssistantMessages, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
+import {
+  applyChatSseEventToAssistantMessages,
+  chatStreamComposerReadyEvent,
+} from "@/lib/chat-stream-handlers";
 import {
   productActionUserMessage,
   type ProductActionRequest,
@@ -264,7 +267,7 @@ export default function AgentPreviewOnboardingPage() {
       } else if (ev.type === "error") {
         throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
       }
-      if (chatStreamTerminalEvent(ev)) {
+      if (chatStreamComposerReadyEvent(ev)) {
         setIsSending(false);
       }
     }

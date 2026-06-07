@@ -21,6 +21,9 @@ class TicketDTO(BaseModel):
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    conversation_status: str | None = None
+    conversation_active: bool = False
+    visitor_online: bool = False
 
 
 class TicketListResponse(BaseModel):

@@ -1,6 +1,9 @@
 import cssText from "./styles.css?inline";
+import { isAssistantFeedbackEligible } from "./feedback-eligibility";
 import {
   fetchWidgetConfig,
+  fetchWidgetThread,
+  postWidgetVisitorMessage,
   postWidgetMessageFeedback,
   postWidgetVisitorContact,
   streamChat,
@@ -8,6 +11,7 @@ import {
   type ProductCard,
   type ProductDetail,
   type WidgetConfig,
+  type WidgetThreadMessage,
 } from "./api";
 import {
   detectWelcomeSocialPlatform,
@@ -25,8 +29,14 @@ type StoredMessage = {
   role: "user" | "assistant";
   text: string;
   created_at?: string;
+  server_id?: string;
   products?: ProductCard[];
   product_detail?: ProductDetail;
+};
+type HandoffContext = {
+  seller_live?: boolean;
+  estimated_minutes?: number | null;
+  channel_hint?: string | null;
 };
 type ThreadRecord = {
   id: string;
@@ -35,6 +45,7 @@ type ThreadRecord = {
   preview: string;
   updatedAt: number;
   status?: string;
+  handoff?: HandoffContext;
 };
 type WidgetStore = {
   visitorId: string;
@@ -45,8 +56,25 @@ type WidgetStore = {
 const DEFAULT_ACCENT = "#831C91";
 const EMPTY_REPLY_FALLBACK =
   "I'm not sure about that right now. Try asking in another way, or contact our support team if you need more help.";
-const ESCALATED_CHAT_BANNER =
-  "This chat was escalated to human support. Start a new chat to talk to the AI again.";
+function buildEscalatedBanner(handoff?: HandoffContext | null): string {
+  if (handoff?.seller_live) {
+    const n = Math.max(1, Math.round(handoff.estimated_minutes ?? 15));
+    return (
+      `Our team is on it. Someone should reply within about ${n} minutes. ` +
+      "You can add more details here while you wait."
+    );
+  }
+  if (handoff?.channel_hint === "email") {
+    return (
+      "We're not available for live chat right now. Our team will reach out by email. " +
+      "Start a new chat if you need the AI again."
+    );
+  }
+  return (
+    "We're not available for live chat right now. Our team will reach out as soon as they're back. " +
+    "Start a new chat if you need the AI again."
+  );
+}
 const WIDGET_STYLES_ID = "chatrely-widget-styles";
 
 const ICON_REFRESH =
@@ -101,6 +129,11 @@ function ensureMessageTimestamp(
   }
   time.dateTime = iso;
   time.textContent = label;
+}
+
+function messageColumn(wrap: HTMLElement): HTMLElement | null {
+  const col = wrap.closest(".cr-msg-col");
+  return col instanceof HTMLElement ? col : null;
 }
 
 function getEmbedLoaderScript(): HTMLScriptElement | null {
@@ -616,12 +649,10 @@ function removeColumnCarousel(col: HTMLElement | null | undefined): void {
 }
 
 function mountColumnCarousel(wrap: HTMLElement, carousel: HTMLElement): void {
-  const col = wrap.parentElement;
+  const col = messageColumn(wrap);
   if (!col) return;
   removeColumnCarousel(col);
-  const ts = col.querySelector(".cr-msg-ts");
-  if (ts) col.insertBefore(carousel, ts);
-  else col.appendChild(carousel);
+  col.appendChild(carousel);
 }
 
 function renderProductDetailView(
@@ -704,7 +735,7 @@ function renderAssistantRichContent(
   disabled: boolean
 ): void {
   wrap.querySelector(".cr-product-detail")?.remove();
-  removeColumnCarousel(wrap.parentElement);
+  removeColumnCarousel(messageColumn(wrap));
   wrap.classList.remove("cr-msg-wrap--products");
   assistantEl.classList.remove("cr-msg--intro-only");
 
@@ -748,6 +779,8 @@ function mountMessageFeedback(
   messageId: string | null | undefined
 ): void {
   if (!messageId) return;
+  const col = messageColumn(wrap);
+  if (!col || col.querySelector(":scope > .cr-msg-feedback")) return;
   const row = document.createElement("div");
   row.className = "cr-msg-feedback";
   const up = document.createElement("button");
@@ -842,7 +875,7 @@ function mountMessageFeedback(
   down.addEventListener("click", () => apply(current === -1 ? null : -1, down));
   syncVisibility();
   row.append(up, down);
-  wrap.appendChild(row);
+  col.appendChild(row);
 }
 
 async function boot(): Promise<void> {
@@ -1127,7 +1160,7 @@ async function boot(): Promise<void> {
 
   const composerEscalated = document.createElement("p");
   composerEscalated.className = "cr-composer-escalated cr-view--hidden";
-  composerEscalated.textContent = ESCALATED_CHAT_BANNER;
+  composerEscalated.textContent = buildEscalatedBanner();
 
   const composerContact = document.createElement("form");
   composerContact.className = "cr-contact-form cr-view--hidden";
@@ -1193,9 +1226,12 @@ async function boot(): Promise<void> {
     composerRow.classList.toggle("cr-view--hidden", !chat || contactCaptureRequired);
     composerContact.classList.toggle("cr-view--hidden", history || !contactCaptureRequired);
     composerHint.classList.toggle("cr-view--hidden", !history);
+    const showWaitingBanner =
+      Boolean(handoffContext) && isEscalatedStatus(conversationStatus) && !operatorEngaged;
+    const showOperatorBanner = operatorEngaged && !operatorReplyBannerDismissed;
     composerEscalated.classList.toggle(
       "cr-view--hidden",
-      history || contactCaptureRequired || !isEscalatedStatus(conversationStatus)
+      history || contactCaptureRequired || (!showWaitingBanner && !showOperatorBanner)
     );
     poweredByEl.classList.toggle("cr-view--hidden", welcome || contactCaptureRequired);
     welcomePowered.hidden = Boolean(cfg.hide_powered_by_chatrely) || !welcome;
@@ -1219,6 +1255,10 @@ async function boot(): Promise<void> {
 
   let conversationStatus = "open";
   let contactCaptureRequired = false;
+  let operatorEngaged = false;
+  let operatorReplyBannerDismissed = false;
+  let handoffContext: HandoffContext | null = null;
+  const syncedServerMessageIds = new Set<string>();
 
   const contactNameInput = composerContact.querySelector('input[name="name"]') as HTMLInputElement;
   const contactEmailInput = composerContact.querySelector('input[name="email"]') as HTMLInputElement;
@@ -1236,27 +1276,150 @@ async function boot(): Promise<void> {
 
   function setContactCaptureRequired(next: boolean): void {
     contactCaptureRequired = next;
-    if (!next) {
+    if (next) {
+      openChatView();
+    } else {
       contactErrorEl.classList.add("cr-view--hidden");
       contactErrorEl.textContent = "";
     }
     applyBodyView();
+    updateComposerState();
   }
 
   function isEscalatedStatus(status: string | null | undefined): boolean {
     return (status ?? "").trim().toLowerCase() === "escalated";
   }
 
-  function setAiChatDisabled(disabled: boolean): void {
-    input.disabled = disabled || contactCaptureRequired;
-    input.placeholder = disabled ? "Start a new chat to talk to the AI" : "Message…";
-    send.disabled = disabled || contactCaptureRequired || sending || !input.value.trim();
+  function updateComposerState(): void {
+    const humanHandoff = isEscalatedStatus(conversationStatus) || operatorEngaged;
+    input.disabled = contactCaptureRequired;
+    input.placeholder = humanHandoff ? "Message our team…" : "Message…";
+    send.disabled = contactCaptureRequired || sending || !input.value.trim();
+    composerEscalated.textContent = operatorEngaged
+      ? "Team replied. Continue below."
+      : buildEscalatedBanner(handoffContext);
     applyBodyView();
   }
 
   function applyConversationStatus(status: string | null | undefined): void {
     conversationStatus = (status ?? "open").trim().toLowerCase() || "open";
-    setAiChatDisabled(isEscalatedStatus(conversationStatus));
+    updateComposerState();
+  }
+
+  function humanThreadSyncEligible(): boolean {
+    return Boolean(
+      conversationId && (isEscalatedStatus(conversationStatus) || operatorEngaged)
+    );
+  }
+
+  function readHandoffFromApiFields(data: {
+    seller_live?: boolean;
+    estimated_minutes?: number | null;
+    channel_hint?: string | null;
+  }): HandoffContext {
+    return {
+      seller_live: data.seller_live === true,
+      estimated_minutes:
+        typeof data.estimated_minutes === "number" ? data.estimated_minutes : null,
+      channel_hint:
+        data.channel_hint === "live" || data.channel_hint === "email" ? data.channel_hint : null,
+    };
+  }
+
+  function readHandoffFromThread(data: {
+    handoff?: {
+      seller_live?: boolean;
+      estimated_minutes?: number | null;
+      channel_hint?: string | null;
+    } | null;
+  }): HandoffContext | null {
+    if (!data.handoff || typeof data.handoff !== "object") return null;
+    return readHandoffFromApiFields(data.handoff);
+  }
+
+  function readHandoffFromEscalation(data: Record<string, unknown>): HandoffContext | null {
+    const escalation = data.escalation;
+    if (!escalation || typeof escalation !== "object" || Array.isArray(escalation)) return null;
+    const row = escalation as Record<string, unknown>;
+    return {
+      seller_live: row.seller_live === true,
+      estimated_minutes:
+        typeof row.estimated_minutes === "number" ? row.estimated_minutes : null,
+      channel_hint:
+        row.channel_hint === "live" || row.channel_hint === "email" ? row.channel_hint : null,
+    };
+  }
+
+  function setHandoffContext(next: HandoffContext | null): void {
+    handoffContext = next;
+    if (conversationId && store.threads.length) {
+      const idx = store.threads.findIndex((t) => t.id === conversationId);
+      if (idx >= 0) {
+        store.threads[idx] = { ...store.threads[idx], handoff: next ?? undefined };
+        writeWidgetStore(agentKey, store);
+      }
+    }
+    updateComposerState();
+  }
+
+  function messageAlreadyInTranscript(msg: WidgetThreadMessage): boolean {
+    if (msg.id && syncedServerMessageIds.has(msg.id)) return true;
+    const text = msg.content.trim();
+    return chatMessages.some(
+      (m) =>
+        m.role === msg.role &&
+        m.text.trim() === text &&
+        (m.server_id === msg.id || !m.server_id)
+    );
+  }
+
+  function applySyncedThreadMessage(msg: WidgetThreadMessage): void {
+    if (messageAlreadyInTranscript(msg)) {
+      syncedServerMessageIds.add(msg.id);
+      return;
+    }
+    syncedServerMessageIds.add(msg.id);
+    if (msg.role === "user") {
+      appendUserMessage(msg.content, true, msg.created_at);
+      const last = chatMessages[chatMessages.length - 1];
+      if (last) last.server_id = msg.id;
+    } else {
+      appendAssistantMessage(
+        { text: msg.content, created_at: msg.created_at, server_id: msg.id },
+        true,
+        true,
+        true
+      );
+      persistStore();
+    }
+  }
+
+  /** One-shot sync (also records visitor presence). No background polling. */
+  async function syncHumanThread(): Promise<void> {
+    if (!humanThreadSyncEligible() || !conversationId) return;
+    try {
+      const data = await fetchWidgetThread(apiBase, agentKey, {
+        conversation_id: conversationId,
+        visitor_id: visitorId,
+      });
+      conversationStatus = (data.conversation_status ?? "open").trim().toLowerCase() || "open";
+      const wasOperatorEngaged = operatorEngaged;
+      operatorEngaged = data.operator_engaged;
+      if (data.operator_engaged && !wasOperatorEngaged) {
+        operatorReplyBannerDismissed = false;
+      }
+      const threadHandoff = readHandoffFromThread(data);
+      if (threadHandoff) setHandoffContext(threadHandoff);
+      updateComposerState();
+      for (const msg of data.messages) applySyncedThreadMessage(msg);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  function requestHumanThreadSync(): void {
+    if (!humanThreadSyncEligible()) return;
+    void syncHumanThread();
   }
 
   if (conversationId) {
@@ -1265,6 +1428,10 @@ async function boot(): Promise<void> {
       visitorId = thread.visitorId;
       chatMessages = [...thread.messages];
       conversationStatus = thread.status ?? "open";
+      handoffContext = thread.handoff ?? null;
+      for (const msg of chatMessages) {
+        if (msg.server_id) syncedServerMessageIds.add(msg.server_id);
+      }
     } else {
       conversationId = null;
       store.activeConversationId = null;
@@ -1272,6 +1439,7 @@ async function boot(): Promise<void> {
     }
   }
   applyConversationStatus(conversationStatus);
+  requestHumanThreadSync();
 
   function updatePoweredByVisibility(): void {
     poweredByEl.hidden = Boolean(cfg.hide_powered_by_chatrely);
@@ -1288,6 +1456,7 @@ async function boot(): Promise<void> {
         preview,
         updatedAt: Date.now(),
         status: conversationStatus,
+        handoff: handoffContext ?? undefined,
       };
       if (idx >= 0) store.threads[idx] = row;
       else store.threads.unshift(row);
@@ -1377,7 +1546,7 @@ async function boot(): Promise<void> {
   }
 
   function appendAssistantMessage(
-    msg: Pick<StoredMessage, "text" | "products" | "product_detail" | "created_at">,
+    msg: Pick<StoredMessage, "text" | "products" | "product_detail" | "created_at" | "server_id">,
     html = true,
     record = true,
     showAvatar = true
@@ -1388,6 +1557,7 @@ async function boot(): Promise<void> {
         role: "assistant",
         text: msg.text,
         created_at: iso,
+        ...(msg.server_id ? { server_id: msg.server_id } : {}),
         ...(msg.products?.length ? { products: msg.products } : {}),
         ...(msg.product_detail ? { product_detail: msg.product_detail } : {}),
       });
@@ -1425,6 +1595,16 @@ async function boot(): Promise<void> {
     col.appendChild(wrap);
     row.appendChild(col);
     messages.appendChild(row);
+    if (
+      cfg.message_feedback_enabled &&
+      msg.server_id &&
+      isAssistantFeedbackEligible(msg.text, {
+        hasProducts: Boolean(msg.products?.length),
+        hasProductDetail: Boolean(msg.product_detail),
+      })
+    ) {
+      mountMessageFeedback(wrap, apiBase, agentKey, visitorId, msg.server_id);
+    }
     scrollMessages();
     return bubble;
   }
@@ -1569,6 +1749,7 @@ async function boot(): Promise<void> {
     launcher.classList.toggle("cr-launcher--open", next);
     launcher.setAttribute("aria-expanded", next ? "true" : "false");
     launcher.setAttribute("aria-label", next ? "Close chat" : "Open chat");
+    if (next) requestHumanThreadSync();
   }
 
   function clearStaleConversation(): void {
@@ -1586,7 +1767,8 @@ async function boot(): Promise<void> {
       createdAt: string;
     },
     retrying: boolean,
-    productAction?: ProductActionRequest
+    productAction?: ProductActionRequest,
+    onComposerReady?: () => void
   ): Promise<void> {
     let row = streamWrap.row;
     let wrap = streamWrap.wrap;
@@ -1694,9 +1876,25 @@ async function boot(): Promise<void> {
           const nextPlain = prev + ev.text;
           assistantEl.classList.remove("cr-msg--text-hidden");
           assistantEl.setAttribute("data-plain", nextPlain);
-          assistantEl.innerHTML = renderAssistantHtml(nextPlain);
+          const hasRichPending = Boolean(pendingProducts?.length || pendingDetail);
+          if (hasRichPending) {
+            setAssistantBubbleText(assistantEl, introTextForProductCards(nextPlain));
+          } else {
+            assistantEl.innerHTML = renderAssistantHtml(nextPlain);
+          }
           ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           scrollMessages();
+        } else if (ev.type === "ready") {
+          if (ev.conversation_id) conversationId = ev.conversation_id;
+          if (typeof ev.conversation_status === "string") {
+            applyConversationStatus(ev.conversation_status);
+          } else if (ev.ai_chat_disabled === true) {
+            applyConversationStatus("escalated");
+          }
+          setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
+          const readyHandoff = readHandoffFromEscalation(ev as Record<string, unknown>);
+          if (readyHandoff) setHandoffContext(readyHandoff);
+          onComposerReady?.();
         } else if (ev.type === "done") {
           gotDone = true;
           if (ev.conversation_id) conversationId = ev.conversation_id;
@@ -1706,6 +1904,9 @@ async function boot(): Promise<void> {
             applyConversationStatus("escalated");
           }
           setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
+          const handoff = readHandoffFromEscalation(ev as Record<string, unknown>);
+          if (handoff) setHandoffContext(handoff);
+          requestHumanThreadSync();
           hideDots();
           clearStatus();
           const hasRichProducts =
@@ -1724,10 +1925,12 @@ async function boot(): Promise<void> {
           }
           setAssistantBubbleText(assistantEl, displayText);
           ensureMessageTimestamp(assistantEl, createdAt, "assistant");
+          const mid = typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
           const stored: StoredMessage = {
             role: "assistant",
             text: displayText,
             created_at: createdAt,
+            ...(mid ? { server_id: mid } : {}),
           };
           if (pendingDetail) stored.product_detail = pendingDetail;
           else if (pendingProducts?.length) stored.products = pendingProducts;
@@ -1747,8 +1950,16 @@ async function boot(): Promise<void> {
           );
           ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           persistStore();
-          const mid = typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
-          if (cfg.message_feedback_enabled && mid) mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
+          if (
+            cfg.message_feedback_enabled &&
+            mid &&
+            isAssistantFeedbackEligible(displayText, {
+              hasProducts: Boolean(stored.products?.length),
+              hasProductDetail: Boolean(stored.product_detail),
+            })
+          ) {
+            mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
+          }
         } else if (ev.type === "error") {
           if (!retrying && isVisitorMismatchError(ev.message || "")) {
             clearStaleConversation();
@@ -1799,7 +2010,10 @@ async function boot(): Promise<void> {
     appendUserMessage(userText);
     const streamWrap = createAssistantStreamWrap();
     try {
-      await streamAssistantReply(userText, streamWrap, false, action);
+      await streamAssistantReply(userText, streamWrap, false, action, () => {
+        sending = false;
+        send.disabled = !input.value.trim();
+      });
     } finally {
       sending = false;
       send.disabled = !input.value.trim();
@@ -1828,7 +2042,9 @@ async function boot(): Promise<void> {
       });
       setContactCaptureRequired(result.contact_capture_required);
       applyConversationStatus(result.conversation_status);
+      setHandoffContext(readHandoffFromApiFields(result));
       appendAssistantMessage({ text: result.handoff_message }, true, true);
+      requestHumanThreadSync();
       contactNameInput.value = "";
       contactEmailInput.value = "";
     } catch (e) {
@@ -1841,18 +2057,35 @@ async function boot(): Promise<void> {
 
   async function sendMessage(): Promise<void> {
     const text = input.value.trim();
-    if (!text || sending || contactCaptureRequired || isEscalatedStatus(conversationStatus)) return;
+    if (!text || sending || contactCaptureRequired) return;
+    const humanHandoff = isEscalatedStatus(conversationStatus) || operatorEngaged;
     sending = true;
     send.disabled = true;
     input.value = "";
     input.style.height = "auto";
     appendUserMessage(text);
-    const streamWrap = createAssistantStreamWrap();
+    if (operatorEngaged) operatorReplyBannerDismissed = true;
     try {
-      await streamAssistantReply(text, streamWrap, false);
+      if (humanHandoff && conversationId) {
+        await postWidgetVisitorMessage(apiBase, agentKey, {
+          conversation_id: conversationId,
+          visitor_id: visitorId,
+          message: text,
+        });
+      } else {
+        const streamWrap = createAssistantStreamWrap();
+        await streamAssistantReply(text, streamWrap, false, undefined, () => {
+          sending = false;
+          send.disabled = !input.value.trim();
+        });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Something went wrong.";
+      appendError(msg);
     } finally {
       sending = false;
       send.disabled = !input.value.trim();
+      requestHumanThreadSync();
     }
   }
 
@@ -1873,13 +2106,15 @@ async function boot(): Promise<void> {
   resetBtn.addEventListener("click", resetChat);
   historyBtn.addEventListener("click", () => setHistoryOpen(!historyOpen));
   launcher.addEventListener("click", () => setPanelOpen(!panelOpen));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && panelOpen) requestHumanThreadSync();
+  });
   composerContact.addEventListener("submit", (ev) => void submitVisitorContact(ev));
   send.addEventListener("click", () => void sendMessage());
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
-    send.disabled =
-      sending || contactCaptureRequired || isEscalatedStatus(conversationStatus) || !input.value.trim();
+    send.disabled = sending || contactCaptureRequired || !input.value.trim();
   });
   input.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" && !ev.shiftKey) {

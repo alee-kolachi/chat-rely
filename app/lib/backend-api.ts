@@ -1,7 +1,10 @@
 "use client";
 
 import { createBrowserSupabaseClient } from "@/lib/supabase";
-import { rewriteLoopbackServiceUrlForPageHost } from "@/lib/resolve-loopback-service-url-for-lan";
+import {
+  isLoopbackHostname,
+  rewriteLoopbackServiceUrlForPageHost,
+} from "@/lib/resolve-loopback-service-url-for-lan";
 
 const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000";
 
@@ -87,7 +90,22 @@ export function getBackendBaseUrl(): string {
   }
 
   if (explicit) {
-    return rewriteLoopbackServiceUrlForPageHost(explicit, window.location.host).replace(/\/$/, "");
+    const rewritten = rewriteLoopbackServiceUrlForPageHost(explicit, window.location.host).replace(
+      /\/$/,
+      ""
+    );
+    // localhost:3000 → 127.0.0.1:8000 is a cross-origin fetch and triggers CORS; use Next rewrites instead.
+    try {
+      if (
+        isLoopbackHostname(new URL(rewritten).hostname) &&
+        isLoopbackHostname(window.location.hostname)
+      ) {
+        return "";
+      }
+    } catch {
+      /* keep rewritten */
+    }
+    return rewritten;
   }
 
   return "";

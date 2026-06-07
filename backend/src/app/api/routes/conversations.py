@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import time
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,7 @@ from app.core.errors import AppError
 from app.domains.conversation_outcomes.service import analyze_and_persist_outcome
 from app.domains.conversations.schemas import (
     ConversationDetailResponse,
+    ConversationMessageAppendResponse,
     ConversationListResponse,
     ConversationMessageCreateRequest,
     ConversationUpdateRequest,
@@ -38,12 +41,38 @@ from app.domains.conversations.service import (
     mark_conversation_operator_engaged,
     update_conversation_status,
 )
-from app.agent.escalation import submit_visitor_contact_for_escalation
+from app.agent.escalation import escalation_handoff_api_fields, submit_visitor_contact_for_escalation
 from app.domains.actions.service import get_human_escalation_for_runtime
 from app.domains.integrations.mailjet.notify import maybe_send_ticket_email_reply
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 log = logging.getLogger(__name__)
+
+SseIdleSignal = Literal["push", "heartbeat", "disconnect"]
+
+
+async def _sse_idle_wait(
+    request: Request,
+    waiter: asyncio.Event,
+    *,
+    max_seconds: float = 25.0,
+) -> SseIdleSignal:
+    """Wait for a workspace push, heartbeat, or client disconnect without long cancel scopes."""
+    deadline = time.monotonic() + max_seconds
+    while time.monotonic() < deadline:
+        if await request.is_disconnected():
+            return "disconnect"
+        if waiter.is_set():
+            waiter.clear()
+            return "push"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            await asyncio.sleep(min(1.0, remaining))
+        except asyncio.CancelledError:
+            return "disconnect"
+    return "heartbeat"
 
 
 async def _analyze_outcome_in_background(user_id: UUID, conversation_id: UUID) -> None:
@@ -154,6 +183,7 @@ async def conversations_workspace_route(
 
 @router.get("/workspace/stream")
 async def conversations_workspace_stream_route(
+    request: Request,
     agent_id: UUID | None = Query(default=None),
     status: str | None = Query(default=None),
     started_after: datetime | None = Query(default=None),
@@ -166,26 +196,47 @@ async def conversations_workspace_stream_route(
     detail_conversation_id: UUID | None = Query(default=None),
     user: AuthContext = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Long-lived SSE connection: pushes the same payload as GET /workspace on an interval (replaces tight polling)."""
+    """Long-lived SSE: initial workspace snapshot, then pushes on conversation changes (no DB polling)."""
+
+    from app.domains.conversations.workspace_events import (
+        register_workspace_waiter,
+        unregister_workspace_waiter,
+    )
+
+    user_id = user.user_id
 
     async def event_gen():
         sf = get_session_factory()
-        while True:
-            async with sf() as db:
-                data = await _conversation_workspace_response(
-                    db,
-                    user_id=user.user_id,
-                    agent_id=agent_id,
-                    status=status,
-                    started_after=started_after,
-                    started_before=started_before,
-                    training_topic=training_topic,
-                    limit=limit,
-                    offset=offset,
-                    detail_conversation_id=detail_conversation_id,
-                )
-            yield f"data: {data.model_dump_json()}\n\n"
-            await asyncio.sleep(8)
+        waiter = register_workspace_waiter(user_id)
+        waiter.clear()
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    async with sf() as db:
+                        data = await _conversation_workspace_response(
+                            db,
+                            user_id=user_id,
+                            agent_id=agent_id,
+                            status=status,
+                            started_after=started_after,
+                            started_before=started_before,
+                            training_topic=training_topic,
+                            limit=limit,
+                            offset=offset,
+                            detail_conversation_id=detail_conversation_id,
+                        )
+                except asyncio.CancelledError:
+                    break
+                yield f"data: {data.model_dump_json()}\n\n"
+                signal = await _sse_idle_wait(request, waiter)
+                if signal == "disconnect":
+                    break
+                if signal == "heartbeat":
+                    yield ": heartbeat\n\n"
+        finally:
+            unregister_workspace_waiter(user_id, waiter)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
@@ -214,10 +265,12 @@ async def submit_visitor_contact_route(
         visitor_email=payload.visitor_email,
         esc_cfg=esc_cfg,
     )
+    handoff = escalation_handoff_api_fields(esc_cfg)
     return VisitorContactSubmitResponse(
         handoff_message=result.reply,
         conversation_status=result.conversation_status,
         contact_capture_required=result.contact_capture_required,
+        **handoff,
     )
 
 
@@ -235,25 +288,44 @@ async def _conversation_detail_response(
 @router.get("/{conversation_id}/stream")
 async def conversation_detail_stream_route(
     conversation_id: UUID,
+    request: Request,
     user: AuthContext = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Long-lived SSE connection: pushes the same payload as GET /{conversation_id} on an interval."""
+    """Long-lived SSE: initial thread snapshot, then pushes when messages change (no DB polling)."""
+
+    from app.domains.conversations.workspace_events import (
+        register_workspace_waiter,
+        unregister_workspace_waiter,
+    )
 
     user_id = user.user_id
     cid = conversation_id
 
     async def event_gen():
         sf = get_session_factory()
-        while True:
-            try:
-                async with sf() as db:
-                    data = await _conversation_detail_response(
-                        db, user_id=user_id, conversation_id=cid
-                    )
-            except AppError:
-                break
-            yield f"data: {data.model_dump_json()}\n\n"
-            await asyncio.sleep(8)
+        waiter = register_workspace_waiter(user_id)
+        waiter.clear()
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    async with sf() as db:
+                        data = await _conversation_detail_response(
+                            db, user_id=user_id, conversation_id=cid
+                        )
+                except AppError:
+                    break
+                except asyncio.CancelledError:
+                    break
+                yield f"data: {data.model_dump_json()}\n\n"
+                signal = await _sse_idle_wait(request, waiter)
+                if signal == "disconnect":
+                    break
+                if signal == "heartbeat":
+                    yield ": heartbeat\n\n"
+        finally:
+            unregister_workspace_waiter(user_id, waiter)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
@@ -293,13 +365,13 @@ async def generate_conversation_summary_route(
     )
 
 
-@router.post("/{conversation_id}/messages", response_model=MessageDTO)
+@router.post("/{conversation_id}/messages", response_model=ConversationMessageAppendResponse)
 async def append_message_route(
     conversation_id: UUID,
     payload: ConversationMessageCreateRequest,
     user: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> MessageDTO:
+) -> ConversationMessageAppendResponse:
     msg = await append_message(db, user.user_id, conversation_id, payload)
     if payload.role == "assistant" and (payload.content or "").strip():
         await mark_conversation_operator_engaged(db, user.user_id, conversation_id)
@@ -309,7 +381,15 @@ async def append_message_route(
             conversation_id=conversation_id,
             assistant_content=payload.content.strip(),
         )
-    return msg
+    conv = await get_conversation(db, user.user_id, conversation_id)
+    from app.domains.conversations.visitor_presence import visitor_email_from_metadata
+
+    meta = conv.metadata if isinstance(conv.metadata, dict) else {}
+    return ConversationMessageAppendResponse(
+        message=msg,
+        visitor_online=conv.visitor_online,
+        visitor_email=visitor_email_from_metadata(meta),
+    )
 
 
 @router.patch("/{conversation_id}", response_model=ConversationDetailResponse)

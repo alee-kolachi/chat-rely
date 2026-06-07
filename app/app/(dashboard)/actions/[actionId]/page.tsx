@@ -64,6 +64,7 @@ export default function ActionDetailPage() {
     changeCount,
     cancelAll,
     saveAll,
+    saveActionConfig,
     drafts,
   } = useActionDrafts(selectedAgentId || undefined, catalog?.entries);
 
@@ -285,9 +286,11 @@ export default function ActionDetailPage() {
             {actionKey === "human.escalate" && apiEntry.status === "live" ? (
               <HumanEscalationSettings
                 value={escalationConfig}
-                onChange={(next) =>
-                  setConfigDraft("human.escalate", humanEscalationConfigToPayload(next))
-                }
+                onChange={(next) => {
+                  const payload = humanEscalationConfigToPayload(next);
+                  setConfigDraft("human.escalate", payload);
+                  void saveActionConfig("human.escalate", payload, (msg) => setBanner(msg));
+                }}
               />
             ) : null}
 

@@ -13,6 +13,16 @@ SCHEDULE_AND_MANUAL = "schedule_and_manual"
 DEFAULT_MODE = MANUAL_ONLY
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    if isinstance(value, (int, float)):
+        return value != 0
+    return bool(value)
+
+
 def _parse_hhmm(s: str) -> int:
     """Minutes from midnight (0-1439)."""
     raw = (s or "").strip()
@@ -89,7 +99,7 @@ def seller_is_available_for_live_chat(
     if mode not in (MANUAL_ONLY, SCHEDULE_ONLY, SCHEDULE_AND_MANUAL):
         mode = DEFAULT_MODE
 
-    manual = bool(cfg.get("manual_online", False))
+    manual = _coerce_bool(cfg.get("manual_online", False))
 
     if mode == MANUAL_ONLY:
         return manual

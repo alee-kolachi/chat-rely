@@ -302,6 +302,7 @@ def build_agent_system_prompt_for_tools(
         "A confident wrong answer damages trust more than an honest admission of uncertainty.",
         "Use tools when the question requires live or sourced data. "
         "Reply directly — without calling any tool — for greetings, simple chitchat, "
+        "questions about what you or this chat assistant can do (e.g. \"what do you do\", \"who are you\"), "
         "or questions you can answer confidently from the conversation thread alone.",
     ]
     if has_order_lookup_tool:
@@ -328,12 +329,17 @@ def build_agent_system_prompt_for_tools(
             "With only a handful of tools, pick the one that matches what they need now.\n"
             "- Shopify tool selection:\n"
             "  · `shopify_product_search` — products, categories, pricing, gift cards, "
-            "\"do you sell/have…\", \"what do you sell\", recommendations. "
-            "Not for order tracking or stock-only checks.\n"
+            "\"do you sell/have…\", \"what products do you sell\", recommendations. "
+            "Not for order tracking, stock-only checks, or questions about what **you** (the assistant) can do.\n"
             "  · `shopify_product_search` **query arg:** one product/category keyword "
-            "(e.g. `snowboard`, `boots`, `gift card`) OR `published_status:published` "
-            "when they want a general catalog browse with no specific item. "
-            "Never pass the full conversational sentence as the query.\n"
+            "(e.g. `snowboard`, `boots`, `gift card`) OR a short multi-word product phrase "
+            "when they name several terms (e.g. `blue ski jacket`, `organic coffee beans`). "
+            "Use `published_status:published` only for a general catalog browse — not when they asked "
+            "whether you sell one specific item. "
+            "Never pass the full conversational sentence, and never drop to a single incidental word "
+            "from their phrase.\n"
+            "  · For \"do you sell/have [item]?\" call product search once with that item's keywords only. "
+            "Do not also call `published_status:published` unless they also asked what the store sells in general.\n"
             "  · `shopify_inventory_check` — in stock / available / quantity for a named item.\n"
         )
         if has_order_lookup_tool:
@@ -353,10 +359,15 @@ def build_agent_system_prompt_for_tools(
             "  · Use thread history for follow-ups (\"that one\", \"what do you sell then\") — "
             "resolve the product or topic before choosing the tool and query.\n"
             "  · Never state a product is unavailable until `lookup_meta.not_found` is true **after** "
-            "a product search. If results are returned, say yes and show them — do not claim the catalog is empty.\n"
+            "a product search. Show product cards only when returned titles clearly match what they asked for; "
+            "if results look unrelated (e.g. a variant word in a different product type), say that item is not "
+            "in this store's catalog — do not show misleading cards.\n"
+            "  · When they ask what you sell **and** name a category (e.g. hoodies), call product search "
+            "twice in the same turn: `published_status:published` for the browse, then the category keyword. "
+            "Answer both — if the category is not found, say so, then show what the store does carry from the broad search.\n"
             "  · When product cards will appear, keep intro text to one short sentence; the UI shows cards.\n"
-            "  · For price or single-product questions, one short sentence with the price is enough when a card shows — "
-            "use a markdown link on a word like \"here\" instead of pasting a raw URL."
+            "  · For price or single-product questions, answer in one short sentence with the price from tool results. "
+            "Do not list multiple products; name the matching item and its price only."
         )
         parts.append(shopify_line)
 

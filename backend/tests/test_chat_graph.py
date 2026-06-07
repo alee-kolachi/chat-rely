@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -152,20 +153,50 @@ def test_handoff_reply_copy_is_visitor_clear() -> None:
 
     assert already == awaiting
     assert "support team" in awaiting.lower()
-    assert "new chat" in awaiting.lower()
+    assert "added" in awaiting.lower() or "follow up" in awaiting.lower()
     assert "importing" not in awaiting.lower()
     assert "importing" not in empty.lower()
     assert "rephrasing" in empty.lower() or "visit" in empty.lower()
 
 
 def test_visitor_contact_gate_before_escalation() -> None:
-    from app.agent.escalation import handoff_ask_contact, looks_like_email, visitor_contact_complete
+    from app.agent.escalation import (
+        handoff_ask_contact,
+        looks_like_email,
+        parse_contact_fields_from_message,
+        visitor_contact_complete,
+    )
 
     assert "name and email" in handoff_ask_contact().lower()
     assert not visitor_contact_complete(None, "a@b.com")
     assert visitor_contact_complete("Alex", "alex@example.com")
     assert looks_like_email("alex@example.com")
     assert not looks_like_email("not-an-email")
+
+    name, email = parse_contact_fields_from_message(
+        "alee\nalee@chatrely.com",
+        existing_name=None,
+        existing_email=None,
+    )
+    assert name == "alee"
+    assert email == "alee@chatrely.com"
+    assert visitor_contact_complete(name, email)
+
+    name_only, email_only = parse_contact_fields_from_message(
+        "alee",
+        existing_name=None,
+        existing_email=None,
+    )
+    assert name_only == "alee"
+    assert email_only is None
+
+    name2, email2 = parse_contact_fields_from_message(
+        "alee@chatrely.com",
+        existing_name="alee",
+        existing_email=None,
+    )
+    assert name2 == "alee"
+    assert email2 == "alee@chatrely.com"
 
 
 @pytest.mark.asyncio
@@ -190,7 +221,7 @@ async def test_set_escalation_pending_contact_uses_literal_jsonb_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_call_model_emits_preamble_before_tool_calls() -> None:
+async def test_call_model_emits_status_before_tool_calls() -> None:
     from app.agent.graph import _call_model_node
 
     state = {
@@ -220,10 +251,44 @@ async def test_call_model_emits_preamble_before_tool_calls() -> None:
         result = await _call_model_node(state, writer)
 
     writer.assert_called_with(
-        {"type": "preamble", "text": "Let me check our store for boots."}
+        {"type": "status", "text": "Let me check our store for boots."}
     )
     assert result["model_round"] == 1
     assert result["messages"][0].tool_calls
+
+
+@pytest.mark.asyncio
+async def test_call_model_skips_status_before_escalation() -> None:
+    from app.agent.graph import _call_model_node
+    from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME
+
+    state = {
+        "messages": [HumanMessage(content="human please")],
+        "model": "gpt-4o-mini",
+        "temperature": 0.0,
+        "fallback_message": "Sorry, I am not fully sure.",
+        "model_round": 0,
+        "bound_tools": [MagicMock(name=ESCALATE_TO_HUMAN_TOOL_NAME)],
+        "usage_input_tokens": 0,
+        "usage_output_tokens": 0,
+    }
+
+    mock_llm = MagicMock()
+
+    async def _fake_astream(_messages):  # noqa: ANN001
+        yield AIMessage(
+            content="",
+            tool_calls=[{"id": "tc1", "name": ESCALATE_TO_HUMAN_TOOL_NAME, "args": {"reason": "visitor asked"}}],
+        )
+
+    mock_llm.astream = _fake_astream
+    mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+    writer = MagicMock()
+    with patch("app.agent.graph.make_chat_model", return_value=mock_llm):
+        await _call_model_node(state, writer)
+
+    writer.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -479,6 +544,8 @@ def test_agent_system_prompt_covers_tool_selection_and_product_search_query() ->
     assert "you choose the tool" in lower
     assert "published_status:published" in lower
     assert "lookup_meta.not_found" in lower
+    assert "published_status:published" in lower
+    assert "twice" in lower
 
 
 def test_resolve_agent_type_prompt_ignores_stored_text_for_presets() -> None:
@@ -566,6 +633,17 @@ def test_agent_system_prompt_mentions_broad_catalog_query() -> None:
     ).lower()
     assert "published_status:published" in prompt
     assert "product cards" in prompt
+
+
+def test_shopify_turn_user_prompt_covers_compound_catalog_browse() -> None:
+    from app.domains.runtime.prompts.user import build_shopify_turn_user_prompt
+
+    prompt = build_shopify_turn_user_prompt(
+        "what products do you sell? i want to buy hoodies"
+    ).lower()
+    assert "published_status:published" in prompt
+    assert "twice" in prompt
+    assert "hoodies" in prompt
 
 
 def test_shopify_turn_user_prompt_includes_order_follow_up_when_thread_had_lookup() -> None:
@@ -711,6 +789,58 @@ def test_response_used_fallback_detects_configured_copy() -> None:
     assert response_used_fallback(custom, fallback_message=custom, explicit=False) is True
     assert response_used_fallback("Here is your answer.", fallback_message=custom, explicit=False) is False
     assert response_used_fallback("", fallback_message=custom, explicit=True) is True
+
+
+@pytest.mark.asyncio
+async def test_shopify_tools_node_skips_broad_cards_when_specific_item_missing() -> None:
+    from app.agent.graph import _shopify_tools_node
+
+    async def _run(**kwargs: object) -> str:
+        query = str(kwargs.get("query") or "")
+        if query == "published_status:published":
+            return json.dumps(
+                {
+                    "ui_cards": [{"title": "Snowboard A", "handle": "a"}],
+                    "lookup_meta": {
+                        "not_found": False,
+                        "shopify_query": "published_status:published",
+                    },
+                }
+            )
+        return json.dumps(
+            {
+                "lookup_meta": {"not_found": True, "shopify_query": "laptops", "query": "laptops"},
+            }
+        )
+
+    tool = StructuredTool.from_function(
+        coroutine=_run,
+        name="shopify_product_search",
+        description="test",
+    )
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {"id": "tc1", "name": "shopify_product_search", "args": {"query": "published_status:published"}},
+            {"id": "tc2", "name": "shopify_product_search", "args": {"query": "laptops"}},
+        ],
+    )
+    writer = MagicMock()
+    result = await _shopify_tools_node(
+        {
+            "messages": [ai],
+            "bound_tools": [tool],
+            "shopify_tool_names": {"shopify_product_search"},
+            "model_round": 1,
+            "tools_invoked": [],
+            "tool_result_cache": {},
+            "turn_context": {"user_message": "do you sell laptops?"},
+        },
+        writer,
+    )
+
+    assert result["product_cards"] == []
+    writer.assert_not_called()
 
 
 def test_count_unresolved_uses_message_metadata() -> None:

@@ -17,7 +17,12 @@ export type StreamingAssistantPatch = {
   splitAfterCommit?: boolean;
 };
 
-/** Stream finished from the client's perspective; safe to re-enable the composer. */
+/** Stream is far enough along to re-enable the composer (before DB persist finishes). */
+export function chatStreamComposerReadyEvent(ev: ChatSseEvent): boolean {
+  return ev.type === "ready" || ev.type === "error";
+}
+
+/** Stream fully finished (after persist / final metadata). */
 export function chatStreamTerminalEvent(ev: ChatSseEvent): boolean {
   return ev.type === "done" || ev.type === "error";
 }

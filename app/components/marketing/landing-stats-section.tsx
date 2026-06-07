@@ -8,8 +8,8 @@ const CAPABILITIES = [
     description: "Train on your site, files, snippets, and Q&A. Answers cite what you indexed.",
   },
   {
-    title: "Essential AI, always on",
-    description: "Premium AI on paid plans. Unlimited essential AI after your monthly cap.",
+    title: "Premium and normal models",
+    description: "Paid plans use premium models within your allowance. Normal models keep chat online after that.",
   },
   {
     title: "Human handoff",

@@ -13,13 +13,23 @@ from app.domains.public_widget.schemas import (
     PublicWidgetChatRequest,
     PublicWidgetConfigResponse,
     PublicWidgetMessageFeedbackRequest,
+    PublicWidgetPresenceRequest,
+    PublicWidgetThreadMessage,
+    PublicWidgetThreadRequest,
+    PublicWidgetThreadResponse,
     PublicWidgetVisitorContactRequest,
     PublicWidgetVisitorContactResponse,
+    PublicWidgetVisitorMessageRequest,
 )
 from app.domains.public_widget.service import (
     build_public_widget_config_response,
     resolve_agent_for_widget_key,
     submit_public_widget_visitor_contact,
+)
+from app.domains.public_widget.thread import (
+    append_public_widget_visitor_message,
+    fetch_public_widget_thread,
+    touch_visitor_presence,
 )
 router = APIRouter(prefix="/public/widget", tags=["public-widget"])
 
@@ -83,3 +93,50 @@ async def public_widget_visitor_contact_route(
     db: AsyncSession = Depends(get_db),
 ) -> PublicWidgetVisitorContactResponse:
     return await submit_public_widget_visitor_contact(db, ctx=ctx, payload=payload)
+
+
+@router.post("/presence", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def public_widget_presence_route(
+    ctx: WidgetAgentDep,
+    payload: PublicWidgetPresenceRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await touch_visitor_presence(
+        db,
+        user_id=ctx.user_id,
+        conversation_id=payload.conversation_id,
+        visitor_id=payload.visitor_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/thread", response_model=PublicWidgetThreadResponse)
+async def public_widget_thread_route(
+    ctx: WidgetAgentDep,
+    payload: PublicWidgetThreadRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PublicWidgetThreadResponse:
+    return await fetch_public_widget_thread(
+        db,
+        user_id=ctx.user_id,
+        agent_id=ctx.agent_id,
+        conversation_id=payload.conversation_id,
+        visitor_id=payload.visitor_id,
+        since=payload.since,
+    )
+
+
+@router.post("/messages", response_model=PublicWidgetThreadMessage)
+async def public_widget_visitor_message_route(
+    ctx: WidgetAgentDep,
+    payload: PublicWidgetVisitorMessageRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PublicWidgetThreadMessage:
+    return await append_public_widget_visitor_message(
+        db,
+        user_id=ctx.user_id,
+        agent_id=ctx.agent_id,
+        conversation_id=payload.conversation_id,
+        visitor_id=payload.visitor_id,
+        content=payload.message,
+    )

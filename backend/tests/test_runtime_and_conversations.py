@@ -331,7 +331,11 @@ def test_append_message(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
     async def _mark_engaged(*_: Any, **__: Any) -> None:
         marked["ok"] = True
 
+    async def _get_conv(*_: Any, **__: Any) -> ConversationDTO:
+        return _conversation("escalated")
+
     monkeypatch.setattr("app.api.routes.conversations.append_message", _append)
+    monkeypatch.setattr("app.api.routes.conversations.get_conversation", _get_conv)
     monkeypatch.setattr("app.api.routes.conversations.mark_conversation_operator_engaged", _mark_engaged)
     monkeypatch.setattr("app.api.routes.conversations.maybe_send_ticket_email_reply", _no_email)
     response = client.post(
@@ -340,7 +344,8 @@ def test_append_message(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
         json={"role": "assistant", "content": "Agent reply"},
     )
     assert response.status_code == 200
-    assert response.json()["content"] == "Agent reply"
+    body = response.json()
+    assert body["message"]["content"] == "Agent reply"
     assert marked["ok"] is True
 
 
@@ -355,7 +360,11 @@ def test_append_user_message_does_not_mark_operator_engaged(client: TestClient, 
     async def _mark_engaged(*_: Any, **__: Any) -> None:
         marked["ok"] = True
 
+    async def _get_conv(*_: Any, **__: Any) -> ConversationDTO:
+        return _conversation("open")
+
     monkeypatch.setattr("app.api.routes.conversations.append_message", _append)
+    monkeypatch.setattr("app.api.routes.conversations.get_conversation", _get_conv)
     monkeypatch.setattr("app.api.routes.conversations.mark_conversation_operator_engaged", _mark_engaged)
     response = client.post(
         f"/api/v1/conversations/{uuid4()}/messages",

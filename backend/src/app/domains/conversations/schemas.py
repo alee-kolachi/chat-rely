@@ -27,6 +27,8 @@ class ConversationDTO(BaseModel):
     created_at: datetime
     updated_at: datetime
     latest_message_preview: str | None = None
+    conversation_active: bool = False
+    visitor_online: bool = False
 
 
 class MessageDTO(BaseModel):
@@ -50,6 +52,14 @@ class MessageDTO(BaseModel):
 
 class ConversationListResponse(BaseModel):
     conversations: list[ConversationDTO]
+
+
+class ConversationMessageAppendResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: MessageDTO
+    visitor_online: bool = False
+    visitor_email: str | None = None
 
 
 class ConversationDetailResponse(BaseModel):
@@ -130,4 +140,7 @@ class VisitorContactSubmitResponse(BaseModel):
     handoff_message: str
     conversation_status: str
     contact_capture_required: bool = False
+    seller_live: bool = False
+    estimated_minutes: int | None = None
+    channel_hint: str | None = None
 

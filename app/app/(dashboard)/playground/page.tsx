@@ -18,7 +18,7 @@ import {
   type AssistantStreamPhase,
 } from "@/components/chat/StreamingAssistantMessage";
 import { chatSseStream } from "@/lib/chat-sse";
-import { applyChatSseEventToAssistantMessages, chatStreamTerminalEvent } from "@/lib/chat-stream-handlers";
+import { applyChatSseEventToAssistantMessages } from "@/lib/chat-stream-handlers";
 import {
   productActionUserMessage,
   type ProductActionRequest,
@@ -77,9 +77,15 @@ import {
   resizePlaygroundComposer,
 } from "@/components/chat/playground-composer";
 import {
+  type EscalationHandoffContext,
   isAiChatDisabledStatus,
+  OPERATOR_ENGAGED_CHAT_BANNER,
   readConversationStatus,
+  readEscalationHandoffFromApiFields,
+  readEscalationHandoffFromMetadata,
+  readEscalationHandoffFromSse,
 } from "@/lib/escalated-conversation";
+import { isAssistantFeedbackEligible } from "@/lib/message-feedback-eligibility";
 import { readContactCaptureRequired } from "@/lib/visitor-contact";
 import { clientChatContext } from "@/lib/client-context";
 import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
@@ -211,15 +217,60 @@ function isStalePlaygroundConversationError(e: unknown): boolean {
   );
 }
 
+function playgroundAssistantMessageId(m: PlaygroundPreviewMessage): string | null {
+  return m.assistantMessageId ?? null;
+}
+
+function isStreamingPlaygroundMessage(m: PlaygroundPreviewMessage): boolean {
+  return m.streamPhase === "thinking" || m.streamPhase === "streaming";
+}
+
+function playgroundMessageSortKey(m: PlaygroundPreviewMessage): number {
+  if (m.createdAt) return new Date(m.createdAt).getTime();
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function serverHasNewPlaygroundMessages(
+  local: PlaygroundPreviewMessage[],
+  server: PlaygroundPreviewMessage[]
+): boolean {
+  const localIds = new Set(
+    local.map(playgroundAssistantMessageId).filter((id): id is string => Boolean(id))
+  );
+  return server.some((m) => {
+    const id = playgroundAssistantMessageId(m);
+    return id != null && !localIds.has(id);
+  });
+}
+
 /** Do not replace local transcript when the server poll is behind the optimistic UI. */
 function shouldApplyServerPlaygroundTranscript(
   local: PlaygroundPreviewMessage[],
   server: PlaygroundPreviewMessage[]
 ): boolean {
-  return server.length >= local.length;
+  if (serverHasNewPlaygroundMessages(local, server)) return true;
+  const localCommitted = local.filter((m) => !isStreamingPlaygroundMessage(m));
+  return server.length >= localCommitted.length;
+}
+
+function applyPlaygroundFeedbackVotes(
+  messages: PlaygroundPreviewMessage[],
+  voteByMessageId: Map<string, 1 | -1>
+): PlaygroundPreviewMessage[] {
+  if (voteByMessageId.size === 0) return messages;
+  return messages.map((m) => {
+    if (m.from !== "assistant" || !m.assistantMessageId) return m;
+    const vote = voteByMessageId.get(m.assistantMessageId);
+    if (vote === undefined) return m;
+    return { ...m, feedbackVote: vote };
+  });
 }
 
 /** Keep optimistic thumbs votes when the thread poll refreshes from the API. */
+function playgroundAssistantTextKey(m: PlaygroundPreviewMessage): string {
+  return `${m.from}:${(m.text ?? "").trim()}`;
+}
+
 function mergePlaygroundTranscriptFromServer(
   local: PlaygroundPreviewMessage[],
   server: PlaygroundPreviewMessage[]
@@ -230,13 +281,28 @@ function mergePlaygroundTranscriptFromServer(
       voteByMessageId.set(m.assistantMessageId, m.feedbackVote);
     }
   }
-  if (voteByMessageId.size === 0) return server;
-  return server.map((m) => {
-    if (m.from !== "assistant" || !m.assistantMessageId) return m;
-    const vote = voteByMessageId.get(m.assistantMessageId);
-    if (vote === undefined) return m;
-    return { ...m, feedbackVote: vote };
-  });
+  if (serverHasNewPlaygroundMessages(local, server)) {
+    const merged = [...local];
+    for (const m of server) {
+      const id = playgroundAssistantMessageId(m);
+      if (id && merged.some((row) => playgroundAssistantMessageId(row) === id)) continue;
+      if (merged.some((row) => playgroundAssistantTextKey(row) === playgroundAssistantTextKey(m))) continue;
+      const last = merged[merged.length - 1];
+      if (
+        last?.from === "assistant" &&
+        !playgroundAssistantMessageId(last) &&
+        m.from === "assistant"
+      ) {
+        merged[merged.length - 1] = m;
+        continue;
+      }
+      merged.push(m);
+    }
+    merged.sort((a, b) => playgroundMessageSortKey(a) - playgroundMessageSortKey(b));
+    return applyPlaygroundFeedbackVotes(merged, voteByMessageId);
+  }
+  if (server.length < local.length) return local;
+  return applyPlaygroundFeedbackVotes(server, voteByMessageId);
 }
 
 /** Client session restore: keep visitor id only while a thread is open. */
@@ -412,7 +478,11 @@ function PlaygroundPreviewConversation({
   const [storedThreadRestoring, setStoredThreadRestoring] = useState(false);
   const [conversationStatus, setConversationStatus] = useState<string>("open");
   const [contactCaptureRequired, setContactCaptureRequired] = useState(false);
-  const aiChatDisabled = isAiChatDisabledStatus(conversationStatus);
+  const [handoffContext, setHandoffContext] = useState<EscalationHandoffContext | null>(null);
+  const [operatorEngaged, setOperatorEngaged] = useState(false);
+  const [operatorReplyBannerDismissed, setOperatorReplyBannerDismissed] = useState(false);
+  const humanHandoffActive = isAiChatDisabledStatus(conversationStatus);
+  const aiChatDisabled = humanHandoffActive;
   const [, setThreadCacheState] = useState<Record<string, PlaygroundThreadCacheEntry>>({});
   const chatAbortRef = useRef<AbortController | null>(null);
   const blockThreadSyncRef = useRef(false);
@@ -587,6 +657,12 @@ function PlaygroundPreviewConversation({
         if (row) mapped.push(row);
       }
       setConversationStatus(nextStatus);
+      setHandoffContext(readEscalationHandoffFromMetadata(data.conversation.metadata));
+      setOperatorEngaged((prev) => {
+        const next = data.conversation.metadata?.operator_engaged === true;
+        if (next && !prev) setOperatorReplyBannerDismissed(false);
+        return next;
+      });
       setPreviewMessages((current) => {
         if (!shouldApplyServerPlaygroundTranscript(current, mapped)) {
           return current;
@@ -724,7 +800,7 @@ function PlaygroundPreviewConversation({
       }),
     })) {
       if (ac.signal.aborted) break;
-      if (ev.type === "done") {
+      if (ev.type === "ready" || ev.type === "done") {
         if (ev.conversation_id) {
           setConversationId(ev.conversation_id);
         }
@@ -734,7 +810,15 @@ function PlaygroundPreviewConversation({
         } else if (ev.ai_chat_disabled === true) {
           setConversationStatus("escalated");
         }
-        setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
+        const contactRequired = readContactCaptureRequired(ev as Record<string, unknown>);
+        setContactCaptureRequired(contactRequired);
+        const handoff = readEscalationHandoffFromSse(ev as Record<string, unknown>);
+        if (
+          handoff &&
+          (isAiChatDisabledStatus(nextStatus) || ev.ai_chat_disabled === true || contactRequired)
+        ) {
+          setHandoffContext(handoff);
+        }
       }
       const patchMessages = () => {
         setPreviewMessages((prev) => {
@@ -756,7 +840,7 @@ function PlaygroundPreviewConversation({
       if (ev.type === "error") {
         throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
       }
-      if (chatStreamTerminalEvent(ev)) {
+      if (ev.type === "done" || ev.type === "error") {
         setIsSending(false);
       }
     }
@@ -829,7 +913,9 @@ function PlaygroundPreviewConversation({
 
   async function handleSendMessage() {
     const draft = (messageInputRef.current?.value ?? messageInput).trim();
-    if (!agentId || !draft || isSending || historyThreadLoading || aiChatDisabled) return;
+    if (!agentId || !draft || isSending || historyThreadLoading || contactCaptureRequired) return;
+    const skipAssistantBubble = humanHandoffActive;
+    if (operatorEngaged) setOperatorReplyBannerDismissed(true);
     stickToBottomRef.current = true;
     setStoredThreadRestoring(false);
     // `blockThreadSyncRef` is otherwise updated in layout after commit; without this, an in-flight
@@ -850,16 +936,18 @@ function PlaygroundPreviewConversation({
     chatAbortRef.current?.abort();
     const ac = new AbortController();
     chatAbortRef.current = ac;
-    setPreviewMessages((prev) => [
-      ...prev,
-      {
-        from: "assistant",
-        text: "",
-        clientMessageId: newPreviewMessageId(),
-        streamPhase: "thinking",
-        createdAt: messageCreatedAtIso(),
-      },
-    ]);
+    if (!skipAssistantBubble) {
+      setPreviewMessages((prev) => [
+        ...prev,
+        {
+          from: "assistant",
+          text: "",
+          clientMessageId: newPreviewMessageId(),
+          streamPhase: "thinking",
+          createdAt: messageCreatedAtIso(),
+        },
+      ]);
+    }
     let thread = { conversationId, visitorId };
     try {
       try {
@@ -903,6 +991,15 @@ function PlaygroundPreviewConversation({
         return next;
       });
     } finally {
+      if (skipAssistantBubble) {
+        setPreviewMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.from === "assistant" && !(last.text ?? "").trim()) {
+            return prev.slice(0, -1);
+          }
+          return prev;
+        });
+      }
       if (chatAbortRef.current === ac) chatAbortRef.current = null;
       setIsSending(false);
     }
@@ -916,6 +1013,9 @@ function PlaygroundPreviewConversation({
       handoff_message: string;
       conversation_status: string;
       contact_capture_required: boolean;
+      seller_live?: boolean;
+      estimated_minutes?: number | null;
+      channel_hint?: string | null;
     }>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/visitor-contact`, {
       method: "POST",
       body: JSON.stringify({
@@ -926,6 +1026,7 @@ function PlaygroundPreviewConversation({
     });
     setContactCaptureRequired(data.contact_capture_required);
     setConversationStatus(data.conversation_status);
+    setHandoffContext(readEscalationHandoffFromApiFields(data));
     setPreviewMessages((prev) => [
       ...prev,
       {
@@ -949,6 +1050,9 @@ function PlaygroundPreviewConversation({
     setHistoryOpen(false);
     setConversationStatus("open");
     setContactCaptureRequired(false);
+    setHandoffContext(null);
+    setOperatorEngaged(false);
+    setOperatorReplyBannerDismissed(false);
     writePlaygroundChatToStorage(agentId, [], null, nextVisitorId);
   }
 
@@ -1104,6 +1208,13 @@ function PlaygroundPreviewConversation({
     [hasBrand, chrome]
   );
 
+  const assistantBubbleClass = "rounded-2xl rounded-tl-none border px-4 py-3 text-sm shadow-sm sm:px-5";
+  const assistantBubbleStyle = {
+    backgroundColor: appearanceResolved.colors.assistantBubble,
+    borderColor: appearanceResolved.colors.assistantBubbleBorder,
+    color: appearanceResolved.colors.textPrimary,
+  };
+
   return (
     <div
       className={cn(
@@ -1253,7 +1364,7 @@ function PlaygroundPreviewConversation({
             )}
           </div>
         ) : (
-          <div className="space-y-5 px-4 py-5 sm:px-5 sm:py-8">
+          <div className="space-y-3 px-4 py-5 sm:px-5 sm:py-8">
             {historyThreadLoading || storedThreadRestoring ? (
               <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
             ) : null}
@@ -1288,13 +1399,6 @@ function PlaygroundPreviewConversation({
               const hasCarousel =
                 msg.from === "assistant" &&
                 Boolean(msg.products?.length && !msg.productDetail);
-              const assistantBubbleClass =
-                "rounded-2xl rounded-tl-none border px-4 py-3 text-sm shadow-sm sm:px-5";
-              const assistantBubbleStyle = {
-                backgroundColor: appearanceResolved.colors.assistantBubble,
-                borderColor: appearanceResolved.colors.assistantBubbleBorder,
-                color: appearanceResolved.colors.textPrimary,
-              };
               const assistantTimeFooter =
                 msg.createdAt && (phase === "done" || phase === "error") ? (
                   <MessageTimestamp
@@ -1349,38 +1453,41 @@ function PlaygroundPreviewConversation({
                             }
                           />
                         ) : (
-                        <div className={assistantBubbleClass} style={assistantBubbleStyle}>
-                          <StreamingAssistantMessage
-                            text={msg.text}
-                            phase={phase}
-                            errorMessage={msg.errorMessage}
-                            statusLine={msg.statusLine}
-                            brandColorHex={brandColorHex}
-                            products={msg.products}
-                            productDetail={msg.productDetail}
-                            productActionsDisabled={isSending || aiChatDisabled}
-                            onShowProductDetails={(product) =>
-                              void runProductAction({
-                                type: "details",
-                                handle: product.handle,
-                                title: product.title,
-                              })
-                            }
-                            onShowSimilarProducts={(product) =>
-                              void runProductAction({
-                                type: "similar",
-                                handle: product.handle,
-                                title: product.title,
-                              })
-                            }
-                            bubbleFooter={assistantTimeFooter}
-                          />
-                        </div>
+                          <div className={assistantBubbleClass} style={assistantBubbleStyle}>
+                            <StreamingAssistantMessage
+                              text={msg.text}
+                              phase={phase}
+                              errorMessage={msg.errorMessage}
+                              statusLine={msg.statusLine}
+                              brandColorHex={brandColorHex}
+                              products={msg.products}
+                              productDetail={msg.productDetail}
+                              productActionsDisabled={isSending || aiChatDisabled}
+                              bubbleFooter={assistantTimeFooter}
+                              onShowProductDetails={(product) =>
+                                void runProductAction({
+                                  type: "details",
+                                  handle: product.handle,
+                                  title: product.title,
+                                })
+                              }
+                              onShowSimilarProducts={(product) =>
+                                void runProductAction({
+                                  type: "similar",
+                                  handle: product.handle,
+                                  title: product.title,
+                                })
+                              }
+                            />
+                          </div>
                         )}
                         {messageFeedbackEnabled &&
                         msg.assistantMessageId &&
                         phase === "done" &&
-                        msg.text.trim() ? (
+                        isAssistantFeedbackEligible(msg.text, {
+                          hasProducts: Boolean(msg.products?.length),
+                          hasProductDetail: Boolean(msg.productDetail),
+                        }) ? (
                           <MessageFeedbackButtons
                             vote={msg.feedbackVote ?? null}
                             accentColor={brandColorHex}
@@ -1439,19 +1546,26 @@ function PlaygroundPreviewConversation({
           />
         ) : (
           <div className="flex flex-col gap-1">
-            {aiChatDisabled ? <EscalatedChatNotice /> : null}
+            {humanHandoffActive && handoffContext && !operatorEngaged ? (
+              <EscalatedChatNotice handoff={handoffContext} />
+            ) : null}
+            {humanHandoffActive && operatorEngaged && !operatorReplyBannerDismissed ? (
+              <p className="text-ds-on-surface-variant text-center text-[11px] leading-tight">
+                {OPERATOR_ENGAGED_CHAT_BANNER}
+              </p>
+            ) : null}
             <PlaygroundComposer
               textareaRef={messageInputRef}
               value={messageInput}
               onChange={setMessageInput}
               onSend={() => void handleSendMessage()}
               sendDisabled={
-                !agentId || isSending || historyThreadLoading || !messageInput.trim() || aiChatDisabled
+                !agentId || isSending || historyThreadLoading || !messageInput.trim() || contactCaptureRequired
               }
-              disabled={aiChatDisabled}
+              disabled={contactCaptureRequired}
               placeholder={
-                aiChatDisabled
-                  ? "Start a new chat to talk to the AI"
+                humanHandoffActive
+                  ? "Message our team…"
                   : languageLabel
                     ? `Test your agent (${languageLabel})…`
                     : "Test your agent…"

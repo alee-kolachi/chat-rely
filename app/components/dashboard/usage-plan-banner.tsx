@@ -43,11 +43,11 @@ export function UsagePlanBanner() {
     >
       <p className="font-semibold">Plan usage ({ctx?.plan.name ?? "Current plan"})</p>
       <p className="text-ds-on-surface-variant mt-1 leading-relaxed">
-        {snap.conversations_used.toLocaleString()} premium AI conversations used
+        {snap.conversations_used.toLocaleString()} conversations used
         {` · `}
         {snap.included_conversations.toLocaleString()} included
         {beyondIncluded > 0
-          ? ` · ${beyondIncluded.toLocaleString()} above cap. Chat stays on with essential AI; replies may be slower`
+          ? ` · ${beyondIncluded.toLocaleString()} above allowance. Normal models · chat stays on`
           : ""}
       </p>
       {snap.throttle_tier === "strong" ? (

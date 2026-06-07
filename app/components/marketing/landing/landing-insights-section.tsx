@@ -17,7 +17,7 @@ const posts = [
     cover: "playground",
   },
   {
-    title: "When premium AI helps most",
+    title: "When to upgrade your plan",
     category: "Product",
     date: "Feb 23, 2026",
     cover: "resolution",

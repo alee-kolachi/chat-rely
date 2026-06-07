@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useId, useState } from "react";
-import { MarketingSiteFooter } from "@/components/marketing/marketing-site-footer";
+import { useCallback, useEffect, useState } from "react";
+import { LandingFooter } from "@/components/marketing/landing/landing-footer";
+import { LandingSectionLabel } from "@/components/marketing/landing/landing-section-label";
 import { PricingPagePlans } from "@/components/marketing/pricing-sections";
 import { useSessionPresent } from "@/hooks/use-session-present";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
@@ -14,13 +15,16 @@ const faqs = [
     question: "What counts toward my conversation allowance?",
     answer:
       "We count a chat when it closes if there was any visitor message, assistant reply, or tool use. Idle sessions close after about 30 minutes.",
-    open: true,
   },
   {
     question: "What happens if I go over my included conversations?",
     answer:
-      "No extra charge for overage right now. After you pass your included conversations, chat stays on but replies may be slower until the cycle resets or you upgrade.",
-    open: false,
+      "No extra charge for overage right now. After you pass your included conversations, replies switch to normal models. Chat stays on until the cycle resets or you upgrade.",
+  },
+  {
+    question: "What are premium and normal models?",
+    answer:
+      "Premium models give faster, sharper replies on paid plans within your monthly allowance. Normal models keep chat online with slower replies. Free uses normal models only.",
   },
   {
     question: "When does my usage reset?",
@@ -38,11 +42,9 @@ export function MarketingPricingClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { ready: sessionReady, hasSession } = useSessionPresent();
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [checkoutBusySlug, setCheckoutBusySlug] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkoutBanner, setCheckoutBanner] = useState<string | null>(null);
-  const faqIdPrefix = useId();
 
   const showDashboard = sessionReady && hasSession;
 
@@ -91,134 +93,80 @@ export function MarketingPricingClient() {
 
   return (
     <main className="flex-1 bg-ds-surface text-ds-on-surface">
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
-        <div className="mb-10 text-center sm:mb-14">
-          <h1 className="text-3xl font-black tracking-tight text-ds-on-surface sm:text-4xl md:text-5xl">
-            Plans &amp; pricing
-          </h1>
-          <p className="mx-auto mt-3 max-w-xl text-base text-ds-on-surface-variant sm:mt-4 sm:max-w-2xl sm:text-lg">
-            Find the right plan for your store.
+      <section className="px-6 py-12 sm:py-16 lg:py-20">
+        <div className="mx-auto max-w-[1100px]">
+          <LandingSectionLabel>Pricing</LandingSectionLabel>
+          <h1 className="mkt-display mt-6 text-4xl sm:text-5xl">Plans &amp; pricing</h1>
+          <p className="mkt-body mt-5 max-w-2xl">Find the right plan for your store.</p>
+          <p className="mt-4 max-w-2xl text-[0.9375rem] leading-relaxed text-ds-on-surface-variant">
+            Paid plans use premium models within your conversation allowance. After that, normal models keep chat online.
+            Free uses normal models only.
           </p>
-          <p className="mx-auto mt-2 max-w-2xl text-sm text-ds-on-surface-variant sm:text-base">
-            Premium AI conversations on paid plans. Unlimited essential AI after your cap.
-          </p>
-        </div>
 
-        {checkoutBanner ? (
-          <p className="border-ds-outline bg-ds-surface/95 text-ds-on-surface mx-auto mb-4 max-w-3xl rounded-ds-md border px-4 py-2 text-center text-sm">
-            {checkoutBanner}
-          </p>
-        ) : null}
-        {checkoutError ? (
-          <p className="border-ds-outline bg-ds-surface/95 mx-auto mb-6 max-w-3xl rounded-ds-md border px-4 py-2 text-center text-sm text-rose-600">
-            {checkoutError}
-          </p>
-        ) : null}
-
-        <div className="mb-20 sm:mb-24">
-          <PricingPagePlans
-            isAuthenticated={showDashboard}
-            onPlanCheckout={showDashboard ? onPlanCheckout : undefined}
-            checkoutBusySlug={checkoutBusySlug}
-          />
-        </div>
-
-        <section className="mx-auto mb-32 max-w-3xl font-sans">
-          <h2 className="mb-12 text-center text-2xl font-bold tracking-tight text-ds-on-surface sm:text-3xl">
-            Common questions about pricing
-          </h2>
-          <div className="space-y-4">
-            {faqs.map((faq, index) => {
-              const isOpen = openFaq === index;
-              const panelId = `${faqIdPrefix}-faq-panel-${index}`;
-              const buttonId = `${faqIdPrefix}-faq-button-${index}`;
-              return (
-                <article
-                  key={faq.question}
-                  className="border-ds-outline overflow-hidden rounded-xl border bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)] transition-shadow hover:shadow-md"
-                >
-                  <h3>
-                    <button
-                      type="button"
-                      id={buttonId}
-                      aria-expanded={isOpen}
-                      aria-controls={panelId}
-                      onClick={() => setOpenFaq((current) => (current === index ? null : index))}
-                      className="hover:bg-ds-muted/80 flex w-full items-center justify-between gap-4 p-6 text-left text-base font-semibold text-ds-on-surface transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-primary focus-visible:ring-offset-2"
-                    >
-                      <span>{faq.question}</span>
-                      <span
-                        aria-hidden="true"
-                        className={`flex h-6 w-6 shrink-0 items-center justify-center text-lg leading-none text-ds-on-surface-variant transition-transform duration-200 ${
-                          isOpen ? "rotate-45" : "rotate-0"
-                        }`}
-                      >
-                        +
-                      </span>
-                    </button>
-                  </h3>
-                  <div
-                    id={panelId}
-                    role="region"
-                    aria-labelledby={buttonId}
-                    hidden={!isOpen}
-                    className="px-6 pb-6"
-                  >
-                    <p className="text-ds-on-surface-variant text-sm">{faq.answer}</p>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <article className="border-ds-primary/25 relative isolate overflow-hidden rounded-2xl border bg-ds-primary p-10 text-ds-on-primary shadow-[0_12px_40px_rgba(131,28,145,0.22)] sm:p-12 md:col-span-2">
-            <div
-              className="pointer-events-none absolute -right-24 -top-24 size-[28rem] rounded-full opacity-40 blur-3xl"
-              style={{
-                background:
-                  "radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--ds-on-primary) 22%, transparent), transparent 62%)",
-              }}
-              aria-hidden
-            />
-            <div className="relative z-10 max-w-2xl">
-              <p className="text-ds-on-primary/75 mb-3 text-xs font-semibold uppercase tracking-[0.14em]">
-                Next step
-              </p>
-              <h3 className="mb-4 text-2xl font-black tracking-tight sm:text-3xl md:text-4xl md:leading-[1.15]">
-                Ready to transform your customer experience?
-              </h3>
-              <p className="text-ds-on-primary/88 mb-8 max-w-lg text-base leading-relaxed">
-                Join teams building the future of automated support with ChatRely.
-              </p>
-              <Link
-                href={showDashboard ? "/dashboard" : "/signup"}
-                className="hover:bg-ds-muted focus-visible:ring-offset-ds-primary inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-8 py-3.5 text-sm font-semibold text-ds-primary shadow-md transition-colors hover:text-ds-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
-              >
-                {showDashboard ? "Open dashboard" : "Get started"}
-              </Link>
-            </div>
-          </article>
-          <article className="border-ds-outline flex flex-col items-center justify-center rounded-2xl border bg-white p-8 text-center shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
-            <div className="border-ds-outline/80 mb-6 flex h-16 w-16 items-center justify-center rounded-full border bg-ds-muted text-2xl">
-              💬
-            </div>
-            <h4 className="mb-2 text-lg font-bold tracking-tight text-ds-on-surface sm:text-xl">Expert help</h4>
-            <p className="text-ds-on-surface-variant mb-6 max-w-[16rem] text-sm leading-relaxed">
-              Need a custom plan? Our experts are here to help.
+          {checkoutBanner ? (
+            <p className="border-ds-outline bg-ds-surface/95 text-ds-on-surface mt-8 rounded-ds-md border px-4 py-2 text-sm">
+              {checkoutBanner}
             </p>
-            <a
-              href="mailto:support@chatrely.com"
-              className="text-ds-primary hover:text-ds-primary-hover text-sm font-semibold underline underline-offset-4 transition-colors"
-            >
-              Contact us
-            </a>
-          </article>
-        </section>
+          ) : null}
+          {checkoutError ? (
+            <p className="border-ds-outline bg-ds-surface/95 mt-4 rounded-ds-md border px-4 py-2 text-sm text-rose-600">
+              {checkoutError}
+            </p>
+          ) : null}
+
+          <div className="mt-12 sm:mt-16">
+            <PricingPagePlans
+              isAuthenticated={showDashboard}
+              onPlanCheckout={showDashboard ? onPlanCheckout : undefined}
+              checkoutBusySlug={checkoutBusySlug}
+            />
+          </div>
+
+          <section className="mt-20 border-t border-ds-outline pt-16 sm:mt-24 sm:pt-20">
+            <LandingSectionLabel>Billing</LandingSectionLabel>
+            <h2 className="mkt-display mt-6 text-3xl sm:text-4xl">Common questions</h2>
+            <dl className="mt-10 divide-y divide-ds-outline border-y border-ds-outline">
+              {faqs.map((faq) => (
+                <div key={faq.question} className="py-6 sm:py-7">
+                  <dt className="mkt-display text-lg sm:text-xl">{faq.question}</dt>
+                  <dd className="mt-3 text-[0.9375rem] leading-relaxed text-ds-on-surface-variant">{faq.answer}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
+        </div>
       </section>
 
-      <MarketingSiteFooter />
+      <section className="bg-ds-primary px-6 py-16 sm:py-20">
+        <div className="mx-auto max-w-[1100px]">
+          <LandingSectionLabel tone="primary">Get started</LandingSectionLabel>
+          <h2 className="mkt-display mt-6 max-w-xl text-3xl !text-ds-on-primary sm:text-4xl">
+            {showDashboard ? "Open your dashboard" : "Start free on your store"}
+          </h2>
+          <p className="mkt-body mt-4 max-w-lg !text-ds-on-primary/85">
+            {showDashboard
+              ? "Your plan and usage live in the dashboard. Upgrade anytime from Account."
+              : "Free plan, no credit card. Add your help content and go live with one embed snippet."}
+          </p>
+          <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+            <Link
+              href={showDashboard ? "/dashboard" : "/signup"}
+              className="mkt-pill mkt-pill-dark inline-flex px-8 py-3.5 text-base"
+            >
+              {showDashboard ? "Open dashboard" : "Create your agent"}
+            </Link>
+            <a
+              href="mailto:support@chatrely.com"
+              className="text-sm font-medium text-ds-on-primary/80 underline underline-offset-4 transition hover:text-ds-on-primary"
+            >
+              Questions? Email support@chatrely.com
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <LandingFooter />
     </main>
   );
 }

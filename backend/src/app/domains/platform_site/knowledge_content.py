@@ -74,16 +74,17 @@ PLATFORM_SITE_QA: tuple[PlatformQAPair, ...] = (
         question="How much does the Standard plan cost?",
         answer=(
             "Standard is $99/month and includes 1,000 conversations per month, 2 agents, 5 AI actions per agent, "
-            "40 MB training content, premium AI conversations, and analytics. "
+            "40 MB training content, and analytics. "
             "See /pricing for the full comparison."
         ),
     ),
     PlatformQAPair(
-        question="What is the difference between essential AI and premium AI?",
+        question="What are premium and normal models?",
         answer=(
-            "Free uses essential AI only. Paid plans use premium AI until your monthly conversation cap. "
-            "After the cap, chat stays on with unlimited essential AI. Replies may be slower and less accurate. "
-            "Busy periods may add a short delay; visitors are never shown an offline error."
+            "Premium models give faster, sharper replies on paid plans within your monthly conversation allowance. "
+            "Normal models keep chat online with slower replies. Free uses normal models only. "
+            "If you pass your allowance on a paid plan, replies switch to normal models until your cycle resets or you upgrade. "
+            "Visitors are never shown an offline error."
         ),
     ),
     PlatformQAPair(
@@ -107,23 +108,23 @@ PLATFORM_SITE_SNIPPETS: tuple[PlatformSnippet, ...] = (
         title="ChatRely pricing matrix",
         body="""ChatRely plan pricing (USD/month, marketing catalog):
 
-Free — $0/mo — 30 essential AI conversations — 1 agent — 0 AI actions — 500 KB training — no Shopify
-Hobby — $29/mo — 250 premium AI conversations — 1 agent — 1 AI action — 5 MB training — Shopify + premium AI
-Standard — $99/mo — 1,000 premium AI conversations — 2 agents — 5 AI actions — 40 MB training — premium AI + analytics
-Pro — $399/mo — 5,000 premium AI conversations — 5 agents — 6 AI actions — 100 MB training — visitor feedback, remove Powered by ChatRely branding
+Free — $0/mo — 30 conversations/mo — 1 agent — 0 AI actions — 500 KB training — no Shopify
+Hobby — $29/mo — 250 conversations/mo — 1 agent — 1 AI action — 5 MB training — Shopify connect
+Standard — $99/mo — 1,000 conversations/mo — 2 agents — 5 AI actions — 40 MB training — analytics
+Pro — $399/mo — 5,000 conversations/mo — 5 agents — 6 AI actions — 100 MB training — visitor feedback, remove Powered by ChatRely branding
 
 Overage display (marketing): Free $0.000, Hobby $0.145, Standard $0.099, Pro $0.080 per conversation beyond included.
-After the premium cap, unlimited essential AI continues; replies may slow during heavy use.
+After the allowance, replies switch to normal models; chat stays on and may slow during heavy use.
 
 Full matrix: /pricing""",
     ),
     PlatformSnippet(
         title="ChatRely feature glossary",
-        body="""Essential AI: Faster, lighter AI tier. Free uses essential AI only. Paid plans switch here after the premium conversation cap.
+        body="""Premium models: Faster, sharper reply models on paid plans within the monthly conversation allowance.
 
-Premium AI: Higher-quality AI on paid plans until the monthly premium conversation cap.
+Normal models: Standard reply models that keep chat online. Free uses normal models only. Paid plans switch here after the allowance.
 
-AI actions: Shopify-connected automations (product search, order lookup, etc.) capped per plan per agent.
+AI actions: Live automations each agent can run at once. Pick which actions to enable up to your plan limit. Not limited to Shopify.
 
 Knowledge sources: Website crawl, file upload, text snippets, and Q&A pairs; indexed for retrieval at chat time.
 

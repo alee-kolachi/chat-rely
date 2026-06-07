@@ -11,7 +11,7 @@ function isLanHostname(hostname: string): boolean {
   return false;
 }
 
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHostname(hostname: string): boolean {
   const h = hostname.toLowerCase();
   return h === "localhost" || h === "127.0.0.1";
 }

@@ -16,7 +16,7 @@ export function LandingPricingTeaser() {
           Compare all plans &amp; features
         </Link>
         <p className="ds-app-body-muted max-w-md">
-          Premium AI on paid plans. Unlimited essential AI after your cap. Chat never goes offline.
+          Paid plans use premium models within your allowance. Normal models keep chat online after that.
         </p>
       </div>
     </>

@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { appButtonClassName } from "@/lib/button-styles";
+import { VisitorPresenceBadges } from "@/components/chat/visitor-presence-badges";
 import { readTicketCustomerName } from "@/lib/visitor-contact";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,9 @@ type TicketRow = {
   customer_email: string | null;
   metadata?: Record<string, unknown>;
   updated_at: string;
+  conversation_status?: string | null;
+  conversation_active?: boolean;
+  visitor_online?: boolean;
 };
 
 const STATUS_FILTER_OPTIONS = ["", "open", "pending_customer", "resolved"] as const;
@@ -224,6 +228,15 @@ function TicketsPageContent() {
                     <p className="ds-app-body-muted truncate">
                       {contactLine}
                     </p>
+                    <VisitorPresenceBadges
+                      className="mt-2"
+                      conversationActive={Boolean(
+                        t.conversation_active ??
+                          (t.conversation_status === "open" || t.conversation_status === "escalated")
+                      )}
+                      visitorOnline={Boolean(t.visitor_online)}
+                      status={t.conversation_status ?? undefined}
+                    />
                   </div>
                   <span
                     className={cn(

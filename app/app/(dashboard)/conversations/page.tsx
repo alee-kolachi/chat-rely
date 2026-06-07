@@ -8,6 +8,12 @@ import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-time
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch, consumeBackendSseJson } from "@/lib/backend-api";
 import { isRenderableTranscriptMessage, messageHasProductCarousel } from "@/lib/conversation-transcript";
+import {
+  mergeConversationMessagesFromServer,
+  shouldApplyServerConversationMessages,
+  type ConversationMessageRow,
+} from "@/lib/conversation-message-merge";
+import { VisitorPresenceBadges } from "@/components/chat/visitor-presence-badges";
 import { formatLocaleDateTime, formatLocaleTime } from "@/lib/format-locale-datetime";
 import {
   formatVisitorContactLabel,
@@ -17,8 +23,6 @@ import { useClientMounted } from "@/lib/use-client-mounted";
 import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 
-/** Used only when SSE connection fails (fallback). */
-const POLL_FALLBACK_MS = 15_000;
 /** Clear queue spinner if live stream is slow; REST fetch still runs first. */
 const WORKSPACE_LOAD_TIMEOUT_MS = 12_000;
 
@@ -49,6 +53,8 @@ type Conversation = {
   last_activity_at: string;
   updated_at: string;
   metadata?: Record<string, unknown>;
+  conversation_active?: boolean;
+  visitor_online?: boolean;
 };
 
 type ConversationMessage = {
@@ -111,8 +117,9 @@ function ConversationsPageContent() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [showSummaryPanel, setShowSummaryPanel] = useState(false);
-  const [showFullTranscript, setShowFullTranscript] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [replyHint, setReplyHint] = useState<string | null>(null);
+  const sendingRef = useRef(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -342,7 +349,6 @@ function ConversationsPageContent() {
         },
       }));
       setShowSummaryPanel(true);
-      setShowFullTranscript(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate summary");
     } finally {
@@ -350,17 +356,19 @@ function ConversationsPageContent() {
     }
   }
 
+  function hideSummaryPanel() {
+    setShowSummaryPanel(false);
+  }
+
   function handleSummaryButtonClick() {
     if (!selectedConversationId) return;
     const state = selectedSummary;
     if (state?.summary && showSummaryPanel && !state.stale) {
-      setShowSummaryPanel(false);
-      setShowFullTranscript(true);
+      hideSummaryPanel();
       return;
     }
     if (state?.summary && !showSummaryPanel) {
       setShowSummaryPanel(true);
-      setShowFullTranscript(false);
       return;
     }
     void generateSummary(Boolean(state?.summary && state.stale));
@@ -385,7 +393,6 @@ function ConversationsPageContent() {
       setMessagesLoading(true);
     }
     setShowSummaryPanel(false);
-    setShowFullTranscript(true);
     setSelectedConversationId(conversationId);
     void fetchSummaryState(conversationId, { silent: true });
   }
@@ -405,7 +412,10 @@ function ConversationsPageContent() {
         const visible = data.messages.filter(isRenderableTranscriptMessage);
         cacheMessages(conversationId, visible);
         if (selectedConversationIdRef.current === conversationId) {
-          setMessages(visible);
+          setMessages((prev) => {
+            if (!shouldApplyServerConversationMessages(prev, visible)) return prev;
+            return mergeConversationMessagesFromServer(prev, visible);
+          });
         }
       } catch (e) {
         if (!silent && selectedConversationIdRef.current === conversationId) {
@@ -455,7 +465,6 @@ function ConversationsPageContent() {
     }
 
     const ac = new AbortController();
-    let fallbackId: number | null = null;
     let loadingTimeoutId: number | null = null;
 
     void loadConversations({ silent: conversationsCountRef.current > 0 });
@@ -476,11 +485,16 @@ function ConversationsPageContent() {
       setConversations(data.conversations);
       setLoading(false);
       if (data.detail) {
-        const visible = data.detail.messages.filter(isRenderableTranscriptMessage);
-        cacheMessages(data.detail.conversation.id, visible);
-        setMessages(visible);
+        const visible = data.detail.messages.filter(isRenderableTranscriptMessage) as ConversationMessageRow[];
+        const detailId = data.detail.conversation.id;
+        setMessages((prev) => {
+          if (detailId !== selectedConversationIdRef.current) return visible;
+          if (!shouldApplyServerConversationMessages(prev, visible)) return prev;
+          return mergeConversationMessagesFromServer(prev, visible);
+        });
+        cacheMessages(detailId, visible);
         setMessagesLoading(false);
-        setSelectedConversationId(data.detail.conversation.id);
+        setSelectedConversationId(detailId);
         skipNextMessagesRefreshRef.current = true;
       } else {
         const currentId = selectedConversationIdRef.current;
@@ -528,16 +542,11 @@ function ConversationsPageContent() {
         );
       } catch {
         if (!ac.signal.aborted) {
-          const tick = () => {
-            void loadConversations({ silent: true });
-            const id = selectedConversationIdRef.current;
-            if (id) void refreshMessages(id, { silent: true });
-          };
-          fallbackId = window.setInterval(tick, POLL_FALLBACK_MS);
-          const onVisibility = () => {
-            if (document.visibilityState === "visible") tick();
-          };
-          document.addEventListener("visibilitychange", onVisibility);
+          setError(
+            (prev) =>
+              prev ??
+              "Live updates disconnected. Data refreshes when you return to this tab."
+          );
         }
       }
     })();
@@ -554,7 +563,6 @@ function ConversationsPageContent() {
     return () => {
       ac.abort();
       if (loadingTimeoutId) window.clearTimeout(loadingTimeoutId);
-      if (fallbackId) window.clearInterval(fallbackId);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [
@@ -574,24 +582,56 @@ function ConversationsPageContent() {
 
   async function handleReply() {
     if (!selectedConversationId || !reply.trim() || sending) return;
+    const conversationId = selectedConversationId;
+    const content = reply.trim();
+    const optimisticId = `pending-${Date.now()}`;
+    const optimistic: ConversationMessageRow = {
+      id: optimisticId,
+      role: "assistant",
+      content,
+      created_at: new Date().toISOString(),
+    };
+
     setSending(true);
+    sendingRef.current = true;
     setError(null);
+    setReplyHint(null);
+    setReply("");
+    setMessages((prev) => [...prev, optimistic]);
+
     try {
-      await backendFetch(`/api/v1/conversations/${selectedConversationId}/messages`, {
+      const result = await backendFetch<{
+        message: ConversationMessage;
+        visitor_online: boolean;
+        visitor_email: string | null;
+      }>(`/api/v1/conversations/${conversationId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ role: "assistant", content: reply.trim() }),
+        body: JSON.stringify({ role: "assistant", content }),
       });
-      setReply("");
-      const detail = await backendFetch<{ messages: ConversationMessage[] }>(
-        `/api/v1/conversations/${selectedConversationId}`
-      );
-      const visible = detail.messages.filter(isRenderableTranscriptMessage);
-      cacheMessages(selectedConversationId, visible);
-      setMessages(visible);
-      void fetchSummaryState(selectedConversationId, { silent: true });
+      if (!result.visitor_online) {
+        const email = result.visitor_email?.trim();
+        setReplyHint(
+          email
+            ? `Visitor is offline. They'll see this when they return, or email them at ${email}.`
+            : "Visitor is offline. They'll see this when they return."
+        );
+      }
+      if (selectedConversationIdRef.current === conversationId) {
+        setMessages((prev) => {
+          const withoutPending = prev.filter((m) => m.id !== optimisticId);
+          const saved = result.message as ConversationMessageRow;
+          if (withoutPending.some((m) => m.id === saved.id)) return withoutPending;
+          return [...withoutPending, saved];
+        });
+      }
+      void fetchSummaryState(conversationId, { silent: true });
+      void refreshMessages(conversationId, { silent: true });
     } catch (e) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setReply(content);
       setError(e instanceof Error ? e.message : "Failed to send reply");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -764,19 +804,15 @@ function ConversationsPageContent() {
                   <p className="ds-app-body-muted line-clamp-1">
                     {item.latest_message_preview ?? "No messages yet"}
                   </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "rounded-ds-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
-                        item.status === "resolved" || item.status === "idle_closed"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : item.status === "escalated"
-                            ? "bg-rose-100 text-rose-800"
-                            : "bg-ds-sidebar text-ds-primary ring-1 ring-ds-primary/25"
+                  <div className="mt-2">
+                    <VisitorPresenceBadges
+                      conversationActive={Boolean(
+                        item.conversation_active ??
+                          (item.status === "open" || item.status === "escalated")
                       )}
-                    >
-                      {item.status}
-                    </span>
+                      visitorOnline={Boolean(item.visitor_online)}
+                      status={item.status}
+                    />
                   </div>
                 </button>
               ))}
@@ -814,6 +850,14 @@ function ConversationsPageContent() {
                       ? "Visitor contact not captured yet"
                       : "Live transcript"}
                 </p>
+                {selectedConversation ? (
+                  <VisitorPresenceBadges
+                    className="mt-2"
+                    conversationActive={Boolean(selectedConversation.conversation_active)}
+                    visitorOnline={Boolean(selectedConversation.visitor_online)}
+                    status={selectedConversation.status}
+                  />
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <button
@@ -893,29 +937,19 @@ function ConversationsPageContent() {
                     No summary yet. Click Generate summary to create a quick read of this thread.
                   </p>
                 )}
-                {!showFullTranscript ? (
-                  <button
-                    type="button"
-                    className="text-ds-primary mt-3 text-sm font-semibold hover:underline"
-                    onClick={() => setShowFullTranscript(true)}
-                  >
-                    Read full transcript
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="text-ds-primary mt-3 text-sm font-semibold hover:underline"
-                    onClick={() => setShowFullTranscript(false)}
-                  >
-                    Hide transcript
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="text-ds-primary mt-3 text-sm font-semibold hover:underline"
+                  onClick={() => hideSummaryPanel()}
+                >
+                  Hide summary
+                </button>
               </div>
             ) : null}
             <div
               className={cn(
                 "min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6",
-                showSummaryPanel && !showFullTranscript && "hidden"
+                showSummaryPanel && "hidden"
               )}
             >
               {messagesLoading ? (
@@ -971,6 +1005,9 @@ function ConversationsPageContent() {
               )}
             </div>
             <div className="border-ds-outline shrink-0 border-t bg-ds-surface px-5 py-4 sm:px-6">
+              {replyHint ? (
+                <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">{replyHint}</p>
+              ) : null}
               <div className="flex items-center gap-3">
                 <input
                   className={cn("ds-app-field", "min-h-0 flex-1 rounded-ds-lg py-2.5")}
@@ -982,9 +1019,9 @@ function ConversationsPageContent() {
                   type="button"
                   className={appButtonClassName("default", { className: "shrink-0" })}
                   onClick={() => void handleReply()}
-                  disabled={!selectedConversationId || sending || !reply.trim()}
+                  disabled={!selectedConversationId || !reply.trim()}
                 >
-                  {sending ? "Sending…" : "Send"}
+                  Send
                 </button>
               </div>
             </div>

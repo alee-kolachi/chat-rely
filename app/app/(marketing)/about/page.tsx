@@ -40,7 +40,7 @@ export default function AboutPage() {
             "An embeddable chat widget for your storefront.",
             "A merchant dashboard to train knowledge, tune tone and behavior, review conversations, and manage escalations.",
             "Optional Shopify integrations for products, orders, and enabled actions.",
-            "Conversation-based plans from free trial to Pro, with premium AI on paid tiers.",
+            "Conversation-based plans from free trial to Pro, with higher allowances on paid tiers.",
           ]}
         />
         <CompanyParagraph>

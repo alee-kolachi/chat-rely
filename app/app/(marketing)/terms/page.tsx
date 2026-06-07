@@ -124,7 +124,7 @@ export default function TermsPage() {
         </CompanyParagraph>
         <CompanyParagraph>
           Free, Hobby, and Standard plans display a &quot;Powered by ChatRely&quot; label in the embeddable widget. Pro
-          plans may remove that branding. Other plan-specific limits (such as premium AI conversation allowances, analytics, or
+          plans may remove that branding. Other plan-specific limits (such as included conversation allowances, analytics, or
           visitor feedback) are described on the pricing page.
         </CompanyParagraph>
       </CompanySection>

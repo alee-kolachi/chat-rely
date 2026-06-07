@@ -137,7 +137,7 @@ export function PlaygroundStyleChatPanel({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         style={{ backgroundColor: resolved.colors.panelBackground }}
       >
-        <div className="space-y-5 px-4 py-5 sm:px-5 sm:py-8">
+        <div className="space-y-3 px-4 py-5 sm:px-5 sm:py-8">
           {messages.map((msg, index) => {
             const isLastAssistant = msg.from === "assistant" && index === messages.length - 1;
             const phase: AssistantStreamPhase =

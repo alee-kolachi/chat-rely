@@ -30,6 +30,12 @@ from app.agent.knowledge_tools import (
     is_knowledge_tool_name,
     knowledge_tool_preamble_message,
 )
+from app.agent.product_cards import (
+    brief_product_search_intro,
+    is_product_browse_turn,
+    is_specific_product_availability_question,
+)
+from app.domains.integrations.shopify.tool_runners import _is_broad_catalog_shopify_query
 from app.agent.shopify_tools import (
     MAX_SHOPIFY_TOOL_ROUNDS,
     invoke_shopify_tool_with_timeout,
@@ -59,6 +65,8 @@ class ChatGraphState(TypedDict, total=False):
     tools_invoked: list[str]
     tool_result_cache: dict[str, str]
     escalation_occurred: bool
+    contact_capture_required: bool
+    conversation_status: str
     fallback_used: bool
     usage_input_tokens: int
     usage_output_tokens: int
@@ -119,6 +127,9 @@ def _state_has_tool_messages(state: ChatGraphState) -> bool:
 
 
 def _route_after_shopify_tools(state: ChatGraphState) -> Literal["call_model", "__end__"]:
+    user_message = str((state.get("turn_context") or {}).get("user_message") or "")
+    if state.get("product_cards") and is_product_browse_turn(user_message):
+        return "__end__"
     if int(state.get("model_round") or 0) >= MAX_TOOL_ROUNDS:
         # Allow one final model turn without tools to answer from collected tool results.
         if _state_has_tool_messages(state):
@@ -144,6 +155,14 @@ def _resolve_tool_preamble(ai: AIMessage, buffered_text: str) -> str:
     if model_line:
         return model_line
     return _pending_tool_preamble_message(ai)
+
+
+def _tool_wait_status_line(ai: AIMessage, buffered_text: str) -> str:
+    """Short in-bubble status while a tool runs (not a separate committed message)."""
+    names = {tool_call_parts(tc)[0] for tc in ai.tool_calls or []}
+    if ESCALATE_TO_HUMAN_TOOL_NAME in names:
+        return ""
+    return _resolve_tool_preamble(ai, buffered_text)
 
 
 async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[str, Any]:
@@ -194,9 +213,9 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
         ) from exc
 
     if aggregated is not None and (aggregated.tool_calls or []):
-        preamble = _resolve_tool_preamble(aggregated, "".join(parts))
-        if preamble:
-            writer({"type": "preamble", "text": preamble})
+        status_line = _tool_wait_status_line(aggregated, "".join(parts))
+        if status_line:
+            writer({"type": "status", "text": status_line})
         return {
             "messages": [aggregated],
             "model_round": model_round + 1,
@@ -301,7 +320,10 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
     tool_messages: list[BaseMessage] = []
     invoked = list(state.get("tools_invoked") or [])
     cache = dict(state.get("tool_result_cache") or {})
-    product_cards = list(state.get("product_cards") or [])
+    product_cards: list[dict[str, Any]] = []
+    broad_catalog_cards: list[dict[str, Any]] | None = None
+    specific_product_cards: list[dict[str, Any]] | None = None
+    specific_product_not_found = False
 
     for tc in ai.tool_calls or []:
         name, args, tc_id = tool_call_parts(tc)
@@ -357,17 +379,52 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
                 parsed = json.loads(body)
             except json.JSONDecodeError:
                 parsed = {}
+            lookup_raw = parsed.get("lookup_meta") if isinstance(parsed, dict) else None
+            lookup = lookup_raw if isinstance(lookup_raw, dict) else {}
+            not_found = bool(lookup.get("not_found"))
             cards = parsed.get("ui_cards") if isinstance(parsed, dict) else None
+            shopify_q = str(lookup.get("shopify_query") or lookup.get("query") or "").strip()
+            is_broad = _is_broad_catalog_shopify_query(shopify_q)
             if isinstance(cards, list) and cards:
-                product_cards = [c for c in cards if isinstance(c, dict)]
-                writer({"type": "products", "products": product_cards})
+                normalized = [c for c in cards if isinstance(c, dict)]
+            else:
+                normalized = []
+            if is_broad:
+                if not not_found and normalized:
+                    broad_catalog_cards = normalized
+            elif not_found:
+                specific_product_not_found = True
+                specific_product_cards = None
+            elif normalized:
+                specific_product_not_found = False
+                specific_product_cards = normalized
         tool_messages.append(ToolMessage(content=body, tool_call_id=tc_id, name=name))
+
+    user_message = str((state.get("turn_context") or {}).get("user_message") or "")
+    if specific_product_cards:
+        product_cards = specific_product_cards
+    elif specific_product_not_found and is_specific_product_availability_question(user_message):
+        product_cards = []
+    elif broad_catalog_cards:
+        product_cards = broad_catalog_cards
+    else:
+        product_cards = []
+
+    if product_cards and is_product_browse_turn(user_message):
+        writer({"type": "products", "products": product_cards})
+
+    final_response = ""
+    if product_cards and is_product_browse_turn(user_message):
+        final_response = brief_product_search_intro(user_message, count=len(product_cards))
+        if final_response:
+            writer({"type": "token", "text": final_response})
 
     return {
         "messages": tool_messages,
         "tools_invoked": invoked,
         "tool_result_cache": cache,
         "product_cards": product_cards,
+        "final_response": final_response,
         "usage_input_tokens": int(state.get("usage_input_tokens") or 0),
         "usage_output_tokens": int(state.get("usage_output_tokens") or 0),
     }
@@ -438,6 +495,8 @@ async def stream_chat_graph(
         "tools_invoked": [],
         "tool_result_cache": {},
         "escalation_occurred": False,
+        "contact_capture_required": False,
+        "conversation_status": "open",
         "fallback_used": False,
         "usage_input_tokens": 0,
         "usage_output_tokens": 0,

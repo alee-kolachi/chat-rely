@@ -13,6 +13,7 @@ from app.domains.conversations.schemas import (
     ConversationUpdateRequest,
     MessageDTO,
 )
+from app.domains.conversations.visitor_presence import presence_fields_from_row
 
 
 def normalize_conversation_metadata(metadata: Any) -> dict[str, Any]:
@@ -46,7 +47,11 @@ async def get_conversation(db: AsyncSession, user_id: UUID, conversation_id: UUI
     row = result.mappings().first()
     if row is None:
         raise AppError(code="conversation.not_found", message="Conversation not found", status_code=404)
-    return ConversationDTO.model_validate(row)
+    data = dict(row)
+    data.update(
+        presence_fields_from_row(status=data.get("status"), metadata=data.get("metadata"))
+    )
+    return ConversationDTO.model_validate(data)
 
 
 async def list_conversations(
@@ -119,7 +124,14 @@ async def list_conversations(
         params["topic_slug"] = training_topic_slug.strip()
     sql += " order by c.last_activity_at desc limit :limit offset :offset"
     result = await db.execute(text(sql), params)
-    return [ConversationDTO.model_validate(row) for row in result.mappings().all()]
+    out: list[ConversationDTO] = []
+    for row in result.mappings().all():
+        data = dict(row)
+        data.update(
+            presence_fields_from_row(status=data.get("status"), metadata=data.get("metadata"))
+        )
+        out.append(ConversationDTO.model_validate(data))
+    return out
 
 
 async def list_messages(db: AsyncSession, user_id: UUID, conversation_id: UUID) -> list[MessageDTO]:
@@ -267,6 +279,10 @@ async def append_message(
         message_role=payload.role,
     )
 
+    from app.domains.conversations.workspace_events import notify_conversation_workspace_changed
+
+    notify_conversation_workspace_changed(user_id)
+
     return message
 
 
@@ -404,6 +420,10 @@ async def mark_conversation_operator_engaged(
     )
     await db.commit()
 
+    from app.domains.conversations.workspace_events import notify_conversation_workspace_changed
+
+    notify_conversation_workspace_changed(user_id)
+
 
 async def try_mark_conversation_counts_toward_plan(db: AsyncSession, conversation_id: UUID) -> None:
     """Sets counts_toward_plan when the conversation is terminal and had any measured activity."""
@@ -448,5 +468,10 @@ async def update_conversation_status(
     if payload.status in ("idle_closed", "resolved", "escalated"):
         await try_mark_conversation_counts_toward_plan(db, conversation_id)
     await db.commit()
+
+    from app.domains.conversations.workspace_events import notify_conversation_workspace_changed
+
+    notify_conversation_workspace_changed(user_id)
+
     return ConversationDTO.model_validate(row)
 

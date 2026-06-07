@@ -177,24 +177,24 @@ export function buildPlanEntitlementSections(
 
   const intelligenceRows: PlanEntitlementRow[] = [
     {
-      label: "Premium AI",
+      label: "Premium models",
       value:
         slug === "free"
-          ? "Not included"
+          ? "Not on Free"
           : usedConversations < includedConversations
-            ? "Active this cycle"
-            : "Cap reached (essential AI)",
+            ? "Within allowance"
+            : "Allowance used",
       included: slug !== "free",
       upgradeNote: slug === "free" ? tierLabel("hobby") : undefined,
       minimumTier: slug === "free" ? "hobby" : undefined,
     },
     {
-      label: "Essential AI",
-      value: slug === "free" ? "Always" : "After premium cap",
+      label: "Normal models",
+      value: slug === "free" ? "Always" : "After allowance",
       included: true,
     },
     {
-      label: "Unlimited essential AI",
+      label: "Chat stays on",
       value: "Included",
       included: true,
     },
@@ -221,7 +221,7 @@ export function buildPlanEntitlementSections(
     { title: "Knowledge", rows: knowledgeRows },
     { title: "Store & automation", rows: automationRows },
     { title: "Insights", rows: insightsRows },
-    { title: "AI", rows: intelligenceRows },
+    { title: "Models", rows: intelligenceRows },
     { title: "Brand", rows: brandRows },
   ].filter((section) => section.rows.length > 0);
 }

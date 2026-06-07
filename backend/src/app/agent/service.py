@@ -25,7 +25,6 @@ from app.agent.escalation import (
     build_escalation_info,
     conversation_is_awaiting_human_team,
     handoff_ask_contact,
-    handoff_reply_awaiting_team,
     handoff_reply_for_status,
     handle_escalation_with_contact,
     handle_pending_contact_stream_message,
@@ -357,21 +356,22 @@ async def _persist_stream_turn(
                 turn_user_message_id=user_message_row.id,
                 rag_billing=rag_billing,
             )
-        assistant_message = await append_message(
-            db,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            payload=ConversationMessageCreateRequest(
-                role="assistant",
-                content=answer,
-                model=model,
-                input_tokens=usage_in,
-                output_tokens=usage_out,
-                metadata=metadata,
-            ),
-            agent_id=agent_id,
-        )
-        assistant_id = assistant_message.id
+        if answer.strip() or products or product_detail:
+            assistant_message = await append_message(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                payload=ConversationMessageCreateRequest(
+                    role="assistant",
+                    content=answer,
+                    model=model,
+                    input_tokens=usage_in,
+                    output_tokens=usage_out,
+                    metadata=metadata,
+                ),
+                agent_id=agent_id,
+            )
+            assistant_id = assistant_message.id
         if classifier_billing and (
             classifier_billing.get("input_tokens") or classifier_billing.get("output_tokens")
         ):
@@ -804,24 +804,57 @@ async def stream_chat(
         for task in (shopify_task,):
             if not task.done():
                 task.cancel()
-        ack = handoff_reply_awaiting_team()
-        yield format_sse("token", {"text": ack})
+        model = str(config.get("model") or "gpt-4o-mini")
+        human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
+        escalation_info_handoff = build_escalation_info(
+            human_enabled=human_on,
+            esc_cfg=esc_cfg,
+            occurred=True,
+        )
+        async with get_session_factory()() as db:
+            await append_message(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                payload=ConversationMessageCreateRequest(
+                    role="user",
+                    content=payload.message,
+                    model=model,
+                ),
+                agent_id=payload.agent_id,
+            )
+            from app.domains.tickets.service import sync_ticket_status_after_message
+
+            await sync_ticket_status_after_message(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                message_role="user",
+            )
+        yield format_sse(
+            "ready",
+            {
+                "conversation_id": str(conversation_id),
+                "response": "",
+                "model": model,
+                "fallback_used": False,
+                "contact_capture_required": False,
+                "escalation": escalation_info_handoff.model_dump(mode="json"),
+                **_sse_conversation_fields("escalated", ai_disabled=True),
+            },
+        )
         yield format_sse(
             "done",
             {
                 "conversation_id": str(conversation_id),
                 "assistant_message_id": None,
-                "response": ack,
-                "model": str(config.get("model") or "gpt-4o-mini"),
+                "response": "",
+                "model": model,
                 "fallback_used": False,
                 "tools_available_count": 0,
                 "tools_invoked": [],
                 "retrieval_count": 0,
-                "escalation": build_escalation_info(
-                    human_enabled=False,
-                    esc_cfg={},
-                    occurred=False,
-                ).model_dump(mode="json"),
+                "escalation": escalation_info_handoff.model_dump(mode="json"),
                 **_sse_conversation_fields("escalated", ai_disabled=True),
             },
         )
@@ -1306,7 +1339,7 @@ async def stream_chat(
             )
         )
         if still_awaiting:
-            answer = handoff_reply_awaiting_team()
+            answer = ""
         else:
             answer = str(fallback_message or "").strip() or visitor_empty_reply_fallback()
     if stream_products:
@@ -1334,6 +1367,24 @@ async def stream_chat(
         answer,
         fallback_message=fallback_message,
         explicit=bool(done_payload.get("fallback_used")),
+    )
+
+    yield format_sse(
+        "ready",
+        {
+            "conversation_id": str(conversation_id),
+            "response": answer,
+            "model": model,
+            "fallback_used": turn_fallback_used,
+            "contact_capture_required": contact_capture_required,
+            "escalation": escalation_info.model_dump(mode="json"),
+            **_sse_conversation_fields(
+                conv_status_for_sse,
+                escalation_occurred=escalation_occurred,
+            ),
+            **({"products": stream_products} if stream_products else {}),
+            **({"product_detail": stream_product_detail} if stream_product_detail else {}),
+        },
     )
 
     assistant_id = await _finalize_stream_turn_persist(

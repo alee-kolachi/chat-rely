@@ -29,7 +29,7 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
     monthlyPriceCents: 0,
     includedConversations: 30,
     displayCostPerConversation: "$0.000",
-    tagline: "Start free on essential AI",
+    tagline: "Try ChatRely on your site",
   },
   {
     slug: "hobby",
@@ -61,50 +61,48 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
 export const PRICING_CARD_BULLETS: Record<PricingTierSlug, readonly string[]> = {
   free: [
     "1 agent",
-    "30 essential AI conversations per month",
-    "Essential AI",
-    "Website knowledge",
+    "30 conversations per month on normal models",
+    "Answers from your website knowledge",
     "500 KB training content",
-    "Unlimited essential AI after cap",
+    "Chat stays on if you pass your allowance",
   ],
   hobby: [
     "Everything in Free",
-    "250 premium AI conversations per month",
-    "Premium AI",
-    "1 Shopify action per agent",
+    "250 conversations per month on premium models",
+    "1 AI action per agent (you choose which)",
     "Shopify connect",
     "Basic analytics",
     "5 MB training content",
-    "Unlimited essential AI after cap",
+    "Normal models after allowance (chat stays on)",
   ],
   standard: [
     "Everything in Hobby",
     "2 agents",
-    "1,000 premium AI conversations per month",
-    "5 Shopify actions per agent",
+    "1,000 conversations per month on premium models",
+    "5 AI actions per agent (you choose which)",
     "Advanced analytics",
     "Knowledge gap suggestions",
     "40 MB training content",
-    "Unlimited essential AI after cap",
+    "Normal models after allowance (chat stays on)",
   ],
   pro: [
     "Everything in Standard",
     "5 agents",
-    "5,000 premium AI conversations per month",
+    "5,000 conversations per month on premium models",
     "Visitor feedback and summaries",
-    "All 6 Shopify actions per agent",
+    "All 6 AI actions per agent",
     "Remove Powered by ChatRely",
     "100 MB training content",
-    "Unlimited essential AI after cap",
+    "Normal models after allowance (chat stays on)",
   ],
 };
 
 /** Short bullets for onboarding plan cards. Home teaser uses the feature row list. */
 export const PRICING_TEASER_BULLETS: Record<PricingTierSlug, readonly string[]> = {
-  free: ["1 agent · essential AI", "Website knowledge", "30 essential AI conversations / mo"],
-  hobby: ["Premium AI", "Shopify + 1 action", "250 premium conversations / mo"],
-  standard: ["Premium AI", "2 agents · analytics", "1,000 premium conversations / mo"],
-  pro: ["Premium AI", "Visitor feedback · white-label", "5,000 premium conversations / mo"],
+  free: ["1 agent", "Website knowledge", "30 conversations / mo · normal models"],
+  hobby: ["250 conversations / mo · premium models", "1 AI action per agent", "Shopify connect"],
+  standard: ["1,000 conversations / mo · premium models", "2 agents · analytics", "5 AI actions per agent"],
+  pro: ["5,000 conversations / mo · premium models", "All 6 AI actions", "Visitor feedback · white-label"],
 };
 
 export type PricingDetailSection = {
@@ -126,12 +124,21 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Premium AI conversations / month",
+        label: "Conversations included / month",
         cells: {
-          free: { kind: "text", value: "30 · essential only" },
+          free: { kind: "text", value: "30" },
           hobby: { kind: "text", value: "250 · $0.145" },
           standard: { kind: "text", value: "1,000 · $0.099" },
           pro: { kind: "text", value: "5,000 · $0.080" },
+        },
+      },
+      {
+        label: "Chat stays on after allowance",
+        cells: {
+          free: { kind: "tick" },
+          hobby: { kind: "tick" },
+          standard: { kind: "tick" },
+          pro: { kind: "tick" },
         },
       },
       {
@@ -228,10 +235,10 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
     ],
   },
   {
-    title: "AI",
+    title: "Models",
     rows: [
       {
-        label: "Premium AI",
+        label: "Premium models",
         cells: {
           free: { kind: "dash" },
           hobby: { kind: "tick" },
@@ -240,16 +247,16 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Essential AI",
+        label: "Normal models",
         cells: {
           free: { kind: "text", value: "Always" },
-          hobby: { kind: "text", value: "After premium cap" },
-          standard: { kind: "text", value: "After premium cap" },
-          pro: { kind: "text", value: "After premium cap" },
+          hobby: { kind: "text", value: "After allowance" },
+          standard: { kind: "text", value: "After allowance" },
+          pro: { kind: "text", value: "After allowance" },
         },
       },
       {
-        label: "Unlimited essential AI conversations",
+        label: "Chat stays on after allowance",
         cells: {
           free: { kind: "tick" },
           hobby: { kind: "tick" },
@@ -275,15 +282,16 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
   },
 ];
 
-/** Footnotes for the AI section (optional detail under the matrix). */
+/** Footnotes under the comparison table (premium vs normal models). */
 export const PRICING_AI_FOOTNOTES: { title: string; lines: string[] }[] = [
   {
-    title: "How AI works on every plan",
+    title: "Premium vs normal models",
     lines: [
-      "Paid plans use premium AI until your monthly conversation cap.",
-      "Free uses essential AI only.",
-      "After the premium cap, chat stays on with unlimited essential AI. Replies may be slower and less accurate.",
-      "Busy periods may add a short delay. Your visitors are never shown an offline error.",
+      "Premium models give faster, sharper replies on paid plans within your monthly conversation allowance.",
+      "Normal models keep chat online with slower replies. Free uses normal models only.",
+      "If you pass your allowance, paid plans switch to normal models until your cycle resets or you upgrade.",
+      "We count a conversation when a chat closes after the visitor sent a message, got a reply, or a tool ran.",
+      "Your visitors are never shown an offline error.",
     ],
   },
 ];
@@ -305,20 +313,29 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
 
 /** Shorter row labels on the home landing teaser cards. */
 export const LANDING_COMPACT_LABELS: Record<string, string> = {
-  "Unlimited essential AI conversations": "Unlimited essential AI",
-  "Premium AI conversations / month": "Premium conversations",
+  "Conversations included / month": "Conversations / mo",
+  "Chat stays on after allowance": "Chat stays on",
   "Knowledge gap suggestions": "Knowledge gap suggestions",
   "Visitor feedback and summaries (widget)": "Visitor feedback",
   Attachments: "Attachments",
   "Auto retrain agents": "Auto retrain",
   "Remove Powered by ChatRely": "Remove branding",
+  "Premium models": "Premium models",
+  "Normal models": "Normal models",
 };
 
 /** Hover tooltips only where the row benefits from extra context (paired with the info icon). */
 export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
-  "Premium AI conversations / month":
-    "Monthly cap on premium AI conversations. The dollar figure helps compare plans. You pay the subscription, not per chat.",
-  "AI actions per agent": "Shopify automations each agent can run at once.",
+  "Conversations included / month":
+    "Closed chats that count toward your monthly allowance. The dollar figure on paid plans helps compare tiers. You pay the subscription, not per chat.",
+  "Chat stays on after allowance":
+    "If you pass your included conversations, the widget keeps answering on normal models. Replies may be slower until your cycle resets.",
+  "Premium models":
+    "Faster, sharper reply models on paid plans within your monthly conversation allowance.",
+  "Normal models":
+    "Standard reply models that keep chat online. Free uses these only. Paid plans switch here after the allowance.",
+  "AI actions per agent":
+    "Live automations each agent can run at once. Pick which actions to enable, up to your plan limit. Actions can be Shopify or other integrations.",
   "Training content size": "Total size of files and pages used to train agents.",
   Attachments: "Visitors send files in the widget. Rolling out soon on paid plans.",
   "Auto retrain agents": "Refresh agents when knowledge changes. Coming soon on Standard and Pro.",
@@ -327,19 +344,18 @@ export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
   "Advanced analytics": "Deeper metrics on Standard and Pro. Hobby keeps core KPIs.",
   "Visitor feedback and summaries (widget)":
     "Visitors rate replies in the widget. Pro summarizes themes on the dashboard.",
-  "Premium AI": "Paid plans use premium AI until your monthly conversation cap.",
-  "Essential AI": "Free always uses essential AI. Paid plans switch here after the premium cap.",
-  "Unlimited essential AI conversations":
-    "Chat never goes offline. After the premium cap, unlimited conversations continue on essential AI.",
   "Remove Powered by ChatRely":
     "Pro hides “Powered by ChatRely” in the widget until the visitor sends a message on other plans.",
-  Shopify: "Hobby and above connect Shopify and run live product and order tools in chat via AI actions.",
+  Shopify: "Hobby and above can connect a Shopify store for live catalog, inventory, and order answers in chat.",
 };
 
 /** Pricing rows that show an info hint (skip self-explanatory labels like Agents). */
 export const PRICING_ROW_TOOLTIP_LABELS = new Set<string>([
   "Shopify",
-  "Premium AI conversations / month",
+  "Conversations included / month",
+  "Chat stays on after allowance",
+  "Premium models",
+  "Normal models",
   "AI actions per agent",
   "Training content size",
   "Attachments",
@@ -347,9 +363,6 @@ export const PRICING_ROW_TOOLTIP_LABELS = new Set<string>([
   "Knowledge gap suggestions",
   "Advanced analytics",
   "Visitor feedback and summaries (widget)",
-  "Premium AI",
-  "Essential AI",
-  "Unlimited essential AI conversations",
   "Remove Powered by ChatRely",
 ]);
 
@@ -373,12 +386,14 @@ export type LandingTierFeatureRow = {
 /** Landing home teaser cards: info icons only on a few high-signal rows. */
 export const LANDING_TEASER_TOOLTIP_KEYS = new Set<string>([
   "Channels:Shopify",
-  "usage:Premium AI conversations / month",
+  "usage:Conversations included / month",
+  "usage:Chat stays on after allowance",
+  "Models:Premium models",
+  "Models:Normal models",
   "usage:AI actions per agent",
   "usage:Training content size",
   "usage:Attachments",
   "usage:Auto retrain agents",
-  "AI:Unlimited essential AI conversations",
 ]);
 
 /** Show “Soon” on landing plan cards for these rows (still hidden in the full matrix when dash). */
@@ -421,7 +436,7 @@ function _iterTeaserMatrixRows(): _TeaserMatrixRow[] {
   for (const section of PRICING_DETAIL_SECTIONS) {
     if (section.title === "Usage") {
       for (const row of section.rows) {
-        if (row.label === "Premium AI conversations / month") continue;
+        if (row.label === "Conversations included / month") continue;
         rows.push({ key: `usage:${row.label}`, matrixLabel: row.label, cells: row.cells });
       }
       continue;
@@ -499,13 +514,13 @@ export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierF
   }
 
   const convRow: LandingTierFeatureRow = {
-    key: "usage:Premium AI conversations / month",
-    displayLabel: _compactLabel("Premium AI conversations / month"),
+    key: "usage:Conversations included / month",
+    displayLabel: _compactLabel("Conversations included / month"),
     value: card.includedConversations.toLocaleString(),
-    mutedSuffix: slug === "free" ? "essential only" : card.displayCostPerConversation,
+    mutedSuffix: slug === "free" ? "normal models" : card.displayCostPerConversation,
     tooltip:
-      LANDING_TEASER_TOOLTIP_KEYS.has("usage:Premium AI conversations / month")
-        ? pricingRowTooltip("Premium AI conversations / month")
+      LANDING_TEASER_TOOLTIP_KEYS.has("usage:Conversations included / month")
+        ? pricingRowTooltip("Conversations included / month")
         : undefined,
   };
 

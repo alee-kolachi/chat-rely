@@ -77,3 +77,8 @@ def test_schedule_and_manual_off_hours_manual_false() -> None:
 def test_unknown_mode_falls_back_to_manual_only_semantics() -> None:
     cfg = _cfg(availability_mode="bogus", manual_online=True)
     assert seller_is_available_for_live_chat(cfg) is True
+
+
+def test_manual_online_coerces_string_true() -> None:
+    assert seller_is_available_for_live_chat(_cfg(manual_online="true")) is True
+    assert seller_is_available_for_live_chat(_cfg(manual_online="false")) is False

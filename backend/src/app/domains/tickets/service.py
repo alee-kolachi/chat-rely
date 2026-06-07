@@ -12,6 +12,7 @@ from app.core.errors import AppError
 from app.domains.conversations.service import get_conversation, try_mark_conversation_counts_toward_plan
 from app.domains.notifications.links import href_escalation
 from app.domains.notifications.service import create_notification_best_effort
+from app.domains.conversations.visitor_presence import presence_fields_from_row
 from app.domains.tickets.schemas import TicketDTO
 
 
@@ -208,10 +209,13 @@ async def list_tickets(
     sql_count = "select count(*)::int as n from public.tickets where user_id = :user_id"
     sql_select = """
         select
-          id, user_id, agent_id, conversation_id, status, subject, priority,
-          customer_email, external_provider, external_id, metadata, created_at, updated_at
-        from public.tickets
-        where user_id = :user_id
+          t.id, t.user_id, t.agent_id, t.conversation_id, t.status, t.subject, t.priority,
+          t.customer_email, t.external_provider, t.external_id, t.metadata, t.created_at, t.updated_at,
+          c.status::text as conversation_status,
+          c.metadata as conversation_metadata
+        from public.tickets t
+        join public.conversations c on c.id = t.conversation_id and c.user_id = t.user_id
+        where t.user_id = :user_id
     """
     params: dict[str, Any] = {"user_id": str(user_id), "limit": limit, "offset": offset}
     count_params: dict[str, Any] = {"user_id": str(user_id)}
@@ -232,7 +236,17 @@ async def list_tickets(
 
     result = await db.execute(text(sql_select), params)
     rows = result.mappings().all()
-    return [TicketDTO.model_validate(r) for r in rows], total
+    items: list[TicketDTO] = []
+    for row in rows:
+        data = dict(row)
+        conv_status = data.pop("conversation_status", None)
+        conv_meta = data.pop("conversation_metadata", None)
+        presence = presence_fields_from_row(status=conv_status, metadata=conv_meta)
+        data["conversation_status"] = conv_status
+        data["conversation_active"] = presence["conversation_active"]
+        data["visitor_online"] = presence["visitor_online"]
+        items.append(TicketDTO.model_validate(data))
+    return items, total
 
 
 async def get_ticket(

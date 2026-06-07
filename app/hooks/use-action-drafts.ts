@@ -96,6 +96,44 @@ export function useActionDrafts(
 
   const cancelAll = useCallback(() => setDrafts({}), []);
 
+  const saveActionConfig = useCallback(
+    async (
+      actionKey: string,
+      config: Record<string, unknown>,
+      onError?: (message: string) => void
+    ) => {
+      if (!agentId) return false;
+      try {
+        const catalog = await backendFetch<ApiActionCatalogResponse>(
+          `/api/v1/agents/${agentId}/action-settings/bulk`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ updates: [{ action_key: actionKey, config }] }),
+          }
+        );
+        setDrafts((prev) => {
+          const copy = { ...prev };
+          const patch = { ...(copy[actionKey] ?? {}) };
+          delete patch.config;
+          if (Object.keys(patch).length === 0) {
+            delete copy[actionKey];
+          } else {
+            copy[actionKey] = patch;
+          }
+          return copy;
+        });
+        applyAgentIntegrationsCatalogCache(agentId, catalog);
+        return true;
+      } catch (e) {
+        const msg =
+          e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Could not save changes";
+        onError?.(msg);
+        return false;
+      }
+    },
+    [agentId]
+  );
+
   const saveAll = useCallback(
     async (onError?: (message: string) => void) => {
       if (!agentId || !isDirty) return true;
@@ -148,6 +186,7 @@ export function useActionDrafts(
     changeCount,
     cancelAll,
     saveAll,
+    saveActionConfig,
     drafts,
   };
 }

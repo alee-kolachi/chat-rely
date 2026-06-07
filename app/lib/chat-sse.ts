@@ -10,6 +10,12 @@ export type ChatSseEvent =
   | { type: "products"; products: ProductCard[] }
   | { type: "product_detail"; product: ProductDetail }
   | ({
+      type: "ready";
+      conversation_id?: string;
+      response?: string;
+      contact_capture_required?: boolean;
+    } & Record<string, unknown>)
+  | ({
       type: "done";
       conversation_id?: string;
       assistant_message_id?: string | null;
@@ -53,6 +59,9 @@ function parseSseBlock(block: string): ChatSseEvent | null {
     const product = parseProductDetail(data.product);
     if (!product) return null;
     return { type: "product_detail", product };
+  }
+  if (eventName === "ready") {
+    return { type: "ready", ...data };
   }
   if (eventName === "done") {
     return { type: "done", ...data };

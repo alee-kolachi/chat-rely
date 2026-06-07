@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.agent.escalation import submit_visitor_contact_for_escalation
+from app.agent.escalation import escalation_handoff_api_fields, submit_visitor_contact_for_escalation
 from app.domains.actions.service import get_human_escalation_for_runtime
 from app.domains.conversations.service import get_conversation
 from app.domains.plans.plan_limits import message_feedback_enabled_for_plan_slug
@@ -203,8 +203,10 @@ async def submit_public_widget_visitor_contact(
         visitor_email=payload.visitor_email,
         esc_cfg=esc_cfg,
     )
+    handoff = escalation_handoff_api_fields(esc_cfg)
     return PublicWidgetVisitorContactResponse(
         handoff_message=result.reply,
         conversation_status=result.conversation_status,
         contact_capture_required=result.contact_capture_required,
+        **handoff,
     )

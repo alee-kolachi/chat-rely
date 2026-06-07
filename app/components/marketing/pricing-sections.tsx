@@ -5,6 +5,7 @@ import { Fragment, useMemo } from "react";
 
 import { InfoHint } from "@/components/ui/info-hint";
 import {
+  PRICING_AI_FOOTNOTES,
   PRICING_CARD_BULLETS,
   PRICING_DETAIL_SECTIONS,
   PRICING_TEASER_BULLETS,
@@ -522,9 +523,9 @@ function PricingPlanCard({
           </span>
         ) : null}
       </div>
-      <h3 className="text-lg font-semibold tracking-tight text-ds-on-surface">{plan.name}</h3>
+      <h3 className="mkt-display text-xl text-ds-on-surface">{plan.name}</h3>
       <div className="mt-4 flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-        <span className="text-4xl font-bold tabular-nums tracking-tight text-ds-on-surface">{price}</span>
+        <span className="mkt-display text-4xl tabular-nums text-ds-on-surface">{price}</span>
         {period ? (
           <span className="text-sm font-medium text-ds-on-surface-variant">{period}</span>
         ) : null}
@@ -705,14 +706,25 @@ export function PricingPagePlans({
         checkoutBusySlug={checkoutBusySlug}
       />
       <section>
-        <h2 className="mb-8 text-center text-2xl font-bold tracking-tight text-ds-on-surface sm:text-3xl">
-          Compare plans and features
-        </h2>
+        <h2 className="mkt-display mb-8 text-center text-3xl sm:text-4xl">Compare plans and features</h2>
         <PricingComparisonTable
           isAuthenticated={isAuthenticated}
           onPlanCheckout={onPlanCheckout}
           checkoutBusySlug={checkoutBusySlug}
         />
+        {PRICING_AI_FOOTNOTES.map((block) => (
+          <div key={block.title} className="mt-8 max-w-3xl">
+            <h3 className="text-sm font-semibold text-ds-on-surface">{block.title}</h3>
+            <ul className="mt-3 space-y-2 text-[0.9375rem] leading-relaxed text-ds-on-surface-variant">
+              {block.lines.map((line) => (
+                <li key={line} className="flex gap-3">
+                  <span className="mt-2 size-1.5 shrink-0 rounded-full bg-ds-primary" aria-hidden />
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </section>
     </div>
   );

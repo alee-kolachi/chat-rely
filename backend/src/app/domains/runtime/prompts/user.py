@@ -81,6 +81,19 @@ def build_meta_deflection_user_prompt(user_message: str) -> str:
     )
 
 
+_COMPOUND_CATALOG_SEARCH_RULES = (
+    "Compound catalog questions (e.g. \"what do you sell\" plus a specific item like hoodies):\n"
+    "- Call `shopify_product_search` **twice** in the same turn when they ask what the store sells "
+    "**and** name a product or category.\n"
+    "- First call: `published_status:published` for the general browse.\n"
+    "- Second call: the specific keyword only (e.g. `hoodies`).\n"
+    "- Reply to **both** parts: if the specific search has `lookup_meta.not_found`, say that category "
+    "is not in this store's catalog; if the broad search returns products, show them as what the store "
+    "does sell (one short intro, then product cards).\n"
+    "- Do not answer only about the specific item when they also asked what you sell.\n\n"
+)
+
+
 def build_shopify_turn_user_prompt(
     user_message: str,
     *,
@@ -89,6 +102,7 @@ def build_shopify_turn_user_prompt(
 ) -> str:
     return (
         f"{_shopify_thread_follow_up_block(thread_has_prior_turns=thread_has_prior_turns, thread_had_order_lookup=thread_had_order_lookup)}"
+        f"{_COMPOUND_CATALOG_SEARCH_RULES}"
         f"Customer message:\n{user_message}"
     )
 
@@ -114,7 +128,10 @@ def build_catalog_only_shopify_user_prompt(user_message: str) -> str:
         "- Call `shopify_product_search` with product or category **keywords only** "
         "(e.g. `boots`, `winter jackets`, `Timberland`). Do not pass the full conversational sentence.\n"
         "- Do **not** call `shopify_order_lookup` — there is no order number or tracking question here.\n"
-        "- If `lookup_meta.not_found` is true, tell the customer that item is not in this store's catalog. "
+        "- If the message also asks what the store sells in general, call `shopify_product_search` twice: "
+        "`published_status:published` plus the specific keyword. Answer both parts.\n"
+        "- If `lookup_meta.not_found` is true for a **specific** item only, say that category is not in "
+        "this store's catalog — then show broad-search results if you ran a general browse.\n"
         "Do not suggest it might be listed elsewhere or invent availability.\n"
         "- If the customer says results are the wrong category, search again with their category keywords. "
         "If still not found, say this store may not carry that category — do not show unrelated products.\n"
@@ -196,6 +213,7 @@ def build_grounded_user_prompt(
             f"when they clearly apply to this store and Shopify tools do not cover them.\n"
             f"{fb_line}\n\n"
             f"{follow_up}"
+            f"{_COMPOUND_CATALOG_SEARCH_RULES}"
             f"Customer message:\n{user_message}"
         )
     fb_line = excerpt_fallback_instruction(

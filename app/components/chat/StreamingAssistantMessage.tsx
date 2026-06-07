@@ -83,7 +83,7 @@ export function StreamingAssistantMessage({
   const showText =
     introText.length > 0 &&
     (phase === "streaming" || phase === "done") &&
-    (!hasRichUi || phase === "done" || !trimmed.includes("\n"));
+    (!hasRichUi || introText.length > 0);
   const showEmptyDone = phase === "done" && !introText.length && !hasRichUi;
   const detachCarousel = Boolean(showRichProducts && introBubbleClassName);
 

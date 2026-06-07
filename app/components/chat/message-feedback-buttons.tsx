@@ -46,7 +46,7 @@ export function MessageFeedbackButtons({
   );
 
   const btnBase =
-    "inline-flex size-9 shrink-0 items-center justify-center rounded-lg transition-[color,background-color,transform,opacity,width,margin] duration-200 ease-out";
+    "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-[color,background-color,transform,opacity,width,margin] duration-200 ease-out";
   const btnIdle =
     "text-ds-on-surface-variant hover:text-ds-on-surface hover:bg-ds-sidebar/80";
   const btnSelected =
@@ -72,7 +72,7 @@ export function MessageFeedbackButtons({
         onClick={() => handleClick(1)}
       >
         <ThumbsUp
-          className={cn("size-4 transition-[fill] duration-200", vote === 1 && "fill-current")}
+          className={cn("size-3.5 transition-[fill] duration-200", vote === 1 && "fill-current")}
           strokeWidth={vote === 1 ? 2.25 : 2}
           aria-hidden
         />
@@ -81,7 +81,7 @@ export function MessageFeedbackButtons({
         type="button"
         className={cn(
           btnBase,
-          "-ml-1",
+          "-ml-1.5",
           vote === -1 ? btnSelected : btnIdle,
           pop === -1 && "animate-ds-feedback-select",
           !downVisible && "pointer-events-none m-0 w-0 min-w-0 scale-75 p-0 opacity-0"
@@ -93,7 +93,7 @@ export function MessageFeedbackButtons({
         onClick={() => handleClick(-1)}
       >
         <ThumbsDown
-          className={cn("size-4 transition-[fill] duration-200", vote === -1 && "fill-current")}
+          className={cn("size-3.5 transition-[fill] duration-200", vote === -1 && "fill-current")}
           strokeWidth={vote === -1 ? 2.25 : 2}
           aria-hidden
         />

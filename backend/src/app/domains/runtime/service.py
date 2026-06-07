@@ -115,10 +115,11 @@ def build_shopify_tools_runtime_block(*, has_order_lookup_tool: bool) -> str:
         )
 
     lines.append(
-        "Broad catalog browse only when the customer gives no product or category "
+        "Broad catalog browse when they ask what you sell with no specific item "
         "('what do you sell', 'show me your products'): use query `published_status:published`. "
-        "When they name a category or product (boots, snowboards, jackets), pass those keywords only — "
-        "not `published_status:published`.\n"
+        "When they name only a category or product (boots, hoodies), pass those keywords.\n"
+        "When they ask **both** (what do you sell + a specific category), call product search twice "
+        "in one turn: `published_status:published` and the category keyword. Answer both parts.\n"
     )
 
     lines.append(

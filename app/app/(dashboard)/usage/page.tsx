@@ -184,12 +184,8 @@ export default function UsagePage() {
           aria-busy={loading || agentsLoading || knowledgeLoading}
         >
           <UsageMetricCard
-            label="Premium AI conversations"
-            hint={
-              ctx?.plan.slug === "free"
-                ? "Essential AI only on Free. Counts closed chats with visitor messages, assistant replies, or tool activity."
-                : "Premium AI until this cap. After that, unlimited essential AI continues."
-            }
+            label="Included conversations"
+            hint="Premium models on paid plans within this allowance, then normal models. Free uses normal models only. Counts closed chats with visitor messages, replies, or tool use."
             usedLabel={formatLocaleNumber(usedConversations, localeReady)}
             includedLabel={formatLocaleNumber(includedConversations, localeReady)}
             loading={loading}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bot } from "lucide-react";
 import { brandChromeClasses } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
@@ -23,13 +23,22 @@ export function WidgetBrandAvatar({
   brandColorHex?: string | null;
 }) {
   const [imageState, setImageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  function bindLogoImage(node: HTMLImageElement | null): void {
+    imgRef.current = node;
+    if (!node || !logoUrl) return;
+    if (node.complete && node.naturalHeight > 0) {
+      setImageState("loaded");
+      return;
+    }
+    setImageState("loading");
+  }
 
   useEffect(() => {
     if (!logoUrl) {
       queueMicrotask(() => setImageState("idle"));
-      return;
     }
-    queueMicrotask(() => setImageState("loading"));
   }, [logoUrl]);
 
   const launcherShellClass = cn(
@@ -37,6 +46,15 @@ export function WidgetBrandAvatar({
     chrome?.fabIconClass
   );
   const launcherStyle = brandColorHex ? { backgroundColor: brandColorHex } : undefined;
+
+  const headerShellClass = cn(
+    "relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg shadow-sm ring-1 ring-black/10",
+    hasBrand && chrome
+      ? chrome.lightBg
+        ? "bg-black/[0.06]"
+        : "bg-white/20"
+      : "bg-ds-primary"
+  );
 
   const fallbackBot = (
     <div
@@ -85,7 +103,7 @@ export function WidgetBrandAvatar({
       );
     }
     if (size === "header") {
-      return <div className="size-9 shrink-0 animate-pulse rounded-lg bg-black/10 ring-1 ring-black/10" aria-hidden />;
+      return <div className={cn(headerShellClass, "animate-pulse bg-black/10")} aria-hidden />;
     }
     if (size === "welcome") {
       return (
@@ -122,6 +140,7 @@ export function WidgetBrandAvatar({
         ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={bindLogoImage}
           src={logoUrl}
           alt=""
           className={cn("relative z-[1] size-8 object-contain transition-opacity", imageState === "loaded" ? "opacity-100" : "opacity-0")}
@@ -134,11 +153,36 @@ export function WidgetBrandAvatar({
   }
 
   const shellClass =
-    size === "header"
-      ? "relative flex max-h-9 min-h-9 min-w-9 max-w-[10rem] shrink-0 items-center"
-      : size === "welcome"
-        ? "border-ds-outline relative flex aspect-square h-full min-h-16 w-auto shrink-0 items-center justify-center self-stretch overflow-hidden rounded-xl border bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
-        : "border-ds-outline relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm";
+    size === "welcome"
+      ? "border-ds-outline relative flex aspect-square h-full min-h-16 w-auto shrink-0 items-center justify-center self-stretch overflow-hidden rounded-xl border bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
+      : "border-ds-outline relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm";
+
+  const headerLogo = (
+    <>
+      {imageState !== "loaded" ? (
+        <div className="absolute inset-0 animate-pulse rounded-lg bg-black/10" aria-hidden />
+      ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={bindLogoImage}
+        src={logoUrl}
+        alt=""
+        className={cn(
+          "relative z-[1] max-h-full max-w-full rounded-lg object-contain transition-opacity",
+          imageState === "loaded" ? "opacity-100" : "opacity-0"
+        )}
+        width={36}
+        height={36}
+        referrerPolicy="no-referrer"
+        onLoad={() => setImageState("loaded")}
+        onError={() => setImageState("error")}
+      />
+    </>
+  );
+
+  if (size === "header") {
+    return <div className={headerShellClass}>{headerLogo}</div>;
+  }
 
   return (
     <div className={shellClass}>
@@ -154,18 +198,17 @@ export function WidgetBrandAvatar({
       ) : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={bindLogoImage}
         src={logoUrl}
         alt=""
         className={cn(
-          size === "header"
-            ? "relative z-[1] block max-h-9 w-auto max-w-[10rem] object-contain transition-opacity"
-            : size === "welcome"
-              ? "relative z-[1] size-full object-contain p-1.5 transition-opacity"
-              : "relative z-[1] size-full object-contain p-0.5 transition-opacity",
+          size === "welcome"
+            ? "relative z-[1] size-full object-contain p-1.5 transition-opacity"
+            : "relative z-[1] size-full object-contain p-0.5 transition-opacity",
           imageState === "loaded" ? "opacity-100" : "opacity-0"
         )}
-        width={size === "header" ? 160 : size === "welcome" ? 56 : 28}
-        height={size === "header" ? 36 : size === "welcome" ? 56 : 28}
+        width={size === "welcome" ? 56 : 28}
+        height={size === "welcome" ? 56 : 28}
         referrerPolicy="no-referrer"
         onLoad={() => setImageState("loaded")}
         onError={() => setImageState("error")}

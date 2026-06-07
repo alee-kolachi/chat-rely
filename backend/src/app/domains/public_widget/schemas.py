@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal, Self
 from uuid import UUID
 
@@ -103,9 +104,69 @@ class PublicWidgetVisitorContactRequest(BaseModel):
     visitor_email: str = Field(min_length=3, max_length=320)
 
 
+class EscalationHandoffFields(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seller_live: bool = False
+    estimated_minutes: int | None = None
+    channel_hint: Literal["live", "email"] | None = None
+
+
 class PublicWidgetVisitorContactResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     handoff_message: str
     conversation_status: str
     contact_capture_required: bool = False
+    seller_live: bool = False
+    estimated_minutes: int | None = None
+    channel_hint: Literal["live", "email"] | None = None
+
+
+class PublicWidgetPresenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: UUID
+    visitor_id: str = Field(min_length=1, max_length=255)
+
+
+class PublicWidgetThreadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: UUID
+    visitor_id: str = Field(min_length=1, max_length=255)
+    since: datetime | None = None
+
+
+class PublicWidgetThreadMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+
+
+class PublicWidgetThreadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_status: str
+    operator_engaged: bool = False
+    conversation_active: bool = False
+    visitor_online: bool = False
+    handoff_banner: str | None = None
+    handoff: EscalationHandoffFields | None = None
+    messages: list[PublicWidgetThreadMessage] = Field(default_factory=list)
+
+
+class PublicWidgetVisitorMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: UUID
+    visitor_id: str = Field(min_length=1, max_length=255)
+    message: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("message")
+    @classmethod
+    def _message_not_whitespace_only(cls, value: str) -> str:
+        return ensure_non_whitespace_message(value)
