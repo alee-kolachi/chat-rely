@@ -324,29 +324,37 @@ def build_agent_system_prompt_for_tools(
             "call every applicable tool in the **same** turn, then answer each part in order."
         )
         shopify_line = (
-            "- Shopify tool selection rules:\n"
-            "  · `shopify_inventory_check` — stock levels, in/out of stock, quantity on hand.\n"
-            "  · `shopify_product_search` — catalog browsing, product discovery, variants, pricing. "
-            "Not for stock or order questions.\n"
+            "- **You choose the tool** from the customer's latest message and thread context. "
+            "With only a handful of tools, pick the one that matches what they need now.\n"
+            "- Shopify tool selection:\n"
+            "  · `shopify_product_search` — products, categories, pricing, gift cards, "
+            "\"do you sell/have…\", \"what do you sell\", recommendations. "
+            "Not for order tracking or stock-only checks.\n"
+            "  · `shopify_product_search` **query arg:** one product/category keyword "
+            "(e.g. `snowboard`, `boots`, `gift card`) OR `published_status:published` "
+            "when they want a general catalog browse with no specific item. "
+            "Never pass the full conversational sentence as the query.\n"
+            "  · `shopify_inventory_check` — in stock / available / quantity for a named item.\n"
         )
         if has_order_lookup_tool:
             shopify_line += (
                 "  · `shopify_order_lookup` — order status, tracking, fulfillment. "
-                "Also call this when the customer sends only an order number (e.g. 8842 or #8842).\n"
+                "Call when they send only an order number (e.g. 8842 or #8842).\n"
             )
         else:
             shopify_line += (
-                "  · Order Lookup is not enabled. Do not attempt to look up order status or tracking. "
-                "Explain clearly that live order lookup is unavailable for this store.\n"
+                "  · Order Lookup is not enabled. Do not use product search for order status. "
+                "Explain live order lookup is unavailable.\n"
             )
         shopify_line += (
-            "  · `shopify_customer_context` — customer account and past order history by email. "
-            "Only when the customer provides their email and asks about their account or orders.\n"
-            "  · Never estimate stock, prices, or order details — call the tool every time.\n"
-            "  · On follow-ups, pass brand or name keywords to `shopify_product_search` — "
-            "never pass pronouns or phrases like 'the one' or 'it'.\n"
-            "  · When `lookup_meta.not_found` is true, tell the customer the item is not in this "
-            "store's catalog. Do not invent availability or suggest it exists elsewhere."
+            "  · `shopify_customer_context` — account or order history by email when they provide it.\n"
+            "  · `search_knowledge_base` — returns, shipping rules, FAQs, policies (not live catalog).\n"
+            "  · Call every tool the message needs in the **same** turn when it has multiple topics.\n"
+            "  · Use thread history for follow-ups (\"that one\", \"what do you sell then\") — "
+            "resolve the product or topic before choosing the tool and query.\n"
+            "  · Never state a product is unavailable until `lookup_meta.not_found` is true **after** "
+            "a product search. If results are returned, say yes and show them — do not claim the catalog is empty.\n"
+            "  · When product cards will appear, keep intro text to one short sentence; the UI shows cards."
         )
         parts.append(shopify_line)
 

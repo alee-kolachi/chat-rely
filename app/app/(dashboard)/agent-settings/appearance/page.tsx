@@ -22,6 +22,7 @@ import { backendFetch } from "@/lib/backend-api";
 import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
 import {
   applyWelcomeScreenToBehaviorRecord,
+  DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR,
   effectiveWelcomeMessages,
   formatHex,
   mergeBehaviorSettings,
@@ -120,6 +121,9 @@ function AppearanceForm() {
   );
   const [welcomeScreenEnabled, setWelcomeScreenEnabled] = useState(initialWelcomeScreen.enabled);
   const [welcomeScreenHeadline, setWelcomeScreenHeadline] = useState(initialWelcomeScreen.headline);
+  const [welcomeScreenHeadlineColor, setWelcomeScreenHeadlineColor] = useState(
+    initialWelcomeScreen.headlineColor.replace("#", "")
+  );
   const [welcomeScreenDescription, setWelcomeScreenDescription] = useState(
     initialWelcomeScreen.description
   );
@@ -143,6 +147,7 @@ function AppearanceForm() {
       setCustomColors(initialAppearance.colors ?? {});
       setWelcomeScreenEnabled(initialWelcomeScreen.enabled);
       setWelcomeScreenHeadline(initialWelcomeScreen.headline);
+      setWelcomeScreenHeadlineColor(initialWelcomeScreen.headlineColor.replace("#", ""));
       setWelcomeScreenDescription(initialWelcomeScreen.description);
       setWelcomeScreenButtonLabel(initialWelcomeScreen.buttonLabel);
       setSocialLinks(initialWelcomeScreen.socialLinks);
@@ -191,6 +196,7 @@ function AppearanceForm() {
       normalizeWelcomeScreenSettings({
         enabled: welcomeScreenEnabled,
         headline: welcomeScreenHeadline,
+        headlineColor: formatHex(welcomeScreenHeadlineColor) ?? DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR,
         description: welcomeScreenDescription,
         buttonLabel: welcomeScreenButtonLabel,
         socialLinks,
@@ -198,6 +204,7 @@ function AppearanceForm() {
     [
       welcomeScreenEnabled,
       welcomeScreenHeadline,
+      welcomeScreenHeadlineColor,
       welcomeScreenDescription,
       welcomeScreenButtonLabel,
       socialLinks,
@@ -208,6 +215,8 @@ function AppearanceForm() {
     () =>
       welcomeScreenEnabled !== initialWelcomeScreen.enabled ||
       welcomeScreenHeadline !== initialWelcomeScreen.headline ||
+      (formatHex(welcomeScreenHeadlineColor) ?? DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR) !==
+        initialWelcomeScreen.headlineColor ||
       welcomeScreenDescription !== initialWelcomeScreen.description ||
       welcomeScreenButtonLabel !== initialWelcomeScreen.buttonLabel ||
       socialLinks[0].label !== initialWelcomeScreen.socialLinks[0].label ||
@@ -217,6 +226,7 @@ function AppearanceForm() {
     [
       welcomeScreenEnabled,
       welcomeScreenHeadline,
+      welcomeScreenHeadlineColor,
       welcomeScreenDescription,
       welcomeScreenButtonLabel,
       socialLinks,
@@ -325,6 +335,7 @@ function AppearanceForm() {
     setCustomColors(initialAppearance.colors ?? {});
     setWelcomeScreenEnabled(initialWelcomeScreen.enabled);
     setWelcomeScreenHeadline(initialWelcomeScreen.headline);
+    setWelcomeScreenHeadlineColor(initialWelcomeScreen.headlineColor.replace("#", ""));
     setWelcomeScreenDescription(initialWelcomeScreen.description);
     setWelcomeScreenButtonLabel(initialWelcomeScreen.buttonLabel);
     setSocialLinks(initialWelcomeScreen.socialLinks);
@@ -406,6 +417,41 @@ function AppearanceForm() {
                   />
                 </div>
                 <div>
+                  <label htmlFor="appearance-welcome-screen-headline-color" className="text-ds-on-surface mb-1 block text-sm font-semibold">
+                    Headline color
+                  </label>
+                  <p className="ds-app-body-muted mb-2 text-sm">
+                    Text on the accent banner. Default is white.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="appearance-welcome-screen-headline-color"
+                      type="color"
+                      className="border-ds-outline size-10 shrink-0 cursor-pointer rounded-ds-lg border bg-white p-1"
+                      value={formatHex(welcomeScreenHeadlineColor) ?? DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR}
+                      onChange={(e) => setWelcomeScreenHeadlineColor(e.target.value.replace("#", ""))}
+                      disabled={!welcomeScreenEnabled}
+                    />
+                    <input
+                      className="ds-app-field rounded-ds-lg font-mono uppercase"
+                      value={welcomeScreenHeadlineColor}
+                      onChange={(e) => setWelcomeScreenHeadlineColor(normaliseHex(e.target.value))}
+                      maxLength={6}
+                      placeholder="FFFFFF"
+                      disabled={!welcomeScreenEnabled}
+                      aria-label="Headline color hex"
+                    />
+                    <button
+                      type="button"
+                      className="text-ds-on-surface-variant hover:text-ds-on-surface shrink-0 text-sm font-medium"
+                      onClick={() => setWelcomeScreenHeadlineColor(DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR.replace("#", ""))}
+                      disabled={!welcomeScreenEnabled}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+                <div>
                   <label htmlFor="appearance-welcome-screen-description" className="text-ds-on-surface mb-1 block text-sm font-semibold">
                     Bot description
                   </label>
@@ -436,7 +482,7 @@ function AppearanceForm() {
               <div className="border-ds-outline-subtle space-y-4 rounded-ds-lg border p-4">
                 <p className="text-ds-on-surface text-sm font-semibold">Social links</p>
                 <p className="ds-app-body-muted -mt-2 text-sm">
-                  Optional cards below the main welcome card. Links open in a new tab.
+                  Optional cards below the main welcome card. Replace the default links with your profiles. Links open in a new tab.
                 </p>
                 <div className="space-y-3">
                   <p className="text-ds-on-surface-variant text-xs font-semibold uppercase tracking-wide">
@@ -766,6 +812,7 @@ function AppearanceForm() {
                   brandColorHex={previewBrandColor}
                   panelBackgroundHex={resolvedPreview.colors.panelBackground}
                   headline={welcomeScreenPreview.headline}
+                  headlineColor={welcomeScreenPreview.headlineColor}
                   description={welcomeScreenPreview.description}
                   buttonLabel={welcomeScreenPreview.buttonLabel}
                   socialLinks={welcomeScreenPreview.socialLinks}

@@ -7,7 +7,11 @@ import {
 } from "@/components/branding/powered-by-chatrely";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
-import type { WelcomeScreenSocialLink } from "@/lib/agent-settings";
+import {
+  DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR,
+  normalizeExternalUrl,
+  type WelcomeScreenSocialLink,
+} from "@/lib/agent-settings";
 import {
   detectWelcomeSocialPlatform,
   WelcomeSocialPlatformIcon,
@@ -19,6 +23,7 @@ export type WidgetWelcomeScreenProps = {
   agentName: string;
   brandColorHex?: string | null;
   headline: string;
+  headlineColor?: string | null;
   description: string;
   buttonLabel: string;
   socialLinks: [WelcomeScreenSocialLink, WelcomeScreenSocialLink];
@@ -52,8 +57,8 @@ function SocialLinkArrow({
 }
 
 function isExternalUrl(url: string): boolean {
-  const trimmed = url.trim();
-  return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+  const normalized = normalizeExternalUrl(url);
+  return normalized.startsWith("http://") || normalized.startsWith("https://");
 }
 
 function WelcomeSocialCard({
@@ -85,7 +90,7 @@ function WelcomeSocialCard({
   if (clickable) {
     return (
       <a
-        href={url.trim()}
+        href={normalizeExternalUrl(url)}
         target="_blank"
         rel="noopener noreferrer"
         className={className}
@@ -102,6 +107,7 @@ export function WidgetWelcomeScreen({
   agentName,
   brandColorHex,
   headline,
+  headlineColor,
   description,
   buttonLabel,
   socialLinks,
@@ -130,10 +136,8 @@ export function WidgetWelcomeScreen({
         />
         <div className="relative flex min-h-[6.5rem] items-center">
           <h2
-            className={cn(
-              "text-[1.7rem] font-bold leading-tight tracking-tight sm:text-[1.8rem]",
-              chrome.titleClass
-            )}
+            className="text-[1.7rem] font-bold leading-tight tracking-tight sm:text-[1.8rem]"
+            style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR }}
           >
             {headline}
           </h2>
@@ -178,18 +182,17 @@ export function WidgetWelcomeScreen({
           style={{ backgroundColor: panelBg }}
         >
           <div className="space-y-3.5">
-            <WelcomeSocialCard
-              label={socialLinks[0].label}
-              url={socialLinks[0].url}
-              accentHex={brand}
-              panelBgHex={panelBg}
-            />
-            <WelcomeSocialCard
-              label={socialLinks[1].label}
-              url={socialLinks[1].url}
-              accentHex={brand}
-              panelBgHex={panelBg}
-            />
+            {socialLinks
+              .filter((link) => link.url.trim())
+              .map((link) => (
+                <WelcomeSocialCard
+                  key={`${link.label}-${link.url}`}
+                  label={link.label}
+                  url={link.url}
+                  accentHex={brand}
+                  panelBgHex={panelBg}
+                />
+              ))}
           </div>
 
           <div className="flex-1" />

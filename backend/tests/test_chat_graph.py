@@ -424,20 +424,29 @@ def test_shopify_connected_no_tools_block_forbids_invented_catalog() -> None:
     assert "live store" in block
 
 
-def test_shopify_runtime_block_without_order_lookup_forbids_product_search_for_orders() -> None:
-    from app.domains.runtime.service import build_shopify_tools_runtime_block
+def test_agent_system_prompt_without_order_lookup_forbids_product_search_for_orders() -> None:
+    from app.domains.runtime.prompts.system import build_agent_system_prompt_for_tools
 
-    block = build_shopify_tools_runtime_block(has_order_lookup_tool=False).lower()
-    assert "order lookup is **not** enabled" in block or "not enabled" in block
-    assert "do not call `shopify_product_search`" in block
-    assert "shopify_order_lookup" not in block
+    prompt = build_agent_system_prompt_for_tools(
+        "",
+        has_knowledge_tool=False,
+        has_shopify_tools=True,
+        has_order_lookup_tool=False,
+    ).lower()
+    assert "order lookup is not enabled" in prompt
+    assert "shopify_order_lookup" not in prompt
 
 
-def test_shopify_runtime_block_with_order_lookup_mentions_order_tool() -> None:
-    from app.domains.runtime.service import build_shopify_tools_runtime_block
+def test_agent_system_prompt_with_order_lookup_mentions_order_tool() -> None:
+    from app.domains.runtime.prompts.system import build_agent_system_prompt_for_tools
 
-    block = build_shopify_tools_runtime_block(has_order_lookup_tool=True)
-    assert "shopify_order_lookup" in block
+    prompt = build_agent_system_prompt_for_tools(
+        "",
+        has_knowledge_tool=False,
+        has_shopify_tools=True,
+        has_order_lookup_tool=True,
+    )
+    assert "shopify_order_lookup" in prompt
 
 
 def test_product_search_tool_description_excludes_orders_when_order_lookup_disabled() -> None:
@@ -455,12 +464,19 @@ def test_product_search_tool_description_excludes_orders_when_order_lookup_disab
     assert "lookup_meta.not_found" in desc
 
 
-def test_shopify_runtime_block_mentions_product_search_not_found() -> None:
-    from app.domains.runtime.service import build_shopify_tools_runtime_block
+def test_agent_system_prompt_covers_tool_selection_and_product_search_query() -> None:
+    from app.domains.runtime.prompts.system import build_agent_system_prompt_for_tools
 
-    block = build_shopify_tools_runtime_block(has_order_lookup_tool=False)
-    assert "lookup_meta.not_found" in block
-    assert "inventory safety" in block.lower()
+    prompt = build_agent_system_prompt_for_tools(
+        "",
+        has_knowledge_tool=True,
+        has_shopify_tools=True,
+        has_order_lookup_tool=True,
+    )
+    lower = prompt.lower()
+    assert "you choose the tool" in lower
+    assert "published_status:published" in lower
+    assert "lookup_meta.not_found" in lower
 
 
 def test_resolve_agent_type_prompt_ignores_stored_text_for_presets() -> None:
@@ -496,8 +512,8 @@ def test_agent_system_prompt_without_order_lookup_warns_on_order_questions() -> 
         has_order_lookup_tool=False,
     ).lower()
     assert "order lookup is not enabled" in prompt
-    assert "do not attempt to look up order status" in prompt
-    assert "not for stock or order questions" in prompt
+    assert "do not use product search for order status" in prompt
+    assert "not for order tracking" in prompt
     assert "shopify_order_lookup" not in prompt
 
 
@@ -537,12 +553,17 @@ def test_multi_intent_user_prompt_keeps_product_search_when_order_lookup_disable
     assert "do not call `shopify_product_search` for order status" in prompt
 
 
-def test_shopify_runtime_block_mentions_broad_catalog_query() -> None:
-    from app.domains.runtime.service import build_shopify_tools_runtime_block
+def test_agent_system_prompt_mentions_broad_catalog_query() -> None:
+    from app.domains.runtime.prompts.system import build_agent_system_prompt_for_tools
 
-    block = build_shopify_tools_runtime_block(has_order_lookup_tool=True).lower()
-    assert "published_status:published" in block
-    assert "product cards" in block
+    prompt = build_agent_system_prompt_for_tools(
+        "",
+        has_knowledge_tool=False,
+        has_shopify_tools=True,
+        has_order_lookup_tool=True,
+    ).lower()
+    assert "published_status:published" in prompt
+    assert "product cards" in prompt
 
 
 def test_shopify_turn_user_prompt_includes_order_follow_up_when_thread_had_lookup() -> None:

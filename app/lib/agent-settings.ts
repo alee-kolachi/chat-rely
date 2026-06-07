@@ -98,6 +98,7 @@ export type AgentBehaviorSettings = {
   greeting_messages?: string[];
   welcome_screen_enabled?: boolean;
   welcome_screen_headline?: string;
+  welcome_screen_headline_color?: string;
   welcome_screen_description?: string;
   welcome_screen_button_label?: string;
   language?: string;
@@ -240,6 +241,7 @@ export const WELCOME_SCREEN_DESCRIPTION_MAX = 200;
 export const WELCOME_SCREEN_BUTTON_LABEL_MAX = 40;
 
 export const DEFAULT_WELCOME_SCREEN_HEADLINE = "How can we help?";
+export const DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR = "#FFFFFF";
 export const DEFAULT_WELCOME_SCREEN_DESCRIPTION =
   "Ask about orders, products, or store policies.";
 export const DEFAULT_WELCOME_SCREEN_BUTTON_LABEL = "Chat with us";
@@ -253,17 +255,25 @@ export type WelcomeScreenSocialLink = {
 };
 
 export const DEFAULT_WELCOME_SCREEN_SOCIAL_LINKS: [WelcomeScreenSocialLink, WelcomeScreenSocialLink] = [
-  { label: "Follow us on Instagram", url: "" },
-  { label: "Follow us on TikTok", url: "" },
+  { label: "Follow us on Instagram", url: "https://www.instagram.com/" },
+  { label: "Follow us on TikTok", url: "https://www.tiktok.com/" },
 ];
 
 export type WelcomeScreenSettings = {
   enabled: boolean;
   headline: string;
+  headlineColor: string;
   description: string;
   buttonLabel: string;
   socialLinks: [WelcomeScreenSocialLink, WelcomeScreenSocialLink];
 };
+
+export function normalizeExternalUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
 
 export function readWelcomeScreenEnabled(
   behavior: Record<string, unknown> | null | undefined
@@ -285,7 +295,7 @@ function readWelcomeScreenSocialLinks(
     const url = typeof row.url === "string" ? row.url.trim() : "";
     return {
       label: label.slice(0, WELCOME_SCREEN_SOCIAL_LABEL_MAX),
-      url: url.slice(0, WELCOME_SCREEN_SOCIAL_URL_MAX),
+      url: normalizeExternalUrl(url).slice(0, WELCOME_SCREEN_SOCIAL_URL_MAX),
     };
   };
   return [normalize(raw[0], defaults[0]), normalize(raw[1], defaults[1])];
@@ -306,11 +316,13 @@ export function resolveWelcomeScreenSettings(
   behavior: Record<string, unknown> | null | undefined
 ): WelcomeScreenSettings {
   const headline = readBehaviorString(behavior, "welcome_screen_headline").trim();
+  const headlineColorRaw = readBehaviorString(behavior, "welcome_screen_headline_color").trim();
   const description = readBehaviorString(behavior, "welcome_screen_description").trim();
   const buttonLabel = readBehaviorString(behavior, "welcome_screen_button_label").trim();
   return {
     enabled: readWelcomeScreenEnabled(behavior),
     headline: headline || DEFAULT_WELCOME_SCREEN_HEADLINE,
+    headlineColor: formatHex(headlineColorRaw) ?? DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR,
     description: description || DEFAULT_WELCOME_SCREEN_DESCRIPTION,
     buttonLabel: buttonLabel || DEFAULT_WELCOME_SCREEN_BUTTON_LABEL,
     socialLinks: readWelcomeScreenSocialLinks(behavior),
@@ -338,7 +350,7 @@ function normalizeSocialLink(
 ): WelcomeScreenSocialLink {
   return {
     label: (link.label.trim() || fallback.label).slice(0, WELCOME_SCREEN_SOCIAL_LABEL_MAX),
-    url: link.url.trim().slice(0, WELCOME_SCREEN_SOCIAL_URL_MAX),
+    url: normalizeExternalUrl(link.url).slice(0, WELCOME_SCREEN_SOCIAL_URL_MAX),
   };
 }
 
@@ -349,6 +361,7 @@ export function normalizeWelcomeScreenSettings(settings: WelcomeScreenSettings):
       0,
       WELCOME_SCREEN_HEADLINE_MAX
     ),
+    headlineColor: formatHex(settings.headlineColor) ?? DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR,
     description: (settings.description.trim() || DEFAULT_WELCOME_SCREEN_DESCRIPTION).slice(
       0,
       WELCOME_SCREEN_DESCRIPTION_MAX
@@ -375,6 +388,11 @@ export function applyWelcomeScreenToBehaviorRecord(
     record.welcome_screen_headline = normalized.headline;
   } else {
     delete record.welcome_screen_headline;
+  }
+  if (normalized.headlineColor !== DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR) {
+    record.welcome_screen_headline_color = normalized.headlineColor;
+  } else {
+    delete record.welcome_screen_headline_color;
   }
   if (normalized.description !== DEFAULT_WELCOME_SCREEN_DESCRIPTION) {
     record.welcome_screen_description = normalized.description;

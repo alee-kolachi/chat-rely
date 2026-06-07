@@ -3,6 +3,7 @@ from app.domains.public_widget.welcome_screen import (
     resolve_welcome_screen_description,
     resolve_welcome_screen_enabled,
     resolve_welcome_screen_headline,
+    resolve_welcome_screen_headline_color,
     resolve_welcome_screen_social_links,
 )
 
@@ -10,14 +11,15 @@ from app.domains.public_widget.welcome_screen import (
 def test_welcome_screen_defaults() -> None:
     assert resolve_welcome_screen_enabled({}) is True
     assert resolve_welcome_screen_headline({}) == "How can we help?"
+    assert resolve_welcome_screen_headline_color({}) == "#FFFFFF"
     assert resolve_welcome_screen_description({}) == "Ask about orders, products, or store policies."
     assert resolve_welcome_screen_button_label({}) == "Chat with us"
 
 
 def test_welcome_screen_social_links_defaults() -> None:
     assert resolve_welcome_screen_social_links({}) == [
-        {"label": "Follow us on Instagram", "url": ""},
-        {"label": "Follow us on TikTok", "url": ""},
+        {"label": "Follow us on Instagram", "url": "https://www.instagram.com/"},
+        {"label": "Follow us on TikTok", "url": "https://www.tiktok.com/"},
     ]
 
 
@@ -32,6 +34,24 @@ def test_welcome_screen_social_links_custom() -> None:
         {"label": "Instagram", "url": "https://instagram.com/store"},
         {"label": "YouTube", "url": "https://youtube.com/@store"},
     ]
+
+
+def test_welcome_screen_social_links_normalize_scheme() -> None:
+    behavior = {
+        "welcome_screen_social_links": [
+            {"label": "Instagram", "url": "instagram.com/store"},
+            {"label": "TikTok", "url": "www.tiktok.com/@store"},
+        ]
+    }
+    assert resolve_welcome_screen_social_links(behavior) == [
+        {"label": "Instagram", "url": "https://instagram.com/store"},
+        {"label": "TikTok", "url": "https://www.tiktok.com/@store"},
+    ]
+
+
+def test_welcome_screen_headline_color_custom() -> None:
+    assert resolve_welcome_screen_headline_color({"welcome_screen_headline_color": "ffee00"}) == "#FFEE00"
+    assert resolve_welcome_screen_headline_color({"welcome_screen_headline_color": "bad"}) == "#FFFFFF"
 
 
 def test_welcome_screen_custom() -> None:

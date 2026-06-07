@@ -33,7 +33,6 @@ from app.agent.escalation import (
     persist_visitor_contact,
     unresolved_escalation_system_appendix,
     visitor_empty_reply_fallback,
-    visitor_meta_deflection_reply,
     visitor_non_substantive_reply,
 )
 from app.agent.product_cards import (
@@ -61,15 +60,7 @@ def _sse_conversation_fields(
 from app.agent.messages import build_turn_messages, slice_history_for_current_turn
 from app.agent.model_routing import (
     apply_throttle_delay,
-    resolve_turn_model,
-    thread_summary_from_history,
-)
-from app.agent.turn_intent import (
-    apply_turn_intent_grounding,
-    effective_is_chitchat,
-    merge_routing_billing,
-    run_turn_intent_classifier,
-    shopify_tools_to_exclude,
+    resolve_turn_model_by_plan_usage,
 )
 from app.agent.shopify_tools import (
     is_shopify_tool_name,
@@ -91,7 +82,6 @@ from app.domains.billing.cost_events import (
 )
 from app.domains.conversation_outcomes.service import compute_turn_signals
 from app.domains.billing.usage_gate import (
-    count_conversation_premium_turns,
     fetch_plan_model_policy_cached,
     get_cached_plan_model_policy,
     get_cached_usage_snapshot,
@@ -122,12 +112,12 @@ from app.domains.runtime.prompts.system import (
     resolve_language_instruction,
     resolve_tone_instruction,
 )
+from app.domains.public_widget.welcome import seed_widget_greeting_messages_if_needed
 from app.domains.runtime.schemas import RuntimeChatRequest, message_has_substantive_content, RuntimeEscalationInfo, ProductActionRequest
 from app.domains.runtime.service import (
     _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK,
     _SHOPIFY_NO_EXCERPT_GROUNDING,
     _TOOL_RAG_SUPPLEMENT_FOR_TOOLS,
-    build_shopify_tools_runtime_block,
     _apply_usage_limit_model_downgrade,
     _build_context_block,
     _build_open_chat_system_prompt,
@@ -211,6 +201,16 @@ async def _bootstrap_stream_turn_db(
             limit=history_limit,
             skip_conversation_check=True,
         )
+    if not history_rows and (payload.channel or "").strip() == "widget":
+        history_rows = await seed_widget_greeting_messages_if_needed(
+            db,
+            user_id=user_id,
+            agent_id=payload.agent_id,
+            conversation_id=conversation_id,
+            agent_name=config.get("agent_name"),
+            behavior_settings=config.get("behavior_settings"),
+            history_limit=history_limit,
+        )
     awaiting_human_team = await conversation_is_awaiting_human_team(
         db,
         user_id=user_id,
@@ -248,25 +248,13 @@ async def _prepare_turn_model_selection(
 
     usage_snap = get_cached_usage_snapshot(user_id)
     throttle_tier = usage_snap.throttle_tier if usage_snap else None
-    premium_turns_used = usage_snap.premium_turns_used if usage_snap else 0
+    conversations_used = usage_snap.conversations_used if usage_snap else 0
+    included_conversations = usage_snap.included_conversations if usage_snap else 0
 
-    conv_premium_used = await _db_call(
-        lambda db: count_conversation_premium_turns(
-            db,
-            conversation_id=conversation_id,
-            premium_model=policy.premium_chat_model,
-        )
-    )
-
-    turn_decision, classifier_billing = await resolve_turn_model(
+    turn_decision = resolve_turn_model_by_plan_usage(
         policy=policy,
-        throttle_tier=throttle_tier,
-        premium_turns_used=premium_turns_used,
-        conversation_premium_used=conv_premium_used,
-        user_message=user_message,
-        thread_summary=thread_summary_from_history(history_rows),
-        tool_failed=False,
-        is_greeting_or_small_talk=is_greeting_or_small_talk,
+        conversations_used=conversations_used,
+        included_conversations=included_conversations,
     )
     model = _resolve_runtime_model(turn_decision.model, preserve_premium=turn_decision.used_premium)
     model = _apply_usage_limit_model_downgrade(
@@ -276,9 +264,10 @@ async def _prepare_turn_model_selection(
     await apply_throttle_delay(
         throttle_tier=throttle_tier,
         policy=policy,
-        premium_turns_used=premium_turns_used,
+        conversations_used=conversations_used,
+        included_conversations=included_conversations,
     )
-    return model, classifier_billing
+    return model, None
 
 
 async def _maybe_retrieve_chunks(
@@ -805,19 +794,13 @@ async def stream_chat(
             user_id=user_id,
             agent_id=payload.agent_id,
             conversation_id=conversation_id,
-        )
-    )
-    turn_intent_task = asyncio.create_task(
-        run_turn_intent_classifier(
-            user_message=payload.message,
-            thread_summary=thread_summary_from_history(history_rows),
-            thread_had_order_lookup=thread_had_order_lookup_tool(history_rows),
+            customer_message=payload.message,
         )
     )
     await _await_prior_turn_persist(user_id, conversation_id)
 
     if awaiting_human_team:
-        for task in (shopify_task, turn_intent_task):
+        for task in (shopify_task,):
             if not task.done():
                 task.cancel()
         ack = handoff_reply_awaiting_team()
@@ -844,7 +827,7 @@ async def stream_chat(
         return
 
     if not message_has_substantive_content(payload.message):
-        for task in (shopify_task, turn_intent_task):
+        for task in (shopify_task,):
             if not task.done():
                 task.cancel()
         ack = visitor_non_substantive_reply()
@@ -870,7 +853,7 @@ async def stream_chat(
         return
 
     if payload.product_action is not None:
-        for task in (shopify_task, turn_intent_task):
+        for task in (shopify_task,):
             if not task.done():
                 task.cancel()
         human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
@@ -892,10 +875,10 @@ async def stream_chat(
     if conv_meta.get(ESCALATION_PENDING_CONTACT_META_KEY):
         human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
         if human_on:
-            for task in (shopify_task, turn_intent_task):
+            for task in (shopify_task,):
                 if not task.done():
                     task.cancel()
-            for task in (shopify_task, turn_intent_task):
+            for task in (shopify_task,):
                 try:
                     await task
                 except asyncio.CancelledError:
@@ -970,60 +953,7 @@ async def stream_chat(
             )
             return
 
-    turn_intent, turn_intent_billing = await turn_intent_task
-    meta_deflect_turn = turn_intent.deflect_without_tools
-    chitchat_turn = effective_is_chitchat(turn_intent)
-
-    if meta_deflect_turn:
-        for task in (shopify_task,):
-            if not task.done():
-                task.cancel()
-        try:
-            await shopify_task
-        except asyncio.CancelledError:
-            pass
-        model_early = str(config.get("model") or "gpt-4o-mini")
-        ack = visitor_meta_deflection_reply()
-        if first_token_ms is None:
-            first_token_ms = (time.perf_counter() - t_turn) * 1000.0
-        yield format_sse("token", {"text": ack})
-        assistant_id = await _finalize_stream_turn_persist(
-            user_id=user_id,
-            agent_id=payload.agent_id,
-            conversation_id=conversation_id,
-            user_message=payload.message,
-            model=model_early,
-            answer=ack,
-            usage_in=0,
-            usage_out=0,
-            tools_invoked=[],
-            rag_billing={},
-            classifier_billing=turn_intent_billing,
-        )
-        yield format_sse(
-            "done",
-            {
-                "conversation_id": str(conversation_id),
-                "assistant_message_id": str(assistant_id) if assistant_id else None,
-                "response": ack,
-                "model": model_early,
-                "fallback_used": False,
-                "tools_available_count": 0,
-                "tools_invoked": [],
-                "retrieval_count": 0,
-                "retrieval_preview": [],
-                "escalation": build_escalation_info(
-                    human_enabled=False,
-                    esc_cfg={},
-                    occurred=False,
-                ).model_dump(mode="json"),
-                "contact_capture_required": False,
-                **_sse_conversation_fields(str(conv.get("status") or "open")),
-            },
-        )
-        return
-
-    wants_human = payload.request_human or turn_intent.requests_human
+    wants_human = payload.request_human
 
     if wants_human:
         human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
@@ -1038,10 +968,8 @@ async def stream_chat(
         agent_has_indexed_kb=has_indexed_kb,
         thread_had_shopify_tools=thread_had_shopify,
     )
-    skip_rag = structural_skip or operator_engaged or chitchat_turn
-    if chitchat_turn:
-        kb_skip_reason = "greeting_skip"
-    elif operator_engaged:
+    skip_rag = structural_skip or operator_engaged
+    if operator_engaged:
         kb_skip_reason = "operator_engaged"
     elif structural_skip:
         kb_skip_reason = structural_kb_reason
@@ -1073,7 +1001,6 @@ async def stream_chat(
             conversation_id=conversation_id,
             user_message=payload.message,
             history_rows=history_rows,
-            is_greeting_or_small_talk=chitchat_turn,
         )
     )
 
@@ -1085,8 +1012,6 @@ async def stream_chat(
     parallel_results = await asyncio.gather(*parallel_prep)
     tool_list, shopify_setup_timings, shopify_connected = parallel_results[0]
     model, classifier_billing = parallel_results[1]
-    classifier_billing = merge_routing_billing(classifier_billing, turn_intent_billing)
-
     t_pre_llm = time.perf_counter()
     prep_ms = (t_prep - t_turn) * 1000.0
     pre_llm_ms = (t_pre_llm - t_turn) * 1000.0
@@ -1125,27 +1050,6 @@ async def stream_chat(
     has_order_lookup_tool = any(
         str(getattr(t, "name", "") or "") == "shopify_order_lookup" for t in tool_list
     )
-    has_product_search_tool = any(
-        str(getattr(t, "name", "") or "") == "shopify_product_search" for t in tool_list
-    )
-    exclude_tools = shopify_tools_to_exclude(
-        turn_intent,
-        has_order_lookup_tool=has_order_lookup_tool,
-        has_product_search_tool=has_product_search_tool,
-    )
-    if exclude_tools:
-        tool_list = [
-            t for t in tool_list if str(getattr(t, "name", "") or "") not in exclude_tools
-        ]
-    has_shopify_tools = any(
-        is_shopify_tool_name(str(getattr(t, "name", "") or "")) for t in tool_list
-    )
-    has_order_lookup_tool = any(
-        str(getattr(t, "name", "") or "") == "shopify_order_lookup" for t in tool_list
-    )
-    has_product_search_tool = any(
-        str(getattr(t, "name", "") or "") == "shopify_product_search" for t in tool_list
-    )
     if rag_task is not None:
         chunks, rag_billing, kb_skip_reason = parallel_results[2]
         retrieve_wall_ms = (time.perf_counter() - t_parallel_prep) * 1000.0
@@ -1178,11 +1082,7 @@ async def stream_chat(
         context_block = _build_context_block(chunks, user_message=payload.message)
 
     has_knowledge_tool = False
-    if has_indexed_kb and (
-        has_shopify_tools
-        or turn_intent.needs_knowledge_base
-        or kb_skip_reason == "thread_shopify_tools"
-    ):
+    if has_indexed_kb and has_shopify_tools:
         tool_list = list(tool_list) + [
             build_search_knowledge_base_tool(
                 agent_id=payload.agent_id,
@@ -1193,12 +1093,7 @@ async def stream_chat(
 
     tools_bound_count = len(tool_list) + (1 if human_on else 0)
 
-    if chitchat_turn and not turn_intent.bare_order_number:
-        system_prompt = _build_open_chat_system_prompt(
-            system_prompt,
-            human_escalation_enabled=escalation_enabled,
-        )
-    elif has_shopify_tools:
+    if has_shopify_tools:
         system_prompt = build_agent_system_prompt_for_tools(
             system_prompt,
             has_knowledge_tool=has_knowledge_tool,
@@ -1207,9 +1102,6 @@ async def stream_chat(
             has_order_lookup_tool=has_order_lookup_tool,
             human_escalation_enabled=escalation_enabled,
         )
-        system_prompt = (
-            f"{system_prompt}{build_shopify_tools_runtime_block(has_order_lookup_tool=has_order_lookup_tool)}"
-        ).strip()
     elif has_indexed_kb and context_block:
         system_prompt = build_system_prompt(
             system_prompt,
@@ -1255,30 +1147,8 @@ async def stream_chat(
         grounded_user_content = f"{_SHOPIFY_NO_EXCERPT_GROUNDING}{thread_block}"
 
     if (
-        has_shopify_tools
-        or turn_intent.needs_order_lookup
-        or turn_intent.needs_product_search
-        or turn_intent.needs_inventory_check
-        or turn_intent.needs_knowledge_base
-        or (chitchat_turn and not turn_intent.bare_order_number)
-        or (
-            bool(history_rows)
-            and len(payload.message.strip()) <= 16
-            and not meta_deflect_turn
-        )
-    ):
-        grounded_user_content = apply_turn_intent_grounding(
-            base_content=grounded_user_content,
-            user_message=payload.message,
-            intent=turn_intent,
-            has_order_lookup_tool=has_order_lookup_tool,
-            has_product_search_tool=has_product_search_tool,
-            thread_had_order_lookup=thread_had_order_lookup,
-        )
-    elif (
         has_indexed_kb
         and not context_block
-        and not chitchat_turn
         and not has_shopify_tools
     ):
         system_prompt = _build_open_chat_system_prompt(

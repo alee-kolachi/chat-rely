@@ -311,13 +311,32 @@ _CATALOG_QUERY_STOPWORDS = frozenset(
         "your",
         "got",
         "give",
+        "then",
+        "else",
+        "okay",
+        "anyway",
+        "actually",
+        "really",
+        "just",
+        "yeah",
+        "hmm",
     }
 )
 
-_CATEGORY_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
-    "clothes": ("clothing",),
-    "clothing": ("clothes",),
-}
+_SHOPIFY_ADMIN_QUERY_PREFIXES = (
+    "published_status:",
+    "status:",
+    "product_type:",
+    "tag:",
+    "vendor:",
+    "title:",
+    "handle:",
+)
+
+
+def _is_shopify_admin_filter_token(token: str) -> bool:
+    lower = (token or "").strip().lower()
+    return any(lower.startswith(prefix) for prefix in _SHOPIFY_ADMIN_QUERY_PREFIXES)
 
 
 def _strip_catalog_search_noise(query: str) -> str:
@@ -334,6 +353,8 @@ def _product_keywords_from_query(query: str) -> list[str]:
     words: list[str] = []
     for raw in _strip_catalog_search_noise(query).split():
         token = raw.strip("?.!,)'\" ").lower().replace("'", "")
+        if _is_shopify_admin_filter_token(token):
+            continue
         if len(token) > 2 and token not in _CATALOG_QUERY_STOPWORDS:
             words.append(token)
     return words
@@ -358,96 +379,28 @@ def _is_generic_catalog_question(query: str) -> bool:
 
 
 def _needs_broad_catalog_retry(query: str) -> bool:
-    """Whole-catalog fallback only when the query has no extractable product terms."""
+    """Whole-catalog browse when the message has no concrete product or category term."""
     if _product_keywords_from_query(query):
         return False
     return _is_generic_catalog_question(query)
 
 
-def _catalog_search_queries(query: str) -> list[str]:
-    """Ordered Shopify Admin search strings; category keywords before conversational filler."""
+def _resolve_shopify_product_search_query(query: str) -> tuple[str, bool]:
+    """
+    One Shopify Admin query per tool call. Broad browse uses published_status:published;
+    otherwise prefer the model's keyword or the strongest term from a conversational query.
+    """
     q = _strip_catalog_search_noise((query or "").strip())
     if not q:
-        return []
+        return "", False
     if q.lower() == "published_status:published":
-        return [q]
-
+        return q, True
+    if _needs_broad_catalog_retry(q):
+        return "published_status:published", True
     keywords = sorted(_product_keywords_from_query(q), key=len, reverse=True)
-    queries: list[str] = []
-    for kw in keywords:
-        if kw not in queries:
-            queries.append(kw)
-        for alias in _CATEGORY_SEARCH_ALIASES.get(kw, ()):
-            if alias not in queries:
-                queries.append(alias)
-
-    if queries:
-        return queries
-    if _is_generic_catalog_question(q):
-        return []
-    return []
-
-
-def _catalog_relevance_terms(query: str) -> list[str]:
-    terms: list[str] = []
-    for sq in _catalog_search_queries(query):
-        for kw in _product_keywords_from_query(sq):
-            if kw not in terms:
-                terms.append(kw)
-    return terms
-
-
-def _product_node_search_blob(node: dict[str, object]) -> str:
-    title = str(node.get("title") or "")
-    product_type = str(node.get("productType") or "")
-    tags_raw = node.get("tags")
-    tags: list[str] = []
-    if isinstance(tags_raw, list):
-        tags = [str(t) for t in tags_raw if str(t).strip()]
-    return " ".join([title, product_type, " ".join(tags)]).lower()
-
-
-def _term_matches_catalog_blob(term: str, blob: str) -> bool:
-    if not term:
-        return False
-    if term in blob:
-        return True
-    stem = term.rstrip("s") if len(term) > 3 else term
-    if stem and stem in blob:
-        return True
-    for word in blob.split():
-        if len(word) < 3 or len(term) < 3:
-            continue
-        if word.startswith(term) or term.startswith(word):
-            return True
-    return False
-
-
-def _product_matches_catalog_terms(node: dict[str, object], terms: list[str]) -> bool:
-    if not terms:
-        return True
-    blob = _product_node_search_blob(node)
-    return any(_term_matches_catalog_blob(term, blob) for term in terms)
-
-
-def _filter_product_data_by_relevance(data: dict[str, object], query: str) -> dict[str, object]:
-    terms = _catalog_relevance_terms(query)
-    if not terms:
-        return data if isinstance(data.get("products"), dict) else {"products": {"edges": []}}
-    products = data.get("products")
-    if not isinstance(products, dict):
-        return {"products": {"edges": []}}
-    edges = products.get("edges")
-    if not isinstance(edges, list):
-        return {"products": {"edges": []}}
-    kept: list[object] = []
-    for edge in edges:
-        if not isinstance(edge, dict):
-            continue
-        node = edge.get("node")
-        if isinstance(node, dict) and _product_matches_catalog_terms(node, terms):
-            kept.append(edge)
-    return {"products": {"edges": kept}}
+    if keywords:
+        return keywords[0], False
+    return q, False
 
 
 async def run_product_search(
@@ -457,28 +410,22 @@ async def run_product_search(
     query: str,
     max_results: int = 5,
     include_out_of_stock: bool = False,
+    relevance_query: str | None = None,
 ) -> str:
     q = _strip_catalog_search_noise((query or "").strip())
     if not q:
         return compact_json({"error": "empty_query"})
     n = max(1, min(int(max_results), 20))
-    search_queries = _catalog_search_queries(q)
-    if not search_queries and _needs_broad_catalog_retry(q):
-        search_queries = ["published_status:published"]
-    elif not search_queries:
+    shopify_q, is_broad = _resolve_shopify_product_search_query(q)
+    if not shopify_q:
         lookup_meta: dict[str, object] = {
             "query": q,
             "result_count": 0,
             "not_found": True,
-            "retried_keywords": False,
-            "retried_broad": False,
-            "message": (
-                "No product or category keywords in this search. "
-                "Use a specific product or category term from the customer's message or thread."
-            ),
+            "message": "Empty product search query.",
         }
         return compact_json({"data": {"products": {"edges": []}}, "lookup_meta": lookup_meta})
-    fetch_n = max(n, 10) if _needs_broad_catalog_retry(q) else n
+    fetch_n = max(n, 10) if is_broad else n
     gql = f"""
     query ProductSearch($q: String!, $n: Int!) {{
       products(first: $n, query: $q) {{
@@ -490,52 +437,30 @@ async def run_product_search(
       }}
     }}
     """
-    data: dict[str, object] = {"products": {"edges": []}}
-    initial_count = 0
-    retried_keywords = len(search_queries) > 1
-    retried_broad = False
-    for idx, sq in enumerate(search_queries):
-        body = await shopify_graphql(
-            shop_domain=shop_domain,
-            access_token=access_token,
-            query=gql,
-            variables={"q": sq, "n": fetch_n},
-        )
-        candidate = _filter_product_data_by_relevance(dict(body.get("data") or {}), q)
-        if idx == 0:
-            initial_count = len(_product_edges(candidate))
-        if _product_edges(candidate):
-            data = candidate
-            break
-
-    if not _product_edges(data) and _needs_broad_catalog_retry(q):
-        retried_broad = True
-        n2 = max(n, 10)
-        body2 = await shopify_graphql(
-            shop_domain=shop_domain,
-            access_token=access_token,
-            query=gql,
-            variables={"q": "published_status:published", "n": n2},
-        )
-        data = _filter_product_data_by_relevance(dict(body2.get("data") or {}), q)
+    body = await shopify_graphql(
+        shop_domain=shop_domain,
+        access_token=access_token,
+        query=gql,
+        variables={"q": shopify_q, "n": fetch_n},
+    )
+    data = dict(body.get("data") or {})
     data = _filter_product_data_by_stock(data, include_out_of_stock=include_out_of_stock)
     final_count = len(_product_edges(data))
     log.info(
         "runtime.shopify_product_search_result",
         query_preview=q[:120],
-        initial_count=initial_count,
-        retried_keywords=retried_keywords,
-        retried_broad=retried_broad,
+        shopify_query_preview=shopify_q[:120],
+        is_broad_catalog=is_broad,
         final_count=final_count,
         include_out_of_stock=include_out_of_stock,
+        relevance_query_preview=(relevance_query or "")[:80] or None,
     )
 
     lookup_meta: dict[str, object] = {
         "query": q,
+        "shopify_query": shopify_q,
         "result_count": final_count,
         "not_found": final_count <= 0,
-        "retried_keywords": retried_keywords,
-        "retried_broad": retried_broad,
     }
     if final_count <= 0:
         lookup_meta["not_found"] = True

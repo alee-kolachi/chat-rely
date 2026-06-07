@@ -378,7 +378,7 @@
   flex-shrink: 0;
   overflow: hidden;
   padding: 0 20px 80px;
-  color: var(--cr-header-text, #0f172a);
+  color: var(--cr-header-text, #ffffff);
   background: linear-gradient(
     165deg,
     var(--cr-header-bg, var(--cr-accent, #831c91)) 0%,
@@ -405,6 +405,7 @@
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.03em;
+  color: var(--cr-welcome-headline-color, #ffffff);
 }
 
 .cr-welcome-content {

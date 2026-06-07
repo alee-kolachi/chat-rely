@@ -8,8 +8,6 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.domains.integrations.shopify.tool_runners import (
-    _needs_broad_catalog_retry,
-    _strip_catalog_search_noise,
     run_customer_context,
     run_inventory_check,
     run_order_lookup,
@@ -31,11 +29,10 @@ _PRODUCT_SEARCH_NO_ORDER_SUFFIX = (
 )
 
 _PRODUCT_SEARCH_QUERY_DESCRIPTION = (
-    "Product or category keywords only — e.g. 'boots', 'winter jacket', 'Timberland'. "
-    "Do not pass the full conversational sentence. "
-    "For follow-ups ('the one you showed me', 'that boot'), resolve the product from the thread "
-    "and pass brand or name keywords (e.g. 'Timberland'), not pronouns. "
-    "For broad catalog browse with no specific category, use: published_status:published"
+    "One product or category keyword (e.g. 'boots', 'snowboard', 'gift card') OR "
+    "'published_status:published' for a general catalog browse. "
+    "Do not pass the customer's full sentence. "
+    "Use thread context for follow-ups — pass the resolved product/category name, not pronouns."
 )
 
 _ORDER_NUMBER_FIELD_DESCRIPTION = (
@@ -53,6 +50,7 @@ _ORDER_LOOKUP_DESCRIPTION = (
     "Look up order status, fulfillment, and tracking for this store using order number and/or customer email. "
     "Call when the customer asks about an order, shipment, or tracking — "
     "including when they send only an order number (digits or #digits) as their entire message. "
+    "Do not use when they are only introducing themselves or sharing their name without an order question. "
     "Do not use for catalog, product, or inventory questions."
 )
 
@@ -159,6 +157,7 @@ def build_shopify_langchain_tools(
     enabled_action_keys: set[str],
     *,
     action_configs: dict[str, dict[str, Any]] | None = None,
+    customer_message: str | None = None,
 ) -> list[StructuredTool]:
     tools: list[StructuredTool] = []
 
@@ -173,17 +172,14 @@ def build_shopify_langchain_tools(
         product_search_input = _make_product_search_input(default_max_results)
 
         async def _product_search(query: str, max_results: int = default_max_results) -> str:
-            q = _strip_catalog_search_noise((query or "").strip())
-            effective = max(max_results, default_max_results)
-            if _needs_broad_catalog_retry(q):
-                effective = max(effective, 10)
-            effective = min(effective, 20)
+            effective = min(max(max_results, default_max_results), 20)
             return await run_product_search(
                 shop_domain=shop_domain,
                 access_token=access_token,
                 query=query,
                 max_results=effective,
                 include_out_of_stock=include_out_of_stock,
+                relevance_query=customer_message,
             )
 
         tools.append(

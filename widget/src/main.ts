@@ -352,8 +352,8 @@ type WelcomeSocialLink = { label: string; url: string };
 
 function welcomeSocialLinksFromConfig(cfg: WidgetConfig): WelcomeSocialLink[] {
   const defaults: WelcomeSocialLink[] = [
-    { label: "Follow us on Instagram", url: "" },
-    { label: "Follow us on TikTok", url: "" },
+    { label: "Follow us on Instagram", url: "https://www.instagram.com/" },
+    { label: "Follow us on TikTok", url: "https://www.tiktok.com/" },
   ];
   const raw = cfg.welcome_screen_social_links;
   if (!Array.isArray(raw)) return defaults;
@@ -368,9 +368,16 @@ function welcomeSocialLinksFromConfig(cfg: WidgetConfig): WelcomeSocialLink[] {
   return [normalize(raw[0], defaults[0]), normalize(raw[1], defaults[1])];
 }
 
-function isExternalUrl(url: string): boolean {
+function normalizeExternalUrl(url: string): string {
   const trimmed = url.trim();
-  return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function isExternalUrl(url: string): boolean {
+  const normalized = normalizeExternalUrl(url);
+  return normalized.startsWith("http://") || normalized.startsWith("https://");
 }
 
 function createWelcomeSocialCard(link: WelcomeSocialLink): HTMLElement {
@@ -381,7 +388,7 @@ function createWelcomeSocialCard(link: WelcomeSocialLink): HTMLElement {
     : "cr-welcome-social-card cr-welcome-social-card--static";
   if (clickable) {
     const anchor = card as HTMLAnchorElement;
-    anchor.href = link.url.trim();
+    anchor.href = normalizeExternalUrl(link.url);
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
   }
@@ -957,6 +964,10 @@ async function boot(): Promise<void> {
   const welcomeHeadline = document.createElement("h2");
   welcomeHeadline.className = "cr-welcome-headline";
   welcomeHeadline.textContent = (cfg.welcome_screen_headline || "How can we help?").trim();
+  welcomeHeadline.style.color = normalizeHexColor(
+    cfg.welcome_screen_headline_color,
+    "#ffffff"
+  );
   welcomeHero.appendChild(welcomeHeadline);
 
   const welcomeContent = document.createElement("div");
@@ -1018,6 +1029,7 @@ async function boot(): Promise<void> {
   const welcomeSocialList = document.createElement("div");
   welcomeSocialList.className = "cr-welcome-social-list";
   for (const link of welcomeSocialLinksFromConfig(cfg)) {
+    if (!link.url.trim()) continue;
     welcomeSocialList.appendChild(createWelcomeSocialCard(link));
   }
 
@@ -1160,8 +1172,8 @@ async function boot(): Promise<void> {
 
   function ensureChatGreetings(): void {
     if (greetingsRendered || chatMessages.length > 0) return;
-    greetingMessagesFromConfig(cfg).forEach((text, index) => {
-      appendAssistantMessage({ text }, true, false, index === 0);
+    greetingMessagesFromConfig(cfg).forEach((text) => {
+      appendAssistantMessage({ text }, true, true, true);
     });
     greetingsRendered = true;
   }

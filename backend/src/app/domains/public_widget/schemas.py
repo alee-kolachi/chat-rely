@@ -31,6 +31,7 @@ class PublicWidgetConfigResponse(BaseModel):
     greeting_messages: list[str] | None = None
     welcome_screen_enabled: bool = True
     welcome_screen_headline: str | None = None
+    welcome_screen_headline_color: str | None = None
     welcome_screen_description: str | None = None
     welcome_screen_button_label: str | None = None
     welcome_screen_social_links: list[dict[str, str]] | None = None

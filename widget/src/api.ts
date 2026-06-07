@@ -22,6 +22,7 @@ export type WidgetConfig = {
   greeting_messages?: string[] | null;
   welcome_screen_enabled?: boolean;
   welcome_screen_headline?: string | null;
+  welcome_screen_headline_color?: string | null;
   welcome_screen_description?: string | null;
   welcome_screen_button_label?: string | null;
   welcome_screen_social_links?: Array<{ label: string; url: string }> | null;

@@ -28,6 +28,7 @@ from app.domains.public_widget.welcome_screen import (
     resolve_welcome_screen_description,
     resolve_welcome_screen_enabled,
     resolve_welcome_screen_headline,
+    resolve_welcome_screen_headline_color,
     resolve_welcome_screen_social_links,
 )
 
@@ -103,6 +104,7 @@ def build_public_widget_config(ctx: PublicWidgetAgentContext) -> PublicWidgetCon
         greeting_messages=greeting_messages,
         welcome_screen_enabled=resolve_welcome_screen_enabled(b),
         welcome_screen_headline=resolve_welcome_screen_headline(b),
+        welcome_screen_headline_color=resolve_welcome_screen_headline_color(b),
         welcome_screen_description=resolve_welcome_screen_description(b),
         welcome_screen_button_label=resolve_welcome_screen_button_label(b),
         welcome_screen_social_links=resolve_welcome_screen_social_links(b),
