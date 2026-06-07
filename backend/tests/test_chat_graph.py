@@ -132,7 +132,9 @@ def test_route_after_shopify_tools_loops_until_max_rounds() -> None:
 
 def test_append_escalation_tool_prompt_only_when_enabled() -> None:
     base = "You are helpful."
-    assert append_escalation_tool_prompt(base, tools_enabled=False) == base
+    disabled = append_escalation_tool_prompt(base, tools_enabled=False)
+    assert "escalate_to_human" not in disabled
+    assert "no live handoff" in disabled.lower()
     extended = append_escalation_tool_prompt(base, tools_enabled=True)
     assert "escalate_to_human" in extended
 

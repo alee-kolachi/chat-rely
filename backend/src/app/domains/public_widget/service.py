@@ -127,21 +127,11 @@ async def build_public_widget_config_response(
     """Public widget GET /config — includes escalation + optional favicon logo."""
     base = build_public_widget_config(ctx)
 
-    human_row = (
-        await db.execute(
-            text(
-                """
-                select enabled
-                from public.agent_actions
-                where agent_id = cast(:aid as uuid)
-                  and action_key = 'human.escalate'
-                limit 1
-                """
-            ),
-            {"aid": str(ctx.agent_id)},
-        )
-    ).mappings().first()
-    human_ok = bool(human_row and human_row.get("enabled"))
+    human_ok, _ = await get_human_escalation_for_runtime(
+        db,
+        user_id=ctx.user_id,
+        agent_id=ctx.agent_id,
+    )
 
     url_row = (
         await db.execute(

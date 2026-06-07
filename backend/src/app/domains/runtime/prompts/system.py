@@ -354,9 +354,23 @@ def build_agent_system_prompt_for_tools(
             "resolve the product or topic before choosing the tool and query.\n"
             "  · Never state a product is unavailable until `lookup_meta.not_found` is true **after** "
             "a product search. If results are returned, say yes and show them — do not claim the catalog is empty.\n"
-            "  · When product cards will appear, keep intro text to one short sentence; the UI shows cards."
+            "  · When product cards will appear, keep intro text to one short sentence; the UI shows cards.\n"
+            "  · For price or single-product questions, one short sentence with the price is enough when a card shows — "
+            "use a markdown link on a word like \"here\" instead of pasting a raw URL."
         )
         parts.append(shopify_line)
+
+    if human_escalation_enabled:
+        parts.append(
+            "- **Human support:** If the visitor wants a person or says yes/sure/please after you offered human help, "
+            "call `escalate_to_human` immediately. Do not call product search or catalog tools for those messages."
+        )
+    else:
+        parts.append(
+            "- **Human support:** If the visitor wants a person or affirms they want human help, "
+            "do not call product search or catalog tools. Explain live handoff is not available in this chat "
+            "and share contact options from the knowledge base when you have them."
+        )
 
     if has_knowledge_tool or has_shopify_tools:
         parts.append(
@@ -402,7 +416,9 @@ def build_agent_system_prompt_for_tools(
         "Multi-part question → structured response with brief headers or numbered steps.\n"
         "- Use plain language. Avoid jargon unless the customer introduced it.\n"
         "- Close with a concrete next step or an offer to help further. "
-        "Never use hollow phrases like 'Hope that helps!' or 'Have a great day!'.\n\n"
+        "Never use hollow phrases like 'Hope that helps!' or 'Have a great day!'.\n"
+        "- When sharing products from tool results, mention price naturally and note they can view or buy on the product page when relevant. "
+        "Keep it helpful, not pushy — no urgency or pressure.\n\n"
         "HANDLING DIFFICULT SITUATIONS\n"
         "- Frustrated customers: acknowledge in one sentence, then move straight to resolution. No repeat apologies.\n"
         "- Vague questions: state your assumption, answer based on it, confirm: "

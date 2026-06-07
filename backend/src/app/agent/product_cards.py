@@ -14,6 +14,10 @@ def _looks_like_product_list_line(line: str) -> bool:
     if len(s) >= 2 and s[0].isdigit() and s[1] in ".)":
         return True
     if "$" in s and ("http://" in s or "https://" in s or "**" in s):
+        if "**" in s:
+            return True
+        if "[" in s and "](" in s:
+            return False
         return True
     return False
 

@@ -1,6 +1,7 @@
 """Canonical plan limit helpers (conversations / agents / actions / training)."""
 
-from app.domains.actions.service import cap_enabled_shopify_actions_for_runtime
+from app.domains.actions.catalog_definitions import HUMAN_ACTIONS
+from app.domains.actions.service import _effective_status, cap_enabled_shopify_actions_for_runtime
 from app.domains.plans.plan_limits import (
     analytics_access_tier_for_plan_slug,
     message_feedback_enabled_for_plan_slug,
@@ -74,6 +75,21 @@ def test_shopify_runtime_cap_prefers_catalog_priority_over_alphabetical() -> Non
         "shopify.order_lookup",
         "shopify.inventory_check",
     ]
+
+
+def test_human_escalation_live_without_shopify_action_slots() -> None:
+    """Human handoff is not gated by max_enabled_actions_per_agent (Shopify slot limit)."""
+    human_def = HUMAN_ACTIONS[0]
+    assert (
+        _effective_status(
+            shopify_plan_ok=False,
+            human_escalation_plan_ok=True,
+            max_enabled_actions_per_agent=0,
+            granted=frozenset(),
+            definition=human_def,
+        )
+        == "live"
+    )
 
 
 def test_analytics_access_tier_for_plan_slug() -> None:

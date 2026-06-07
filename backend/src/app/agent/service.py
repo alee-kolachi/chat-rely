@@ -722,7 +722,8 @@ async def _stream_product_action_turn(
         else:
             answer = "I couldn't find similar products in this store's catalog."
 
-    yield format_sse("token", {"text": answer})
+    if answer:
+        yield format_sse("token", {"text": answer})
     assistant_id = await _finalize_stream_turn_persist(
         user_id=user_id,
         agent_id=agent_id,
@@ -954,11 +955,7 @@ async def stream_chat(
             return
 
     wants_human = payload.request_human
-
-    if wants_human:
-        human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
-    else:
-        human_on, esc_cfg = False, {}
+    human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
 
     operator_engaged = bool((conv.get("metadata") or {}).get(OPERATOR_ENGAGED_META_KEY))
     has_indexed_kb = bool(config.get("has_indexed_knowledge"))
@@ -1184,6 +1181,7 @@ async def stream_chat(
     done_payload: dict[str, Any] = {}
     stream_products: list[dict[str, Any]] = []
     stream_product_detail: dict[str, Any] | None = None
+    streamed_answer_parts: list[str] = []
 
     contact_capture_required = False
 
@@ -1248,7 +1246,10 @@ async def stream_chat(
                 if ev.get("type") == "token" and first_token_ms is None:
                     first_token_ms = (time.perf_counter() - t_turn) * 1000.0
                 if ev.get("type") == "token":
-                    yield format_sse("token", {"text": str(ev.get("text") or "")})
+                    token_text = str(ev.get("text") or "")
+                    if token_text:
+                        streamed_answer_parts.append(token_text)
+                    yield format_sse("token", {"text": token_text})
                 elif ev.get("type") == "status":
                     yield format_sse("status", {"text": str(ev.get("text") or "")})
                 elif ev.get("type") == "preamble":
@@ -1294,6 +1295,8 @@ async def stream_chat(
                 yield frame
 
     answer = str(done_payload.get("response") or "").strip()
+    if not answer:
+        answer = "".join(streamed_answer_parts).strip()
     if not answer:
         still_awaiting = await _db_call(
             lambda db: conversation_is_awaiting_human_team(

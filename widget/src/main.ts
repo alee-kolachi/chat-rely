@@ -415,13 +415,27 @@ function greetingMessagesFromConfig(cfg: WidgetConfig): string[] {
   return single ? [single] : [];
 }
 
-function renderAssistantHtml(raw: string): string {
-  const esc = raw
+function escapeAssistantHtml(raw: string): string {
+  return raw
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-  return esc.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br>");
+}
+
+function renderAssistantHtml(raw: string): string {
+  const linkRe = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let html = "";
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = linkRe.exec(raw)) !== null) {
+    html += escapeAssistantHtml(raw.slice(last, match.index));
+    const href = match[2].replace(/"/g, "&quot;");
+    html += `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cr-msg-link">${escapeAssistantHtml(match[1])}</a>`;
+    last = match.index + match[0].length;
+  }
+  html += escapeAssistantHtml(raw.slice(last));
+  return html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br>");
 }
 
 function looksLikeProductListLine(line: string): boolean {
@@ -430,8 +444,25 @@ function looksLikeProductListLine(line: string): boolean {
   if (s.startsWith("**") || s.startsWith("- ") || s.startsWith("![") || s.startsWith("|")) return true;
   if (s.includes(" - Price:") || s.includes("Price:")) return true;
   if (/^\d[.)]/.test(s)) return true;
-  if (s.includes("$") && (s.includes("http://") || s.includes("https://") || s.includes("**"))) return true;
+  if (s.includes("$") && (s.includes("http://") || s.includes("https://") || s.includes("**"))) {
+    if (s.includes("**")) return true;
+    if (s.includes("[") && s.includes("](")) return false;
+    return true;
+  }
   return false;
+}
+
+function setAssistantBubbleText(assistantEl: HTMLElement, text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    assistantEl.classList.add("cr-msg--text-hidden");
+    assistantEl.innerHTML = "";
+    assistantEl.setAttribute("data-plain", "");
+    return;
+  }
+  assistantEl.classList.remove("cr-msg--text-hidden");
+  assistantEl.setAttribute("data-plain", trimmed);
+  assistantEl.innerHTML = renderAssistantHtml(trimmed);
 }
 
 function introTextForProductCards(text: string): string {
@@ -680,11 +711,11 @@ function renderAssistantRichContent(
   if (msg.product_detail) {
     wrap.classList.add("cr-msg-wrap--products");
     assistantEl.classList.add("cr-msg--intro-only");
-    assistantEl.innerHTML = renderAssistantHtml(introTextForProductCards(msg.text));
+    setAssistantBubbleText(assistantEl, introTextForProductCards(msg.text));
     renderProductDetailView(wrap, msg.product_detail, onDetails, onSimilar, disabled);
   } else if (msg.products?.length) {
     assistantEl.classList.add("cr-msg--intro-only");
-    assistantEl.innerHTML = renderAssistantHtml(introTextForProductCards(msg.text));
+    setAssistantBubbleText(assistantEl, introTextForProductCards(msg.text));
     mountColumnCarousel(
       wrap,
       buildProductCarousel(msg.products, onDetails, onSimilar, disabled)
@@ -1661,6 +1692,7 @@ async function boot(): Promise<void> {
           clearStatus();
           const prev = assistantEl.getAttribute("data-plain") || "";
           const nextPlain = prev + ev.text;
+          assistantEl.classList.remove("cr-msg--text-hidden");
           assistantEl.setAttribute("data-plain", nextPlain);
           assistantEl.innerHTML = renderAssistantHtml(nextPlain);
           ensureMessageTimestamp(assistantEl, createdAt, "assistant");
@@ -1676,20 +1708,21 @@ async function boot(): Promise<void> {
           setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
           hideDots();
           clearStatus();
-          const reply =
-            (typeof ev.response === "string" ? ev.response : "").trim() ||
-            (assistantEl.getAttribute("data-plain") || "").trim() ||
-            EMPTY_REPLY_FALLBACK;
           const hasRichProducts =
             Boolean(pendingDetail) ||
             Boolean(pendingProducts?.length) ||
             (Array.isArray(ev.products) && ev.products.length > 0) ||
             Boolean(ev.product_detail && typeof ev.product_detail === "object");
-          let displayText = hasRichProducts ? introTextForProductCards(reply) : reply;
-          if (hasRichProducts && !displayText.trim()) {
-            displayText = introTextForProductCards(assistantEl.getAttribute("data-plain") || "");
+          const plainAccumulated = (assistantEl.getAttribute("data-plain") || "").trim();
+          const reply =
+            (typeof ev.response === "string" ? ev.response : "").trim() ||
+            plainAccumulated ||
+            (hasRichProducts ? "" : EMPTY_REPLY_FALLBACK);
+          let displayText = hasRichProducts ? introTextForProductCards(reply || plainAccumulated) : reply;
+          if (!displayText.trim() && !hasRichProducts) {
+            displayText = EMPTY_REPLY_FALLBACK;
           }
-          assistantEl.innerHTML = renderAssistantHtml(displayText);
+          setAssistantBubbleText(assistantEl, displayText);
           ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           const stored: StoredMessage = {
             role: "assistant",

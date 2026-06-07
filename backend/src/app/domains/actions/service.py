@@ -100,9 +100,7 @@ def _effective_status(
     if not definition.requires_shopify_connection:
         if not definition.code_ready:
             return "coming_soon"
-        if definition.action_key == HUMAN_ACTION_KEY and (
-            not human_escalation_plan_ok or max_enabled_actions_per_agent <= 0
-        ):
+        if definition.action_key == HUMAN_ACTION_KEY and not human_escalation_plan_ok:
             return "blocked_by_plan"
         return "live"
     if not shopify_plan_ok:
@@ -303,9 +301,7 @@ async def patch_agent_action(
                         details={"max_enabled_actions_per_agent": max_enabled},
                     )
         else:
-            if definition.action_key == HUMAN_ACTION_KEY and (
-                not human_escalation_plan_ok or max_enabled <= 0
-            ):
+            if definition.action_key == HUMAN_ACTION_KEY and not human_escalation_plan_ok:
                 raise AppError(
                     code="plan.human_escalation_disabled",
                     message="Human escalation is not enabled for your plan",
@@ -431,9 +427,7 @@ def _validate_action_enable(
                 details={"max_enabled_actions_per_agent": max_enabled},
             )
         return
-    if definition.action_key == HUMAN_ACTION_KEY and (
-        not human_escalation_plan_ok or max_enabled <= 0
-    ):
+    if definition.action_key == HUMAN_ACTION_KEY and not human_escalation_plan_ok:
         raise AppError(
             code="plan.human_escalation_disabled",
             message="Human escalation is not enabled for your plan",
@@ -697,8 +691,6 @@ async def get_human_escalation_for_runtime(
         max_agents=plan.max_agents,
         features=features,
     )
-    if limits.max_enabled_actions_per_agent <= 0:
-        return False, {}
     conn = await get_connection_status(db, user_id=user_id, agent_id=agent_id)
     granted_set = frozenset((s or "").lower() for s in (conn.scopes or []))
     rows = await _load_agent_action_map(db, agent_id)

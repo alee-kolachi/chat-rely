@@ -404,9 +404,11 @@ def get_compiled_chat_graph() -> Any:
 
 
 def append_escalation_tool_prompt(system_content: str, *, tools_enabled: bool) -> str:
-    if not tools_enabled:
-        return system_content
-    return f"{system_content}\n\n{escalation_tool_system_appendix()}".strip()
+    from app.agent.escalation import human_support_without_escalation_appendix
+
+    if tools_enabled:
+        return f"{system_content}\n\n{escalation_tool_system_appendix()}".strip()
+    return f"{system_content}\n\n{human_support_without_escalation_appendix()}".strip()
 
 
 async def stream_chat_graph(

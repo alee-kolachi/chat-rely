@@ -461,12 +461,25 @@ def escalation_tool_system_appendix() -> str:
     return (
         "HUMAN ESCALATION\n"
         "You have one escalation action: `escalate_to_human`. "
-        "Call it when the visitor explicitly asks for a person or human support, "
+        "Call it when the visitor explicitly asks for a person, human, agent, or representative, "
+        "when they say yes/sure/please after you offered human help, "
         "when you have been unable to resolve their issue after a genuine attempt, "
         "or when the situation clearly requires human judgment (e.g. complex disputes, legal concerns). "
+        "For human-support requests, never call product search or other Shopify catalog tools. "
         "Do not tell the visitor they are connected to a human until you have called this tool and it has returned. "
+        "Do not only describe external contact methods when this tool is available — call it. "
         "Do not offer escalation preemptively for questions you can answer. "
         "After calling it, the visitor will be prompted for their name and email before the handoff completes."
+    )
+
+
+def human_support_without_escalation_appendix() -> str:
+    return (
+        "HUMAN SUPPORT (no live handoff in chat)\n"
+        "Live human handoff is not available in this chat. "
+        "When the visitor asks for a person, human, or representative — or says yes after you offered human help — "
+        "do not call product search or catalog tools. "
+        "Briefly explain that you cannot connect them here and point to official contact options from the knowledge base if you have them."
     )
 
 

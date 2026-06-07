@@ -113,7 +113,7 @@ export function ProductCarousel({
             className="border-ds-outline w-[168px] shrink-0 snap-start overflow-hidden rounded-xl border bg-white shadow-sm"
           >
             <ProductCardImage product={product} />
-            <div className="px-2.5 py-2">
+            <div className="px-3.5 py-2.5">
               <p className="text-ds-on-surface line-clamp-2 text-xs font-medium leading-snug">
                 {product.title}
               </p>
