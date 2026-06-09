@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import { Inter } from "next/font/google";
@@ -36,6 +38,8 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col font-sans" suppressHydrationWarning>
         {children}
         <ChatrelySiteWidget />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
