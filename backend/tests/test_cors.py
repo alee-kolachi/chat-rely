@@ -45,3 +45,23 @@ def test_dashboard_cors_preflight_default_production_origin(monkeypatch) -> None
     assert response.headers.get("access-control-allow-origin") == "https://chat-rely.vercel.app"
 
     get_settings.cache_clear()
+
+
+def test_dashboard_cors_preflight_allows_custom_domain_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    get_settings.cache_clear()
+
+    client = TestClient(create_app())
+    response = client.options(
+        "/api/v1/notifications",
+        headers={
+            "Origin": "https://chatrely.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "https://chatrely.com"
+
+    get_settings.cache_clear()

@@ -13,7 +13,9 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # anything that could break out of the model literal (quotes, semicolons, parens, …).
 _PRICE_MAP_KEY_RE = re.compile(r"^[A-Za-z0-9._\-:]+$")
 
-_DEFAULT_PRODUCTION_CORS_ORIGIN = "https://chat-rely.vercel.app"
+_DEFAULT_PRODUCTION_CORS_ORIGINS = (
+    "https://chat-rely.vercel.app,https://chatrely.com,https://www.chatrely.com"
+)
 
 
 class Settings(BaseSettings):
@@ -37,7 +39,7 @@ class Settings(BaseSettings):
     log_pretty_file_max_bytes: int = 10485760
     log_pretty_file_backup_count: int = 10
     allowed_origins: Annotated[list[AnyHttpUrl], NoDecode] = []
-    """Dashboard API CORS (`ALLOWED_ORIGINS`, comma-separated or JSON). Production defaults to chat-rely.vercel.app."""
+    """Dashboard API CORS (`ALLOWED_ORIGINS`, comma-separated or JSON). Production defaults to chat-rely.vercel.app and chatrely.com."""
 
     database_url: PostgresDsn
     supabase_jwks_url: AnyHttpUrl
@@ -235,7 +237,7 @@ class Settings(BaseSettings):
         raw = values.get("allowed_origins")
         if raw is None or raw == "":
             values = dict(values)
-            values["allowed_origins"] = _DEFAULT_PRODUCTION_CORS_ORIGIN
+            values["allowed_origins"] = _DEFAULT_PRODUCTION_CORS_ORIGINS
         return values
 
     @model_validator(mode="before")
