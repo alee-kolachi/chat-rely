@@ -1622,6 +1622,10 @@ export default function PlaygroundPage() {
     if (!raw) return null;
     return faviconServiceUrl(raw) || null;
   }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
+  const { data: meData, loading: meLoading } = useMeContext();
+  const planResolved = !meLoading;
+  const shopifyAccess = shopifyConnectAccess(meData?.plan, planResolved);
+  const humanAccess = humanEscalationPlanAccess(meData?.plan, planResolved);
   const hydratedAgentIdRef = useRef<string | null>(null);
 
   const {
