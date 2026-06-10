@@ -54,8 +54,10 @@ import {
   WIDGET_POWERED_BY_STRIP_CLASS,
 } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
+import { humanEscalationPlanAccess, shopifyConnectAccess } from "@/lib/plan-features";
 import { getWidgetPreviewContext } from "@/lib/widget-appearance";
 import { InfoHint } from "@/components/ui/info-hint";
+import { PlanFeatureLabel, PlanGatedBlock } from "@/components/ui/plan-unlock-footer";
 import { AppSegmentGroup, AppSegmentOption } from "@/components/ui/app-segment-group";
 import { IsoGridPanelBackground } from "@/components/marketing/iso-grid-panel-background";
 import {
@@ -1102,6 +1104,9 @@ function PlaygroundPreviewConversation({
     () => messageFeedbackEnabledForPlanSlug(meData?.plan.slug),
     [meData?.plan.slug]
   );
+  const planResolved = !meLoading;
+  const shopifyAccess = shopifyConnectAccess(meData?.plan, planResolved);
+  const humanAccess = humanEscalationPlanAccess(meData?.plan, planResolved);
 
   const { resolved: appearanceResolved, headerChrome, userChrome } = useMemo(
     () => getWidgetPreviewContext(behaviorSettings, brandColorHex, meData?.plan.slug),
@@ -1885,7 +1890,9 @@ export default function PlaygroundPage() {
                 >
                   <div className="flex items-center gap-3">
                     <IconBag className="text-ds-primary size-4 shrink-0" aria-hidden />
-                    <span className="text-ds-on-surface text-sm font-medium">Shopify</span>
+                    <PlanFeatureLabel showCrown={shopifyAccess.showCrown}>
+                      <span className="text-ds-on-surface text-sm font-medium">Shopify</span>
+                    </PlanFeatureLabel>
                   </div>
                   <IconChevron
                     className={cn(
@@ -1897,7 +1904,19 @@ export default function PlaygroundPage() {
                 </button>
                 {shopifyActionsOpen ? (
                   <div className="border-ds-outline border-t p-4">
-                    {integrationsLoading ? (
+                    {shopifyAccess.blockInteraction ? (
+                      <PlanGatedBlock
+                        locked
+                        tier="hobby"
+                        calloutMessage="Shopify connect requires Hobby or a higher plan"
+                        inset
+                      >
+                        <p className={cn(onboardingType.hint)}>
+                          Connect your Shopify store under Actions &amp; integrations to enable product, order, and
+                          customer tools for this agent.
+                        </p>
+                      </PlanGatedBlock>
+                    ) : integrationsLoading ? (
                       <PlaygroundShopifyActionsSkeleton rows={4} />
                     ) : !shopifyConnected ? (
                       <div className="space-y-3">
@@ -1942,25 +1961,32 @@ export default function PlaygroundPage() {
                 <div className="border-ds-outline flex items-center justify-between rounded-ds-lg border p-4">
                   <div className="flex items-center gap-3">
                     <IconPersonPin className="text-ds-primary size-4 shrink-0" aria-hidden />
-                    <span className="text-ds-on-surface text-sm font-medium">Escalate to human</span>
+                    <PlanFeatureLabel showCrown={humanAccess.showCrown}>
+                      <span className="text-ds-on-surface text-sm font-medium">Escalate to human</span>
+                    </PlanFeatureLabel>
                   </div>
                   <ActionToggle
                     checked={resolveEnabled(
                       "human.escalate",
                       Boolean(humanEscalationEntry?.enabled)
                     )}
-                    disabled={integrationsLoading}
+                    disabled={integrationsLoading || humanAccess.blockInteraction}
                     onChange={(next) => setEnabledDraft("human.escalate", next)}
                     label="Enable escalate to human"
                   />
                 </div>
-              ) : humanEscalationEntry?.status === "blocked_by_plan" ? (
-                <p className={cn(onboardingType.hint, "text-ds-on-surface-variant")}>
-                  Human escalation requires a paid plan with actions.{" "}
-                  <Link href="/account/plan" className="text-ds-primary font-semibold hover:underline">
-                    Upgrade plan
-                  </Link>
-                </p>
+              ) : humanEscalationEntry?.status === "blocked_by_plan" || humanAccess.blockInteraction ? (
+                <PlanGatedBlock
+                  locked
+                  tier="hobby"
+                  calloutMessage="Human handoff requires Hobby or a higher plan"
+                  inset
+                >
+                  <div className="flex items-center gap-3">
+                    <IconPersonPin className="text-ds-primary size-4 shrink-0" aria-hidden />
+                    <span className="text-ds-on-surface text-sm font-medium">Escalate to human</span>
+                  </div>
+                </PlanGatedBlock>
               ) : null}
               </div>
             </section>

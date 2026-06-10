@@ -9,6 +9,7 @@ import { useShopifyConnection } from "@/components/integrations/use-shopify-conn
 import type { MeContextPayload } from "@/components/layout/me-context-provider";
 import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import { InfoHint } from "@/components/ui/info-hint";
+import { PlanFeatureLabel, PlanGatedBlock } from "@/components/ui/plan-unlock-footer";
 import {
   OnboardingMainColumn,
   onboardingSplitBody,
@@ -25,6 +26,7 @@ import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { SHOPIFY_ADMIN_STOREFRONT_HINT } from "@/lib/shopify-connection-copy";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { appButtonClassName } from "@/lib/button-styles";
+import { shopifyConnectAccess } from "@/lib/plan-features";
 import { cn } from "@/lib/utils";
 
 type RowState = "done" | "active" | "pending";
@@ -77,9 +79,11 @@ export default function ConnectionOnboardingPage() {
   const [connectBusy, setConnectBusy] = useState(false);
   const [banner, setBanner] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [siteStatus, setSiteStatus] = useState<OnboardingStatusPayload | null>(null);
-  const [planSlug, setPlanSlug] = useState("free");
+  const [plan, setPlan] = useState<MeContextPayload["plan"] | null>(null);
+  const [planResolved, setPlanResolved] = useState(false);
 
-  const isFreePlan = planSlug === "free";
+  const shopifyAccess = shopifyConnectAccess(plan, planResolved);
+  const isFreePlan = shopifyAccess.blockInteraction;
   const siteName = resolveSiteDisplayName(siteStatus);
 
   const agentPreviewHref = useMemo(() => {
@@ -97,10 +101,16 @@ export default function ConnectionOnboardingPage() {
     let cancelled = false;
     void backendFetch<MeContextPayload>("/api/v1/me/context")
       .then((ctx) => {
-        if (!cancelled) setPlanSlug((ctx.plan.slug ?? "free").toLowerCase());
+        if (!cancelled) {
+          setPlan(ctx.plan);
+          setPlanResolved(true);
+        }
       })
       .catch(() => {
-        if (!cancelled) setPlanSlug("free");
+        if (!cancelled) {
+          setPlan(null);
+          setPlanResolved(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -149,6 +159,7 @@ export default function ConnectionOnboardingPage() {
   }, [data?.connected, data?.shop_domain]);
 
   const startOAuth = useCallback(async () => {
+    if (shopifyAccess.blockInteraction) return;
     if (!agentId || !shopDraft.trim()) return;
     setConnectBusy(true);
     setBanner(null);
@@ -166,7 +177,7 @@ export default function ConnectionOnboardingPage() {
       setBanner({ kind: "error", text: msg });
       setConnectBusy(false);
     }
-  }, [agentId, shopDraft]);
+  }, [agentId, shopDraft, shopifyAccess.blockInteraction]);
 
   const connected = Boolean(data?.connected);
   const hasScopes = Boolean(data?.scopes?.length);
@@ -260,14 +271,22 @@ export default function ConnectionOnboardingPage() {
                           <IconShopifyBag className="size-6" aria-hidden />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-ds-on-surface inline-flex items-center text-sm font-semibold">
-                            Shopify
-                            <InfoHint text={SHOPIFY_ADMIN_STOREFRONT_HINT} labelFor="Shopify connection" />
-                          </p>
+                          <PlanFeatureLabel showCrown={shopifyAccess.showCrown}>
+                            <p className="text-ds-on-surface inline-flex items-center text-sm font-semibold">
+                              Shopify
+                              <InfoHint text={SHOPIFY_ADMIN_STOREFRONT_HINT} labelFor="Shopify connection" />
+                            </p>
+                          </PlanFeatureLabel>
                           <p className="text-ds-on-surface-variant text-sm">Sign in with Shopify. No password shared here.</p>
                         </div>
                       </div>
 
+                      <PlanGatedBlock
+                        locked={shopifyAccess.blockInteraction}
+                        tier="hobby"
+                        calloutMessage="Shopify connect requires Hobby or a higher plan"
+                        inset
+                      >
                       {connected ? (
                         <div className="space-y-3">
                           <p className="text-ds-on-surface-variant text-sm leading-relaxed">
@@ -328,6 +347,7 @@ export default function ConnectionOnboardingPage() {
                           </Link>
                         </div>
                       ) : null}
+                      </PlanGatedBlock>
                     </div>
                   </div>
                 </div>

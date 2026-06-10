@@ -115,6 +115,15 @@ export function buildPlanEntitlementSections(
       minimumTier: "hobby",
     },
     {
+      label: "Human handoff",
+      value: !featureBool(features, "human_escalation_enabled")
+        ? "Not included"
+        : "Escalate to your team",
+      included: featureBool(features, "human_escalation_enabled"),
+      upgradeNote: !featureBool(features, "human_escalation_enabled") ? tierLabel("hobby") : undefined,
+      minimumTier: !featureBool(features, "human_escalation_enabled") ? "hobby" : undefined,
+    },
+    {
       label: "Shopify integration",
       value: !featureBool(features, "shopify_enabled")
         ? "Not included"

@@ -163,7 +163,7 @@ async def build_catalog(
     _, plan = await _ensure_default_subscription(db, user_id)
     features = plan.features or {}
     shopify_plan_ok = bool(features.get("shopify_enabled", False))
-    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
+    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", False))
     limits = plan_limits_dto_from_row(
         included_conversations=plan.included_conversations,
         max_agents=plan.max_agents,
@@ -222,7 +222,7 @@ async def patch_agent_action(
     _, plan = await _ensure_default_subscription(db, user_id)
     features = plan.features or {}
     shopify_plan_ok = bool(features.get("shopify_enabled", False))
-    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
+    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", False))
     limits = plan_limits_dto_from_row(
         included_conversations=plan.included_conversations,
         max_agents=plan.max_agents,
@@ -457,7 +457,7 @@ async def patch_agent_actions_batch(
     _, plan = await _ensure_default_subscription(db, user_id)
     features = plan.features or {}
     shopify_plan_ok = bool(features.get("shopify_enabled", False))
-    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
+    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", False))
     limits = plan_limits_dto_from_row(
         included_conversations=plan.included_conversations,
         max_agents=plan.max_agents,
@@ -683,9 +683,9 @@ async def get_human_escalation_for_runtime(
     await _ensure_action_rows(db, agent_id)
     _, plan = await _ensure_default_subscription(db, user_id)
     features = plan.features or {}
-    if not bool(features.get("human_escalation_enabled", True)):
+    if not bool(features.get("human_escalation_enabled", False)):
         return False, {}
-    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", True))
+    human_escalation_plan_ok = bool(features.get("human_escalation_enabled", False))
     limits = plan_limits_dto_from_row(
         included_conversations=plan.included_conversations,
         max_agents=plan.max_agents,

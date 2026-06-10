@@ -24,7 +24,9 @@ import { IntegrationRoadmapCard } from "@/components/actions/integration-roadmap
 import { shopifyActions } from "@/components/actions/shopify-actions-data";
 import { useAgentIntegrationsBootstrap, invalidateAgentIntegrationsBootstrapCache } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
+import { useMeContext } from "@/components/layout/me-context-provider";
 import { InfoHint } from "@/components/ui/info-hint";
+import { PlanFeatureLabel, PlanGatedBlock } from "@/components/ui/plan-unlock-footer";
 import { UnsavedChangesActionBar } from "@/components/ui/unsaved-changes-action-bar";
 import { useActionDrafts } from "@/hooks/use-action-drafts";
 import { unsavedChangesMessage } from "@/lib/action-draft-utils";
@@ -33,6 +35,7 @@ import { shopifyShopSubdomain, startShopifyOAuth } from "@/lib/shopify-oauth";
 import { shopifyActionSlugToKey } from "@/lib/shopify-action-keys";
 import { SHOPIFY_ADMIN_STOREFRONT_HINT } from "@/lib/shopify-connection-copy";
 import { partitionShopifyActionsForRuntime } from "@/lib/shopify-runtime-cap";
+import { humanEscalationPlanAccess, shopifyConnectAccess } from "@/lib/plan-features";
 import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import type { ShopifyActionStatus } from "@/components/actions/shopify-actions-data";
@@ -67,6 +70,7 @@ function scrollToHashAnchor(hash: string) {
 function ActionsPageContent() {
   const pathname = usePathname();
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
+  const { data: meData, loading: meLoading } = useMeContext();
   const searchParams = useSearchParams();
   const {
     catalog,
@@ -175,7 +179,15 @@ function ActionsPageContent() {
     setBanner(null);
   }, [cancelAll]);
 
+  const planResolved = !meLoading;
+  const shopifyAccess = shopifyConnectAccess(meData?.plan, planResolved);
+  const humanAccess = humanEscalationPlanAccess(meData?.plan, planResolved);
+
   const startOAuth = useCallback(async () => {
+    if (shopifyAccess.blockInteraction) {
+      setBanner("Shopify connect requires Hobby or a higher plan.");
+      return;
+    }
     setBanner(null);
     if (!selectedAgentId) {
       setBanner("Select an agent in the header before connecting Shopify.");
@@ -198,7 +210,7 @@ function ActionsPageContent() {
       setBanner(msg);
       setConnectBusy(false);
     }
-  }, [selectedAgentId, shopDraft]);
+  }, [selectedAgentId, shopDraft, shopifyAccess.blockInteraction]);
 
   const reconnect = useCallback(async () => {
     await startOAuth();
@@ -238,7 +250,12 @@ function ActionsPageContent() {
 
   const humanBadgeStatus = human ? mapApiStatusForBadge(human.status) : "coming-soon";
   const humanEnabled = resolveEnabled("human.escalate", human?.enabled ?? false);
-  const humanToggleDisabled = !human || human.status !== "live" || catalogBusy || !selectedAgentId;
+  const humanToggleDisabled =
+    humanAccess.blockInteraction ||
+    !human ||
+    human.status !== "live" ||
+    catalogBusy ||
+    !selectedAgentId;
 
   const liveMerged = useMemo(
     () => merged.filter(({ api }) => (api?.status ?? "coming_soon") === "live"),
@@ -318,14 +335,22 @@ function ActionsPageContent() {
               <IconShopifyBag className="size-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="ds-app-section-title inline-flex items-center">
-                Shopify
-                <InfoHint text={SHOPIFY_ADMIN_STOREFRONT_HINT} labelFor="Shopify connection" />
-              </h2>
+              <PlanFeatureLabel showCrown={shopifyAccess.showCrown}>
+                <h2 className="ds-app-section-title inline-flex items-center">
+                  Shopify
+                  <InfoHint text={SHOPIFY_ADMIN_STOREFRONT_HINT} labelFor="Shopify connection" />
+                </h2>
+              </PlanFeatureLabel>
               <p className="text-ds-on-surface-variant text-sm">Products, orders, and inventory from your store.</p>
             </div>
           </div>
 
+          <PlanGatedBlock
+            locked={shopifyAccess.blockInteraction}
+            tier="hobby"
+            calloutMessage="Shopify connect requires Hobby or a higher plan"
+            inset
+          >
           <div className="px-5 py-4 md:px-6">
             <ConnectionCard
               embedded
@@ -334,7 +359,7 @@ function ActionsPageContent() {
               scopes={shopify?.scopes ?? []}
               lastSyncedAt={shopify?.last_synced_at}
               busy={connectBusy || shopifyBusy}
-              connectEnabled={connectUiReady}
+              connectEnabled={connectUiReady && !shopifyAccess.blockInteraction}
               shopDraft={shopDraft}
               onShopDraftChange={setShopDraft}
               onConnect={startOAuth}
@@ -423,6 +448,7 @@ function ActionsPageContent() {
                   const key = shopifyActionSlugToKey(action.id);
                   const enabled = resolveEnabled(key, api?.enabled ?? false);
                   const toggleDisabled =
+                    shopifyAccess.blockInteraction ||
                     !api ||
                     api.status !== "live" ||
                     !api.scopes_satisfied ||
@@ -445,6 +471,7 @@ function ActionsPageContent() {
               )}
             </div>
           </div>
+          </PlanGatedBlock>
         </section>
 
         {showIntegrationSkeleton ? (
@@ -454,20 +481,29 @@ function ActionsPageContent() {
             {human ? (
               <section id={HUMAN_ANCHOR} className={PANEL}>
                 <div className="border-ds-outline border-b px-5 py-4 md:px-6">
-                  <h2 className="ds-app-section-title">Human handoff</h2>
+                  <PlanFeatureLabel showCrown={humanAccess.showCrown}>
+                    <h2 className="ds-app-section-title">Human handoff</h2>
+                  </PlanFeatureLabel>
                   <p className="text-ds-on-surface-variant mt-0.5 text-sm">
                     Let the agent escalate to your team when it cannot resolve a chat.
                   </p>
                 </div>
                 <div className="px-5 py-4 md:px-6">
-                  <HumanSupportCard
-                    entry={human}
-                    badgeStatus={humanBadgeStatus}
-                    enabled={humanEnabled}
-                    toggleDisabled={humanToggleDisabled}
-                    togglePending={false}
-                    onToggle={(next) => void handleToggle("human.escalate", next)}
-                  />
+                  <PlanGatedBlock
+                    locked={humanAccess.blockInteraction}
+                    tier="hobby"
+                    calloutMessage="Human handoff requires Hobby or a higher plan"
+                    inset
+                  >
+                    <HumanSupportCard
+                      entry={human}
+                      badgeStatus={humanBadgeStatus}
+                      enabled={humanEnabled}
+                      toggleDisabled={humanToggleDisabled}
+                      togglePending={false}
+                      onToggle={(next) => void handleToggle("human.escalate", next)}
+                    />
+                  </PlanGatedBlock>
                 </div>
               </section>
             ) : null}

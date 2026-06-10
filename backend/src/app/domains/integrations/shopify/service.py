@@ -22,6 +22,7 @@ from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import AppError
 from app.core.settings import Settings, get_settings
 from app.domains.billing.customers import ensure_stripe_customer_for_user
+from app.domains.bootstrap.service import _ensure_default_subscription
 from app.domains.integrations.shopify.oauth_state import (
     sign_oauth_state,
     validate_return_to,
@@ -164,6 +165,13 @@ async def build_authorization_url(
             status_code=503,
         )
     await _ensure_agent_owned(db, user_id, agent_id)
+    _, plan = await _ensure_default_subscription(db, user_id)
+    if not bool((plan.features or {}).get("shopify_enabled", False)):
+        raise AppError(
+            code="shopify.plan_required",
+            message="Shopify connect requires Hobby or a higher plan",
+            status_code=403,
+        )
     shop_domain = normalize_shop_domain(shop)
     validated_return = validate_return_to(return_to) if return_to else None
     nonce = secrets.token_urlsafe(16)
@@ -386,6 +394,13 @@ async def handle_oauth_callback(
         ) from exc
     user_id = UUID(str(payload["u"]))
     agent_id = UUID(str(payload["a"]))
+    _, plan = await _ensure_default_subscription(db, user_id)
+    if not bool((plan.features or {}).get("shopify_enabled", False)):
+        raise AppError(
+            code="shopify.plan_required",
+            message="Shopify connect requires Hobby or a higher plan",
+            status_code=403,
+        )
     shop_domain = normalize_shop_domain(shop)
     data = await exchange_code_for_token(shop_domain=shop_domain, code=code)
     token = str(data.get("access_token") or "")

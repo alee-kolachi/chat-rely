@@ -482,6 +482,43 @@ def test_select_chunks_no_match_without_query_terms_in_candidates() -> None:
     assert mode == "no_match"
 
 
+def test_select_chunks_fuzzy_match_malal_vs_malaal() -> None:
+    from app.domains.runtime.service import _select_chunks_for_prompt
+
+    merged = [
+        {
+            "id": "a",
+            "content": (
+                "Malaal (مَلال / मलाल) is an Urdu and Hindi word of Arabic origin that "
+                "translates to regret, sorrow, grief, or melancholy."
+            ),
+            "similarity": 0.31,
+            "metadata": {"snippet_title": "malal"},
+        },
+    ]
+    chunks, mode, _, passed = _select_chunks_for_prompt(
+        merged,
+        user_message="what is malal?",
+        min_similarity=0.72,
+    )
+    assert passed == 0
+    assert mode == "lexical_grounded_below_threshold"
+    assert len(chunks) == 1
+    assert chunks[0]["id"] == "a"
+
+
+def test_term_matches_lexical_text_fuzzy_and_title() -> None:
+    from app.domains.runtime.service import _chunk_matches_query_terms, _term_matches_lexical_text
+
+    assert _term_matches_lexical_text("malal", "malaal is a word about regret")
+    assert not _term_matches_lexical_text("malal", "unrelated shipping policy")
+    chunk = {
+        "content": "Body about regret and sorrow.",
+        "metadata": {"snippet_title": "malal"},
+    }
+    assert _chunk_matches_query_terms(chunk, {"malal"})
+
+
 def test_shopify_connected_no_tools_block_forbids_invented_catalog() -> None:
     from app.domains.runtime.service import _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK
 

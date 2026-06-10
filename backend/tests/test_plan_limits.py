@@ -77,6 +77,21 @@ def test_shopify_runtime_cap_prefers_catalog_priority_over_alphabetical() -> Non
     ]
 
 
+def test_human_escalation_blocked_when_plan_omits_feature() -> None:
+    """Human handoff requires human_escalation_enabled on the plan (not on Free)."""
+    human_def = HUMAN_ACTIONS[0]
+    assert (
+        _effective_status(
+            shopify_plan_ok=False,
+            human_escalation_plan_ok=False,
+            max_enabled_actions_per_agent=0,
+            granted=frozenset(),
+            definition=human_def,
+        )
+        == "blocked_by_plan"
+    )
+
+
 def test_human_escalation_live_without_shopify_action_slots() -> None:
     """Human handoff is not gated by max_enabled_actions_per_agent (Shopify slot limit)."""
     human_def = HUMAN_ACTIONS[0]

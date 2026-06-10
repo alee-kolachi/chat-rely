@@ -3744,6 +3744,10 @@ async def _execute_text_snippet_indexing(
                 status_code=422,
             )
 
+        title = str(source.title or "").strip()
+        if title and not text_content.casefold().startswith(title.casefold()):
+            text_content = f"{title}\n\n{text_content}"
+
         _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
         included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
         effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)

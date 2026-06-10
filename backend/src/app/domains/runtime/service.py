@@ -638,6 +638,76 @@ async def _match_chunks_with_embedding(
     return [dict(row) for row in result.mappings().all()]
 
 
+async def _fetch_lexical_supplement_chunks(
+    db: AsyncSession,
+    agent_id: UUID,
+    query_terms: set[str],
+    *,
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    """
+    When ANN top-k misses a clearly relevant chunk (e.g. snippet title matches the query
+    but body spelling differs), look up chunks by title/body substring for this agent.
+    """
+    terms = sorted(t for t in query_terms if len(t) >= 4)[:5]
+    if not terms:
+        return []
+
+    clauses: list[str] = []
+    params: dict[str, Any] = {"agent_id": str(agent_id), "limit": max(1, limit)}
+    for idx, term in enumerate(terms):
+        key = f"term_{idx}"
+        params[key] = term
+        clauses.append(
+            f"""(
+              position(lower(:{key}) in lower(c.content)) > 0
+              OR position(lower(:{key}) in lower(coalesce(c.metadata->>'snippet_title', ''))) > 0
+              OR position(lower(:{key}) in lower(coalesce(c.metadata->>'page_title', ''))) > 0
+            )"""
+        )
+    where = " OR ".join(clauses)
+    result = await db.execute(
+        text(
+            f"""
+            select c.id, c.knowledge_source_id, c.content, c.metadata,
+                   0.0::double precision as similarity
+            from public.knowledge_chunks c
+            where c.agent_id = :agent_id
+              and ({where})
+            order by c.created_at desc
+            limit :limit
+            """
+        ),
+        params,
+    )
+    rows = [dict(row) for row in result.mappings().all()]
+    if rows:
+        return rows
+
+    fuzzy: list[dict[str, Any]] = []
+    cap = max(limit * 8, 16)
+    scan = await db.execute(
+        text(
+            """
+            select c.id, c.knowledge_source_id, c.content, c.metadata,
+                   0.0::double precision as similarity
+            from public.knowledge_chunks c
+            where c.agent_id = :agent_id
+            order by c.created_at desc
+            limit :cap
+            """
+        ),
+        {"agent_id": str(agent_id), "cap": cap},
+    )
+    for row in scan.mappings().all():
+        chunk = dict(row)
+        if _chunk_matches_query_terms(chunk, query_terms):
+            fuzzy.append(chunk)
+            if len(fuzzy) >= limit:
+                break
+    return fuzzy
+
+
 async def _embed_text_with_cache(text: str) -> tuple[list[float], int | None]:
     """Embed one query string; return (vector, api_tokens_or_none if cache hit)."""
     key = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -741,6 +811,17 @@ async def _retrieve_merged_chunks_for_message(
         user_message=msg,
         min_similarity=float(min_similarity),
     )
+    if rag_fallback_mode == "no_match":
+        query_terms = _extract_query_terms(msg)
+        if query_terms:
+            supplement = await _fetch_lexical_supplement_chunks(
+                db, agent_id, query_terms, limit=RAG_PROMPT_CHUNK_COUNT
+            )
+            if supplement:
+                chunks = _rerank_chunks_for_query(supplement, msg)[:RAG_PROMPT_CHUNK_COUNT]
+                rag_fallback_mode = "lexical_supplement"
+                retrieved_count = max(retrieved_count, len(supplement))
+
     billing["rag_fallback_mode"] = rag_fallback_mode
     billing["retrieved_count"] = retrieved_count
     billing["passed_threshold_count"] = passed_n
@@ -1017,11 +1098,59 @@ def _extract_query_terms(query_text: str) -> set[str]:
     return {t for t in re.findall(r"[a-zA-Z0-9]{4,}", (query_text or "").casefold())}
 
 
+def _chunk_lexical_text(chunk: dict[str, Any]) -> str:
+    """Searchable text for a chunk: body plus indexed metadata labels (title, etc.)."""
+    parts = [str(chunk.get("content") or "")]
+    metadata = chunk.get("metadata") or {}
+    if isinstance(metadata, dict):
+        for key in ("snippet_title", "page_title", "title"):
+            value = str(metadata.get(key) or "").strip()
+            if value:
+                parts.append(value)
+    return "\n".join(parts).casefold()
+
+
+def _term_within_edit_distance(a: str, b: str, max_dist: int) -> bool:
+    if a == b:
+        return True
+    if max_dist <= 0:
+        return False
+    if abs(len(a) - len(b)) > max_dist:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr = [i]
+        row_min = curr[0]
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            curr.append(min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost))
+            row_min = min(row_min, curr[j])
+        if row_min > max_dist:
+            return False
+        prev = curr
+    return prev[-1] <= max_dist
+
+
+def _term_matches_lexical_text(term: str, text: str) -> bool:
+    if not term or not text:
+        return False
+    if term in text:
+        return True
+    if len(term) < 4 or len(term) > 12:
+        return False
+    for word in re.findall(r"[a-zA-Z0-9]{4,}", text):
+        if _term_within_edit_distance(term, word, 1):
+            return True
+    return False
+
+
 def _chunk_matches_query_terms(chunk: dict[str, Any], query_terms: set[str]) -> bool:
     if not query_terms:
         return True
-    text = str(chunk.get("content") or "").casefold()
-    return any(term in text for term in query_terms)
+    text = _chunk_lexical_text(chunk)
+    return any(_term_matches_lexical_text(term, text) for term in query_terms)
 
 
 def _select_chunks_for_prompt(
@@ -1079,9 +1208,11 @@ def _rerank_chunks_for_query(chunks: list[dict[str, Any]], query_text: str) -> l
     def score(row: dict[str, Any]) -> tuple[float, float]:
         sim = float(row.get("similarity") or 0.0)
         lex = float(row.get("lexical_score") or 0.0)
-        text = str(row.get("content") or "").casefold()
-        coverage = sum(1 for term in query_terms if term in text) / max(1, len(query_terms))
-        occurrences = sum(text.count(term) for term in query_terms)
+        text = _chunk_lexical_text(row)
+        coverage = sum(1 for term in query_terms if _term_matches_lexical_text(term, text)) / max(
+            1, len(query_terms)
+        )
+        occurrences = sum(text.count(term) for term in query_terms if term in text)
         repeat_bonus = min(0.06, 0.02 * max(0, occurrences - 1))
         heading_bonus = 0.0
         section_bonus = 0.0

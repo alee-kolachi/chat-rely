@@ -22,7 +22,7 @@ values
     30,
     0,
     1,
-    '{"shopify_enabled": true, "max_enabled_actions_per_agent": 0, "max_total_knowledge_mb": 1, "max_knowledge_storage_kb": 500, "max_website_crawl_kb": 500, "auto_retrain": false, "human_escalation_enabled": true, "default_chat_model": "gpt-4o-mini", "premium_chat_model": "gpt-4o", "included_premium_turns": 0, "pricing_display_overage_per_conversation_usd": "0.000", "pricing_card_bullets": ["30 conversations / month", "1 agent · Shopify connect", "500 KB training content", "Essential AI — always on"]}'::jsonb,
+    '{"shopify_enabled": false, "max_enabled_actions_per_agent": 0, "max_total_knowledge_mb": 1, "max_knowledge_storage_kb": 500, "max_website_crawl_kb": 500, "auto_retrain": false, "human_escalation_enabled": false, "default_chat_model": "gpt-4o-mini", "premium_chat_model": "gpt-4o", "included_premium_turns": 0, "pricing_display_overage_per_conversation_usd": "0.000", "pricing_card_bullets": ["30 conversations / month", "1 agent", "500 KB training content", "Essential AI — always on"]}'::jsonb,
     '{"soft_overage_ratio": 1.0, "strong_overage_ratio": 1.2, "soft_delay_ms": 3000, "strong_delay_ms": 10000}'::jsonb,
     true,
     true,
