@@ -81,7 +81,6 @@ import {
 import {
   type EscalationHandoffContext,
   isAiChatDisabledStatus,
-  OPERATOR_ENGAGED_CHAT_BANNER,
   readConversationStatus,
   readEscalationHandoffFromApiFields,
   readEscalationHandoffFromMetadata,
@@ -482,8 +481,8 @@ function PlaygroundPreviewConversation({
   const [contactCaptureRequired, setContactCaptureRequired] = useState(false);
   const [handoffContext, setHandoffContext] = useState<EscalationHandoffContext | null>(null);
   const [operatorEngaged, setOperatorEngaged] = useState(false);
-  const [operatorReplyBannerDismissed, setOperatorReplyBannerDismissed] = useState(false);
-  const humanHandoffActive = isAiChatDisabledStatus(conversationStatus);
+  const humanHandoffActive =
+    isAiChatDisabledStatus(conversationStatus) || operatorEngaged || handoffContext !== null;
   const aiChatDisabled = humanHandoffActive;
   const [, setThreadCacheState] = useState<Record<string, PlaygroundThreadCacheEntry>>({});
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -660,11 +659,7 @@ function PlaygroundPreviewConversation({
       }
       setConversationStatus(nextStatus);
       setHandoffContext(readEscalationHandoffFromMetadata(data.conversation.metadata));
-      setOperatorEngaged((prev) => {
-        const next = data.conversation.metadata?.operator_engaged === true;
-        if (next && !prev) setOperatorReplyBannerDismissed(false);
-        return next;
-      });
+      setOperatorEngaged(data.conversation.metadata?.operator_engaged === true);
       setPreviewMessages((current) => {
         if (!shouldApplyServerPlaygroundTranscript(current, mapped)) {
           return current;
@@ -917,7 +912,6 @@ function PlaygroundPreviewConversation({
     const draft = (messageInputRef.current?.value ?? messageInput).trim();
     if (!agentId || !draft || isSending || historyThreadLoading || contactCaptureRequired) return;
     const skipAssistantBubble = humanHandoffActive;
-    if (operatorEngaged) setOperatorReplyBannerDismissed(true);
     stickToBottomRef.current = true;
     setStoredThreadRestoring(false);
     // `blockThreadSyncRef` is otherwise updated in layout after commit; without this, an in-flight
@@ -1054,7 +1048,6 @@ function PlaygroundPreviewConversation({
     setContactCaptureRequired(false);
     setHandoffContext(null);
     setOperatorEngaged(false);
-    setOperatorReplyBannerDismissed(false);
     writePlaygroundChatToStorage(agentId, [], null, nextVisitorId);
   }
 
@@ -1553,11 +1546,6 @@ function PlaygroundPreviewConversation({
           <div className="flex flex-col gap-1">
             {humanHandoffActive && handoffContext && !operatorEngaged ? (
               <EscalatedChatNotice handoff={handoffContext} />
-            ) : null}
-            {humanHandoffActive && operatorEngaged && !operatorReplyBannerDismissed ? (
-              <p className="text-ds-on-surface-variant text-center text-[11px] leading-tight">
-                {OPERATOR_ENGAGED_CHAT_BANNER}
-              </p>
             ) : null}
             <PlaygroundComposer
               textareaRef={messageInputRef}

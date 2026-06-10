@@ -32,6 +32,7 @@ def test_list_tickets_empty(client: TestClient, monkeypatch: pytest.MonkeyPatch)
         *,
         user_id: Any,
         agent_id: Any = None,
+        status: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[TicketDTO], int]:

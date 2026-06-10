@@ -221,15 +221,15 @@ async def list_tickets(
     count_params: dict[str, Any] = {"user_id": str(user_id)}
     if agent_id:
         sql_count += " and agent_id = :agent_id"
-        sql_select += " and agent_id = :agent_id"
+        sql_select += " and t.agent_id = :agent_id"
         params["agent_id"] = str(agent_id)
         count_params["agent_id"] = str(agent_id)
     if status:
         sql_count += " and status = :status"
-        sql_select += " and status = :status"
+        sql_select += " and t.status = :status"
         params["status"] = status
         count_params["status"] = status
-    sql_select += " order by updated_at desc limit :limit offset :offset"
+    sql_select += " order by t.updated_at desc limit :limit offset :offset"
 
     cr = await db.execute(text(sql_count), count_params)
     total = int(cr.mappings().one()["n"])

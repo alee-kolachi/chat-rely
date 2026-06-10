@@ -1227,11 +1227,10 @@ async function boot(): Promise<void> {
     composerContact.classList.toggle("cr-view--hidden", history || !contactCaptureRequired);
     composerHint.classList.toggle("cr-view--hidden", !history);
     const showWaitingBanner =
-      Boolean(handoffContext) && isEscalatedStatus(conversationStatus) && !operatorEngaged;
-    const showOperatorBanner = operatorEngaged && !operatorReplyBannerDismissed;
+      Boolean(handoffContext) && isHumanHandoffActive() && !operatorEngaged;
     composerEscalated.classList.toggle(
       "cr-view--hidden",
-      history || contactCaptureRequired || (!showWaitingBanner && !showOperatorBanner)
+      history || contactCaptureRequired || !showWaitingBanner
     );
     poweredByEl.classList.toggle("cr-view--hidden", welcome || contactCaptureRequired);
     welcomePowered.hidden = Boolean(cfg.hide_powered_by_chatrely) || !welcome;
@@ -1256,7 +1255,6 @@ async function boot(): Promise<void> {
   let conversationStatus = "open";
   let contactCaptureRequired = false;
   let operatorEngaged = false;
-  let operatorReplyBannerDismissed = false;
   let handoffContext: HandoffContext | null = null;
   const syncedServerMessageIds = new Set<string>();
 
@@ -1290,26 +1288,27 @@ async function boot(): Promise<void> {
     return (status ?? "").trim().toLowerCase() === "escalated";
   }
 
+  function isHumanHandoffActive(): boolean {
+    return isEscalatedStatus(conversationStatus) || operatorEngaged || handoffContext !== null;
+  }
+
   function updateComposerState(): void {
-    const humanHandoff = isEscalatedStatus(conversationStatus) || operatorEngaged;
+    const humanHandoff = isHumanHandoffActive();
     input.disabled = contactCaptureRequired;
     input.placeholder = humanHandoff ? "Message our team…" : "Message…";
     send.disabled = contactCaptureRequired || sending || !input.value.trim();
-    composerEscalated.textContent = operatorEngaged
-      ? "Team replied. Continue below."
-      : buildEscalatedBanner(handoffContext);
+    composerEscalated.textContent = buildEscalatedBanner(handoffContext);
     applyBodyView();
   }
 
   function applyConversationStatus(status: string | null | undefined): void {
     conversationStatus = (status ?? "open").trim().toLowerCase() || "open";
     updateComposerState();
+    if (conversationId) persistStore();
   }
 
   function humanThreadSyncEligible(): boolean {
-    return Boolean(
-      conversationId && (isEscalatedStatus(conversationStatus) || operatorEngaged)
-    );
+    return Boolean(conversationId && isHumanHandoffActive());
   }
 
   function readHandoffFromApiFields(data: {
@@ -1403,11 +1402,7 @@ async function boot(): Promise<void> {
         visitor_id: visitorId,
       });
       conversationStatus = (data.conversation_status ?? "open").trim().toLowerCase() || "open";
-      const wasOperatorEngaged = operatorEngaged;
       operatorEngaged = data.operator_engaged;
-      if (data.operator_engaged && !wasOperatorEngaged) {
-        operatorReplyBannerDismissed = false;
-      }
       const threadHandoff = readHandoffFromThread(data);
       if (threadHandoff) setHandoffContext(threadHandoff);
       updateComposerState();
@@ -1770,6 +1765,17 @@ async function boot(): Promise<void> {
     productAction?: ProductActionRequest,
     onComposerReady?: () => void
   ): Promise<void> {
+    if (isHumanHandoffActive() && conversationId && !productAction) {
+      streamWrap.row.remove();
+      await postWidgetVisitorMessage(apiBase, agentKey, {
+        conversation_id: conversationId,
+        visitor_id: visitorId,
+        message: userText,
+      });
+      requestHumanThreadSync();
+      return;
+    }
+
     let row = streamWrap.row;
     let wrap = streamWrap.wrap;
     let assistantEl = streamWrap.assistantEl;
@@ -1914,13 +1920,23 @@ async function boot(): Promise<void> {
             Boolean(pendingProducts?.length) ||
             (Array.isArray(ev.products) && ev.products.length > 0) ||
             Boolean(ev.product_detail && typeof ev.product_detail === "object");
+          const aiChatDisabled =
+            ev.ai_chat_disabled === true ||
+            isEscalatedStatus(
+              typeof ev.conversation_status === "string" ? ev.conversation_status : conversationStatus
+            );
           const plainAccumulated = (assistantEl.getAttribute("data-plain") || "").trim();
           const reply =
             (typeof ev.response === "string" ? ev.response : "").trim() ||
             plainAccumulated ||
-            (hasRichProducts ? "" : EMPTY_REPLY_FALLBACK);
+            (hasRichProducts || aiChatDisabled || isHumanHandoffActive() ? "" : EMPTY_REPLY_FALLBACK);
           let displayText = hasRichProducts ? introTextForProductCards(reply || plainAccumulated) : reply;
           if (!displayText.trim() && !hasRichProducts) {
+            if (aiChatDisabled || isHumanHandoffActive()) {
+              row.remove();
+              persistStore();
+              return;
+            }
             displayText = EMPTY_REPLY_FALLBACK;
           }
           setAssistantBubbleText(assistantEl, displayText);
@@ -2002,7 +2018,7 @@ async function boot(): Promise<void> {
   }
 
   async function runProductAction(type: "details" | "similar", card: ProductCard): Promise<void> {
-    if (sending || isEscalatedStatus(conversationStatus)) return;
+    if (sending || isHumanHandoffActive()) return;
     const action: ProductActionRequest = { type, handle: card.handle, title: card.title };
     const userText = productActionUserMessage(action);
     sending = true;
@@ -2058,13 +2074,12 @@ async function boot(): Promise<void> {
   async function sendMessage(): Promise<void> {
     const text = input.value.trim();
     if (!text || sending || contactCaptureRequired) return;
-    const humanHandoff = isEscalatedStatus(conversationStatus) || operatorEngaged;
+    const humanHandoff = isHumanHandoffActive();
     sending = true;
     send.disabled = true;
     input.value = "";
     input.style.height = "auto";
     appendUserMessage(text);
-    if (operatorEngaged) operatorReplyBannerDismissed = true;
     try {
       if (humanHandoff && conversationId) {
         await postWidgetVisitorMessage(apiBase, agentKey, {

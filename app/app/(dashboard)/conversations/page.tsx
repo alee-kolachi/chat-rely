@@ -1,6 +1,15 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { ChevronLeft } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TranscriptAssistantMessage } from "@/components/chat/transcript-assistant-message";
@@ -1006,6 +1015,12 @@ function ConversationsPageContent() {
                   placeholder="Reply to customer…"
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
+                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                    e.preventDefault();
+                    if (!selectedConversationId || !reply.trim() || sending) return;
+                    void handleReply();
+                  }}
                 />
                 <button
                   type="button"
