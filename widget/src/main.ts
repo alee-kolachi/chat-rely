@@ -1255,7 +1255,10 @@ async function boot(): Promise<void> {
   let conversationStatus = "open";
   let contactCaptureRequired = false;
   let operatorEngaged = false;
+  let aiChatDisabled = false;
   let handoffContext: HandoffContext | null = null;
+  let threadStateReady = false;
+  let threadStateSync: Promise<void> | null = null;
   const syncedServerMessageIds = new Set<string>();
 
   const contactNameInput = composerContact.querySelector('input[name="name"]') as HTMLInputElement;
@@ -1289,26 +1292,105 @@ async function boot(): Promise<void> {
   }
 
   function isHumanHandoffActive(): boolean {
-    return isEscalatedStatus(conversationStatus) || operatorEngaged || handoffContext !== null;
+    return (
+      aiChatDisabled ||
+      isEscalatedStatus(conversationStatus) ||
+      operatorEngaged ||
+      handoffContext !== null
+    );
+  }
+
+  function applyConversationStatus(status: string | null | undefined): void {
+    conversationStatus = (status ?? "open").trim().toLowerCase() || "open";
+    if (isEscalatedStatus(conversationStatus)) aiChatDisabled = true;
+    updateComposerState();
+    if (conversationId) persistStore();
+  }
+
+  function applyAiChatDisabledFromSse(value: unknown): void {
+    if (value === true) aiChatDisabled = true;
+  }
+
+  function purgePhantomAssistantFallbacks(): void {
+    if (!isHumanHandoffActive()) return;
+    const next = chatMessages.filter(
+      (m) => m.role !== "assistant" || m.text.trim() !== EMPTY_REPLY_FALLBACK
+    );
+    if (next.length === chatMessages.length) return;
+    chatMessages = next;
+    renderChatMessages();
+    persistStore();
+  }
+
+  function applyThreadStateFromServer(data: {
+    conversation_status?: string;
+    ai_chat_disabled?: boolean;
+    operator_engaged?: boolean;
+    handoff?: {
+      seller_live?: boolean;
+      estimated_minutes?: number | null;
+      channel_hint?: string | null;
+    } | null;
+  }): void {
+    conversationStatus = (data.conversation_status ?? "open").trim().toLowerCase() || "open";
+    operatorEngaged = data.operator_engaged === true;
+    const threadHandoff = readHandoffFromThread(data);
+    if (threadHandoff) setHandoffContext(threadHandoff);
+    aiChatDisabled =
+      data.ai_chat_disabled === true ||
+      isEscalatedStatus(conversationStatus) ||
+      operatorEngaged ||
+      handoffContext !== null;
+    updateComposerState();
   }
 
   function updateComposerState(): void {
     const humanHandoff = isHumanHandoffActive();
     input.disabled = contactCaptureRequired;
     input.placeholder = humanHandoff ? "Message our team…" : "Message…";
-    send.disabled = contactCaptureRequired || sending || !input.value.trim();
+    send.disabled =
+      contactCaptureRequired || sending || !input.value.trim() || (Boolean(conversationId) && !threadStateReady);
     composerEscalated.textContent = buildEscalatedBanner(handoffContext);
     applyBodyView();
   }
 
-  function applyConversationStatus(status: string | null | undefined): void {
-    conversationStatus = (status ?? "open").trim().toLowerCase() || "open";
-    updateComposerState();
-    if (conversationId) persistStore();
+  async function syncThreadFromServer(): Promise<void> {
+    if (!conversationId) {
+      threadStateReady = true;
+      return;
+    }
+    try {
+      const data = await fetchWidgetThread(apiBase, agentKey, {
+        conversation_id: conversationId,
+        visitor_id: visitorId,
+      });
+      applyThreadStateFromServer(data);
+      purgePhantomAssistantFallbacks();
+      for (const msg of data.messages) applySyncedThreadMessage(msg);
+    } catch {
+      /* best-effort */
+    } finally {
+      threadStateReady = true;
+      updateComposerState();
+    }
   }
 
-  function humanThreadSyncEligible(): boolean {
-    return Boolean(conversationId && isHumanHandoffActive());
+  function ensureThreadStateFresh(): Promise<void> {
+    if (!conversationId) {
+      threadStateReady = true;
+      return Promise.resolve();
+    }
+    if (!threadStateSync) {
+      threadStateSync = syncThreadFromServer().finally(() => {
+        threadStateSync = null;
+      });
+    }
+    return threadStateSync;
+  }
+
+  function requestThreadSync(): void {
+    if (!conversationId) return;
+    void ensureThreadStateFresh();
   }
 
   function readHandoffFromApiFields(data: {
@@ -1351,6 +1433,7 @@ async function boot(): Promise<void> {
 
   function setHandoffContext(next: HandoffContext | null): void {
     handoffContext = next;
+    if (next) aiChatDisabled = true;
     if (conversationId && store.threads.length) {
       const idx = store.threads.findIndex((t) => t.id === conversationId);
       if (idx >= 0) {
@@ -1393,30 +1476,6 @@ async function boot(): Promise<void> {
     }
   }
 
-  /** One-shot sync (also records visitor presence). No background polling. */
-  async function syncHumanThread(): Promise<void> {
-    if (!humanThreadSyncEligible() || !conversationId) return;
-    try {
-      const data = await fetchWidgetThread(apiBase, agentKey, {
-        conversation_id: conversationId,
-        visitor_id: visitorId,
-      });
-      conversationStatus = (data.conversation_status ?? "open").trim().toLowerCase() || "open";
-      operatorEngaged = data.operator_engaged;
-      const threadHandoff = readHandoffFromThread(data);
-      if (threadHandoff) setHandoffContext(threadHandoff);
-      updateComposerState();
-      for (const msg of data.messages) applySyncedThreadMessage(msg);
-    } catch {
-      /* best-effort */
-    }
-  }
-
-  function requestHumanThreadSync(): void {
-    if (!humanThreadSyncEligible()) return;
-    void syncHumanThread();
-  }
-
   if (conversationId) {
     const thread = store.threads.find((t) => t.id === conversationId);
     if (thread) {
@@ -1424,6 +1483,7 @@ async function boot(): Promise<void> {
       chatMessages = [...thread.messages];
       conversationStatus = thread.status ?? "open";
       handoffContext = thread.handoff ?? null;
+      if (isEscalatedStatus(conversationStatus) || handoffContext) aiChatDisabled = true;
       for (const msg of chatMessages) {
         if (msg.server_id) syncedServerMessageIds.add(msg.server_id);
       }
@@ -1434,7 +1494,12 @@ async function boot(): Promise<void> {
     }
   }
   applyConversationStatus(conversationStatus);
-  requestHumanThreadSync();
+  if (conversationId) {
+    threadStateReady = false;
+    void ensureThreadStateFresh();
+  } else {
+    threadStateReady = true;
+  }
 
   function updatePoweredByVisibility(): void {
     poweredByEl.hidden = Boolean(cfg.hide_powered_by_chatrely);
@@ -1726,6 +1791,10 @@ async function boot(): Promise<void> {
     clearMessagesDom();
     setHistoryOpen(false);
     setContactCaptureRequired(false);
+    aiChatDisabled = false;
+    operatorEngaged = false;
+    handoffContext = null;
+    threadStateReady = true;
     applyConversationStatus("open");
     greetingsRendered = false;
     if (welcomeScreenEnabled()) {
@@ -1744,7 +1813,7 @@ async function boot(): Promise<void> {
     launcher.classList.toggle("cr-launcher--open", next);
     launcher.setAttribute("aria-expanded", next ? "true" : "false");
     launcher.setAttribute("aria-label", next ? "Close chat" : "Open chat");
-    if (next) requestHumanThreadSync();
+    if (next) requestThreadSync();
   }
 
   function clearStaleConversation(): void {
@@ -1765,6 +1834,7 @@ async function boot(): Promise<void> {
     productAction?: ProductActionRequest,
     onComposerReady?: () => void
   ): Promise<void> {
+    if (conversationId) await ensureThreadStateFresh();
     if (isHumanHandoffActive() && conversationId && !productAction) {
       streamWrap.row.remove();
       await postWidgetVisitorMessage(apiBase, agentKey, {
@@ -1772,7 +1842,7 @@ async function boot(): Promise<void> {
         visitor_id: visitorId,
         message: userText,
       });
-      requestHumanThreadSync();
+      requestThreadSync();
       return;
     }
 
@@ -1897,6 +1967,7 @@ async function boot(): Promise<void> {
           } else if (ev.ai_chat_disabled === true) {
             applyConversationStatus("escalated");
           }
+          applyAiChatDisabledFromSse(ev.ai_chat_disabled);
           setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
           const readyHandoff = readHandoffFromEscalation(ev as Record<string, unknown>);
           if (readyHandoff) setHandoffContext(readyHandoff);
@@ -1909,10 +1980,11 @@ async function boot(): Promise<void> {
           } else if (ev.ai_chat_disabled === true) {
             applyConversationStatus("escalated");
           }
+          applyAiChatDisabledFromSse(ev.ai_chat_disabled);
           setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
           const handoff = readHandoffFromEscalation(ev as Record<string, unknown>);
           if (handoff) setHandoffContext(handoff);
-          requestHumanThreadSync();
+          requestThreadSync();
           hideDots();
           clearStatus();
           const hasRichProducts =
@@ -1932,6 +2004,7 @@ async function boot(): Promise<void> {
             (hasRichProducts || aiChatDisabled || isHumanHandoffActive() ? "" : EMPTY_REPLY_FALLBACK);
           let displayText = hasRichProducts ? introTextForProductCards(reply || plainAccumulated) : reply;
           if (!displayText.trim() && !hasRichProducts) {
+            if (conversationId) await ensureThreadStateFresh();
             if (aiChatDisabled || isHumanHandoffActive()) {
               row.remove();
               persistStore();
@@ -2060,7 +2133,7 @@ async function boot(): Promise<void> {
       applyConversationStatus(result.conversation_status);
       setHandoffContext(readHandoffFromApiFields(result));
       appendAssistantMessage({ text: result.handoff_message }, true, true);
-      requestHumanThreadSync();
+      requestThreadSync();
       contactNameInput.value = "";
       contactEmailInput.value = "";
     } catch (e) {
@@ -2074,6 +2147,7 @@ async function boot(): Promise<void> {
   async function sendMessage(): Promise<void> {
     const text = input.value.trim();
     if (!text || sending || contactCaptureRequired) return;
+    if (conversationId) await ensureThreadStateFresh();
     const humanHandoff = isHumanHandoffActive();
     sending = true;
     send.disabled = true;
@@ -2100,7 +2174,7 @@ async function boot(): Promise<void> {
     } finally {
       sending = false;
       send.disabled = !input.value.trim();
-      requestHumanThreadSync();
+      requestThreadSync();
     }
   }
 
@@ -2122,7 +2196,7 @@ async function boot(): Promise<void> {
   historyBtn.addEventListener("click", () => setHistoryOpen(!historyOpen));
   launcher.addEventListener("click", () => setPanelOpen(!panelOpen));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && panelOpen) requestHumanThreadSync();
+    if (document.visibilityState === "visible" && panelOpen) requestThreadSync();
   });
   composerContact.addEventListener("submit", (ev) => void submitVisitorContact(ev));
   send.addEventListener("click", () => void sendMessage());

@@ -10,7 +10,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.escalation import normalize_conversation_status
+from app.agent.escalation import conversation_is_awaiting_human_team, normalize_conversation_status
 from app.core.errors import AppError
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
 from app.domains.conversations.service import (
@@ -132,8 +132,16 @@ async def fetch_public_widget_thread(
             )
         )
     status = normalize_conversation_status(conv.status)
+    ai_chat_disabled = await conversation_is_awaiting_human_team(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    if ai_chat_disabled and status != "escalated":
+        status = "escalated"
     return PublicWidgetThreadResponse(
         conversation_status=status,
+        ai_chat_disabled=ai_chat_disabled,
         operator_engaged=bool(meta.get(OPERATOR_ENGAGED_META_KEY)),
         conversation_active=conversation_is_active(status),
         visitor_online=visitor_is_online(meta),

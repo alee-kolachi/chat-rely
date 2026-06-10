@@ -279,6 +279,7 @@ export type WidgetHandoffContext = {
 
 export type WidgetThreadResponse = {
   conversation_status: string;
+  ai_chat_disabled?: boolean;
   operator_engaged: boolean;
   conversation_active: boolean;
   visitor_online: boolean;

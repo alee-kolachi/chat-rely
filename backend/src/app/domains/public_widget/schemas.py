@@ -151,6 +151,7 @@ class PublicWidgetThreadResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     conversation_status: str
+    ai_chat_disabled: bool = False
     operator_engaged: bool = False
     conversation_active: bool = False
     visitor_online: bool = False

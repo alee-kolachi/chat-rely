@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TranscriptAssistantMessage } from "@/components/chat/transcript-assistant-message";
@@ -119,6 +110,8 @@ function ConversationsPageContent() {
   const [showSummaryPanel, setShowSummaryPanel] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replyHint, setReplyHint] = useState<string | null>(null);
+  const replyInputRef = useRef<HTMLInputElement>(null);
+  const replyDraftRef = useRef("");
   const sendingRef = useRef(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
@@ -581,9 +574,13 @@ function ConversationsPageContent() {
   ]);
 
   async function handleReply() {
-    if (!selectedConversationId || !reply.trim() || sending) return;
+    const content = (
+      replyDraftRef.current ||
+      replyInputRef.current?.value ||
+      reply
+    ).trim();
+    if (!selectedConversationId || !content || sending) return;
     const conversationId = selectedConversationId;
-    const content = reply.trim();
     const optimisticId = `pending-${Date.now()}`;
     const optimistic: ConversationMessageRow = {
       id: optimisticId,
@@ -596,6 +593,7 @@ function ConversationsPageContent() {
     sendingRef.current = true;
     setError(null);
     setReplyHint(null);
+    replyDraftRef.current = "";
     setReply("");
     setMessages((prev) => [...prev, optimistic]);
 
@@ -628,6 +626,7 @@ function ConversationsPageContent() {
       void refreshMessages(conversationId, { silent: true });
     } catch (e) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      replyDraftRef.current = content;
       setReply(content);
       setError(e instanceof Error ? e.message : "Failed to send reply");
     } finally {
@@ -1009,28 +1008,31 @@ function ConversationsPageContent() {
               {replyHint ? (
                 <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">{replyHint}</p>
               ) : null}
-              <div className="flex items-center gap-3">
+              <form
+                className="flex items-center gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleReply();
+                }}
+              >
                 <input
+                  ref={replyInputRef}
                   className={cn("ds-app-field", "min-h-0 flex-1 rounded-ds-lg py-2.5")}
                   placeholder="Reply to customer…"
                   value={reply}
-                  onChange={(e) => setReply(e.target.value)}
-                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-                    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-                    e.preventDefault();
-                    if (!selectedConversationId || !reply.trim() || sending) return;
-                    void handleReply();
+                  onChange={(e) => {
+                    replyDraftRef.current = e.target.value;
+                    setReply(e.target.value);
                   }}
                 />
                 <button
-                  type="button"
+                  type="submit"
                   className={appButtonClassName("default", { className: "shrink-0" })}
-                  onClick={() => void handleReply()}
-                  disabled={!selectedConversationId || !reply.trim()}
+                  disabled={!selectedConversationId || !reply.trim() || sending}
                 >
-                  Send
+                  {sending ? "Sending…" : "Send"}
                 </button>
-              </div>
+              </form>
             </div>
           </div>
         </section>
