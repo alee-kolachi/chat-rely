@@ -30,6 +30,7 @@ import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { formatLocaleDateTime } from "@/lib/format-locale-datetime";
 import { useClientMounted } from "@/lib/use-client-mounted";
+import { knowledgeSourceStatusPill } from "@/lib/knowledge-status-labels";
 import { cn } from "@/lib/utils";
 
 type FileUploadResult = {
@@ -40,19 +41,6 @@ type FileUploadResult = {
 function fileNameFromRow(row: FileSourceRow): string {
   const fromPath = row.storage_path?.split("/").pop();
   return fromPath && fromPath.trim().length > 0 ? fromPath : row.title;
-}
-
-function sourceStatusPill(status: string): { label: string; tone: "success" | "danger" | "warning" | "neutral" } {
-  switch ((status || "").toLowerCase()) {
-    case "ready":
-      return { label: "Succeeded", tone: "success" };
-    case "failed":
-      return { label: "Failed", tone: "danger" };
-    case "indexing":
-      return { label: "Processing", tone: "warning" };
-    default:
-      return { label: status || "Pending", tone: "neutral" };
-  }
 }
 
 export default function KnowledgeFilesPage() {
@@ -157,7 +145,7 @@ export default function KnowledgeFilesPage() {
     if (selected.size === 0) return;
     if (
       !window.confirm(
-        `Delete ${selected.size} file source${selected.size === 1 ? "" : "s"} and all indexed data? This cannot be undone.`
+        `Delete ${selected.size} file source${selected.size === 1 ? "" : "s"}? The agent will stop using them in answers.`
       )
     ) {
       return;
@@ -185,7 +173,7 @@ export default function KnowledgeFilesPage() {
   }
 
   async function removeSource(sourceId: string) {
-    if (!window.confirm("Delete this file source and all indexed data? This cannot be undone.")) return;
+    if (!window.confirm("Delete this file? The agent will stop using it in answers.")) return;
     setDeletingId(sourceId);
     setError(null);
     try {
@@ -231,7 +219,7 @@ export default function KnowledgeFilesPage() {
           "This agent’s knowledge storage is full (website + files share one limit). Delete a source or upgrade your plan, then try again."
         );
       } else if (e instanceof BackendApiError && e.code === "knowledge.embedding_not_configured") {
-        setError("Indexing is not set up on the server. Contact support.");
+        setError("Knowledge search is not configured yet. Try again later or contact support.");
       } else {
         setError(e instanceof Error ? e.message : "File upload failed");
       }
@@ -290,7 +278,7 @@ export default function KnowledgeFilesPage() {
                   <IconCloudUpload className="text-ds-primary size-5" />
                 </div>
                 <p className="ds-app-card-title">
-                  {uploading ? "Uploading and indexing files..." : "Drag and drop documents here or click to browse."}
+                  {uploading ? "Uploading and preparing files…" : "Drag and drop documents here or click to browse."}
                 </p>
                 <p className="ds-app-body-muted mt-1">
                 Max 50MB per file. PDF, TXT, DOC, DOCX. Indexing can take up to a minute.
@@ -406,7 +394,7 @@ export default function KnowledgeFilesPage() {
                         </td>
                         <td className="px-4 py-4 text-xs">
                           {(() => {
-                            const s = sourceStatusPill(row.status);
+                            const s = knowledgeSourceStatusPill(row.status);
                             return <StatusPill label={s.label} tone={s.tone} />;
                           })()}
                         </td>

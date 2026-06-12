@@ -181,21 +181,17 @@ export function DashboardTrainingTopicsEmptyState() {
   );
 }
 
+import { PlanCrownIcon } from "@/components/ui/plan-tier-badge";
+
 /** Shown when Source suggestions are a Standard / Pro feature for this workspace. */
 export function DashboardSourceSuggestionsPlanGate() {
   return (
     <div className="border-ds-outline rounded-ds-lg border border-dashed bg-ds-sidebar/40 px-4 py-8 text-center">
       <div
-        className="text-ds-on-surface-variant mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-ds-surface ring-1 ring-ds-outline"
+        className="mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-ds-surface ring-1 ring-ds-outline"
         aria-hidden
       >
-        <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-          />
-        </svg>
+        <PlanCrownIcon className="size-5" title="Not on your plan" />
       </div>
       <p className="text-ds-on-surface text-sm font-medium">Source suggestions</p>
       <p className="ds-app-body-muted mx-auto mt-1 max-w-[19rem]">

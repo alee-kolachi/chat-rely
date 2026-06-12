@@ -1,25 +1,16 @@
 import Link from "next/link";
-import { DeployPageHeaderActions } from "@/components/deploy/deploy-page-header-actions";
-import { DeployShopifyStatus } from "@/components/deploy/deploy-shopify-status";
 import { DeployWidgetEmbedSnippet } from "@/components/deploy/deploy-widget-embed-snippet";
 
 export default function DeployPage() {
   return (
     <div className="ds-app-shell">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
-        <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="ds-app-page-title">Deploy</h1>
-            <p className="ds-app-page-description ds-app-page-description--wide">
-              Add the chat widget to your storefront or website.
-            </p>
-          </div>
-          <DeployPageHeaderActions />
+        <header>
+          <h1 className="ds-app-page-title">Deploy</h1>
+          <p className="ds-app-page-description ds-app-page-description--wide">
+            Add the chat widget to your storefront or website.
+          </p>
         </header>
-
-        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-4 shadow-sm sm:p-6">
-          <DeployShopifyStatus />
-        </section>
 
         <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-4 shadow-sm sm:p-6">
           <DeployWidgetEmbedSnippet />

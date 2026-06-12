@@ -7,6 +7,8 @@ declare global {
   // Reuse browser client across renders/navigation to avoid duplicate GoTrue instances.
   // eslint-disable-next-line no-var
   var __supportAgentSupabaseBrowserClient: SupabaseBrowserClient | undefined;
+  // eslint-disable-next-line no-var
+  var __supportAgentSupabaseBrowserUrl: string | undefined;
 }
 
 export function createBrowserSupabaseClient() {
@@ -19,9 +21,11 @@ export function createBrowserSupabaseClient() {
   }
 
   const globalClient = globalThis.__supportAgentSupabaseBrowserClient;
-  if (globalClient) return globalClient;
+  const globalUrl = globalThis.__supportAgentSupabaseBrowserUrl;
+  if (globalClient && globalUrl === supabaseUrl) return globalClient;
 
   const client = createBrowserClient(supabaseUrl, supabaseKey);
   globalThis.__supportAgentSupabaseBrowserClient = client;
+  globalThis.__supportAgentSupabaseBrowserUrl = supabaseUrl;
   return client;
 }

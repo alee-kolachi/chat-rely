@@ -6,6 +6,7 @@ import {
   CHATRELY_REMEMBER_ME_MAX_AGE_SEC,
   CHATRELY_SHORT_SESSION_MAX_AGE_SEC,
 } from "@/lib/auth-session-preference";
+import { isStaleRefreshTokenAuthError } from "@/lib/auth-stale-session";
 import { resolveSupabaseUrlFromHost } from "@/lib/resolve-supabase-url";
 
 export type CreateServerSupabaseOptions = {
@@ -96,6 +97,13 @@ export async function getValidatedServerAuth(
     error: userError,
   } = await supabase.auth.getUser();
   if (userError || !user) {
+    if (userError && isStaleRefreshTokenAuthError(userError)) {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        /* ignore */
+      }
+    }
     return null;
   }
   const {

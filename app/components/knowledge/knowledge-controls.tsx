@@ -6,6 +6,7 @@ import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
 import { IconChevron, IconSearch, IconTrash } from "@/components/knowledge/knowledge-icons";
 import type { KnowledgeSortKey } from "@/components/knowledge/use-sort-preference";
+import { knowledgePageStatusPill } from "@/lib/knowledge-status-labels";
 
 /** Collapsible card with a header button + chevron. Same pattern as the Website "Add links" section. */
 export function CollapsibleSection({
@@ -318,19 +319,6 @@ export function ConfirmDialog({
 }
 
 /** Friendly status label and tone for a website page row. */
-export function pageStatusPill(status: string): { label: string; tone: PillToneOption } {
-  switch (status?.toLowerCase()) {
-    case "parsed":
-      return { label: "Indexed", tone: "success" };
-    case "fetched":
-      return { label: "Fetched", tone: "info" };
-    case "failed":
-      return { label: "Failed", tone: "danger" };
-    case "queued":
-      return { label: "Queued", tone: "neutral" };
-    case "excluded":
-      return { label: "Excluded", tone: "warning" };
-    default:
-      return { label: status || "Pending", tone: "neutral" };
-  }
+export function pageStatusPill(status: string) {
+  return knowledgePageStatusPill(status);
 }

@@ -1,6 +1,13 @@
 import type { MeContextPayload } from "@/components/layout/me-context-provider";
+import { planTierAtLeast } from "@/lib/plan-entitlements";
 
 type PlanLike = MeContextPayload["plan"] | null | undefined;
+
+/** Standard and Pro: AI-derived knowledge gaps after chat closures. */
+export function planIncludesSourceSuggestions(plan: PlanLike): boolean {
+  if (!plan) return false;
+  return planTierAtLeast(plan.slug, "standard");
+}
 
 function featureBool(features: Record<string, unknown> | undefined, key: string): boolean {
   const v = features?.[key];
@@ -43,4 +50,8 @@ export function shopifyConnectAccess(plan: PlanLike, planResolved: boolean): Pla
 
 export function humanEscalationPlanAccess(plan: PlanLike, planResolved: boolean): PlanFeatureAccess {
   return planFeatureAccess(planIncludesHumanEscalation(plan), planResolved);
+}
+
+export function sourceSuggestionsPlanAccess(plan: PlanLike, planResolved: boolean): PlanFeatureAccess {
+  return planFeatureAccess(planIncludesSourceSuggestions(plan), planResolved);
 }

@@ -30,6 +30,29 @@ export async function requestPasswordReset(
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
 
   if (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.error("[auth] resetPasswordForEmail failed", {
+        message: error.message,
+        code: error.code,
+        status: error.status,
+        redirectTo,
+      });
+    }
+
+    if (error.code === "over_email_send_rate_limit") {
+      return {
+        error:
+          "Too many reset emails were sent recently. Wait a few minutes and try again, or raise the email rate limit in Supabase Authentication → Rate Limits.",
+      };
+    }
+
+    if (error.message === "Error sending recovery email") {
+      return {
+        error:
+          "Supabase could not send the reset email. Check Authentication → Logs in your Supabase project for the SMTP error. For Namecheap Private Email, try port 587 instead of 465.",
+      };
+    }
+
     return { error: error.message };
   }
 

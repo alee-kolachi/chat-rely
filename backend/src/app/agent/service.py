@@ -114,6 +114,7 @@ from app.domains.runtime.prompts.system import (
 from app.domains.public_widget.welcome import seed_widget_greeting_messages_if_needed
 from app.domains.runtime.schemas import RuntimeChatRequest, message_has_substantive_content, RuntimeEscalationInfo, ProductActionRequest
 from app.domains.runtime.service import (
+    _build_retrieval_expanded_query,
     _SHOPIFY_CONNECTED_NO_TOOLS_BLOCK,
     _SHOPIFY_NO_EXCERPT_GROUNDING,
     _TOOL_RAG_SUPPLEMENT_FOR_TOOLS,
@@ -282,12 +283,14 @@ async def _maybe_retrieve_chunks(
 
     timing: dict[str, float] = meta_timing if meta_timing is not None else {}
 
+    expanded_query = _build_retrieval_expanded_query(user_message)
+
     async def _run(db):
         return await _retrieve_merged_chunks_for_message(
             db,
             agent_id,
             user_message=user_message,
-            expanded_query=user_message,
+            expanded_query=expanded_query,
             min_similarity=min_similarity,
             meta_timing=timing,
         )
@@ -1096,7 +1099,7 @@ async def stream_chat(
             conversation_id=conversation_id,
             agent_id=payload.agent_id,
             user_message=payload.message,
-            expanded_query=payload.message,
+            expanded_query=_build_retrieval_expanded_query(payload.message),
             min_similarity=float(config["min_retrieval_similarity"]),
             chunks=chunks,
             prompt_chunks=chunks[:RAG_PROMPT_CHUNK_COUNT],

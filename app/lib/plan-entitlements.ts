@@ -147,7 +147,7 @@ export function buildPlanEntitlementSections(
       minimumTier: "hobby",
     },
     {
-      label: "Knowledge gap suggestions",
+      label: "Source suggestions",
       value: tierAtLeast(slug, "standard") ? "Included" : "Not included",
       included: tierAtLeast(slug, "standard"),
       upgradeNote: tierAtLeast(slug, "standard") ? undefined : tierLabel("standard"),

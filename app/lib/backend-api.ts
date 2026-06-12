@@ -1,5 +1,6 @@
 "use client";
 
+import { clearStaleBrowserAuthSession } from "@/lib/auth-stale-session";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import {
   isLoopbackHostname,
@@ -39,7 +40,11 @@ export async function getAccessToken(): Promise<string | null> {
       data: { session },
       error,
     } = await supabase.auth.getSession();
-    if (error || !session?.access_token) {
+    if (error) {
+      await clearStaleBrowserAuthSession(supabase, error);
+      return null;
+    }
+    if (!session?.access_token) {
       return null;
     }
     return session.access_token;

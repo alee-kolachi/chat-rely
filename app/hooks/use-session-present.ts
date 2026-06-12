@@ -3,6 +3,7 @@
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 
+import { clearStaleBrowserAuthSession } from "@/lib/auth-stale-session";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
 /**
@@ -18,8 +19,14 @@ export function useSessionPresent(): { ready: boolean; hasSession: boolean } {
     let cancelled = false;
 
     const refresh = async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
       if (cancelled) return;
+      if (error) {
+        await clearStaleBrowserAuthSession(supabase, error);
+        setHasSession(false);
+        setReady(true);
+        return;
+      }
       setHasSession(!!data.session);
       setReady(true);
     };

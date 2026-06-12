@@ -81,7 +81,7 @@ export const PRICING_CARD_BULLETS: Record<PricingTierSlug, readonly string[]> = 
     "1,000 conversations per month on premium models",
     "5 AI actions per agent (you choose which)",
     "Advanced analytics",
-    "Knowledge gap suggestions",
+    "Source suggestions",
     "40 MB training content",
     "Normal models after allowance (chat stays on)",
   ],
@@ -178,7 +178,7 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         },
       },
       {
-        label: "Knowledge gap suggestions",
+        label: "Source suggestions",
         cells: {
           free: { kind: "dash" },
           hobby: { kind: "dash" },
@@ -315,7 +315,7 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
 export const LANDING_COMPACT_LABELS: Record<string, string> = {
   "Conversations included / month": "Conversations / mo",
   "Chat stays on after allowance": "Chat stays on",
-  "Knowledge gap suggestions": "Knowledge gap suggestions",
+  "Source suggestions": "Source suggestions",
   "Visitor feedback and summaries (widget)": "Visitor feedback",
   Attachments: "Attachments",
   "Auto retrain agents": "Auto retrain",
@@ -339,8 +339,8 @@ export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
   "Training content size": "Total size of files and pages used to train agents.",
   Attachments: "Visitors send files in the widget. Rolling out soon on paid plans.",
   "Auto retrain agents": "Refresh agents when knowledge changes. Coming soon on Standard and Pro.",
-  "Knowledge gap suggestions":
-    "After chats close, Standard and Pro suggest topics to add in Knowledge based on what shoppers asked.",
+  "Source suggestions":
+    "AI highlights gaps in your knowledge sources after closures. Included on Standard and Pro.",
   "Advanced analytics": "Deeper metrics on Standard and Pro. Hobby keeps core KPIs.",
   "Visitor feedback and summaries (widget)":
     "Visitors rate replies in the widget. Pro summarizes themes on the dashboard.",
@@ -360,7 +360,7 @@ export const PRICING_ROW_TOOLTIP_LABELS = new Set<string>([
   "Training content size",
   "Attachments",
   "Auto retrain agents",
-  "Knowledge gap suggestions",
+  "Source suggestions",
   "Advanced analytics",
   "Visitor feedback and summaries (widget)",
   "Remove Powered by ChatRely",

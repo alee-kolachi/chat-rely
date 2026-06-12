@@ -114,7 +114,7 @@ export function DataSourcesSidebar({
               type="button"
               className={appButtonClassName("default", { size: "sm", className: "cursor-pointer" })}
             >
-              Retrain
+              Refresh all
             </button>
             {showUpgrade ? (
               <Link
@@ -273,8 +273,8 @@ function SourceTypeRow({
       <span className="ds-app-body-muted font-medium">{loading ? "…" : formatBytes(bytes)}</span>
       <button
         type="button"
-        aria-label={`Retrain ${label.toLowerCase()}`}
-        title="Retrain source"
+        aria-label={`Refresh ${label.toLowerCase()}`}
+        title="Refresh from sources"
         className="text-ds-on-surface-variant hover:text-ds-on-surface cursor-pointer rounded-ds-md p-0.5 transition-colors"
       >
         <IconRefresh className="size-3.5" strokeWidth={1.6} />

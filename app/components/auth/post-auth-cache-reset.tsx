@@ -7,6 +7,7 @@ import {
   CHATRELY_LAST_AUTH_USER_ID_KEY,
   clearChatrelyClientAccountCaches,
 } from "@/lib/clear-client-account-caches";
+import { clearStaleBrowserAuthSession } from "@/lib/auth-stale-session";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 
 /**
@@ -30,7 +31,12 @@ export function PostAuthCacheReset() {
       window.sessionStorage.setItem(CHATRELY_LAST_AUTH_USER_ID_KEY, id);
     };
 
-    void supabase.auth.getUser().then((res: UserResponse) => {
+    void supabase.auth.getUser().then(async (res: UserResponse) => {
+      if (res.error) {
+        await clearStaleBrowserAuthSession(supabase, res.error);
+        onUserId(null);
+        return;
+      }
       onUserId(res.data.user?.id ?? null);
     });
 

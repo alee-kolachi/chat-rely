@@ -412,7 +412,7 @@ export default function AgentPreviewOnboardingPage() {
                       <p className="text-ds-on-surface text-sm font-medium">Note</p>
                       <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
                         We&apos;re still crawling pages from your site. You can test now; answers will be more
-                        accurate once indexing completes.
+                        accurate once your site content is ready for chat.
                       </p>
                     </div>
                   ) : null}

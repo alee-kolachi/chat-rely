@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { LandingReveal } from "@/components/marketing/landing/landing-reveal";
 import { LandingSectionLabel } from "@/components/marketing/landing/landing-section-label";
-import { StorySceneLaunch } from "@/components/marketing/landing/story/scenes";
 
 export function LandingFinalCta() {
   return (
@@ -25,8 +24,14 @@ export function LandingFinalCta() {
           </LandingReveal>
 
           <LandingReveal delayMs={100} className="flex justify-center lg:justify-end">
-            <div className="w-full max-w-[420px] overflow-hidden rounded-[28px] border border-black/10 bg-white/30 p-4 sm:p-6">
-              <StorySceneLaunch className="h-full w-full" />
+            <div className="w-full max-w-[560px] overflow-hidden rounded-[28px] border border-black/10 bg-white/30 p-3 sm:p-4">
+              <img
+                src="/marketing/dashboard-get-started.png"
+                alt="ChatRely dashboard showing agent activity and support outcomes"
+                width={1024}
+                height={555}
+                className="h-auto w-full rounded-2xl"
+              />
             </div>
           </LandingReveal>
         </div>

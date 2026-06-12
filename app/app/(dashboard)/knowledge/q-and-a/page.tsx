@@ -46,7 +46,7 @@ export default function KnowledgeQAndAPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [createExpanded, setCreateExpanded] = useState(false);
+  const [createExpanded, setCreateExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortKey, setSortKey] = useSortPreference("qa");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -198,7 +198,7 @@ export default function KnowledgeQAndAPage() {
   }
 
   async function removeQa(id: string) {
-    if (!window.confirm("Delete this Q&A pair and all indexed chunks? This cannot be undone.")) return;
+    if (!window.confirm("Delete this Q&A pair? The agent will stop using it in answers.")) return;
     setDeletingId(id);
     setError(null);
     try {
@@ -227,7 +227,7 @@ export default function KnowledgeQAndAPage() {
     if (selected.size === 0) return;
     if (
       !window.confirm(
-        `Delete ${selected.size} Q&A pair${selected.size === 1 ? "" : "s"} and all indexed chunks? This cannot be undone.`
+        `Delete ${selected.size} Q&A pair${selected.size === 1 ? "" : "s"}? The agent will stop using them in answers.`
       )
     ) {
       return;

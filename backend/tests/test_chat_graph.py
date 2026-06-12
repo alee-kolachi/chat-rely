@@ -415,6 +415,28 @@ def test_build_chat_graph_compiles() -> None:
     assert graph is not None
 
 
+def test_build_retrieval_expanded_query_adds_purchase_synonyms_for_buy() -> None:
+    from app.domains.runtime.service import _build_retrieval_expanded_query
+
+    expanded = _build_retrieval_expanded_query("Do you offer anything when I buy your product?")
+    assert "buy" in expanded.casefold()
+    assert "purchase" in expanded.casefold()
+    assert "promotion" in expanded.casefold() or "promo" in expanded.casefold()
+
+
+def test_extract_query_terms_buy_matches_purchase_content() -> None:
+    from app.domains.runtime.service import _chunk_matches_query_terms, _extract_query_terms
+
+    terms = _extract_query_terms("Do you offer anything when I buy your product?")
+    assert "buy" in terms
+    assert "purchase" in terms
+    chunk = {
+        "content": "When you purchase a product, we include a free lollipop with every item bought.",
+        "metadata": {},
+    }
+    assert _chunk_matches_query_terms(chunk, terms)
+
+
 def test_select_chunks_lexical_grounded_when_threshold_too_high() -> None:
     from app.domains.runtime.service import _rerank_chunks_for_query, _select_chunks_for_prompt
 

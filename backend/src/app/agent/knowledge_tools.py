@@ -13,6 +13,7 @@ from app.db.session import get_session_factory
 from app.domains.runtime.service import (
     RAG_PROMPT_CHUNK_COUNT,
     _build_context_block,
+    _build_retrieval_expanded_query,
     _retrieve_merged_chunks_for_message,
 )
 
@@ -20,16 +21,20 @@ SEARCH_KNOWLEDGE_BASE_TOOL_NAME = "search_knowledge_base"
 
 _SEARCH_KB_TOOL_DESCRIPTION = (
     "Search the brand's indexed knowledge base for policies, FAQs, return rules, "
-    "shipping information, and other static site copy. "
-    "Use this for policy and FAQ questions — not for live catalog, product availability, "
+    "shipping information, promotions, purchase perks, gifts, bonuses, and other static site copy. "
+    "Use this for policy, FAQ, and promotion questions — not for live catalog, product availability, "
     "pricing, stock levels, or order status (use Shopify tools for those). "
+    "When the customer asks what they get with a purchase (offers, freebies, gifts, deals), "
+    "search here — not the product catalog. "
     "Do not call for greetings, thanks, or chitchat. "
-    "Call this before telling the customer you do not have information on a policy topic."
+    "Call this before telling the customer you do not have information on a policy or promotion topic."
 )
 
 _SEARCH_KB_QUERY_DESCRIPTION = (
-    "Keywords or a short question to look up in the indexed knowledge base. "
-    "Use for policies, FAQs, returns, shipping rules, and static brand content. "
+    "The customer's question or a short paraphrase with the topic keywords "
+    "(e.g. `purchase promotion`, `free gift with order`, `return policy`). "
+    "Include purchase/promotion/gift terms when they ask what comes with buying. "
+    "Use for policies, FAQs, returns, shipping, promotions, and static brand content. "
     "Do not use for live catalog, product listings, pricing, stock, or order data."
 )
 
@@ -61,12 +66,14 @@ def build_search_knowledge_base_tool(
         if not q:
             return json.dumps({"excerpts": "", "chunk_count": 0})
 
+        expanded_query = _build_retrieval_expanded_query(q)
+
         async with get_session_factory()() as db:
             chunks, _billing = await _retrieve_merged_chunks_for_message(
                 db,
                 agent_id,
                 user_message=q,
-                expanded_query=q,
+                expanded_query=expanded_query,
                 min_similarity=min_similarity,
                 match_count=10,
             )

@@ -63,8 +63,8 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
     headline = "Website import complete";
     detail =
       pagesTotal > 0
-        ? `${pagesTotal} page${pagesTotal === 1 ? "" : "s"} indexed and ready for testing.`
-        : "Your site content is indexed and ready for testing.";
+        ? `${pagesTotal} page${pagesTotal === 1 ? "" : "s"} ready for chat.`
+        : "Your site content is ready for chat.";
   } else if (failed) {
     headline = "Website import had an issue";
     detail =
@@ -78,9 +78,9 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
       headline = "Reading your site…";
     }
     if (chunksEmbedded > 0 && chunksTotal > 0) {
-      detail = `${chunksEmbedded} of ${chunksTotal} sections indexed.`;
+      detail = `${chunksEmbedded} of ${chunksTotal} sections ready for chat.`;
     } else if (pagesProcessed > 0) {
-      detail = `${pagesProcessed} page${pagesProcessed === 1 ? "" : "s"} indexed so far.`;
+      detail = `${pagesProcessed} page${pagesProcessed === 1 ? "" : "s"} ready for chat so far.`;
     } else {
       detail = "";
     }

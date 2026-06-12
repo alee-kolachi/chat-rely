@@ -19,8 +19,10 @@ import { UsagePlanBanner } from "@/components/dashboard/usage-plan-banner";
 import { DashboardRangePicker, type RangePreset } from "@/components/dashboard/dashboard-range-picker";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { useMeContext } from "@/components/layout/me-context-provider";
+import { PlanFeatureLabel } from "@/components/ui/plan-unlock-footer";
 import { backendFetch } from "@/lib/backend-api";
 import { planAllowsAnalyticsPage } from "@/lib/analytics-plan-access";
+import { sourceSuggestionsPlanAccess } from "@/lib/plan-features";
 import { cn } from "@/lib/utils";
 import { appButtonClassName } from "@/lib/button-styles";
 
@@ -85,6 +87,7 @@ export default function DashboardPage() {
   const { selectedAgentId, agentsLoading } = useDashboardAgent();
   const { data: meData, loading: meLoading } = useMeContext();
   const showAnalyticsNav = !meLoading && planAllowsAnalyticsPage(meData?.plan.slug);
+  const sourceSuggestionsAccess = sourceSuggestionsPlanAccess(meData?.plan, !meLoading);
   const [preset, setPreset] = useState<RangePreset>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -176,15 +179,17 @@ export default function DashboardPage() {
     `/tickets?status=${encodeURIComponent(status)}`;
 
   const trainingTopics = data?.training_topics ?? [];
+  const sourceSuggestionsLocked =
+    sourceSuggestionsAccess.blockInteraction || data?.sources_suggestions_enabled === false;
+  const showSourceSuggestionsCrown =
+    sourceSuggestionsAccess.showCrown || data?.sources_suggestions_enabled === false;
   const suggestionPageCount = Math.max(1, Math.ceil(trainingTopics.length / SOURCE_SUGGESTIONS_PAGE_SIZE));
   const visibleSuggestions = trainingTopics.slice(
     suggestionsPage * SOURCE_SUGGESTIONS_PAGE_SIZE,
     (suggestionsPage + 1) * SOURCE_SUGGESTIONS_PAGE_SIZE
   );
   const showSuggestionPagination =
-    !showPanelSkeleton &&
-    data?.sources_suggestions_enabled !== false &&
-    trainingTopics.length > SOURCE_SUGGESTIONS_PAGE_SIZE;
+    !showPanelSkeleton && !sourceSuggestionsLocked && trainingTopics.length > SOURCE_SUGGESTIONS_PAGE_SIZE;
 
   useEffect(() => {
     setSuggestionsPage(0);
@@ -425,7 +430,9 @@ export default function DashboardPage() {
               <article className="border-ds-outline bg-ds-surface flex min-h-0 flex-col overflow-hidden rounded-ds-xl border shadow-sm">
                 <div className="border-ds-outline flex items-start justify-between gap-3 border-b px-5 py-4">
                   <div className="min-w-0">
-                    <h3 className="ds-app-section-title">Source suggestions</h3>
+                    <PlanFeatureLabel showCrown={showSourceSuggestionsCrown}>
+                      <h3 className="ds-app-section-title">Source suggestions</h3>
+                    </PlanFeatureLabel>
                     <p className="ds-app-body-muted mt-1">
                       Topics where extra knowledge would help. Open a conversation or add content in Knowledge.
                     </p>
@@ -461,10 +468,10 @@ export default function DashboardPage() {
                 <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
                   <div className="min-h-[11.5rem]">
                     {showPanelSkeleton ? <DashboardTrainingTopicsSkeleton /> : null}
-                    {!showPanelSkeleton && data?.sources_suggestions_enabled === false ? (
+                    {!showPanelSkeleton && sourceSuggestionsLocked ? (
                       <DashboardSourceSuggestionsPlanGate />
                     ) : null}
-                    {!showPanelSkeleton && data?.sources_suggestions_enabled !== false && visibleSuggestions.length ? (
+                    {!showPanelSkeleton && !sourceSuggestionsLocked && visibleSuggestions.length ? (
                       <ul className="divide-ds-outline divide-y">
                         {visibleSuggestions.map((topic) => (
                           <li key={topic.slug}>
@@ -483,18 +490,18 @@ export default function DashboardPage() {
                         ))}
                       </ul>
                     ) : null}
-                    {!showPanelSkeleton &&
-                    data?.sources_suggestions_enabled !== false &&
-                    !trainingTopics.length ? (
+                    {!showPanelSkeleton && !sourceSuggestionsLocked && !trainingTopics.length ? (
                       <DashboardTrainingTopicsEmptyState />
                     ) : null}
                   </div>
-                  <Link
-                    href="/knowledge/text-snippet"
-                    className={appButtonClassName("default", { className: "mt-4 inline-flex w-fit" })}
-                  >
-                    Improve knowledge base
-                  </Link>
+                  {!sourceSuggestionsLocked ? (
+                    <Link
+                      href="/knowledge/text-snippet"
+                      className={appButtonClassName("default", { className: "mt-4 inline-flex w-fit" })}
+                    >
+                      Improve knowledge base
+                    </Link>
+                  ) : null}
                 </div>
               </article>
             </section>

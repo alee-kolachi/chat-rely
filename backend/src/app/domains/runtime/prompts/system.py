@@ -248,7 +248,8 @@ def build_system_prompt(
             "If you are uncertain, say so explicitly and tell the customer how to get a confirmed answer.\n\n"
             "WHEN YOU CANNOT ANSWER\n"
             "- Do not guess. Do not hedge with vague industry generics.\n"
-            "- State in one sentence what you cannot confirm, then offer the most useful next step: "
+            "- State in one sentence what you cannot confirm, then offer the most useful next step. "
+            "Never mention excerpts or the index to the customer.\n"
             f"{cannot_answer_next}"
         )
     else:
@@ -270,8 +271,9 @@ def build_system_prompt(
             "say what you can confirm and offer a useful next step.\n"
             "- When a concrete fact appears in the excerpts (e.g. 'PKR 3,490' or 'free returns within 30 days'), "
             "use it directly — do not rephrase it as an estimate.\n"
-            "- When the excerpts answer the question, state that answer directly. "
+            "- When the indexed content answers the question, state that answer directly. "
             "Do not deflect to 'visit our website' or 'contact customer service' when the answer is right there.\n"
+            "- Never mention excerpts, the knowledge index, or retrieval to the customer — reply as the brand.\n"
             "- Never say 'typically' or 'usually' as a substitute for confirmed brand-specific information.\n\n"
             "WHEN YOU CANNOT ANSWER\n"
             "- Do not guess or fill gaps with plausible-sounding information.\n"
@@ -314,8 +316,10 @@ def build_agent_system_prompt_for_tools(
     if has_knowledge_tool:
         parts.append(
             "- Call `search_knowledge_base` for policies, FAQs, return rules, shipping information, "
-            "and any static content from the brand's knowledge base. "
-            "Always call it before telling the customer you do not have information on a policy topic — "
+            "promotions, purchase perks, gifts, bonuses, deals, and any static content from the knowledge base. "
+            "When they ask what they get with a purchase (e.g. 'do you offer anything when I buy'), "
+            "search the knowledge base — not the product catalog. "
+            "Always call it before telling the customer you do not have information on a policy or promotion topic — "
             "do not assume the knowledge base is empty."
         )
 
@@ -330,7 +334,8 @@ def build_agent_system_prompt_for_tools(
             "- Shopify tool selection:\n"
             "  · `shopify_product_search` — products, categories, pricing, gift cards, "
             "\"do you sell/have…\", \"what products do you sell\", recommendations. "
-            "Not for order tracking, stock-only checks, or questions about what **you** (the assistant) can do.\n"
+            "Not for order tracking, stock-only checks, purchase promotions/perks/freebies, "
+            "or questions about what **you** (the assistant) can do.\n"
             "  · `shopify_product_search` **query arg:** one product/category keyword "
             "(e.g. `snowboard`, `boots`, `gift card`) OR a short multi-word product phrase "
             "when they name several terms (e.g. `blue ski jacket`, `organic coffee beans`). "
@@ -354,7 +359,8 @@ def build_agent_system_prompt_for_tools(
             )
         shopify_line += (
             "  · `shopify_customer_context` — account or order history by email when they provide it.\n"
-            "  · `search_knowledge_base` — returns, shipping rules, FAQs, policies (not live catalog).\n"
+            "  · `search_knowledge_base` — returns, shipping rules, FAQs, policies, promotions, purchase perks "
+            "(not live catalog).\n"
             "  · Call every tool the message needs in the **same** turn when it has multiple topics.\n"
             "  · Use thread history for follow-ups (\"that one\", \"what do you sell then\") — "
             "resolve the product or topic before choosing the tool and query.\n"
@@ -399,8 +405,8 @@ def build_agent_system_prompt_for_tools(
             "- **Source priority when both Shopify tools and knowledge-base content are available:**\n"
             "  · Shopify tools are the source of truth for this store's live catalog, products, prices, "
             "inventory, variants, orders, and customer-specific data. Always call them first.\n"
-            "  · Use knowledge-base content only for policies, FAQs, returns, shipping rules, and static copy "
-            "when it clearly applies to this store.\n"
+            "  · Use knowledge-base content for policies, FAQs, returns, shipping rules, promotions, purchase perks, "
+            "and static copy when it clearly applies to this store.\n"
             "  · Never use knowledge-base excerpts for product catalog, availability, or pricing when Shopify "
             "tools are enabled — excerpts may be outdated or from a different indexed page.\n"
             "  · If excerpts conflict with Shopify tool results, trust Shopify for store data and flag the "
@@ -455,7 +461,8 @@ def build_agent_system_prompt_for_tools(
         "- Never produce harmful, explicit, discriminatory, or illegal content.\n"
         "- Never invent prices, policies, order details, product facts, or contact information.\n"
         "- Never speculate about internal brand operations or team decisions not in your sources.\n"
-        "- If tools return no useful data and excerpts do not cover it, say so in one sentence "
+        "- Never mention excerpts, the knowledge index, retrieval, or tools to the customer — reply as the brand.\n"
+        "- If tools return no useful data and indexed content does not cover it, say so in one sentence "
         "and offer the most helpful next step available — do not guess."
     )
 

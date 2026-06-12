@@ -4,6 +4,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import { Inter } from "next/font/google";
+import { StaleAuthSessionCleanup } from "@/components/auth/stale-auth-session-cleanup";
 import { ChatrelySiteWidget } from "@/components/marketing/chatrely-site-widget";
 import "./globals.css";
 
@@ -36,6 +37,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col font-sans" suppressHydrationWarning>
+        <StaleAuthSessionCleanup />
         {children}
         <ChatrelySiteWidget />
         <Analytics />

@@ -1094,8 +1094,55 @@ def _log_runtime_turn_timing(
         log.warning("runtime.turn_slow", **payload)
 
 
+# Short commerce terms are dropped by the default 4+ char filter but matter for lexical match
+# (e.g. "buy" vs indexed "purchase", "free lollipop with every item bought").
+_RETRIEVAL_SHORT_QUERY_TERMS = frozenset({"buy", "off", "gift", "free", "sale"})
+
+# Synonym groups for retrieval only — widens vector + lexical match without hardcoding answers.
+_RETRIEVAL_TERM_ALIAS_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"buy", "purchase", "purchasing", "bought", "buying"}),
+    frozenset({"offer", "offers", "offering", "promotion", "promotions", "promo", "deal", "deals"}),
+    frozenset({"gift", "gifts", "freebie", "freebies", "bonus", "bonuses", "perk", "perks", "free"}),
+    frozenset({"product", "products", "item", "items"}),
+)
+
+
+def _retrieval_alias_terms(term: str) -> set[str]:
+    key = (term or "").casefold()
+    if not key:
+        return set()
+    for group in _RETRIEVAL_TERM_ALIAS_GROUPS:
+        if key in group:
+            return set(group)
+    return set()
+
+
+def _build_retrieval_expanded_query(message: str) -> str:
+    """Second embedding string: original question plus commerce synonym variants."""
+    msg = (message or "").strip()
+    if not msg:
+        return msg
+    words = re.findall(r"[a-zA-Z0-9']+", msg.casefold())
+    extra: list[str] = []
+    for word in words:
+        aliases = _retrieval_alias_terms(word)
+        if aliases:
+            extra.extend(sorted(aliases - {word}))
+    if not extra:
+        return msg
+    return f"{msg} {' '.join(dict.fromkeys(extra))}"
+
+
 def _extract_query_terms(query_text: str) -> set[str]:
-    return {t for t in re.findall(r"[a-zA-Z0-9]{4,}", (query_text or "").casefold())}
+    raw = (query_text or "").casefold()
+    terms = {t for t in re.findall(r"[a-zA-Z0-9]{4,}", raw)}
+    for word in re.findall(r"[a-zA-Z0-9']+", raw):
+        if len(word) == 3 and word in _RETRIEVAL_SHORT_QUERY_TERMS:
+            terms.add(word)
+    expanded = set(terms)
+    for term in list(terms):
+        expanded.update(_retrieval_alias_terms(term))
+    return expanded
 
 
 def _chunk_lexical_text(chunk: dict[str, Any]) -> str:

@@ -42,10 +42,10 @@ export function OnboardingIndexingProgress({
   const detail = progressDetail(snapshot);
   const showIndeterminate = running && pct === 0;
   const title = snapshot.succeeded
-    ? "Indexing complete"
+    ? "Import complete"
     : snapshot.failed
-      ? "Indexing issue"
-      : "Indexing progress";
+      ? "Import issue"
+      : "Import progress";
 
   const bar = (
     <div

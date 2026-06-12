@@ -30,6 +30,7 @@ import { BackendApiError, backendFetch } from "@/lib/backend-api";
 import { formatLocaleDateTime } from "@/lib/format-locale-datetime";
 import { appButtonClassName } from "@/lib/button-styles";
 import { useClientMounted } from "@/lib/use-client-mounted";
+import { knowledgeSourceStatusPill } from "@/lib/knowledge-status-labels";
 import { cn } from "@/lib/utils";
 
 type SnippetIndexResponse = {
@@ -41,23 +42,6 @@ type SnippetIndexResponse = {
     updated_at: string;
   };
 };
-
-function snippetStatusPill(status: string): {
-  label: string;
-  tone: "success" | "danger" | "warning" | "neutral";
-} {
-  switch ((status || "").toLowerCase()) {
-    case "ready":
-      return { label: "Ready", tone: "success" };
-    case "failed":
-      return { label: "Failed", tone: "danger" };
-    case "indexing":
-    case "pending":
-      return { label: "Processing", tone: "warning" };
-    default:
-      return { label: status || "Pending", tone: "neutral" };
-  }
-}
 
 function snippetRowFromSave(
   source: SnippetIndexResponse["source"],
@@ -97,7 +81,7 @@ export default function KnowledgeTextSnippetPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [createExpanded, setCreateExpanded] = useState(false);
+  const [createExpanded, setCreateExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortKey, setSortKey] = useSortPreference("snippets");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -168,7 +152,20 @@ export default function KnowledgeTextSnippetPage() {
   const replaceSnippetRow = useCallback(
     (fromId: string, row: SnippetRow) => {
       if (!setSnippetSources) return;
-      const next = rowsRef.current.map((existing) => (existing.id === fromId ? row : existing));
+      const next: SnippetRow[] = [];
+      let replaced = false;
+      for (const existing of rowsRef.current) {
+        if (existing.id === fromId) {
+          if (!replaced) {
+            next.push(row);
+            replaced = true;
+          }
+          continue;
+        }
+        if (fromId !== row.id && existing.id === row.id) continue;
+        next.push(existing);
+      }
+      if (!replaced) next.unshift(row);
       rowsRef.current = next;
       setSnippetSources(next);
     },
@@ -397,7 +394,7 @@ export default function KnowledgeTextSnippetPage() {
   }
 
   async function removeSnippet(id: string) {
-    if (!window.confirm("Delete this snippet and all indexed chunks? This cannot be undone.")) return;
+    if (!window.confirm("Delete this snippet? The agent will stop using it in answers.")) return;
     if (isPendingSnippetId(id)) {
       abandonedPendingRef.current.add(id);
       pendingToRealRef.current.delete(id);
@@ -444,7 +441,7 @@ export default function KnowledgeTextSnippetPage() {
     if (selected.size === 0) return;
     if (
       !window.confirm(
-        `Delete ${selected.size} snippet${selected.size === 1 ? "" : "s"} and all indexed chunks? This cannot be undone.`
+        `Delete ${selected.size} snippet${selected.size === 1 ? "" : "s"}? The agent will stop using them in answers.`
       )
     ) {
       return;
@@ -504,7 +501,7 @@ export default function KnowledgeTextSnippetPage() {
           <div>
             <h1 className="ds-app-page-title">Text snippets</h1>
             <p className="ds-app-page-description ds-app-page-description--wide">
-              Short excerpts you control. Indexed like other knowledge for chat.
+              Short excerpts you control. Saved snippets work like other knowledge in chat.
             </p>
           </div>
 
@@ -681,7 +678,7 @@ export default function KnowledgeTextSnippetPage() {
                         </td>
                         <td className="px-4 py-4 text-xs">
                           {(() => {
-                            const s = snippetStatusPill(snippet.status);
+                            const s = knowledgeSourceStatusPill(snippet.status);
                             return <StatusPill label={s.label} tone={s.tone} />;
                           })()}
                         </td>

@@ -30,6 +30,11 @@ import {
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { appButtonClassName } from "@/lib/button-styles";
+import {
+  formatKnowledgeLastUpdatedRelative,
+  websiteCrawlProgressSuffix,
+  websiteSourceStatusLabel,
+} from "@/lib/knowledge-status-labels";
 import { cn } from "@/lib/utils";
 
 type SourceType = "crawl" | "sitemap" | "individual";
@@ -71,18 +76,6 @@ const OPERATOR_OPTIONS: Array<{ label: string; value: PathOperatorApi }> = [
 
 function operatorLabel(op: PathOperatorApi): string {
   return OPERATOR_OPTIONS.find((o) => o.value === op)?.label ?? op;
-}
-
-function formatRelativeTime(iso: string | null): string {
-  if (!iso) return "Not indexed yet";
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "Not indexed yet";
-  const diff = Date.now() - t;
-  const days = Math.floor(diff / (86400 * 1000));
-  if (days >= 1) return `Last indexed ${days}d ago`;
-  const hours = Math.floor(diff / (3600 * 1000));
-  if (hours >= 1) return `Last indexed ${hours}h ago`;
-  return "Last indexed recently";
 }
 
 function newChipId(): string {
@@ -128,7 +121,7 @@ function websiteLinksSummary(source: WebsiteSourceListRow): string {
     if (matched != null && matched > 0) {
       const hub =
         hubAdded != null && hubAdded > 0 ? ` (+${hubAdded} from hub pages, path matched)` : "";
-      return `applying filters · ${urlCountLabel(matched)} to index${hub}`;
+      return `applying filters · ${urlCountLabel(matched)} to add${hub}`;
     }
     if (discovered != null && afterFilter != null) {
       return `applying filters · ${afterFilter} of ${discovered} match`;
@@ -141,7 +134,7 @@ function websiteLinksSummary(source: WebsiteSourceListRow): string {
   }
   const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
   if (matched != null && matched > 0 && source.link_count === 0) {
-    return `${urlCountLabel(matched)} to index`;
+    return `${urlCountLabel(matched)} to add`;
   }
   return `${source.link_count} links`;
 }
@@ -204,7 +197,7 @@ function websiteCrawlDetailLine(source: WebsiteSourceListRow): string | null {
 
 function websiteEmptyUrlsCaption(source: WebsiteSourceListRow, q: string): string {
   const sq = q.trim();
-  if (sq) return "No indexed URLs match your search.";
+  if (sq) return "No pages match your search.";
   const activeJob =
     source.status === "indexing" ||
     source.latest_job_status === "queued" ||
@@ -223,7 +216,7 @@ function websiteEmptyUrlsCaption(source: WebsiteSourceListRow, q: string): strin
     if (cp === "applying_path_filters") {
       const matched = typeof m.sitemap_urls_matched === "number" ? m.sitemap_urls_matched : null;
       if (matched != null && matched > 0) {
-        return `${urlCountLabel(matched)} will be indexed after filters. URL rows appear when HTML fetch starts.`;
+        return `${urlCountLabel(matched)} will be added after filters. Page rows appear when HTML fetch starts.`;
       }
       return "Applying path filters to the sitemap URL list…";
     }
@@ -231,7 +224,7 @@ function websiteEmptyUrlsCaption(source: WebsiteSourceListRow, q: string): strin
       return "Saving the URL list. Rows should appear shortly.";
     }
   }
-  return "No indexed URLs yet. Finish indexing to see links here.";
+  return "No pages ready for chat yet. Finish the update to see links here.";
 }
 
 function duplicateSourceSummary(source: WebsiteSourceListRow): string {
@@ -242,7 +235,7 @@ function duplicateSourceSummary(source: WebsiteSourceListRow): string {
     }`;
   }
   if (r === "page_already_indexed") {
-    return "No crawl ran: this exact seed URL is already stored as an indexed page under another website source for this agent.";
+    return "No crawl ran: this exact seed URL is already ready for chat under another website source for this agent.";
   }
   return "No crawl ran: skipped as a duplicate of existing website coverage for this agent.";
 }
@@ -327,7 +320,7 @@ export default function KnowledgeWebsitePage() {
         const hint =
           data.discovery_warning && data.discovery_warning.includes("Found ")
             ? data.discovery_warning
-            : `About ${data.filtered_url_count} URL(s) will be indexed after path filters${data.truncated ? " (preview capped)" : ""}.`;
+            : `About ${data.filtered_url_count} URL(s) will be added after path filters${data.truncated ? " (preview capped)" : ""}.`;
         setUrlPreviewLine(hint);
       } else if (data.discovery_mode === "sitemap_unreachable" || data.discovery_mode === "sitemap_invalid") {
         setUrlPreviewLine(data.message ?? "Could not read sitemap XML for this URL.");
@@ -478,7 +471,7 @@ export default function KnowledgeWebsitePage() {
     if (selected.size === 0) return;
     if (
       !window.confirm(
-        `Delete ${selected.size} website source${selected.size === 1 ? "" : "s"} and all indexed pages? This cannot be undone.`
+        `Delete ${selected.size} website source${selected.size === 1 ? "" : "s"}? The agent will stop using those pages in answers.`
       )
     ) {
       return;
@@ -1026,7 +1019,7 @@ function WebsiteSourceRow({
     const label = source.source_url ?? source.title;
     if (
       !window.confirm(
-        `Delete this website source (${label}) and all indexed pages? This cannot be undone.`
+        `Delete this website source (${label})? The agent will stop using its pages in answers.`
       )
     ) {
       return;
@@ -1076,10 +1069,9 @@ function WebsiteSourceRow({
       ((source.job_pages_processed ?? 0) < source.job_pages_total &&
         (source.latest_job_status === "succeeded" || source.status === "ready")));
 
-  const crawlRatioVerb =
-    source.latest_job_phase === "complete" && source.latest_job_status === "succeeded"
-      ? "indexed"
-      : "pages fetched";
+  const crawlJobComplete =
+    source.latest_job_phase === "complete" && source.latest_job_status === "succeeded";
+  const crawlRatioVerb = websiteCrawlProgressSuffix(crawlJobComplete);
 
   const jobFailed =
     source.status === "failed" ||
@@ -1092,15 +1084,12 @@ function WebsiteSourceRow({
     !source.job_crawl_limit_exceeded;
 
   const reindexedDuplicate = Boolean(source.reindexed_duplicate);
-  const statusSummary = reindexedDuplicate
-    ? "reindexed"
-    : source.status === "skipped_duplicate"
-      ? "not indexed (duplicate)"
-      : source.latest_job_phase
-        ? source.latest_job_phase
-        : source.status === "indexing"
-          ? "indexing"
-          : source.status;
+  const statusSummary = websiteSourceStatusLabel({
+    sourceStatus: source.status,
+    jobPhase: source.latest_job_phase,
+    jobStatus: source.latest_job_status,
+    reindexedDuplicate,
+  });
 
   const crawlDetailLine = websiteCrawlDetailLine(source);
 
@@ -1137,12 +1126,12 @@ function WebsiteSourceRow({
               </p>
             </div>
             <p className="text-ds-on-surface-variant text-[11px]">
-              {formatRelativeTime(source.last_indexed_at)} · {websiteLinksSummary(source)}
+              {formatKnowledgeLastUpdatedRelative(source.last_indexed_at)} · {websiteLinksSummary(source)}
               {showIndexedRatio && source.job_pages_total
                 ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} ${crawlRatioVerb}`
                 : ""}
               {showFailedCrawlRatio && source.job_pages_total
-                ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} crawled (indexing did not finish)`
+                ? ` · ${source.job_pages_processed ?? 0}/${source.job_pages_total} pages read (update did not finish)`
                 : ""}
               {statusSummary ? ` · ${statusSummary}` : ""}
             </p>
@@ -1163,7 +1152,7 @@ function WebsiteSourceRow({
         </div>
         {!showIndexedRatio && source.job_crawl_limit_exceeded ? (
           <div className="ds-app-body-muted mr-2 hidden max-w-[min(14rem,40%)] shrink-0 flex-col items-end text-right sm:flex">
-            <span className="tabular-nums">{source.job_pages_processed ?? 0} pages indexed</span>
+            <span className="tabular-nums">{source.job_pages_processed ?? 0} pages ready for chat</span>
             <span className="mt-0.5 font-medium text-rose-700 dark:text-rose-300">Size limit exceeded</span>
           </div>
         ) : null}
@@ -1194,7 +1183,7 @@ function WebsiteSourceRow({
                 className="text-ds-on-surface hover:bg-ds-sidebar block w-full cursor-pointer px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void handleRetrain()}
               >
-                {retraining ? "Retraining…" : "Retrain"}
+                {retraining ? "Refreshing…" : "Refresh from site"}
               </button>
               <button
                 type="button"
@@ -1210,7 +1199,7 @@ function WebsiteSourceRow({
           <button
             type="button"
             className="hover:text-ds-on-surface cursor-pointer rounded-ds-md p-1 transition-colors"
-            aria-label={expanded ? "Hide indexed URLs" : "Show indexed URLs"}
+            aria-label={expanded ? "Hide pages" : "Show pages"}
             aria-expanded={expanded}
             onClick={() => setUserExpanded((v) => !v)}
           >
@@ -1228,7 +1217,7 @@ function WebsiteSourceRow({
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[92%] max-w-md animate-pulse rounded-sm" />
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[85%] max-w-sm animate-pulse rounded-sm" />
               <div className="bg-ds-on-surface-variant/12 h-2.5 w-[78%] max-w-xs animate-pulse rounded-sm" />
-              <p className="ds-app-body-muted pt-1">Loading indexed URLs…</p>
+              <p className="ds-app-body-muted pt-1">Loading pages…</p>
             </div>
           ) : visiblePages.length === 0 ? (
             <p className="text-ds-on-surface-variant py-1 text-sm leading-relaxed">
@@ -1408,7 +1397,7 @@ function PageRow({
       <ConfirmDialog
         open={editOpen}
         title="Edit link"
-        message="Saving will refetch and re-index this URL, replacing any existing indexed knowledge for it."
+        message="Saving will refetch this URL and replace what the agent already knows from it."
         confirmLabel={busy ? "Saving…" : "Save"}
         cancelLabel="Cancel"
         busy={busy}
@@ -1433,7 +1422,7 @@ function PageRow({
       <ConfirmDialog
         open={excludeOpen}
         title="Exclude link"
-        message={`Remove ${page.url} from this website source? Its indexed text will be deleted.`}
+        message={`Remove ${page.url} from this website source? The agent will stop using this page in answers.`}
         confirmLabel="Exclude"
         cancelLabel="Cancel"
         destructive

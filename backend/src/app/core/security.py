@@ -1,13 +1,16 @@
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 import jwt
+import structlog
 from jwt import PyJWKClient
 from jwt.exceptions import InvalidTokenError, PyJWKClientError
 
 from app.core.errors import AuthError
 from app.core.settings import Settings
+
+log = structlog.get_logger("auth")
 
 
 class TokenVerifier:
@@ -17,13 +20,19 @@ class TokenVerifier:
         self._audience = settings.supabase_audience
         self._issuer = str(settings.supabase_issuer)
         self._jwks_url = str(settings.supabase_jwks_url)
-        self._jwk_client = PyJWKClient(self._jwks_url)
+        self._jwk_client = PyJWKClient(self._jwks_url, timeout=30)
 
     async def warmup(self) -> None:
-        # Prime JWKS cache at startup.
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(self._jwks_url)
-            response.raise_for_status()
+        # Prime JWKS cache at startup. Non-fatal: verify_token fetches on first use if this fails.
+        try:
+            await asyncio.to_thread(self._jwk_client.fetch_data)
+            log.info("auth.jwks_warmup_done")
+        except Exception as exc:
+            log.warning(
+                "auth.jwks_warmup_failed",
+                error=str(exc),
+                hint="Check SUPABASE_JWKS_URL and network access to Supabase Auth",
+            )
 
     def verify_token(self, token: str) -> dict[str, Any]:
         try:
