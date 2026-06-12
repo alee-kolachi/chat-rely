@@ -76,24 +76,18 @@ async def _fetch_summary_row(
 
 async def _invoke_summary_llm(transcript: str, conversation_status: str) -> tuple[ConversationSummaryLLMResult, str]:
     from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_openai import ChatOpenAI
+
+    from app.agent.llm import make_openai_chat_model
+    from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
 
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not has_openai_api_key(settings):
         raise AppError(
             code="runtime.llm_not_configured",
             message="OPENAI_API_KEY is required to generate conversation summaries",
             status_code=500,
         )
     model_name = settings.openai_chat_model or "gpt-4o-mini"
-    llm = ChatOpenAI(
-        model=model_name,
-        temperature=0,
-        api_key=settings.openai_api_key,
-        timeout=60,
-        max_retries=1,
-    )
-    structured = llm.with_structured_output(ConversationSummaryLLMResult)
     sys = SystemMessage(
         content=(
             "You write a brief summary for a Shopify merchant reviewing a customer support chat. "
@@ -107,7 +101,16 @@ async def _invoke_summary_llm(transcript: str, conversation_status: str) -> tupl
     )
     human = HumanMessage(content=f"Transcript:\n\n{transcript}")
     try:
-        result = await structured.ainvoke([sys, human])
+        result = await ainvoke_with_key_fallback(
+            lambda api_key: make_openai_chat_model(
+                model_name,
+                api_key=api_key,
+                timeout=60,
+                max_retries=1,
+            ).with_structured_output(ConversationSummaryLLMResult),
+            [sys, human],
+            settings=settings,
+        )
         if isinstance(result, ConversationSummaryLLMResult):
             return result, model_name
     except Exception as exc:

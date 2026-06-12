@@ -25,6 +25,7 @@ from app.agent.escalation import (
 )
 from app.domains.runtime.service import response_used_fallback
 from app.agent.llm import make_chat_model
+from app.core.openai_keys import astream_with_key_fallback
 from app.agent.messages import text_delta_from_stream_chunk, text_from_model_message, usage_tokens_from_model_message
 from app.agent.knowledge_tools import (
     is_knowledge_tool_name,
@@ -180,9 +181,14 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
         }
 
     tools = [] if synthesize_only else _collect_bound_tools(state)
-    llm = make_chat_model(state["model"], temperature=float(state.get("temperature") or 0.0))
-    if tools:
-        llm = llm.bind_tools(tools)
+    model = state["model"]
+    temperature = float(state.get("temperature") or 0.0)
+
+    def _build_llm(api_key: str):
+        llm = make_chat_model(model, temperature=temperature, api_key=api_key)
+        if tools:
+            llm = llm.bind_tools(tools)
+        return llm
 
     parts: list[str] = []
     usage_in = int(state.get("usage_input_tokens") or 0)
@@ -193,7 +199,7 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
     buffer_text = bool(tools)
 
     try:
-        async for chunk in llm.astream(state["messages"]):
+        async for chunk in astream_with_key_fallback(_build_llm, state["messages"]):
             if isinstance(chunk, AIMessage):
                 aggregated = chunk if aggregated is None else aggregated + chunk
             delta = text_delta_from_stream_chunk(chunk)

@@ -153,24 +153,18 @@ async def _invoke_closure_llm(
     intent_catalog: list[tuple[str, str]],
 ) -> ConversationOutcomeLLMResult:
     from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_openai import ChatOpenAI
+
+    from app.agent.llm import make_openai_chat_model
+    from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
 
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not has_openai_api_key(settings):
         raise AppError(
             code="runtime.llm_not_configured",
             message="OPENAI_API_KEY is required for conversation outcomes",
             status_code=500,
         )
     model_name = settings.openai_chat_model or "gpt-4o-mini"
-    llm = ChatOpenAI(
-        model=model_name,
-        temperature=0,
-        api_key=settings.openai_api_key,
-        timeout=90,
-        max_retries=2,
-    )
-    structured = llm.with_structured_output(ConversationOutcomeLLMResult)
     if intent_catalog:
         catalog_json = json.dumps(
             [{"slug": s, "label": lab} for s, lab in intent_catalog],
@@ -221,7 +215,16 @@ async def _invoke_closure_llm(
             "Return structured outcome fields only."
         )
     )
-    result = await structured.ainvoke([sys, human])
+    result = await ainvoke_with_key_fallback(
+        lambda api_key: make_openai_chat_model(
+            model_name,
+            api_key=api_key,
+            timeout=90,
+            max_retries=2,
+        ).with_structured_output(ConversationOutcomeLLMResult),
+        [sys, human],
+        settings=settings,
+    )
     if not isinstance(result, ConversationOutcomeLLMResult):
         raise RuntimeError("structured output type mismatch")
     return result
@@ -235,21 +238,16 @@ async def compute_turn_signals(
     Returns ``(signals_or_none, input_tokens, output_tokens)``.
     """
     from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_openai import ChatOpenAI
+
+    from app.agent.llm import make_openai_chat_model
+    from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
 
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not has_openai_api_key(settings):
         return None, 0, 0
     if not settings.runtime_enable_turn_signals:
         return None, 0, 0
-    llm = ChatOpenAI(
-        model=settings.openai_chat_model or "gpt-4o-mini",
-        temperature=0,
-        api_key=settings.openai_api_key,
-        timeout=30,
-        max_retries=1,
-    )
-    structured = llm.with_structured_output(TurnSignals, include_raw=True)
+    model_name = settings.openai_chat_model or "gpt-4o-mini"
     sys = SystemMessage(
         content=(
             "Given one user message and the assistant reply, classify the exchange briefly. "
@@ -264,7 +262,16 @@ async def compute_turn_signals(
         content=f"User: {last_user_message.strip()}\n\nAssistant: {assistant_reply.strip()}"
     )
     try:
-        raw_out = await structured.ainvoke([sys, human])
+        raw_out = await ainvoke_with_key_fallback(
+            lambda api_key: make_openai_chat_model(
+                model_name,
+                api_key=api_key,
+                timeout=30,
+                max_retries=1,
+            ).with_structured_output(TurnSignals, include_raw=True),
+            [sys, human],
+            settings=settings,
+        )
         in_t, out_t = 0, 0
         if isinstance(raw_out, dict):
             raw_msg = raw_out.get("raw")

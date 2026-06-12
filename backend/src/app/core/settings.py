@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     supabase_issuer: AnyHttpUrl
     supabase_audience: str = "authenticated"
     openai_api_key: str | None = None
+    """Optional personal/backup key used when the primary key hits quota or billing errors."""
+    openai_api_key_fallback: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
     """When conversations used exceed the plan included amount, visitor chat uses this model (subscription is unchanged; no per-conversation overage). Override via env."""

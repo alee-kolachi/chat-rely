@@ -32,6 +32,7 @@ def _parse_html(html: str) -> BeautifulSoup:
     return BeautifulSoup(html, "lxml")
 
 from app.core.errors import AppError
+from app.core.openai_keys import has_openai_api_key, is_openai_http_key_fallback, openai_api_keys
 from app.core.settings import get_settings
 from app.domains.plans.plan_limits import (
     DEFAULT_KNOWLEDGE_STORAGE_CAP_BYTES,
@@ -999,15 +1000,41 @@ async def _post_one_embedding_batch(
     *,
     allow_split: bool,
     settings: Any,
+    api_key: str | None = None,
 ) -> tuple[list[list[float]], int]:
     """One OpenAI embeddings HTTP call; returns vectors and API-reported prompt/total tokens."""
-    response = await client.post(
-        "https://api.openai.com/v1/embeddings",
-        headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-        json={"model": settings.openai_embedding_model, "input": batch},
-    )
-    if response.status_code >= 400:
+    keys = [api_key] if api_key else openai_api_keys(settings)
+    if not keys:
+        raise AppError(
+            code="knowledge.embedding_not_configured",
+            message="Knowledge indexing is not configured on the server",
+            status_code=500,
+        )
+
+    last_status = 0
+    last_body = ""
+    for i, key in enumerate(keys):
+        response = await client.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"model": settings.openai_embedding_model, "input": batch},
+        )
+        if response.status_code < 400:
+            payload = response.json()
+            vectors = [item["embedding"] for item in payload.get("data", [])]
+            if len(vectors) != len(batch):
+                raise AppError(
+                    code="knowledge.embedding_failed",
+                    message="Indexing response length mismatch",
+                    status_code=502,
+                )
+            usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+            tokens = int(usage.get("prompt_tokens") or usage.get("total_tokens") or 0)
+            return vectors, tokens
+
         body = response.text or ""
+        last_status = response.status_code
+        last_body = body
         lower = body.lower()
         oversize = (
             response.status_code == 400
@@ -1022,12 +1049,21 @@ async def _post_one_embedding_batch(
         if oversize:
             mid = len(batch) // 2
             left_v, left_t = await _post_one_embedding_batch(
-                client, batch[:mid], allow_split=True, settings=settings
+                client, batch[:mid], allow_split=True, settings=settings, api_key=key
             )
             right_v, right_t = await _post_one_embedding_batch(
-                client, batch[mid:], allow_split=True, settings=settings
+                client, batch[mid:], allow_split=True, settings=settings, api_key=key
             )
             return left_v + right_v, left_t + right_t
+        if i < len(keys) - 1 and is_openai_http_key_fallback(response.status_code, body):
+            log.warning(
+                "openai.api_key_fallback",
+                attempt=i + 1,
+                status_code=response.status_code,
+                body_preview=body[:300],
+            )
+            continue
+
         log.warning(
             "embedding_batch_failed",
             status_code=response.status_code,
@@ -1041,18 +1077,19 @@ async def _post_one_embedding_batch(
             status_code=502,
             details={"status_code": response.status_code, "body": body[:800]},
         )
-    payload = response.json()
-    vectors = [item["embedding"] for item in payload.get("data", [])]
-    if len(vectors) != len(batch):
-        raise AppError(code="knowledge.embedding_failed", message="Indexing response length mismatch", status_code=502)
-    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
-    tokens = int(usage.get("prompt_tokens") or usage.get("total_tokens") or 0)
-    return vectors, tokens
+
+    detail_msg = _embedding_api_error_message(last_status, last_body)
+    raise AppError(
+        code="knowledge.embedding_failed",
+        message=f"Indexing API error: {detail_msg}",
+        status_code=502,
+        details={"status_code": last_status, "body": last_body[:800]},
+    )
 
 
 async def _embed_texts(chunks: list[str]) -> list[list[float]]:
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not has_openai_api_key(settings):
         raise AppError(
             code="knowledge.embedding_not_configured",
             message="Knowledge indexing is not configured on the server",
@@ -1092,7 +1129,7 @@ async def _embed_texts(chunks: list[str]) -> list[list[float]]:
 async def embed_texts_with_token_usage(chunks: list[str]) -> tuple[list[list[float]], int]:
     """Embeddings with summed OpenAI usage tokens across all HTTP batches (RAG / runtime billing)."""
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not has_openai_api_key(settings):
         raise AppError(
             code="knowledge.embedding_not_configured",
             message="Knowledge indexing is not configured on the server",

@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict
 
 from app.agent.llm import make_chat_model
+from app.core.openai_keys import ainvoke_with_key_fallback
 from app.agent.messages import usage_tokens_from_model_message
 from app.core.settings import Settings, get_settings
 from app.domains.plans.plan_limits import PlanModelPolicy
@@ -117,9 +118,6 @@ async def run_complexity_classifier(
     settings = settings or get_settings()
     max_per = max(1, int(settings.runtime_max_premium_turns_per_conversation))
     router_model = settings.runtime_default_chat_model or "gpt-4o-mini"
-    llm = make_chat_model(router_model, temperature=0.0).bind(
-        response_format={"type": "json_object"},
-    )
     sys = build_classifier_system_prompt(
         plan_slug=policy.plan_slug,
         premium_remaining=premium_remaining,
@@ -133,7 +131,13 @@ async def run_complexity_classifier(
     )
     billing: dict[str, Any] = {"model": router_model, "input_tokens": 0, "output_tokens": 0}
     try:
-        msg = await llm.ainvoke([SystemMessage(content=sys), HumanMessage(content=user_content)])
+        msg = await ainvoke_with_key_fallback(
+            lambda api_key: make_chat_model(router_model, temperature=0.0, api_key=api_key).bind(
+                response_format={"type": "json_object"},
+            ),
+            [SystemMessage(content=sys), HumanMessage(content=user_content)],
+            settings=settings,
+        )
         in_t, out_t = usage_tokens_from_model_message(msg)
         billing["input_tokens"] = in_t
         billing["output_tokens"] = out_t

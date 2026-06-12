@@ -8,7 +8,8 @@ from uuid import UUID
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from app.agent.llm import make_openai_chat_model
+from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -282,17 +283,9 @@ async def _generate_batch_summary(
     resolved_hints: list[str],
 ) -> tuple[str, list[str], str | None]:
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not has_openai_api_key(settings):
         return "", [], None
     model = settings.openai_chat_model or "gpt-4o-mini"
-    llm = ChatOpenAI(
-        model=model,
-        temperature=0,
-        api_key=settings.openai_api_key,
-        timeout=45,
-        max_retries=1,
-    )
-    structured = llm.with_structured_output(_FeedbackSummaryLLM)
     excerpts_block = "\n".join(f"- {_clip(x, 500)}" for x in new_excerpts if x.strip())
     resolved_block = "\n".join(f"- {_clip(x, 300)}" for x in resolved_hints if x.strip())
     sys = SystemMessage(
@@ -312,7 +305,16 @@ async def _generate_batch_summary(
         )
     )
     try:
-        out = await structured.ainvoke([sys, human])
+        out = await ainvoke_with_key_fallback(
+            lambda api_key: make_openai_chat_model(
+                model,
+                api_key=api_key,
+                timeout=45,
+                max_retries=1,
+            ).with_structured_output(_FeedbackSummaryLLM),
+            [sys, human],
+            settings=settings,
+        )
         if isinstance(out, _FeedbackSummaryLLM):
             topics = [t.strip() for t in out.topics if isinstance(t, str) and t.strip()][:12]
             return out.summary.strip(), topics, model

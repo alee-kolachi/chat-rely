@@ -10,6 +10,7 @@ from langchain_core.messages import BaseMessage
 
 from app.agent.llm import make_chat_model
 from app.agent.messages import text_delta_from_stream_chunk, usage_tokens_from_model_message
+from app.core.openai_keys import astream_with_key_fallback
 from app.domains.runtime.service import response_used_fallback
 
 
@@ -24,12 +25,14 @@ async def stream_llm_sse(
     temperature: float,
     fallback_message: str,
 ) -> AsyncIterator[str]:
-    llm = make_chat_model(model, temperature=temperature)
     parts: list[str] = []
     usage_in = 0
     usage_out = 0
 
-    async for chunk in llm.astream(messages):
+    async for chunk in astream_with_key_fallback(
+        lambda api_key: make_chat_model(model, temperature=temperature, api_key=api_key),
+        messages,
+    ):
         delta = text_delta_from_stream_chunk(chunk)
         if delta:
             parts.append(delta)
