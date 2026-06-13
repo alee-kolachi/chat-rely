@@ -2,10 +2,12 @@
  * Shared helpers for the embeddable ChatRely widget (`widget.js`).
  */
 
+const DEFAULT_WIDGET_SCRIPT_SRC = "https://chat-rely.vercel.app/widget.js";
+
 export function getWidgetScriptSrc(): string {
   const env = process.env.NEXT_PUBLIC_WIDGET_SCRIPT_URL?.trim();
   if (env) return env.replace(/\/$/, "");
-  return "/widget.js";
+  return DEFAULT_WIDGET_SCRIPT_SRC;
 }
 
 /** Public API origin passed to `data-chatrely-api-base`. */

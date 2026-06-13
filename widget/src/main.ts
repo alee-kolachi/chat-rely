@@ -145,6 +145,8 @@ function getEmbedLoaderScript(): HTMLScriptElement | null {
   return nodes.length ? (nodes[nodes.length - 1] ?? null) : null;
 }
 
+const DEFAULT_WIDGET_APP_ORIGIN = "https://chat-rely.vercel.app";
+
 function resolveApiBase(script: HTMLScriptElement): string {
   const win = window.__CHATRELY_WIDGET__;
   const fromWin = (win?.apiBase ?? "").trim().replace(/\/$/, "");
@@ -156,6 +158,17 @@ function resolveApiBase(script: HTMLScriptElement): string {
   } catch {
     return "";
   }
+}
+
+/** Public app origin for static assets (logo), not the API base. */
+function resolveWidgetAppOrigin(script: HTMLScriptElement): string {
+  try {
+    const origin = new URL(script.src).origin;
+    if (origin && origin !== "null") return origin.replace(/\/$/, "");
+  } catch {
+    /* ignore invalid script src */
+  }
+  return DEFAULT_WIDGET_APP_ORIGIN;
 }
 
 function resolveAgentKey(script: HTMLScriptElement): string {
@@ -754,9 +767,9 @@ function renderAssistantRichContent(
   }
 }
 
-function poweredByChatRelyHtml(apiBase: string): string {
-  const logoUrl = `${apiBase.replace(/\/$/, "")}/chat-rely.svg`;
-  return `<a class="cr-powered-link" href="https://chatrely.com" target="_blank" rel="noopener noreferrer"><img class="cr-powered-logo" src="${logoUrl}" alt="" width="4931" height="3503" /><span class="cr-powered-text">Powered by <strong>ChatRely</strong></span></a>`;
+function poweredByChatRelyHtml(appOrigin: string): string {
+  const logoUrl = `${appOrigin.replace(/\/$/, "")}/chat-rely.svg`;
+  return `<a class="cr-powered-link" href="https://chatrely.com" target="_blank" rel="noopener noreferrer"><img class="cr-powered-logo" src="${logoUrl}" alt="" /><span class="cr-powered-text">Powered by <span class="cr-powered-brand">ChatRely</span></span></a>`;
 }
 
 function threadPreview(messages: StoredMessage[]): string {
@@ -886,6 +899,7 @@ async function boot(): Promise<void> {
   }
   const agentKey = resolveAgentKey(script);
   const apiBase = resolveApiBase(script);
+  const appOrigin = resolveWidgetAppOrigin(script);
   if (!agentKey || !apiBase) {
     console.warn("[ChatRely] Missing data-chatrely-agent-key or API base.");
     return;
@@ -1103,7 +1117,7 @@ async function boot(): Promise<void> {
   const welcomePowered = document.createElement("div");
   welcomePowered.className = "cr-welcome-powered";
   if (!cfg.hide_powered_by_chatrely) {
-    welcomePowered.innerHTML = poweredByChatRelyHtml(apiBase);
+    welcomePowered.innerHTML = poweredByChatRelyHtml(appOrigin);
   } else {
     welcomePowered.hidden = true;
   }
@@ -1149,7 +1163,7 @@ async function boot(): Promise<void> {
   const poweredByEl = document.createElement("div");
   poweredByEl.className = "cr-powered";
   if (!cfg.hide_powered_by_chatrely) {
-    poweredByEl.innerHTML = poweredByChatRelyHtml(apiBase);
+    poweredByEl.innerHTML = poweredByChatRelyHtml(appOrigin);
   } else {
     poweredByEl.hidden = true;
   }
