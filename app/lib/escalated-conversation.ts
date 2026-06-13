@@ -62,6 +62,24 @@ export function readEscalationHandoffFromSse(
   };
 }
 
+/** Ignore escalation metadata bundled on every turn; require an active handoff. */
+export function readEscalationHandoffFromSseIfActive(
+  payload: Record<string, unknown>
+): EscalationHandoffContext | null {
+  const handoff = readEscalationHandoffFromSse(payload);
+  if (!handoff) return null;
+  const escalation = payload.escalation;
+  const row =
+    escalation && typeof escalation === "object" && !Array.isArray(escalation)
+      ? (escalation as Record<string, unknown>)
+      : null;
+  if (row?.occurred === true) return handoff;
+  if (payload.ai_chat_disabled === true) return handoff;
+  if (isAiChatDisabledStatus(readConversationStatus(payload.conversation_status))) return handoff;
+  if (payload.contact_capture_required === true) return handoff;
+  return null;
+}
+
 export function readEscalationHandoffFromApiFields(data: {
   seller_live?: boolean;
   estimated_minutes?: number | null;

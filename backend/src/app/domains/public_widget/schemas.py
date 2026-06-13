@@ -26,6 +26,16 @@ class PublicWidgetConfigResponse(BaseModel):
     name: str
     brand_color: str | None = None
     widget_position: Literal["bottom_right", "bottom_left"] = "bottom_right"
+    widget_border_radius: int = Field(
+        default=28,
+        ge=0,
+        le=28,
+        description="Storefront widget button corner radius in px (0 square, 28 circle on 56px button).",
+    )
+    widget_animation_enabled: bool = Field(
+        default=True,
+        description="When True, play a one-time brand-color arc on the white ring when the page loads.",
+    )
     """First assistant bubble when the chat opens (legacy single-bubble clients)."""
     greeting_message: str | None = None
     """Ordered welcome bubbles; custom greeting is one item, default is two."""

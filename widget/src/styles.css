@@ -98,23 +98,88 @@
 .cr-launcher {
   pointer-events: auto;
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  bottom: 24px;
+  right: 24px;
   z-index: 2147483001;
   width: 56px;
   height: 56px;
-  border-radius: 9999px;
+  --cr-launcher-radius: 28px;
+  border-radius: var(--cr-launcher-radius);
   border: 1px solid rgba(0, 0, 0, 0.1);
   cursor: pointer;
   background: var(--cr-accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
   box-shadow:
     0 0 0 4px #fff,
     0 10px 25px rgba(15, 23, 42, 0.22);
   transition: transform 0.15s ease;
+}
+
+.cr-launcher-surface {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cr-launcher-arc {
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--cr-launcher-radius);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cr-launcher-arc::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    var(--cr-accent) 0deg,
+    var(--cr-accent) 72deg,
+    transparent 72deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: 2.5px;
+  animation: cr-launcher-arc-sweep 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes cr-launcher-arc-sweep {
+  0% {
+    transform: rotate(-90deg);
+    opacity: 1;
+  }
+
+  88% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: rotate(270deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cr-launcher-arc {
+    display: none;
+  }
 }
 
 .cr-launcher-logo {
@@ -163,7 +228,7 @@
 
 .cr-root--bl .cr-launcher {
   right: auto;
-  left: 20px;
+  left: 24px;
 }
 
 .cr-launcher:hover {
@@ -173,8 +238,8 @@
 .cr-panel {
   pointer-events: auto;
   position: fixed;
-  bottom: 92px;
-  right: 20px;
+  bottom: 96px;
+  right: 24px;
   z-index: 2147483001;
   /* px not rem — storefront themes often change root font-size and shrink rem-based sizing */
   width: 416px;
@@ -195,24 +260,24 @@
 
 @media (max-width: 480px) {
   .cr-launcher {
-    bottom: 12px;
-    right: 12px;
+    bottom: 14px;
+    right: 14px;
   }
 
   .cr-root--bl .cr-launcher {
-    left: 12px;
+    left: 14px;
   }
 
   .cr-panel {
-    right: 8px;
-    bottom: 76px;
+    right: 14px;
+    bottom: 78px;
     width: calc(100vw - 16px);
     max-width: none;
     height: min(600px, calc(100dvh - 88px));
   }
 
   .cr-root--bl .cr-panel {
-    left: 8px;
+    left: 14px;
   }
 
   .cr-messages {
@@ -231,7 +296,7 @@
 
 .cr-root--bl .cr-panel {
   right: auto;
-  left: 20px;
+  left: 24px;
 }
 
 .cr-panel-header {

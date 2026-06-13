@@ -18,6 +18,8 @@ export type WidgetConfig = {
   name: string;
   brand_color: string | null;
   widget_position: "bottom_right" | "bottom_left";
+  widget_border_radius?: number;
+  widget_animation_enabled?: boolean;
   greeting_message?: string | null;
   greeting_messages?: string[] | null;
   welcome_screen_enabled?: boolean;

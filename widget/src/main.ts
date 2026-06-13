@@ -76,6 +76,8 @@ function buildEscalatedBanner(handoff?: HandoffContext | null): string {
   );
 }
 const WIDGET_STYLES_ID = "chatrely-widget-styles";
+/** Poll escalated threads for operator replies (no widget SSE stream). */
+const WIDGET_OPERATOR_SYNC_MS = 4000;
 
 const ICON_REFRESH =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>';
@@ -450,6 +452,41 @@ function createWelcomeSocialCard(link: WelcomeSocialLink): HTMLElement {
   iconEl.innerHTML = ICON_ARROW_RIGHT_BOLD;
   card.append(platformEl, labelEl, iconEl);
   return card;
+}
+
+const WIDGET_BORDER_RADIUS_MIN = 0;
+const WIDGET_BORDER_RADIUS_MAX = 28;
+const WIDGET_BORDER_RADIUS_DEFAULT = 28;
+
+function clampWidgetBorderRadius(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(
+      WIDGET_BORDER_RADIUS_MIN,
+      Math.min(WIDGET_BORDER_RADIUS_MAX, Math.round(value))
+    );
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return Math.max(
+        WIDGET_BORDER_RADIUS_MIN,
+        Math.min(WIDGET_BORDER_RADIUS_MAX, Math.round(parsed))
+      );
+    }
+  }
+  return WIDGET_BORDER_RADIUS_DEFAULT;
+}
+
+function widgetAnimationEnabled(cfg: WidgetConfig): boolean {
+  return cfg.widget_animation_enabled !== false;
+}
+
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
 }
 
 function greetingMessagesFromConfig(cfg: WidgetConfig): string[] {
@@ -944,6 +981,8 @@ async function boot(): Promise<void> {
   launcher.setAttribute("aria-label", "Open chat");
   launcher.setAttribute("aria-expanded", "false");
   launcher.style.background = widgetAccent;
+  const widgetBorderRadius = clampWidgetBorderRadius(cfg.widget_border_radius);
+  host.style.setProperty("--cr-launcher-radius", `${widgetBorderRadius}px`);
 
   const launcherInitial =
     (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
@@ -962,7 +1001,18 @@ async function boot(): Promise<void> {
   launcherClose.className = "cr-launcher-close";
   launcherClose.innerHTML = ICON_CLOSE;
 
-  launcher.append(launcherLogo, launcherFallback, launcherClose);
+  const launcherSurface = document.createElement("span");
+  launcherSurface.className = "cr-launcher-surface";
+
+  if (widgetAnimationEnabled(cfg) && !prefersReducedMotion()) {
+    const launcherArc = document.createElement("span");
+    launcherArc.className = "cr-launcher-arc";
+    launcherArc.setAttribute("aria-hidden", "true");
+    launcher.append(launcherArc);
+  }
+
+  launcherSurface.append(launcherLogo, launcherFallback, launcherClose);
+  launcher.append(launcherSurface);
 
   if (cfg.avatar_url) {
     launcherFallback.hidden = true;
@@ -1273,6 +1323,8 @@ async function boot(): Promise<void> {
   let handoffContext: HandoffContext | null = null;
   let threadStateReady = false;
   let threadStateSync: Promise<void> | null = null;
+  let blockThreadSync = false;
+  let operatorPollId: number | null = null;
   const syncedServerMessageIds = new Set<string>();
 
   const contactNameInput = composerContact.querySelector('input[name="name"]') as HTMLInputElement;
@@ -1349,13 +1401,56 @@ async function boot(): Promise<void> {
     conversationStatus = (data.conversation_status ?? "open").trim().toLowerCase() || "open";
     operatorEngaged = data.operator_engaged === true;
     const threadHandoff = readHandoffFromThread(data);
-    if (threadHandoff) setHandoffContext(threadHandoff);
+    if (threadHandoff) {
+      setHandoffContext(threadHandoff);
+    } else if (
+      !data.ai_chat_disabled &&
+      !isEscalatedStatus(conversationStatus) &&
+      !operatorEngaged
+    ) {
+      setHandoffContext(null);
+    }
     aiChatDisabled =
       data.ai_chat_disabled === true ||
       isEscalatedStatus(conversationStatus) ||
       operatorEngaged ||
       handoffContext !== null;
     updateComposerState();
+  }
+
+  function latestSyncedMessageAt(): string | null {
+    let latest: string | null = null;
+    for (const msg of chatMessages) {
+      const iso = msg.created_at;
+      if (!iso) continue;
+      if (!latest || iso > latest) latest = iso;
+    }
+    return latest;
+  }
+
+  function needsOperatorThreadSync(): boolean {
+    return Boolean(conversationId) && isHumanHandoffActive();
+  }
+
+  function stopOperatorPoll(): void {
+    if (operatorPollId !== null) {
+      window.clearInterval(operatorPollId);
+      operatorPollId = null;
+    }
+  }
+
+  function startOperatorPoll(): void {
+    stopOperatorPoll();
+    if (!needsOperatorThreadSync() || !panelOpen) return;
+    operatorPollId = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || !panelOpen || blockThreadSync) return;
+      void syncThreadFromServer();
+    }, WIDGET_OPERATOR_SYNC_MS);
+  }
+
+  function refreshOperatorPoll(): void {
+    if (needsOperatorThreadSync() && panelOpen) startOperatorPoll();
+    else stopOperatorPoll();
   }
 
   function updateComposerState(): void {
@@ -1366,6 +1461,7 @@ async function boot(): Promise<void> {
       contactCaptureRequired || sending || !input.value.trim() || (Boolean(conversationId) && !threadStateReady);
     composerEscalated.textContent = buildEscalatedBanner(handoffContext);
     applyBodyView();
+    refreshOperatorPoll();
   }
 
   async function syncThreadFromServer(): Promise<void> {
@@ -1373,10 +1469,13 @@ async function boot(): Promise<void> {
       threadStateReady = true;
       return;
     }
+    if (blockThreadSync) return;
     try {
+      const since = latestSyncedMessageAt();
       const data = await fetchWidgetThread(apiBase, agentKey, {
         conversation_id: conversationId,
         visitor_id: visitorId,
+        ...(since ? { since } : {}),
       });
       applyThreadStateFromServer(data);
       purgePhantomAssistantFallbacks();
@@ -1445,9 +1544,43 @@ async function boot(): Promise<void> {
     };
   }
 
+  /** Only treat handoff as active after a real escalation, not metadata on every chat turn. */
+  function readHandoffFromEscalationIfActive(data: Record<string, unknown>): HandoffContext | null {
+    const handoff = readHandoffFromEscalation(data);
+    if (!handoff) return null;
+    const escalation = data.escalation;
+    const row =
+      escalation && typeof escalation === "object" && !Array.isArray(escalation)
+        ? (escalation as Record<string, unknown>)
+        : null;
+    if (row?.occurred === true) return handoff;
+    if (data.ai_chat_disabled === true) return handoff;
+    if (isEscalatedStatus(typeof data.conversation_status === "string" ? data.conversation_status : null)) {
+      return handoff;
+    }
+    if (readContactCaptureRequired(data)) return handoff;
+    return null;
+  }
+
+  function removeConfigGreetingsFromTranscript(): void {
+    const greetingSet = new Set(greetingMessagesFromConfig(cfg));
+    if (!greetingSet.size) return;
+    if (chatMessages.some((m) => m.role === "user")) return;
+    const next = chatMessages.filter(
+      (m) => !(m.role === "assistant" && greetingSet.has(m.text.trim()))
+    );
+    if (next.length === chatMessages.length) return;
+    chatMessages = next;
+    renderChatMessages();
+  }
+
   function setHandoffContext(next: HandoffContext | null): void {
     handoffContext = next;
-    if (next) aiChatDisabled = true;
+    if (next) {
+      aiChatDisabled = true;
+    } else if (!isEscalatedStatus(conversationStatus) && !operatorEngaged) {
+      aiChatDisabled = false;
+    }
     if (conversationId && store.threads.length) {
       const idx = store.threads.findIndex((t) => t.id === conversationId);
       if (idx >= 0) {
@@ -1827,7 +1960,11 @@ async function boot(): Promise<void> {
     launcher.classList.toggle("cr-launcher--open", next);
     launcher.setAttribute("aria-expanded", next ? "true" : "false");
     launcher.setAttribute("aria-label", next ? "Close chat" : "Open chat");
-    if (next) requestThreadSync();
+    if (next) {
+      requestThreadSync();
+    } else {
+      stopOperatorPoll();
+    }
   }
 
   function clearStaleConversation(): void {
@@ -1983,8 +2120,18 @@ async function boot(): Promise<void> {
           }
           applyAiChatDisabledFromSse(ev.ai_chat_disabled);
           setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
-          const readyHandoff = readHandoffFromEscalation(ev as Record<string, unknown>);
-          if (readyHandoff) setHandoffContext(readyHandoff);
+          const readyHandoff = readHandoffFromEscalationIfActive(ev as Record<string, unknown>);
+          if (readyHandoff) {
+            setHandoffContext(readyHandoff);
+          } else if (
+            ev.ai_chat_disabled !== true &&
+            !isEscalatedStatus(
+              typeof ev.conversation_status === "string" ? ev.conversation_status : null
+            ) &&
+            !readContactCaptureRequired(ev as Record<string, unknown>)
+          ) {
+            setHandoffContext(null);
+          }
           onComposerReady?.();
         } else if (ev.type === "done") {
           gotDone = true;
@@ -1996,9 +2143,18 @@ async function boot(): Promise<void> {
           }
           applyAiChatDisabledFromSse(ev.ai_chat_disabled);
           setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
-          const handoff = readHandoffFromEscalation(ev as Record<string, unknown>);
-          if (handoff) setHandoffContext(handoff);
-          requestThreadSync();
+          const handoff = readHandoffFromEscalationIfActive(ev as Record<string, unknown>);
+          if (handoff) {
+            setHandoffContext(handoff);
+          } else if (
+            ev.ai_chat_disabled !== true &&
+            !isEscalatedStatus(
+              typeof ev.conversation_status === "string" ? ev.conversation_status : null
+            ) &&
+            !readContactCaptureRequired(ev as Record<string, unknown>)
+          ) {
+            setHandoffContext(null);
+          }
           hideDots();
           clearStatus();
           const hasRichProducts =
@@ -2109,6 +2265,7 @@ async function boot(): Promise<void> {
     const action: ProductActionRequest = { type, handle: card.handle, title: card.title };
     const userText = productActionUserMessage(action);
     sending = true;
+    blockThreadSync = true;
     send.disabled = true;
     appendUserMessage(userText);
     const streamWrap = createAssistantStreamWrap();
@@ -2119,7 +2276,9 @@ async function boot(): Promise<void> {
       });
     } finally {
       sending = false;
+      blockThreadSync = false;
       send.disabled = !input.value.trim();
+      requestThreadSync();
     }
   }
 
@@ -2163,7 +2322,9 @@ async function boot(): Promise<void> {
     if (!text || sending || contactCaptureRequired) return;
     if (conversationId) await ensureThreadStateFresh();
     const humanHandoff = isHumanHandoffActive();
+    removeConfigGreetingsFromTranscript();
     sending = true;
+    blockThreadSync = true;
     send.disabled = true;
     input.value = "";
     input.style.height = "auto";
@@ -2187,6 +2348,7 @@ async function boot(): Promise<void> {
       appendError(msg);
     } finally {
       sending = false;
+      blockThreadSync = false;
       send.disabled = !input.value.trim();
       requestThreadSync();
     }

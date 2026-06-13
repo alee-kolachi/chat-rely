@@ -60,6 +60,14 @@ import {
   type WidgetFontFamily,
   type WidgetThemeMode,
 } from "@/lib/widget-appearance";
+import {
+  clampWidgetBorderRadius,
+  readWidgetAnimationEnabled,
+  readWidgetBorderRadius,
+  WIDGET_BORDER_RADIUS_MAX,
+  WIDGET_BORDER_RADIUS_MIN,
+  WIDGET_BORDER_RADIUS_PRESETS,
+} from "@/lib/widget-shape";
 import { faviconServiceUrl } from "@/lib/website-url";
 import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
@@ -110,8 +118,21 @@ function AppearanceForm() {
     [selectedAgent?.behavior_settings]
   );
 
+  const initialBorderRadius = useMemo(
+    () => readWidgetBorderRadius(selectedAgent?.behavior_settings),
+    [selectedAgent?.behavior_settings]
+  );
+
+  const initialAnimationEnabled = useMemo(
+    () => readWidgetAnimationEnabled(selectedAgent?.behavior_settings),
+    [selectedAgent?.behavior_settings]
+  );
+
   const [hex, setHex] = useState<string>(initialBrand.replace("#", ""));
   const [position, setPosition] = useState<WidgetPosition>(initialPosition);
+  const [widgetBorderRadius, setWidgetBorderRadius] = useState(initialBorderRadius);
+  const [widgetAnimationEnabled, setWidgetAnimationEnabled] = useState(initialAnimationEnabled);
+  const [previewAnimationKey, setPreviewAnimationKey] = useState(0);
   const [themeMode, setThemeMode] = useState<WidgetThemeMode>(initialAppearance.theme_mode ?? "light");
   const [fontFamily, setFontFamily] = useState<WidgetFontFamily>(
     initialAppearance.font_family ?? "geist"
@@ -142,6 +163,8 @@ function AppearanceForm() {
     queueMicrotask(() => {
       setHex(initialBrand.replace("#", ""));
       setPosition(initialPosition);
+      setWidgetBorderRadius(initialBorderRadius);
+      setWidgetAnimationEnabled(initialAnimationEnabled);
       setThemeMode(initialAppearance.theme_mode ?? "light");
       setFontFamily(initialAppearance.font_family ?? "geist");
       setCustomColors(initialAppearance.colors ?? {});
@@ -155,11 +178,25 @@ function AppearanceForm() {
       setError(null);
       setSavedAt(null);
     });
-  }, [selectedAgent?.id, initialBrand, initialPosition, initialAppearance, initialWelcomeScreen]);
+  }, [
+    selectedAgent?.id,
+    initialBrand,
+    initialPosition,
+    initialBorderRadius,
+    initialAnimationEnabled,
+    initialAppearance,
+    initialWelcomeScreen,
+  ]);
 
   useEffect(() => {
     if (!welcomeScreenEnabled) setPreviewChatOpen(false);
   }, [welcomeScreenEnabled]);
+
+  useEffect(() => {
+    if (widgetAnimationEnabled) {
+      setPreviewAnimationKey((key) => key + 1);
+    }
+  }, [widgetAnimationEnabled]);
 
   const previewBrandColor = useMemo(() => formatHex(hex) ?? BRAND_COLOR_PRESETS[0].hex, [hex]);
 
@@ -261,10 +298,23 @@ function AppearanceForm() {
     return (
       formatted !== initialBrand ||
       position !== initialPosition ||
+      widgetBorderRadius !== initialBorderRadius ||
+      widgetAnimationEnabled !== initialAnimationEnabled ||
       appearanceDirty ||
       welcomeScreenDirty
     );
-  }, [hex, position, initialBrand, initialPosition, appearanceDirty, welcomeScreenDirty]);
+  }, [
+    hex,
+    position,
+    widgetBorderRadius,
+    widgetAnimationEnabled,
+    initialBrand,
+    initialPosition,
+    initialBorderRadius,
+    initialAnimationEnabled,
+    appearanceDirty,
+    welcomeScreenDirty,
+  ]);
 
   const validHex = formatHex(hex) !== null;
 
@@ -307,6 +357,8 @@ function AppearanceForm() {
       const partial: Record<string, unknown> = {
         brand_color: formatted,
         widget_position: position,
+        widget_border_radius: clampWidgetBorderRadius(widgetBorderRadius),
+        widget_animation_enabled: widgetAnimationEnabled,
       };
       if (widgetStylingIncluded) {
         partial.widget_appearance = appearancePayload ?? {};
@@ -330,6 +382,8 @@ function AppearanceForm() {
   function handleCancel() {
     setHex(initialBrand.replace("#", ""));
     setPosition(initialPosition);
+    setWidgetBorderRadius(initialBorderRadius);
+    setWidgetAnimationEnabled(initialAnimationEnabled);
     setThemeMode(initialAppearance.theme_mode ?? "light");
     setFontFamily(initialAppearance.font_family ?? "geist");
     setCustomColors(initialAppearance.colors ?? {});
@@ -379,7 +433,7 @@ function AppearanceForm() {
         <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
           <h2 className="ds-app-section-title mb-1">Basics</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
-          Welcome screen, brand color, and launcher position for your storefront widget.
+          Welcome screen, brand color, and widget position for your storefront.
         </p>
 
         <div className="space-y-6">
@@ -556,6 +610,13 @@ function AppearanceForm() {
             <p className="text-ds-on-surface mb-1 text-sm font-semibold">Brand color</p>
               <p className="ds-app-body-muted mb-4">Primary accent for launcher and default header tones.</p>
               <div className="flex flex-wrap items-center gap-2.5">
+                <input
+                  type="color"
+                  className="border-ds-outline size-10 shrink-0 cursor-pointer rounded-ds-lg border bg-white p-1 sm:size-11"
+                  value={formatHex(hex) ?? BRAND_COLOR_PRESETS[0].hex}
+                  onChange={(e) => setHex(e.target.value.replace("#", ""))}
+                  aria-label="Brand color picker"
+                />
                 {BRAND_COLOR_PRESETS.map((preset) => {
                   const presetHex = preset.hex.replace("#", "").toUpperCase();
                   const isSelected = presetHex === hex.toUpperCase();
@@ -594,7 +655,7 @@ function AppearanceForm() {
 
             <div>
               <p className="text-ds-on-surface mb-1 text-sm font-semibold">Widget position</p>
-              <p className="ds-app-body-muted mb-3">Where the launcher sits on the page.</p>
+              <p className="ds-app-body-muted mb-3">Where the widget sits on the page.</p>
               <div role="radiogroup" aria-label="Widget position" className="grid grid-cols-2 gap-3">
                 <PositionOption
                   value="bottom_left"
@@ -609,6 +670,79 @@ function AppearanceForm() {
                   onSelect={() => setPosition("bottom_right")}
                 />
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
+          <h2 className="ds-app-section-title mb-1">Widget</h2>
+          <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
+            Shape and a one-time attention animation on the storefront button.
+          </p>
+
+          <div className="space-y-6">
+            <div>
+              <p className="text-ds-on-surface mb-1 text-sm font-semibold">Corner radius</p>
+              <p className="ds-app-body-muted mb-3">
+                Square, rounded, or full circle. The white ring and animation follow this shape.
+              </p>
+              <div className="mb-4 flex flex-wrap gap-2">
+                {WIDGET_BORDER_RADIUS_PRESETS.map((preset) => {
+                  const selected = widgetBorderRadius === preset.value;
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setWidgetBorderRadius(preset.value)}
+                      className={cn(
+                        "rounded-ds-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                        selected
+                          ? "border-ds-primary bg-white text-ds-on-surface ring-2 ring-ds-primary/15"
+                          : "border-ds-outline-subtle bg-ds-app-canvas/50 text-ds-on-surface-variant hover:border-ds-outline"
+                      )}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  id="appearance-widget-border-radius"
+                  type="range"
+                  min={WIDGET_BORDER_RADIUS_MIN}
+                  max={WIDGET_BORDER_RADIUS_MAX}
+                  step={1}
+                  value={widgetBorderRadius}
+                  onChange={(e) =>
+                    setWidgetBorderRadius(clampWidgetBorderRadius(Number(e.target.value)))
+                  }
+                  aria-label="Widget corner radius"
+                  className="text-ds-primary h-2 min-w-0 flex-1 cursor-pointer accent-ds-primary"
+                />
+                <span className="text-ds-on-surface-variant w-12 shrink-0 text-right font-mono text-xs">
+                  {widgetBorderRadius}px
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="border-ds-outline text-ds-primary mt-0.5 size-4 rounded border"
+                  checked={widgetAnimationEnabled}
+                  onChange={(e) => setWidgetAnimationEnabled(e.target.checked)}
+                />
+                <span>
+                  <span className="text-ds-on-surface block text-sm font-semibold">
+                    Attention animation
+                  </span>
+                  <span className="ds-app-body-muted mt-0.5 block text-sm">
+                    Plays once when the page loads: a short brand-color arc on the white ring.
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
         </section>
@@ -709,10 +843,13 @@ function AppearanceForm() {
                             </>
                           ) : null}
                           <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className="border-ds-outline-subtle size-8 shrink-0 rounded-ds-md border"
-                              style={{ backgroundColor: swatchHex }}
-                              aria-hidden
+                            <input
+                              type="color"
+                              className="border-ds-outline size-10 shrink-0 cursor-pointer rounded-ds-lg border bg-white p-1 disabled:cursor-not-allowed disabled:opacity-60"
+                              value={swatchHex}
+                              disabled={widgetStyling.blockInteraction}
+                              onChange={(e) => updateCustomColor(field.key, e.target.value)}
+                              aria-label={`${field.label} color picker`}
                             />
                             <div className="border-ds-outline-subtle flex items-center overflow-hidden rounded-ds-md border bg-ds-surface">
                               <span className="ds-app-body-muted px-2 font-mono">#</span>
@@ -770,65 +907,59 @@ function AppearanceForm() {
             className="flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border border-ds-outline shadow-[0_20px_55px_rgba(15,23,42,0.06)]"
             style={{ backgroundColor: resolvedPreview.colors.panelBackground }}
           >
-            {welcomeScreenEnabled ? (
-              previewChatOpen ? (
-                <WidgetChatShell
-                  agentName={agentDisplayName}
-                  brandColorHex={previewBrandColor}
-                  widgetAppearance={previewAppearance}
-                  websiteLogoUrl={websiteLogoUrl}
-                  websiteLogoPending={websiteLogoPending}
-                  shellHeightClass="h-full"
-                  className="h-full max-w-none rounded-none border-0 shadow-none"
-                  footerBorderless
-                  onHeaderBack={() => setPreviewChatOpen(false)}
-                  headerBackLabel="Back to welcome screen"
-                  footer={
-                    <>
-                      <WidgetComposerPreview
-                        brandColorHex={previewBrandColor}
-                        accentColor={previewAccentColor}
-                        className={hidePoweredByPlan ? "pb-3.5" : undefined}
-                      />
-                      {!hidePoweredByPlan ? (
-                        <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
-                      ) : null}
-                    </>
-                  }
-                >
-                  <div className="h-full space-y-3 overflow-y-auto p-4 sm:p-5">
-                    <WidgetWelcomeMessages
-                      messages={previewWelcomeMessages}
-                      resolved={resolvedPreview}
-                      brandColorHex={previewBrandColor}
-                      websiteLogoUrl={websiteLogoUrl}
-                      websiteLogoPending={websiteLogoPending}
-                    />
-                  </div>
-                </WidgetChatShell>
-              ) : (
-                <WidgetWelcomeScreen
-                  agentName={agentDisplayName}
-                  brandColorHex={previewBrandColor}
-                  panelBackgroundHex={resolvedPreview.colors.panelBackground}
-                  headline={welcomeScreenPreview.headline}
-                  headlineColor={welcomeScreenPreview.headlineColor}
-                  description={welcomeScreenPreview.description}
-                  buttonLabel={welcomeScreenPreview.buttonLabel}
-                  socialLinks={welcomeScreenPreview.socialLinks}
-                  websiteLogoUrl={websiteLogoUrl}
-                  websiteLogoPending={websiteLogoPending}
-                  hidePoweredBy={hidePoweredByPlan}
-                  className="min-h-0 flex-1"
-                  onChatClick={() => setPreviewChatOpen(true)}
-                />
-              )
+            {welcomeScreenEnabled && !previewChatOpen ? (
+              <WidgetWelcomeScreen
+                agentName={agentDisplayName}
+                brandColorHex={previewBrandColor}
+                panelBackgroundHex={resolvedPreview.colors.panelBackground}
+                headline={welcomeScreenPreview.headline}
+                headlineColor={welcomeScreenPreview.headlineColor}
+                description={welcomeScreenPreview.description}
+                buttonLabel={welcomeScreenPreview.buttonLabel}
+                socialLinks={welcomeScreenPreview.socialLinks}
+                websiteLogoUrl={websiteLogoUrl}
+                websiteLogoPending={websiteLogoPending}
+                hidePoweredBy={hidePoweredByPlan}
+                className="min-h-0 flex-1"
+                onChatClick={() => setPreviewChatOpen(true)}
+              />
             ) : (
-              <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
-                <p className="ds-app-body-muted text-sm">
-                  Welcome screen is off. Visitors open chat directly.
-                </p>
-              </div>
+              <WidgetChatShell
+                agentName={agentDisplayName}
+                brandColorHex={previewBrandColor}
+                widgetAppearance={previewAppearance}
+                websiteLogoUrl={websiteLogoUrl}
+                websiteLogoPending={websiteLogoPending}
+                shellHeightClass="h-full"
+                className="h-full max-w-none rounded-none border-0 shadow-none"
+                footerBorderless
+                onHeaderBack={
+                  welcomeScreenEnabled ? () => setPreviewChatOpen(false) : undefined
+                }
+                headerBackLabel="Back to welcome screen"
+                footer={
+                  <>
+                    <WidgetComposerPreview
+                      brandColorHex={previewBrandColor}
+                      accentColor={previewAccentColor}
+                      className={hidePoweredByPlan ? "pb-3.5" : undefined}
+                    />
+                    {!hidePoweredByPlan ? (
+                      <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
+                    ) : null}
+                  </>
+                }
+              >
+                <div className="h-full space-y-3 overflow-y-auto p-4 sm:p-5">
+                  <WidgetWelcomeMessages
+                    messages={previewWelcomeMessages}
+                    resolved={resolvedPreview}
+                    brandColorHex={previewBrandColor}
+                    websiteLogoUrl={websiteLogoUrl}
+                    websiteLogoPending={websiteLogoPending}
+                  />
+                </div>
+              </WidgetChatShell>
             )}
           </div>
           <div
@@ -844,6 +975,9 @@ function AppearanceForm() {
               chrome={previewAccentChrome}
               brandColorHex={previewAccentColor}
               size="launcher"
+              borderRadius={widgetBorderRadius}
+              animationEnabled={widgetAnimationEnabled}
+              animationKey={previewAnimationKey}
             />
           </div>
         </div>

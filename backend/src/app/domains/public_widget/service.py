@@ -22,6 +22,10 @@ from app.domains.public_widget.schemas import (
     PublicWidgetVisitorContactRequest,
     PublicWidgetVisitorContactResponse,
 )
+from app.domains.public_widget.launcher import (
+    resolve_widget_animation_enabled,
+    resolve_widget_border_radius,
+)
 from app.domains.public_widget.welcome import resolve_welcome_message, resolve_welcome_messages
 from app.domains.public_widget.welcome_screen import (
     resolve_welcome_screen_button_label,
@@ -100,6 +104,8 @@ def build_public_widget_config(ctx: PublicWidgetAgentContext) -> PublicWidgetCon
         name=ctx.name,
         brand_color=brand_color,
         widget_position=position,
+        widget_border_radius=resolve_widget_border_radius(b),
+        widget_animation_enabled=resolve_widget_animation_enabled(b),
         greeting_message=greeting_message,
         greeting_messages=greeting_messages,
         welcome_screen_enabled=resolve_welcome_screen_enabled(b),

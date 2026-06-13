@@ -48,6 +48,8 @@ def test_public_widget_config_ok(client: TestClient, monkeypatch: pytest.MonkeyP
     assert body["name"] == "Store Bot"
     assert body["brand_color"] == "#3B82F6"
     assert body["widget_position"] == "bottom_left"
+    assert body["widget_border_radius"] == 28
+    assert body["widget_animation_enabled"] is True
     assert body["agent_id"] == str(aid)
     assert isinstance(body.get("attachments_ui_enabled"), bool)
     assert body.get("hide_powered_by_chatrely") is False

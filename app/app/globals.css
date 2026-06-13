@@ -958,3 +958,71 @@ body {
     font-weight: 400;
   }
 }
+
+/* Storefront widget preview (appearance settings) */
+.widget-preview-launcher {
+  overflow: visible;
+}
+
+.widget-preview-launcher-surface {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.widget-preview-launcher-arc {
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--widget-preview-radius, 28px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.widget-preview-launcher-arc::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    var(--widget-preview-accent, #831c91) 0deg,
+    var(--widget-preview-accent, #831c91) 72deg,
+    transparent 72deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: 2.5px;
+  animation: widget-preview-arc-sweep 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes widget-preview-arc-sweep {
+  0% {
+    transform: rotate(-90deg);
+    opacity: 1;
+  }
+
+  88% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: rotate(270deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-preview-launcher-arc {
+    display: none;
+  }
+}

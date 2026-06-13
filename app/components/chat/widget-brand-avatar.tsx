@@ -1,11 +1,63 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Bot } from "lucide-react";
+import { WIDGET_BORDER_RADIUS_DEFAULT } from "@/lib/widget-shape";
 import { brandChromeClasses } from "@/lib/brand-chrome";
 import { cn } from "@/lib/utils";
 
 type WidgetBrandChrome = ReturnType<typeof brandChromeClasses> | null;
+
+function LauncherPreviewShell({
+  chrome,
+  brandColorHex,
+  borderRadius = WIDGET_BORDER_RADIUS_DEFAULT,
+  animationEnabled = true,
+  animationKey = 0,
+  children,
+  pending = false,
+}: {
+  chrome: WidgetBrandChrome;
+  brandColorHex?: string | null;
+  borderRadius?: number;
+  animationEnabled?: boolean;
+  animationKey?: number;
+  children?: ReactNode;
+  pending?: boolean;
+}) {
+  const launcherStyle = {
+    ...(brandColorHex ? { backgroundColor: brandColorHex } : {}),
+    borderRadius: `${borderRadius}px`,
+    ["--widget-preview-radius" as string]: `${borderRadius}px`,
+    ["--widget-preview-accent" as string]: brandColorHex ?? "#831c91",
+  };
+
+  return (
+    <div
+      className={cn(
+        "widget-preview-launcher relative flex size-14 shrink-0 items-center justify-center border border-black/10 shadow-[0_10px_25px_rgba(15,23,42,0.22)] ring-4 ring-white",
+        pending && "animate-pulse bg-black/10",
+        chrome?.fabIconClass
+      )}
+      style={launcherStyle}
+      aria-hidden
+    >
+      {animationEnabled && !pending ? (
+        <span
+          key={animationKey}
+          className="widget-preview-launcher-arc"
+          aria-hidden
+        />
+      ) : null}
+      <span
+        className="widget-preview-launcher-surface"
+        style={{ borderRadius: `${borderRadius}px` }}
+      >
+        {children}
+      </span>
+    </div>
+  );
+}
 
 export function WidgetBrandAvatar({
   logoUrl,
@@ -14,6 +66,9 @@ export function WidgetBrandAvatar({
   chrome,
   size,
   brandColorHex,
+  borderRadius = WIDGET_BORDER_RADIUS_DEFAULT,
+  animationEnabled = true,
+  animationKey = 0,
 }: {
   logoUrl: string | null;
   logoPending: boolean;
@@ -21,6 +76,9 @@ export function WidgetBrandAvatar({
   chrome: WidgetBrandChrome;
   size: "header" | "bubble" | "launcher" | "welcome";
   brandColorHex?: string | null;
+  borderRadius?: number;
+  animationEnabled?: boolean;
+  animationKey?: number;
 }) {
   const [imageState, setImageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const imgRef = useRef<HTMLImageElement>(null);
@@ -40,12 +98,6 @@ export function WidgetBrandAvatar({
       queueMicrotask(() => setImageState("idle"));
     }
   }, [logoUrl]);
-
-  const launcherShellClass = cn(
-    "relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-black/10 shadow-[0_10px_25px_rgba(15,23,42,0.22)] ring-4 ring-white",
-    chrome?.fabIconClass
-  );
-  const launcherStyle = brandColorHex ? { backgroundColor: brandColorHex } : undefined;
 
   const headerShellClass = cn(
     "relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg shadow-sm ring-1 ring-black/10",
@@ -95,10 +147,11 @@ export function WidgetBrandAvatar({
   if (logoPending) {
     if (size === "launcher") {
       return (
-        <div
-          className={cn(launcherShellClass, "animate-pulse bg-black/10")}
-          style={launcherStyle}
-          aria-hidden
+        <LauncherPreviewShell
+          chrome={chrome}
+          brandColorHex={brandColorHex}
+          borderRadius={borderRadius}
+          pending
         />
       );
     }
@@ -124,9 +177,15 @@ export function WidgetBrandAvatar({
   if (!logoUrl || imageState === "error") {
     if (size === "launcher") {
       return (
-        <div className={launcherShellClass} style={launcherStyle} aria-hidden>
+        <LauncherPreviewShell
+          chrome={chrome}
+          brandColorHex={brandColorHex}
+          borderRadius={borderRadius}
+          animationEnabled={animationEnabled}
+          animationKey={animationKey}
+        >
           <span aria-hidden>💬</span>
-        </div>
+        </LauncherPreviewShell>
       );
     }
     return fallbackBot;
@@ -134,21 +193,30 @@ export function WidgetBrandAvatar({
 
   if (size === "launcher") {
     return (
-      <div className={launcherShellClass} style={launcherStyle}>
+      <LauncherPreviewShell
+        chrome={chrome}
+        brandColorHex={brandColorHex}
+        borderRadius={borderRadius}
+        animationEnabled={animationEnabled}
+        animationKey={animationKey}
+      >
         {imageState !== "loaded" ? (
-          <div className="absolute inset-0 animate-pulse rounded-full bg-black/10" aria-hidden />
+          <div className="absolute inset-0 animate-pulse bg-black/10" aria-hidden />
         ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={bindLogoImage}
           src={logoUrl}
           alt=""
-          className={cn("relative z-[1] size-8 object-contain transition-opacity", imageState === "loaded" ? "opacity-100" : "opacity-0")}
+          className={cn(
+            "relative z-[1] size-8 object-contain transition-opacity",
+            imageState === "loaded" ? "opacity-100" : "opacity-0"
+          )}
           referrerPolicy="no-referrer"
           onLoad={() => setImageState("loaded")}
           onError={() => setImageState("error")}
         />
-      </div>
+      </LauncherPreviewShell>
     );
   }
 
