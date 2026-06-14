@@ -9,22 +9,23 @@ export const PLAYGROUND_COMPOSER_MAX_LINES = 3;
 
 type Chrome = ReturnType<typeof brandChromeClasses>;
 
-/** Matches live widget `.cr-composer-field` (12px radius). */
+/** Matches live widget `.cr-composer-field` (pill, multiline expands to 20px). */
 export const widgetComposerFieldClass = cn(
-  "flex w-full min-h-11 items-end gap-1 rounded-[12px] border border-ds-outline bg-white px-2 py-1 pl-3 shadow-ds-sm",
-  "transition-[border-color,box-shadow] duration-150",
-  "focus-within:border-ds-primary focus-within:ring-2 focus-within:ring-ds-primary/20"
+  "flex w-full min-h-11 items-center gap-1.5 overflow-hidden rounded-full border border-ds-outline bg-white py-1 pl-3.5 pr-1.5",
+  "transition-[border-color,box-shadow,border-radius] duration-150",
+  "focus-within:border-ds-primary/35 focus-within:shadow-[0_0_0_2px] focus-within:shadow-ds-primary/15",
+  "has-[textarea[data-lines='multi']]:items-end has-[textarea[data-lines='multi']]:rounded-[20px] has-[textarea[data-lines='multi']]:py-1.5"
 );
 
-/** Matches live widget `.cr-send` (10px radius, 36px square). */
+/** Matches live widget `.cr-send` (circular, 34px). */
 export const widgetComposerSendButtonClass = cn(
-  "mb-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] border-0 transition-opacity",
+  "inline-flex size-[34px] shrink-0 items-center justify-center rounded-full border-0 transition-opacity",
   "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
 );
 
 const inputClass = cn(
   "min-h-9 min-w-0 flex-1 resize-none border-0 bg-transparent py-2 pr-1",
-  "text-sm leading-snug text-ds-on-surface outline-none",
+  "text-[13px] leading-[1.375] text-ds-on-surface outline-none",
   "placeholder:text-ds-on-surface-variant/70",
   "disabled:cursor-not-allowed disabled:opacity-50"
 );
@@ -42,6 +43,7 @@ export function resizePlaygroundComposer(textarea: HTMLTextAreaElement) {
   const nextHeight = Math.min(Math.max(contentHeight, oneLineHeight), maxHeight);
   textarea.style.height = `${nextHeight}px`;
   textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+  textarea.dataset.lines = contentHeight > oneLineHeight + 2 ? "multi" : "1";
 }
 
 export function PlaygroundComposer({

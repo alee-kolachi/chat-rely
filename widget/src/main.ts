@@ -681,6 +681,7 @@ function looksLikeProductListLine(line: string): boolean {
 }
 
 function setAssistantBubbleText(assistantEl: HTMLElement, text: string): void {
+  assistantEl.classList.remove("cr-msg--thinking");
   const trimmed = text.trim();
   if (!trimmed) {
     assistantEl.classList.add("cr-msg--text-hidden");
@@ -1456,6 +1457,14 @@ async function boot(): Promise<void> {
     poweredByEl.classList.toggle("cr-view--hidden", welcome || contactCaptureRequired);
     welcomePowered.hidden = Boolean(cfg.hide_powered_by_chatrely) || !welcome;
     panel.classList.toggle("cr-panel--chat-surface", chat || history);
+    panel.classList.toggle("cr-panel--welcome", welcome);
+  }
+
+  function rebuildSyncedMessageIds(): void {
+    syncedServerMessageIds.clear();
+    for (const msg of chatMessages) {
+      if (msg.server_id) syncedServerMessageIds.add(msg.server_id);
+    }
   }
 
   function ensureChatGreetings(): void {
@@ -2065,7 +2074,10 @@ async function boot(): Promise<void> {
         writeWidgetStore(agentKey, store);
         setHistoryOpen(false);
         applyConversationStatus(row.status ?? "open");
+        rebuildSyncedMessageIds();
         renderChatMessages();
+        threadStateReady = false;
+        void ensureThreadStateFresh();
       });
       li.appendChild(btn);
       list.appendChild(li);
@@ -2293,6 +2305,7 @@ async function boot(): Promise<void> {
         } else if (ev.type === "token") {
           hideDots();
           clearStatus();
+          assistantEl.classList.remove("cr-msg--thinking");
           const prev = assistantEl.getAttribute("data-plain") || "";
           const nextPlain = prev + ev.text;
           assistantEl.classList.remove("cr-msg--text-hidden");
@@ -2351,6 +2364,7 @@ async function boot(): Promise<void> {
           }
           hideDots();
           clearStatus();
+          assistantEl.classList.remove("cr-msg--thinking");
           const hasRichProducts =
             Boolean(pendingDetail) ||
             Boolean(pendingProducts?.length) ||
@@ -2362,15 +2376,18 @@ async function boot(): Promise<void> {
               typeof ev.conversation_status === "string" ? ev.conversation_status : conversationStatus
             );
           const plainAccumulated = (assistantEl.getAttribute("data-plain") || "").trim();
-          const reply =
+          const fullReply =
             (typeof ev.response === "string" ? ev.response : "").trim() ||
             plainAccumulated ||
             (hasRichProducts || aiChatDisabled || isHumanHandoffActive() ? "" : EMPTY_REPLY_FALLBACK);
-          let displayText = hasRichProducts ? introTextForProductCards(reply || plainAccumulated) : reply;
+          let displayText = hasRichProducts ? introTextForProductCards(fullReply) : fullReply;
           if (!displayText.trim() && !hasRichProducts) {
-            if (conversationId) await ensureThreadStateFresh();
+            if (conversationId) void ensureThreadStateFresh();
             if (aiChatDisabled || isHumanHandoffActive()) {
               row.remove();
+              chatMessages = chatMessages.filter(
+                (m) => !(m.role === "assistant" && m.created_at === createdAt)
+              );
               persistStore();
               return;
             }
@@ -2381,7 +2398,7 @@ async function boot(): Promise<void> {
           const mid = typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
           const stored: StoredMessage = {
             role: "assistant",
-            text: displayText,
+            text: fullReply || displayText,
             created_at: createdAt,
             ...(mid ? { server_id: mid } : {}),
           };
@@ -2514,12 +2531,12 @@ async function boot(): Promise<void> {
   async function sendMessage(): Promise<void> {
     const text = input.value.trim();
     if (!text || sending || contactCaptureRequired) return;
-    if (!demoMode && conversationId) await ensureThreadStateFresh();
     const humanHandoff = isHumanHandoffActive();
     removeConfigGreetingsFromTranscript();
     sending = true;
     blockThreadSync = true;
     send.disabled = true;
+    input.disabled = true;
     input.value = "";
     resetComposerInputLayout();
     appendUserMessage(text);
@@ -2532,10 +2549,7 @@ async function boot(): Promise<void> {
         });
       } else {
         const streamWrap = createAssistantStreamWrap();
-        await streamAssistantReply(text, streamWrap, false, undefined, () => {
-          sending = false;
-          send.disabled = !input.value.trim();
-        });
+        await streamAssistantReply(text, streamWrap, false, undefined);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong.";
@@ -2543,7 +2557,8 @@ async function boot(): Promise<void> {
     } finally {
       sending = false;
       blockThreadSync = false;
-      send.disabled = !input.value.trim();
+      input.disabled = contactCaptureRequired;
+      updateComposerState();
       requestThreadSync();
     }
   }

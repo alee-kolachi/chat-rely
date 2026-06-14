@@ -883,7 +883,14 @@ function AppearanceForm() {
 
       <div className="lg:sticky lg:top-6 lg:self-start">
           <div className="mx-auto flex w-full max-w-[26rem] flex-col items-center">
-          <div className="flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border border-ds-outline shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
+          <div
+            className={cn(
+              "flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+              welcomeScreenEnabled && !previewChatOpen
+                ? "border-transparent shadow-none"
+                : "border-ds-outline"
+            )}
+          >
             {welcomeScreenEnabled && !previewChatOpen ? (
               <WidgetWelcomeScreen
                 agentName={agentDisplayName}

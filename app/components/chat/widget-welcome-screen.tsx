@@ -131,7 +131,7 @@ export function WidgetWelcomeScreen({
       <div className="relative shrink-0 px-5 sm:px-6">
         <h2
           className="flex min-h-[76px] items-center py-2 pr-9 text-2xl font-normal leading-tight tracking-tight"
-          style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR }}
+          style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR, fontSize: "24px" }}
         >
           {headline}
         </h2>

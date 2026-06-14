@@ -55,7 +55,7 @@ import {
 } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
 import { humanEscalationPlanAccess, shopifyConnectAccess } from "@/lib/plan-features";
-import { getWidgetPreviewContext } from "@/lib/widget-appearance";
+import { getWidgetPreviewContext, chatSurfaceGradient, userBubbleGradient } from "@/lib/widget-appearance";
 import { InfoHint } from "@/components/ui/info-hint";
 import { PlanFeatureLabel, PlanGatedBlock } from "@/components/ui/plan-unlock-footer";
 import { AppSegmentGroup, AppSegmentOption } from "@/components/ui/app-segment-group";
@@ -1213,12 +1213,24 @@ function PlaygroundPreviewConversation({
     [hasBrand, chrome]
   );
 
-  const assistantBubbleClass = "rounded-2xl rounded-tl-none border px-4 py-3 text-sm shadow-sm sm:px-5";
+  const assistantBubbleClass =
+    "max-w-full rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[13px] leading-snug";
   const assistantBubbleStyle = {
     backgroundColor: appearanceResolved.colors.assistantBubble,
-    borderColor: appearanceResolved.colors.assistantBubbleBorder,
+    borderColor: "rgba(15, 23, 42, 0.05)",
     color: appearanceResolved.colors.textPrimary,
   };
+  const chatSurface = hasBrand && appearanceResolved.themeMode === "light";
+  const shellBackgroundStyle = chatSurface
+    ? {
+        background: chatSurfaceGradient(
+          appearanceResolved.colors.header,
+          appearanceResolved.colors.panelBackground
+        ),
+      }
+    : {
+        backgroundColor: appearanceResolved.colors.panelBackground,
+      };
 
   return (
     <div
@@ -1233,28 +1245,31 @@ function PlaygroundPreviewConversation({
       />
       <div
         className={cn(
-          "border-ds-outline relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[28px] border",
+          "relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[28px] border",
+          chatSurface ? "border-black/5" : "border-ds-outline"
         )}
         style={{
-          backgroundColor: appearanceResolved.colors.panelBackground,
-          borderColor: appearanceResolved.colors.assistantBubbleBorder,
+          ...shellBackgroundStyle,
+          borderColor: chatSurface ? "rgba(15, 23, 42, 0.06)" : appearanceResolved.colors.assistantBubbleBorder,
           color: appearanceResolved.colors.textPrimary,
         }}
       >
       <div
         className={cn(
-          "flex shrink-0 items-center justify-between border-b px-5 py-3.5 sm:px-6",
-          hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
+          "flex shrink-0 items-center justify-between border-b px-4 py-2.5",
+          chatSurface ? "border-black/5 bg-[color-mix(in_srgb,#ffffff_90%,#fcfbff)]" : hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
         )}
         style={
-          hasBrand
-            ? { backgroundColor: appearanceResolved.colors.header }
-            : appearanceResolved.themeMode === "dark"
-              ? { backgroundColor: appearanceResolved.colors.composerBackground }
-              : undefined
+          chatSurface
+            ? undefined
+            : hasBrand
+              ? { backgroundColor: appearanceResolved.colors.header }
+              : appearanceResolved.themeMode === "dark"
+                ? { backgroundColor: appearanceResolved.colors.composerBackground }
+                : undefined
         }
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-1">
           <WidgetBrandAvatar
             logoUrl={websiteLogoUrl}
             logoPending={websiteLogoPending}
@@ -1262,15 +1277,25 @@ function PlaygroundPreviewConversation({
             chrome={chrome}
             size="header"
           />
-          <div className="min-w-0">
+          <div className="min-w-0 pl-1">
             <h3
               className={cn(
-                "truncate text-sm font-semibold tracking-tight",
-                hasBrand && chrome ? chrome.titleClass : "text-ds-on-surface"
+                "truncate text-sm font-semibold leading-none tracking-tight",
+                chatSurface ? "text-slate-900" : hasBrand && chrome ? chrome.titleClass : "text-ds-on-surface"
               )}
             >
               {displayName}
             </h3>
+            <p
+              className={cn(
+                "mt-1 truncate text-[11px] leading-snug",
+                chatSurface ? "text-slate-500" : hasBrand && chrome?.lightBg
+                  ? "text-ds-on-surface-variant"
+                  : "text-white/85"
+              )}
+            >
+              Typically replies instantly
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -1305,8 +1330,7 @@ function PlaygroundPreviewConversation({
       <div
         ref={messagesScrollRef}
         onScroll={historyOpen ? undefined : onMessagesScroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
-        style={{ backgroundColor: appearanceResolved.colors.panelBackground }}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-transparent"
       >
         {historyOpen ? (
           <div className="flex flex-col p-4 sm:p-5" role="region" aria-label="Conversations">
@@ -1378,7 +1402,7 @@ function PlaygroundPreviewConversation({
             )}
           </div>
         ) : (
-          <div className="space-y-3 px-4 py-5 sm:px-5 sm:py-8">
+          <div className="space-y-3 px-4 py-4 sm:px-4">
             {historyThreadLoading || storedThreadRestoring ? (
               <p className={cn(onboardingType.hint, "text-center italic")}>Loading conversation…</p>
             ) : null}
@@ -1387,9 +1411,6 @@ function PlaygroundPreviewConversation({
                 <WidgetWelcomeMessages
                   messages={emptyAssistantLines}
                   resolved={appearanceResolved}
-                  brandColorHex={brandColorHex}
-                  websiteLogoUrl={websiteLogoUrl}
-                  websiteLogoPending={websiteLogoPending}
                 />
                 {toneDescription || languageLabel ? (
                   <p className={cn(onboardingType.hint, "ds-app-body-muted pl-11 text-left text-xs")}>
@@ -1426,18 +1447,10 @@ function PlaygroundPreviewConversation({
                   {msg.from === "assistant" ? (
                     <div
                       className={cn(
-                        "flex gap-3",
-                        hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[90%]"
+                        "flex min-w-0 flex-col gap-1",
+                        hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[92%]"
                       )}
                     >
-                      <WidgetBrandAvatar
-                        logoUrl={websiteLogoUrl}
-                        logoPending={websiteLogoPending}
-                        hasBrand={hasBrand}
-                        chrome={chrome}
-                        size="bubble"
-                      />
-                      <div className="flex min-w-0 flex-1 flex-col gap-1">
                         {hasCarousel ? (
                           <StreamingAssistantMessage
                             text={msg.text}
@@ -1510,13 +1523,12 @@ function PlaygroundPreviewConversation({
                             }
                           />
                         ) : null}
-                      </div>
                     </div>
                   ) : (
                     <div
-                      className="max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5"
+                      className="max-w-[85%] rounded-2xl rounded-tr-sm px-3 py-2.5 text-[13px] leading-snug"
                       style={{
-                        backgroundColor: appearanceResolved.colors.userBubble,
+                        background: userBubbleGradient(appearanceResolved.colors.userBubble),
                         color: userChrome.lightBg ? "#0f172a" : "#ffffff",
                       }}
                     >
@@ -1541,8 +1553,8 @@ function PlaygroundPreviewConversation({
       </div>
 
       <div
-        className="shrink-0 px-4 pb-2.5 pt-2 sm:px-5"
-        style={{ backgroundColor: appearanceResolved.colors.panelBackground }}
+        className={cn("shrink-0 px-4 pb-1.5 pt-1", chatSurface && "bg-transparent")}
+        style={chatSurface ? undefined : { backgroundColor: appearanceResolved.colors.panelBackground }}
       >
         {historyOpen ? (
           <>

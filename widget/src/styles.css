@@ -28,8 +28,8 @@
   z-index: 2147483000;
   pointer-events: none;
   font-family: var(--cr-font-family);
-  font-size: 14px;
-  line-height: 1.625;
+  font-size: 16px;
+  line-height: 1.5;
   letter-spacing: normal;
   color: #000000;
   -webkit-font-smoothing: antialiased;
@@ -229,6 +229,10 @@
   display: flex;
 }
 
+.cr-panel.cr-panel--welcome {
+  border-color: transparent;
+}
+
 .cr-panel.cr-panel--chat-surface {
   --cr-chat-surface-top: #fcfbff;
   --cr-chat-surface-bottom: color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 7%, #f8f5ff);
@@ -388,7 +392,7 @@
   .cr-welcome-headline {
     min-height: 68px;
     padding-right: 32px;
-    font-size: 1.35rem;
+    font-size: 24px;
   }
 
   .cr-welcome-card-wrap {
@@ -396,7 +400,7 @@
   }
 
   .cr-welcome-panel {
-    padding: 0 12px max(12px, env(safe-area-inset-bottom, 0px));
+    padding: 0 12px 0;
   }
 
   .cr-composer-field {
@@ -799,7 +803,7 @@
   min-height: 76px;
   margin: 0;
   padding: 8px 36px 0 0;
-  font-size: 1.5rem;
+  font-size: 24px;
   font-weight: 400;
   line-height: 1.25;
   letter-spacing: -0.02em;
@@ -827,7 +831,7 @@
   flex-direction: column;
   margin-top: 12px;
   min-height: 0;
-  padding: 0 16px 12px;
+  padding: 0 16px 0;
   background: transparent;
 }
 
@@ -1014,7 +1018,7 @@
   width: 100%;
   align-items: center;
   justify-content: center;
-  padding: 10px 20px 16px;
+  padding: 4px 20px max(10px, env(safe-area-inset-bottom, 0px));
 }
 
 .cr-welcome-powered .cr-powered-link {
