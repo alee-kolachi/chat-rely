@@ -29,6 +29,47 @@ class UsageSnapshotSlice:
     included_conversations: int
 
 
+FREE_PLAN_CONVERSATION_LIMIT_VISITOR_REPLY = (
+    "This store has reached its free plan conversation limit for this month. "
+    "Please contact the store directly or check back later."
+)
+
+
+def free_plan_conversation_limit_reached(
+    *,
+    plan_slug: str | None,
+    conversations_used: int,
+    included_conversations: int,
+) -> bool:
+    """Free tier stops AI replies once billable conversations reach the monthly cap."""
+    slug = (plan_slug or "free").strip().lower()
+    if slug != "free":
+        return False
+    included = max(0, int(included_conversations))
+    if included <= 0:
+        return False
+    return max(0, int(conversations_used)) >= included
+
+
+async def merchant_free_plan_conversation_limit_reached(
+    db: AsyncSession,
+    user_id: UUID,
+) -> bool:
+    policy = await fetch_plan_model_policy_cached(db, user_id)
+    if policy is None or policy.plan_slug != "free":
+        return False
+    snap = get_cached_usage_snapshot(user_id)
+    if snap is None:
+        snap = await refresh_plan_usage_snapshot(db, user_id)
+    if snap is None:
+        return False
+    return free_plan_conversation_limit_reached(
+        plan_slug=policy.plan_slug,
+        conversations_used=snap.conversations_used,
+        included_conversations=snap.included_conversations,
+    )
+
+
 def get_cached_usage_snapshot(user_id: UUID) -> UsageSnapshotSlice | None:
     """Last known usage slice for this user (avoids blocking chat on usage refresh)."""
     hit = _usage_snapshot_memory.get(str(user_id))

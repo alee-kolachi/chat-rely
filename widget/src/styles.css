@@ -237,10 +237,10 @@
 }
 
 .cr-panel.cr-panel--chat-surface {
-  --cr-chat-surface-top: #fcfbff;
+  --cr-chat-surface-top: #f3edff;
   --cr-chat-surface-bottom: var(
     --cr-panel-bg,
-    color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 7%, #f8f5ff)
+    color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 14%, #f3edff)
   );
   --cr-header-title-size: 14px;
   --cr-header-logo-size: 19px;
@@ -506,12 +506,12 @@
 
 .cr-panel-header--brand {
   border-bottom-color: color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 12%, transparent);
-  --cr-chat-surface: color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 6%, #f8f5ff);
+  --cr-chat-surface: color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 14%, #f3edff);
   background: linear-gradient(
     180deg,
     var(--cr-header-bg, var(--cr-accent)) 0%,
     color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 88%, #000000) 55%,
-    color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 72%, var(--cr-chat-surface, #f8f5ff)) 100%
+    color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 72%, var(--cr-chat-surface, #f3edff)) 100%
   );
 }
 
@@ -1091,7 +1091,7 @@
   flex-direction: column;
   gap: 0;
   padding: 4px 16px 12px;
-  background: var(--cr-chat-surface, color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 6%, #f8f5ff));
+  background: var(--cr-chat-surface, color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 14%, #f3edff));
 }
 
 .cr-msg-row {
@@ -1470,7 +1470,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--cr-chat-surface, color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 6%, #f8f5ff));
+  background: var(--cr-chat-surface, color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 14%, #f3edff));
   padding: 6px 16px 10px;
 }
 

@@ -81,10 +81,14 @@ from app.domains.billing.cost_events import (
 )
 from app.domains.conversation_outcomes.service import compute_turn_signals
 from app.domains.billing.usage_gate import (
+    FREE_PLAN_CONVERSATION_LIMIT_VISITOR_REPLY,
+    UsageSnapshotSlice,
     fetch_plan_model_policy_cached,
+    free_plan_conversation_limit_reached,
     get_cached_plan_model_policy,
     get_cached_usage_snapshot,
     refresh_plan_usage_snapshot_isolated,
+    resolve_usage_snapshot_for_turn,
     set_cached_plan_model_policy,
 )
 from app.domains.plans.plan_limits import plan_model_policy_from_features
@@ -331,6 +335,7 @@ async def _persist_stream_turn(
     products: list[dict[str, Any]] | None = None,
     product_detail: dict[str, Any] | None = None,
     fallback_used: bool = False,
+    latency_ms: int | None = None,
 ) -> UUID | None:
     assistant_id: UUID | None = None
     metadata: dict[str, Any] = {}
@@ -370,6 +375,7 @@ async def _persist_stream_turn(
                     model=model,
                     input_tokens=usage_in,
                     output_tokens=usage_out,
+                    latency_ms=latency_ms,
                     metadata=metadata,
                 ),
                 agent_id=agent_id,
@@ -438,6 +444,7 @@ def _schedule_stream_turn_persist(
     products: list[dict[str, Any]] | None = None,
     product_detail: dict[str, Any] | None = None,
     fallback_used: bool = False,
+    latency_ms: int | None = None,
 ) -> None:
     async def _run() -> None:
         await _await_prior_turn_persist(user_id, conversation_id)
@@ -457,6 +464,7 @@ def _schedule_stream_turn_persist(
                 products=products,
                 product_detail=product_detail,
                 fallback_used=fallback_used,
+                latency_ms=latency_ms,
             )
         except Exception:
             log.exception(
@@ -490,6 +498,7 @@ async def _finalize_stream_turn_persist(
     products: list[dict[str, Any]] | None = None,
     product_detail: dict[str, Any] | None = None,
     fallback_used: bool = False,
+    latency_ms: int | None = None,
 ) -> UUID | None:
     """Persist the turn before emitting ``done`` so clients receive ``assistant_message_id``."""
     await _await_prior_turn_persist(user_id, conversation_id)
@@ -509,6 +518,7 @@ async def _finalize_stream_turn_persist(
             products=products,
             product_detail=product_detail,
             fallback_used=fallback_used,
+            latency_ms=latency_ms,
         )
         if assistant_id and answer.strip():
             _schedule_attach_turn_signals(
@@ -527,6 +537,105 @@ async def _finalize_stream_turn_persist(
             conversation_id=str(conversation_id),
         )
         return None
+
+
+async def _resolve_free_plan_limit_reached(
+    user_id: UUID,
+    *,
+    refresh_task: asyncio.Task[UsageSnapshotSlice | None],
+) -> bool:
+    policy = get_cached_plan_model_policy(user_id)
+    if policy is None:
+        policy = await _db_call(lambda db: fetch_plan_model_policy_cached(db, user_id))
+        if policy is not None:
+            set_cached_plan_model_policy(user_id, policy)
+    if policy is None:
+        policy = plan_model_policy_from_features("free", {}, throttle_policy={})
+    if policy.plan_slug != "free":
+        return False
+    usage_snap = await resolve_usage_snapshot_for_turn(user_id, refresh_task=refresh_task)
+    if usage_snap is None:
+        return False
+    return free_plan_conversation_limit_reached(
+        plan_slug=policy.plan_slug,
+        conversations_used=usage_snap.conversations_used,
+        included_conversations=usage_snap.included_conversations,
+    )
+
+
+async def _stream_free_plan_conversation_limit_turn(
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    conversation_id: UUID,
+    user_message: str,
+    model: str,
+    turn_started_at: float,
+    shopify_task: asyncio.Task[Any] | None = None,
+) -> AsyncIterator[str]:
+    if shopify_task is not None and not shopify_task.done():
+        shopify_task.cancel()
+    reply = FREE_PLAN_CONVERSATION_LIMIT_VISITOR_REPLY
+    yield format_sse("token", {"text": reply})
+    assistant_id = await _finalize_stream_turn_persist(
+        user_id=user_id,
+        agent_id=agent_id,
+        conversation_id=conversation_id,
+        user_message=user_message,
+        model=model,
+        answer=reply,
+        usage_in=0,
+        usage_out=0,
+        tools_invoked=[],
+        rag_billing={},
+        classifier_billing=None,
+        latency_ms=int((time.perf_counter() - turn_started_at) * 1000.0),
+    )
+    yield format_sse(
+        "done",
+        {
+            "conversation_id": str(conversation_id),
+            "assistant_message_id": str(assistant_id) if assistant_id else None,
+            "response": reply,
+            "model": model,
+            "fallback_used": False,
+            "tools_available_count": 0,
+            "tools_invoked": [],
+            "retrieval_count": 0,
+            "plan_conversation_limit_reached": True,
+            "escalation": build_escalation_info(
+                human_enabled=False,
+                esc_cfg={},
+                occurred=False,
+            ).model_dump(mode="json"),
+        },
+    )
+
+
+async def _patch_assistant_turn_latency(
+    *,
+    user_id: UUID,
+    assistant_message_id: UUID | None,
+    latency_ms: int,
+) -> None:
+    if assistant_message_id is None or latency_ms < 0:
+        return
+    from app.domains.conversations.service import patch_message_latency_ms
+
+    try:
+        async with get_session_factory()() as db:
+            await patch_message_latency_ms(
+                db,
+                user_id=user_id,
+                message_id=assistant_message_id,
+                latency_ms=latency_ms,
+            )
+    except Exception:
+        log.exception(
+            "chat.persist_assistant_latency_failed",
+            user_id=str(user_id),
+            assistant_message_id=str(assistant_message_id),
+        )
 
 
 def _schedule_attach_turn_signals(
@@ -655,6 +764,7 @@ async def _stream_product_action_turn(
     model: str,
     human_on: bool,
     esc_cfg: dict[str, Any],
+    turn_started_at: float,
 ) -> AsyncIterator[str]:
     action = payload.product_action
     if action is None:
@@ -682,6 +792,7 @@ async def _stream_product_action_turn(
             tools_invoked=[],
             rag_billing={},
             classifier_billing=None,
+            latency_ms=int((time.perf_counter() - turn_started_at) * 1000.0),
         )
         yield format_sse(
             "done",
@@ -763,6 +874,7 @@ async def _stream_product_action_turn(
         classifier_billing=None,
         products=products,
         product_detail=product_detail,
+        latency_ms=int((time.perf_counter() - turn_started_at) * 1000.0),
     )
     done_data: dict[str, Any] = {
         "conversation_id": str(conversation_id),
@@ -793,7 +905,7 @@ async def stream_chat(
     t_turn = time.perf_counter()
     first_token_ms: float | None = None
 
-    asyncio.create_task(refresh_plan_usage_snapshot_isolated(user_id))
+    refresh_task = asyncio.create_task(refresh_plan_usage_snapshot_isolated(user_id))
 
     config, conv, history_rows, awaiting_human_team, conv_meta = await _db_call(
         lambda db: _bootstrap_stream_turn_db(
@@ -824,6 +936,23 @@ async def stream_chat(
         )
     )
     await _await_prior_turn_persist(user_id, conversation_id)
+
+    if not awaiting_human_team and await _resolve_free_plan_limit_reached(
+        user_id,
+        refresh_task=refresh_task,
+    ):
+        model = str(config.get("model") or "gpt-4o-mini")
+        async for frame in _stream_free_plan_conversation_limit_turn(
+            user_id=user_id,
+            agent_id=payload.agent_id,
+            conversation_id=conversation_id,
+            user_message=payload.message,
+            model=model,
+            turn_started_at=t_turn,
+            shopify_task=shopify_task,
+        ):
+            yield frame
+        return
 
     if awaiting_human_team:
         for task in (shopify_task,):
@@ -925,6 +1054,7 @@ async def stream_chat(
             model=model,
             human_on=human_on,
             esc_cfg=esc_cfg,
+            turn_started_at=t_turn,
         ):
             yield frame
         return
@@ -989,6 +1119,7 @@ async def stream_chat(
                 tools_invoked=[ESCALATE_TO_HUMAN_TOOL_NAME],
                 rag_billing={},
                 classifier_billing=None,
+                latency_ms=int((time.perf_counter() - t_turn) * 1000.0),
             )
             yield format_sse(
                 "done",
@@ -1409,6 +1540,7 @@ async def stream_chat(
         products=stream_products or None,
         product_detail=stream_product_detail,
         fallback_used=turn_fallback_used,
+        latency_ms=int((time.perf_counter() - t_turn) * 1000.0),
     )
     assistant_message_id = str(assistant_id) if assistant_id else None
 
@@ -1455,6 +1587,11 @@ async def stream_chat(
     )
 
     total_ms = int((time.perf_counter() - t_turn) * 1000.0)
+    await _patch_assistant_turn_latency(
+        user_id=user_id,
+        assistant_message_id=assistant_id,
+        latency_ms=total_ms,
+    )
     _log_runtime_turn_timing(
         conversation_id=conversation_id,
         shopify_load_ms=shopify_load_ms,

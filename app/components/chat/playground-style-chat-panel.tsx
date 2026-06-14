@@ -162,18 +162,10 @@ export function PlaygroundStyleChatPanel({
                 {msg.from === "assistant" ? (
                   <div
                     className={cn(
-                      "flex gap-3",
-                      hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[90%]"
+                      "flex min-w-0 flex-col gap-1",
+                      hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[92%]"
                     )}
                   >
-                    <WidgetBrandAvatar
-                      logoUrl={websiteLogoUrl ?? null}
-                      logoPending={websiteLogoPending}
-                      hasBrand={hasBrand}
-                      chrome={headerChrome}
-                      size="bubble"
-                    />
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
                       {hasCarousel ? (
                         <StreamingAssistantMessage
                           text={msg.text}
@@ -207,7 +199,6 @@ export function PlaygroundStyleChatPanel({
                           />
                         </div>
                       )}
-                    </div>
                   </div>
                 ) : (
                   <div

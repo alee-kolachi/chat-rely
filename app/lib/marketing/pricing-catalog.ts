@@ -64,7 +64,7 @@ export const PRICING_CARD_BULLETS: Record<PricingTierSlug, readonly string[]> = 
     "30 conversations per month on normal models",
     "Answers from your website knowledge",
     "500 KB training content",
-    "Chat stays on if you pass your allowance",
+    "Chat stops after 30 conversations / month",
   ],
   hobby: [
     "Everything in Free",
@@ -127,15 +127,24 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
         label: "Conversations included / month",
         cells: {
           free: { kind: "text", value: "30" },
-          hobby: { kind: "text", value: "250 · $0.145" },
-          standard: { kind: "text", value: "1,000 · $0.099" },
-          pro: { kind: "text", value: "5,000 · $0.080" },
+          hobby: { kind: "text", value: "250" },
+          standard: { kind: "text", value: "1,000" },
+          pro: { kind: "text", value: "5,000" },
+        },
+      },
+      {
+        label: "Est. cost per conversation",
+        cells: {
+          free: { kind: "dash" },
+          hobby: { kind: "text", value: "$0.145" },
+          standard: { kind: "text", value: "$0.099" },
+          pro: { kind: "text", value: "$0.080" },
         },
       },
       {
         label: "Chat stays on after allowance",
         cells: {
-          free: { kind: "tick" },
+          free: { kind: "dash" },
           hobby: { kind: "tick" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
@@ -258,7 +267,7 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
       {
         label: "Chat stays on after allowance",
         cells: {
-          free: { kind: "tick" },
+          free: { kind: "dash" },
           hobby: { kind: "tick" },
           standard: { kind: "tick" },
           pro: { kind: "tick" },
@@ -289,9 +298,9 @@ export const PRICING_AI_FOOTNOTES: { title: string; lines: string[] }[] = [
     lines: [
       "Premium models give faster, sharper replies on paid plans within your monthly conversation allowance.",
       "Normal models keep chat online with slower replies. Free uses normal models only.",
-      "If you pass your allowance, paid plans switch to normal models until your cycle resets or you upgrade.",
+      "If you pass your allowance on a paid plan, chat switches to normal models until your cycle resets or you upgrade.",
+      "Free stops AI replies after 30 conversations in a billing month. Upgrade to keep chat online.",
       "We count a conversation when a chat closes after the visitor sent a message, got a reply, or a tool ran.",
-      "Your visitors are never shown an offline error.",
     ],
   },
 ];
@@ -314,6 +323,7 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
 /** Shorter row labels on the home landing teaser cards. */
 export const LANDING_COMPACT_LABELS: Record<string, string> = {
   "Conversations included / month": "Conversations / mo",
+  "Est. cost per conversation": "Est. cost / chat",
   "Chat stays on after allowance": "Chat stays on",
   "Source suggestions": "Source suggestions",
   "Visitor feedback and summaries (widget)": "Visitor feedback",
@@ -327,9 +337,11 @@ export const LANDING_COMPACT_LABELS: Record<string, string> = {
 /** Hover tooltips only where the row benefits from extra context (paired with the info icon). */
 export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
   "Conversations included / month":
-    "Closed chats that count toward your monthly allowance. The dollar figure on paid plans helps compare tiers. You pay the subscription, not per chat.",
+    "Closed chats that count toward your monthly allowance.",
+  "Est. cost per conversation":
+    "Rough monthly price divided by included conversations on paid plans. You pay the subscription, not per chat.",
   "Chat stays on after allowance":
-    "If you pass your included conversations, the widget keeps answering on normal models. Replies may be slower until your cycle resets.",
+    "Paid plans keep answering on normal models after the allowance. Free stops AI replies at 30 conversations.",
   "Premium models":
     "Faster, sharper reply models on paid plans within your monthly conversation allowance.",
   "Normal models":
@@ -353,6 +365,7 @@ export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
 export const PRICING_ROW_TOOLTIP_LABELS = new Set<string>([
   "Shopify",
   "Conversations included / month",
+  "Est. cost per conversation",
   "Chat stays on after allowance",
   "Premium models",
   "Normal models",
@@ -387,6 +400,7 @@ export type LandingTierFeatureRow = {
 export const LANDING_TEASER_TOOLTIP_KEYS = new Set<string>([
   "Channels:Shopify",
   "usage:Conversations included / month",
+  "usage:Est. cost per conversation",
   "usage:Chat stays on after allowance",
   "Models:Premium models",
   "Models:Normal models",
@@ -517,12 +531,29 @@ export function buildLandingTierFeatureRows(slug: PricingTierSlug): LandingTierF
     key: "usage:Conversations included / month",
     displayLabel: _compactLabel("Conversations included / month"),
     value: card.includedConversations.toLocaleString(),
-    mutedSuffix: slug === "free" ? "normal models" : card.displayCostPerConversation,
+    mutedSuffix: slug === "free" ? "normal models" : undefined,
     tooltip:
       LANDING_TEASER_TOOLTIP_KEYS.has("usage:Conversations included / month")
         ? pricingRowTooltip("Conversations included / month")
         : undefined,
   };
 
-  return _insertConversationsAfterAgentOrInherit(body, convRow);
+  const costRow: LandingTierFeatureRow | null =
+    slug === "free"
+      ? null
+      : {
+          key: "usage:Est. cost per conversation",
+          displayLabel: _compactLabel("Est. cost per conversation"),
+          value: card.displayCostPerConversation,
+          tooltip:
+            LANDING_TEASER_TOOLTIP_KEYS.has("usage:Est. cost per conversation")
+              ? pricingRowTooltip("Est. cost per conversation")
+              : undefined,
+        };
+
+  const base = _insertConversationsAfterAgentOrInherit(body, convRow);
+  if (!costRow) return base;
+  const convIdx = base.findIndex((r) => r.key === convRow.key);
+  if (convIdx === -1) return [...base, costRow];
+  return [...base.slice(0, convIdx + 1), costRow, ...base.slice(convIdx + 1)];
 }

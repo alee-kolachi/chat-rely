@@ -108,6 +108,8 @@ export const WIDGET_COLOR_GROUPS: ReadonlyArray<{
 ] as const;
 
 /** Default chat / welcome panel bottom tint (matches embed chat-surface mix). */
+export const CHAT_SURFACE_TOP = "#f3edff";
+
 export function defaultAccentPanelBackground(
   brandColorHex: string | null | undefined,
   themeMode: WidgetThemeMode = "light"
@@ -116,7 +118,7 @@ export function defaultAccentPanelBackground(
   if (themeMode === "dark") {
     return `color-mix(in srgb, ${accent} 5%, #0F172A)`;
   }
-  return `color-mix(in srgb, ${accent} 7%, #f8f5ff)`;
+  return `color-mix(in srgb, ${accent} 14%, ${CHAT_SURFACE_TOP})`;
 }
 
 /** Full welcome panel gradient from one accent color (matches embed `.cr-welcome`). */
@@ -141,9 +143,13 @@ export function welcomePanelGradient(accentHex: string, panelBgHex: string): str
 }
 
 /** Chat view background gradient (matches embed `.cr-panel--chat-surface`). */
-export function chatSurfaceGradient(headerHex: string, panelBgHex?: string): string {
-  const bottom = panelBgHex ?? `color-mix(in srgb, ${headerHex} 7%, #f8f5ff)`;
-  const top = "#fcfbff";
+export function chatSurfaceGradient(
+  headerHex: string,
+  panelBgHex?: string,
+  topHex: string = CHAT_SURFACE_TOP,
+): string {
+  const bottom = panelBgHex ?? `color-mix(in srgb, ${headerHex} 14%, ${topHex})`;
+  const top = topHex;
   return [
     "linear-gradient(0deg,",
     `${bottom} 0%,`,
@@ -206,12 +212,25 @@ function readColor(raw: unknown): string | undefined {
   return formatHex(raw) ?? undefined;
 }
 
-/** Live preview / resolved theme: full hex, or pad partial input for CSS. */
+function isPreservedCssColor(raw: string): boolean {
+  const t = raw.trim().toLowerCase();
+  return (
+    t.startsWith("color-mix(") ||
+    t.startsWith("rgb(") ||
+    t.startsWith("rgba(") ||
+    t.startsWith("hsl(") ||
+    t.startsWith("hsla(")
+  );
+}
+
+/** Live preview / resolved theme: full hex, CSS color functions, or pad partial hex input. */
 function resolveAppearanceColor(raw: string | undefined, fallback: string): string {
   if (!raw) return fallback;
-  const strict = formatHex(raw);
+  const trimmed = raw.trim();
+  if (isPreservedCssColor(trimmed)) return trimmed;
+  const strict = formatHex(trimmed);
   if (strict) return strict;
-  const cleaned = raw.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6);
+  const cleaned = trimmed.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6);
   if (cleaned.length > 0) {
     return `#${cleaned.padEnd(6, "0").toUpperCase()}`;
   }

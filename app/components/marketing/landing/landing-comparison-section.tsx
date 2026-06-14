@@ -3,7 +3,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { LayoutGrid, Package, ScanSearch, Users } from "lucide-react";
-import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
+import {
+  LandingChatAssistantBubble,
+  LandingChatUserBubble,
+  LandingChatWidgetShell,
+} from "@/components/marketing/landing/landing-chat-widget-shell";
 import { LandingSectionLabel } from "@/components/marketing/landing/landing-section-label";
 import {
   LandingProductCarousel,
@@ -100,7 +104,6 @@ function intentEnterProgress(progress: number, index: number): number {
   return (progress - stage.at) / slideWindow;
 }
 
-const MSG_IN = "animate-[mkt-msg-in_0.5s_cubic-bezier(0.22,1,0.36,1)_both]";
 
 function ConversationBubble({
   message,
@@ -111,35 +114,29 @@ function ConversationBubble({
 }) {
   const isUser = message.role === "user";
   const hasProducts = !isUser && Boolean(message.products?.length);
-  const enter = animateIn ? MSG_IN : "";
 
-  if (hasProducts && message.role === "assistant" && message.products) {
+  if (isUser) {
+    return <LandingChatUserBubble animateIn={animateIn}>{message.text}</LandingChatUserBubble>;
+  }
+
+  if (hasProducts && message.products) {
     return (
-      <div className={cn("flex justify-start", enter)}>
-        <div className="flex w-full min-w-0 max-w-[95%] flex-col gap-2">
-          <div className="mkt-chat-message rounded-2xl rounded-tl-md border border-ds-outline/80 bg-white px-3 py-2 text-left !text-[15px] text-ds-on-surface-variant shadow-sm">
-            {message.text}
-          </div>
-          <LandingProductCarousel products={message.products} />
-        </div>
-      </div>
+      <LandingChatAssistantBubble
+        animateIn={animateIn}
+        trailing={<LandingProductCarousel products={message.products} />}
+      >
+        {message.text}
+      </LandingChatAssistantBubble>
     );
   }
 
-  return (
-    <div className={cn("flex", enter, isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={
-          isUser
-            ? "mkt-chat-message max-w-[88%] rounded-2xl rounded-tr-md bg-[#2a2a2a] px-3 py-2 text-left !text-[15px] !text-white shadow-[0_6px_20px_rgba(0,0,0,0.16)]"
-            : "mkt-chat-message max-w-[92%] rounded-2xl rounded-tl-md border border-ds-outline/80 bg-white px-3 py-2 !text-[15px] text-ds-on-surface-variant shadow-sm"
-        }
-      >
-        {message.text}
-      </div>
-    </div>
-  );
+  return <LandingChatAssistantBubble animateIn={animateIn}>{message.text}</LandingChatAssistantBubble>;
 }
+
+const INTENT_CARD_SHADOW =
+  "shadow-[0_6px_24px_-6px_rgba(15,23,42,0.08),0_2px_8px_-3px_rgba(15,23,42,0.04)]";
+const INTENT_CARD_ACTIVE_SHADOW =
+  "shadow-[0_10px_36px_-8px_rgba(138,5,255,0.14),0_4px_14px_-5px_rgba(138,5,255,0.08)]";
 
 function IntentCard({
   intent,
@@ -157,8 +154,8 @@ function IntentCard({
       className={cn(
         "rounded-[18px] border bg-white p-3.5 transition-[border-color,box-shadow,transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:p-4",
         isActive
-          ? "border-ds-primary/45 shadow-[0_16px_40px_rgba(138,5,255,0.12)] ring-1 ring-ds-primary/10"
-          : "border-ds-outline/70 shadow-sm",
+          ? cn("border-ds-primary/40", INTENT_CARD_ACTIVE_SHADOW)
+          : cn("border-ds-outline/70", INTENT_CARD_SHADOW),
       )}
       style={{
         opacity: enter,
@@ -219,7 +216,7 @@ function IntentStack({ progress, activeIntent }: { progress: number; activeInten
           Keep scrolling
         </p>
       ) : (
-        <div className="flex flex-col gap-2 pt-1">
+        <div className="flex flex-col gap-2 px-1 py-2 pt-1">
           {intents.map((intent, index) => {
             if (index > activeIntent) return null;
 
@@ -269,49 +266,16 @@ function LiveThreadChat({ visibleMessages }: { visibleMessages: number }) {
   }, [visibleMessages]);
 
   return (
-    <div className="pointer-events-none flex min-h-0 w-full max-w-[min(100%,520px)] flex-col overflow-hidden rounded-[28px] border border-ds-primary/20 bg-white shadow-[0_0_0_1px_rgba(138,5,255,0.14),0_8px_36px_rgba(138,5,255,0.16),0_20px_56px_rgba(15,15,15,0.07)]">
-      <div className="flex shrink-0 items-center justify-between border-b border-white/15 bg-ds-primary px-4 py-3">
-        <div>
-          <p className="mkt-font text-[11px] font-semibold uppercase tracking-[0.14em] text-white/90">
-            Live thread
-          </p>
-          <p className="mkt-font mt-0.5 text-xs text-white/75 sm:text-sm">
-            Orders, products, stock, handoff
-          </p>
-        </div>
-        <span className="mkt-font flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white">
-          <span className="size-1.5 rounded-full bg-green-400" aria-hidden />
-          Online
-        </span>
-      </div>
-
-      <div
-        ref={messagesViewportRef}
-        className="min-h-0 flex-1 overflow-hidden overscroll-none bg-white p-4 sm:p-5"
+    <div className="flex min-h-0 items-center justify-center">
+      <LandingChatWidgetShell
+        messagesViewportRef={messagesViewportRef}
+        messagesContentRef={messagesContentRef}
+        contentOffset={contentOffset}
       >
-        <div
-          ref={messagesContentRef}
-          className="space-y-2 pb-8 transition-transform duration-500 ease-out will-change-transform sm:space-y-2.5"
-          style={{ transform: `translateY(-${contentOffset}px)` }}
-        >
-          {conversation.slice(0, visibleMessages).map((message, index) => (
-            <ConversationBubble
-              key={`msg-${index}`}
-              message={message}
-              animateIn={index === visibleMessages - 1}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="shrink-0 border-t border-ds-outline/70 bg-white">
-        <div className="px-4 py-2.5">
-          <div className="mkt-chat-message rounded-full border border-ds-outline bg-ds-surface px-3 py-2 text-ds-on-surface-variant">
-            Message…
-          </div>
-        </div>
-        <PoweredByChatRely compact className="border-t border-ds-outline/70 bg-ds-surface/60" />
-      </div>
+        {conversation.slice(0, visibleMessages).map((message, index) => (
+          <ConversationBubble key={`msg-${index}`} message={message} animateIn={index === visibleMessages - 1} />
+        ))}
+      </LandingChatWidgetShell>
     </div>
   );
 }
@@ -335,7 +299,7 @@ function LandingComparisonDesktop() {
             <div className="flex min-h-0 flex-col pl-1">
               <ComparisonCopy />
               <IntentProgressDots activeIntent={activeIntent} />
-              <div className="mt-3 min-h-0 flex-1 overflow-hidden">
+              <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-1 py-2">
                 <IntentStack progress={progress} activeIntent={activeIntent} />
               </div>
             </div>

@@ -204,8 +204,10 @@ export function buildPlanEntitlementSections(
     },
     {
       label: "Chat stays on",
-      value: "Included",
-      included: true,
+      value: slug === "free" ? "Stops at 30 conversations" : "After allowance",
+      included: slug !== "free",
+      upgradeNote: slug === "free" ? tierLabel("hobby") : undefined,
+      minimumTier: slug === "free" ? "hobby" : undefined,
     },
   ];
 

@@ -20,6 +20,7 @@ from app.domains.conversations.service import (
     list_messages,
     normalize_conversation_metadata,
 )
+from app.domains.billing.usage_gate import merchant_free_plan_conversation_limit_reached
 from app.domains.conversations.visitor_presence import (
     conversation_is_active,
     touch_visitor_presence,
@@ -132,6 +133,7 @@ async def fetch_public_widget_thread(
             )
         )
     status = normalize_conversation_status(conv.status)
+    plan_limit_reached = await merchant_free_plan_conversation_limit_reached(db, user_id)
     ai_chat_disabled = await conversation_is_awaiting_human_team(
         db,
         user_id=user_id,
@@ -143,6 +145,7 @@ async def fetch_public_widget_thread(
     return PublicWidgetThreadResponse(
         conversation_status=status,
         ai_chat_disabled=ai_chat_disabled,
+        plan_conversation_limit_reached=plan_limit_reached,
         operator_engaged=bool(meta.get(OPERATOR_ENGAGED_META_KEY)),
         conversation_active=conversation_is_active(status),
         visitor_online=visitor_is_online(meta),

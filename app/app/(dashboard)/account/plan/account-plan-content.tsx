@@ -514,8 +514,17 @@ export function AccountPlanContent() {
               ) : null}
               {ctx.usage_snapshot?.throttle_tier === "strong" ? (
                 <p className="mt-4 rounded-ds-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  You passed your included conversation allowance. Replies now use normal models. Chat stays on until the
-                  cycle resets or you upgrade.
+                  {ctx.plan.slug === "free" ? (
+                    <>
+                      You reached the Free plan limit of {ctx.plan.included_conversations.toLocaleString()}{" "}
+                      conversations. AI replies are paused until the cycle resets or you upgrade.
+                    </>
+                  ) : (
+                    <>
+                      You passed your included conversation allowance. Replies now use normal models. Chat stays on until
+                      the cycle resets or you upgrade.
+                    </>
+                  )}
                 </p>
               ) : null}
             </article>

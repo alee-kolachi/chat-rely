@@ -12,7 +12,7 @@ type UsageSnapshot = {
 };
 
 type MeContextPayload = {
-  plan: { name: string; included_conversations: number };
+  plan: { name: string; slug?: string; included_conversations: number };
   usage_snapshot: UsageSnapshot | null;
 };
 
@@ -26,8 +26,10 @@ export function UsagePlanBanner() {
   }
 
   const overIncluded = snap.conversations_used > snap.included_conversations;
+  const atFreeLimit =
+    ctx?.plan.slug === "free" && snap.conversations_used >= snap.included_conversations;
   const notNormal = snap.throttle_tier !== "normal";
-  if (!overIncluded && !notNormal) {
+  if (!overIncluded && !notNormal && !atFreeLimit) {
     return null;
   }
 
@@ -36,7 +38,7 @@ export function UsagePlanBanner() {
   return (
     <div
       className={`rounded-ds-xl border p-4 text-sm shadow-sm ${
-        snap.throttle_tier === "strong"
+        atFreeLimit || snap.throttle_tier === "strong"
           ? "border-amber-300/80 bg-amber-50 text-amber-950"
           : "border-ds-outline bg-ds-sidebar/80 text-ds-on-surface"
       }`}
@@ -46,11 +48,13 @@ export function UsagePlanBanner() {
         {snap.conversations_used.toLocaleString()} conversations used
         {` · `}
         {snap.included_conversations.toLocaleString()} included
-        {beyondIncluded > 0
-          ? ` · ${beyondIncluded.toLocaleString()} above allowance. Normal models · chat stays on`
-          : ""}
+        {atFreeLimit
+          ? ". Free plan limit reached. AI replies are paused until the cycle resets or you upgrade."
+          : beyondIncluded > 0
+            ? ` · ${beyondIncluded.toLocaleString()} above allowance. Normal models · chat stays on`
+            : ""}
       </p>
-      {snap.throttle_tier === "strong" ? (
+      {snap.throttle_tier === "strong" && !atFreeLimit ? (
         <p className="ds-app-body-muted mt-1">
           Heavy usage this period: we never turn off chat, but responses may take longer.
         </p>

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { HeroChatDemo } from "@/components/marketing/landing/landing-hero-chat-demo";
+import { LANDING_CHAT_WIDTH_CLASS } from "@/components/marketing/landing/landing-chat-widget-shell";
 import { LandingHeroGridBackground } from "@/components/marketing/landing/landing-hero-grid-background";
 import { LandingReveal } from "@/components/marketing/landing/landing-reveal";
+import { cn } from "@/lib/utils";
 
 export function LandingHeroSection() {
   return (
@@ -32,7 +34,7 @@ export function LandingHeroSection() {
         </LandingReveal>
 
         <LandingReveal className="flex items-center justify-center lg:justify-end" delayMs={120}>
-          <div className="w-full max-w-[460px]">
+          <div className={cn("w-full", LANDING_CHAT_WIDTH_CLASS)}>
             <HeroChatDemo />
           </div>
         </LandingReveal>

@@ -286,6 +286,39 @@ async def append_message(
     return message
 
 
+async def patch_message_latency_ms(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    message_id: UUID,
+    latency_ms: int,
+) -> None:
+    if latency_ms < 0:
+        return
+    result = await db.execute(
+        text(
+            """
+            update public.messages m
+            set latency_ms = :latency_ms
+            from public.conversations c
+            where m.id = cast(:message_id as uuid)
+              and c.id = m.conversation_id
+              and c.user_id = cast(:user_id as uuid)
+              and m.role = 'assistant'
+            returning m.id
+            """
+        ),
+        {
+            "message_id": str(message_id),
+            "user_id": str(user_id),
+            "latency_ms": latency_ms,
+        },
+    )
+    if result.mappings().first() is None:
+        raise AppError(code="message.not_found", message="Message not found", status_code=404)
+    await db.commit()
+
+
 async def merge_message_metadata(
     db: AsyncSession,
     *,

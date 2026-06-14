@@ -19,6 +19,8 @@ export type WidgetEmbedHeaderProps = {
   actions?: ReactNode;
   className?: string;
   style?: CSSProperties;
+  titleClassName?: string;
+  hideBorder?: boolean;
 };
 
 /** Header chrome aligned with live embed `.cr-panel--chat-surface` header. */
@@ -36,6 +38,8 @@ export function WidgetEmbedHeader({
   actions,
   className,
   style,
+  titleClassName,
+  hideBorder = false,
 }: WidgetEmbedHeaderProps) {
   const accent = headerColor ?? brandColorHex ?? "#831C91";
   const chrome = brandChromeClasses(accent);
@@ -45,18 +49,19 @@ export function WidgetEmbedHeader({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-between gap-3 border-b px-4 pb-[11px] pt-2",
+        "flex shrink-0 items-center justify-between gap-3 px-4 pb-[11px] pt-2",
+        !hideBorder && "border-b",
         chatSurface
-          ? "border-[rgba(15,23,42,0.06)]"
+          ? "border-[rgba(15,23,42,0.06)] bg-transparent"
           : hasBrand
             ? "border-black/10"
             : "border-ds-outline bg-ds-sidebar",
         className
       )}
-        style={
+      style={
         style ??
         (chatSurface
-          ? { backgroundColor: "transparent" }
+          ? undefined
           : hasBrand
             ? { backgroundColor: accent }
             : themeMode === "dark"
@@ -80,7 +85,8 @@ export function WidgetEmbedHeader({
           <div
             className={cn(
               "truncate text-[14px] font-semibold leading-none tracking-[-0.02em]",
-              chatSurface ? "text-slate-900" : chrome.titleClass
+              chatSurface ? "text-slate-900" : chrome.titleClass,
+              titleClassName,
             )}
           >
             {displayName}

@@ -39,6 +39,14 @@ export type WidgetChatShellProps = {
   shellHeightClass?: string;
   /** Playground-style composer has no divider above the input. */
   footerBorderless?: boolean;
+  /** Chat-surface previews: drop outer border (avoids top hairline on marketing demos). */
+  shellBorderless?: boolean;
+  /** Optional override for embed header title size/class. */
+  headerTitleClassName?: string;
+  /** Chat-surface previews: hide divider under the header row. */
+  hideHeaderBorder?: boolean;
+  /** Optional lighter/darker chat-surface gradient top stop (marketing demos). */
+  chatSurfaceTopColor?: string;
   /** Optional sample user bubble for appearance preview. */
   previewUserBubble?: ReactNode;
 };
@@ -73,6 +81,10 @@ export function WidgetChatShell({
   className,
   shellHeightClass = "h-full max-h-full xl:h-[min(37.5rem,85vh)]",
   footerBorderless = false,
+  shellBorderless = false,
+  headerTitleClassName,
+  hideHeaderBorder = false,
+  chatSurfaceTopColor,
   previewUserBubble,
 }: WidgetChatShellProps) {
   const brand = parseBrandColorHex(brandColorHex) ?? "#831C91";
@@ -88,8 +100,12 @@ export function WidgetChatShell({
     color: resolved.colors.textPrimary,
     ...(chatSurface
       ? {
-          background: chatSurfaceGradient(resolved.colors.header, resolved.colors.panelBackground),
-          borderColor: "rgba(15, 23, 42, 0.06)",
+          background: chatSurfaceGradient(
+            resolved.colors.header,
+            resolved.colors.panelBackground,
+            chatSurfaceTopColor,
+          ),
+          ...(shellBorderless ? {} : { borderColor: "rgba(15, 23, 42, 0.06)" }),
         }
       : {
           backgroundColor: resolved.colors.panelBackground,
@@ -107,7 +123,9 @@ export function WidgetChatShell({
   return (
     <div
       className={cn(
-        "flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+        "flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+        shellBorderless ? "border-0" : "border",
+        !shellBorderless && (chatSurface ? "border-black/5" : "border-ds-outline"),
         shellHeightClass,
         className
       )}
@@ -123,6 +141,8 @@ export function WidgetChatShell({
         chatSurface={chatSurface}
         headerColor={resolved.colors.header}
         themeMode={resolved.themeMode}
+        titleClassName={headerTitleClassName}
+        hideBorder={hideHeaderBorder}
         leading={
           onHeaderBack ? (
             <button
@@ -162,13 +182,18 @@ export function WidgetChatShell({
 export function WidgetPreviewAssistantBubble({
   children,
   resolved,
+  className,
 }: {
   children: ReactNode;
   resolved: ResolvedWidgetAppearance;
+  className?: string;
 }) {
   return (
     <div
-      className="max-w-[92%] rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[13px] leading-snug"
+      className={cn(
+        "max-w-[92%] rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[13px] leading-snug",
+        className,
+      )}
       style={{
         backgroundColor: resolved.colors.assistantBubble,
         borderColor: "rgba(15, 23, 42, 0.05)",
@@ -220,14 +245,19 @@ export function WidgetWelcomeMessages({
 export function WidgetPreviewUserBubble({
   children,
   resolved,
+  className,
 }: {
   children: ReactNode;
   resolved: ResolvedWidgetAppearance;
+  className?: string;
 }) {
   const userChrome = brandChromeClasses(resolved.colors.userBubble);
   return (
     <div
-      className="max-w-[85%] rounded-2xl rounded-tr-sm px-3 py-2.5 text-[13px] leading-snug"
+      className={cn(
+        "max-w-[85%] rounded-2xl rounded-tr-sm px-3 py-2.5 text-[13px] leading-snug",
+        className,
+      )}
       style={{
         background: userBubbleGradient(resolved.colors.userBubble),
         color: userChrome.lightBg ? "#0f172a" : "#ffffff",
@@ -245,12 +275,14 @@ export function WidgetComposerPreview({
   accentColor,
   composerBackground,
   className,
+  placeholderClassName,
 }: {
   placeholder?: string;
   brandColorHex?: string | null;
   accentColor: string;
   composerBackground?: string;
   className?: string;
+  placeholderClassName?: string;
 }) {
   const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
   const chrome = brandChromeClasses(accentColor);
@@ -261,7 +293,12 @@ export function WidgetComposerPreview({
         className={cn(widgetComposerFieldClass, "pointer-events-none")}
         style={{ backgroundColor: composerBackground ?? "#FFFFFF" }}
       >
-        <span className="min-h-9 flex-1 py-2 text-sm leading-snug text-ds-on-surface-variant/70">
+        <span
+          className={cn(
+            "min-h-9 flex-1 py-2 text-sm leading-snug text-ds-on-surface-variant/70",
+            placeholderClassName,
+          )}
+        >
           {placeholder}
         </span>
         <span

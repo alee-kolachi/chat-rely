@@ -49,9 +49,9 @@ export function AnalyticsLockedSentimentPreview() {
         <svg className="h-full w-full" viewBox="0 0 100 100">
           <circle cx="50" cy="50" r={40} fill="transparent" stroke="var(--ds-outline)" strokeWidth="10" />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-2 text-center">
           <span className="ds-app-metric-value text-2xl">—</span>
-          <span className="ds-app-kicker">Positive</span>
+          <span className="ds-app-kicker">Top tone</span>
         </div>
       </div>
       <div className="w-full min-w-0 flex-1 space-y-3 sm:max-w-md">
@@ -93,18 +93,15 @@ export function AnalyticsLockedQualityPreview() {
 export function AnalyticsLockedFeedbackPreview() {
   return (
     <div aria-hidden>
-      <p className="ds-app-body-muted mb-4 max-w-3xl">
-        Thumbs on assistant replies in the widget. Mark resolved after you fix an issue.
-      </p>
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {["Thumbs up", "Open thumbs down", "Resolved thumbs down"].map((label) => (
-          <div key={label} className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-4 py-3">
-            <p className="ds-app-body-muted font-medium">{label}</p>
-            <p className="ds-app-metric-value mt-1 text-xl">—</p>
+      <div className="mb-5 grid grid-cols-3 gap-2">
+        {["Helpful", "Needs review", "Fixed"].map((label) => (
+          <div key={label} className="border-ds-outline rounded-ds-lg border bg-ds-sidebar/50 px-3 py-2.5">
+            <p className="text-ds-on-surface-variant text-[11px] font-semibold uppercase tracking-wide">{label}</p>
+            <p className="ds-app-metric-value mt-0.5 text-lg">—</p>
           </div>
         ))}
       </div>
-      <p className="text-ds-on-surface-variant text-sm">Open thumbs-down replies appear here.</p>
+      <p className="text-ds-on-surface-variant text-sm">Needs review replies appear here.</p>
     </div>
   );
 }

@@ -19,7 +19,7 @@ const faqs = [
   {
     question: "What happens if I go over my included conversations?",
     answer:
-      "No extra charge for overage right now. After you pass your included conversations, replies switch to normal models. Chat stays on until the cycle resets or you upgrade.",
+      "On paid plans, replies switch to normal models and chat stays on until the cycle resets or you upgrade. On Free, AI replies stop after 30 conversations for the month.",
   },
   {
     question: "What are premium and normal models?",
@@ -100,7 +100,7 @@ export function MarketingPricingClient() {
           <p className="mkt-body mt-5 max-w-2xl">Find the right plan for your store.</p>
           <p className="mt-4 max-w-2xl text-[0.9375rem] leading-relaxed text-ds-on-surface-variant">
             Paid plans use premium models within your conversation allowance. After that, normal models keep chat online.
-            Free uses normal models only.
+            Free is limited to 30 conversations per month, then AI replies stop until the next cycle or you upgrade.
           </p>
 
           {checkoutBanner ? (

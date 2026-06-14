@@ -466,7 +466,7 @@ function defaultAccentPanelBackground(brandHex: string, themeMode: "light" | "da
   if (themeMode === "dark") {
     return `color-mix(in srgb, ${accent} 5%, #0F172A)`;
   }
-  return `color-mix(in srgb, ${accent} 7%, #f8f5ff)`;
+  return `color-mix(in srgb, ${accent} 14%, #f3edff)`;
 }
 
 function resolveWidgetTheme(cfg: WidgetConfig, brandHex: string): ResolvedWidgetTheme {
@@ -1553,6 +1553,7 @@ async function boot(): Promise<void> {
   let contactCaptureRequired = false;
   let operatorEngaged = false;
   let aiChatDisabled = false;
+  let planConversationLimitReached = false;
   let handoffContext: HandoffContext | null = null;
   let threadStateReady = false;
   let threadStateSync: Promise<void> | null = null;
@@ -1597,6 +1598,10 @@ async function boot(): Promise<void> {
       isEscalatedStatus(conversationStatus) ||
       operatorEngaged
     );
+  }
+
+  function isComposerBlockedByPlanLimit(): boolean {
+    return planConversationLimitReached;
   }
 
   function threadAwaitingHumanTeam(data: {
@@ -1644,6 +1649,7 @@ async function boot(): Promise<void> {
   function applyThreadStateFromServer(data: {
     conversation_status?: string;
     ai_chat_disabled?: boolean;
+    plan_conversation_limit_reached?: boolean;
     operator_engaged?: boolean;
     handoff?: {
       seller_live?: boolean;
@@ -1667,6 +1673,7 @@ async function boot(): Promise<void> {
       data.ai_chat_disabled === true ||
       isEscalatedStatus(conversationStatus) ||
       operatorEngaged;
+    planConversationLimitReached = data.plan_conversation_limit_reached === true;
     updateComposerState();
   }
 
@@ -1707,10 +1714,19 @@ async function boot(): Promise<void> {
 
   function updateComposerState(): void {
     const humanHandoff = isHumanHandoffActive();
-    input.disabled = contactCaptureRequired;
-    input.placeholder = humanHandoff ? "Message our team…" : "Message…";
+    const planBlocked = isComposerBlockedByPlanLimit();
+    input.disabled = contactCaptureRequired || planBlocked;
+    input.placeholder = planBlocked
+      ? "Chat unavailable this month"
+      : humanHandoff
+        ? "Message our team…"
+        : "Message…";
     send.disabled =
-      contactCaptureRequired || sending || !input.value.trim() || (Boolean(conversationId) && !threadStateReady);
+      contactCaptureRequired ||
+      planBlocked ||
+      sending ||
+      !input.value.trim() ||
+      (Boolean(conversationId) && !threadStateReady);
     composerEscalated.textContent = buildEscalatedBanner(handoffContext);
     applyBodyView();
     refreshOperatorPoll();
@@ -2335,6 +2351,10 @@ async function boot(): Promise<void> {
       } else if (ev.ai_chat_disabled === true) {
         applyConversationStatus("escalated");
       }
+      if (ev.plan_conversation_limit_reached === true) {
+        planConversationLimitReached = true;
+        updateComposerState();
+      }
       applyAiChatDisabledFromSse(ev.ai_chat_disabled);
       setContactCaptureRequired(readContactCaptureRequired(ev));
       const handoff = readHandoffFromEscalationIfActive(ev);
@@ -2600,7 +2620,7 @@ async function boot(): Promise<void> {
 
   async function sendMessage(): Promise<void> {
     const text = input.value.trim();
-    if (!text || sending || contactCaptureRequired) return;
+    if (!text || sending || contactCaptureRequired || planConversationLimitReached) return;
     const humanHandoff = isHumanHandoffActive();
     removeConfigGreetingsFromTranscript();
     sending = true;
