@@ -76,6 +76,26 @@ export function applyChatSseEvent(
       streamPhase: current.streamPhase === "done" ? "done" : "streaming",
     };
   }
+  if (ev.type === "ready") {
+    const reply = typeof ev.response === "string" ? ev.response : "";
+    const merged = reply.trim() || current.text.trim();
+    const products = parseProductCards(ev.products);
+    const productDetail = parseProductDetail(ev.product_detail);
+    const hasRich = Boolean(products?.length || productDetail);
+    const stripped = stripProductListDump(merged);
+    const text = hasRich ? stripped || merged : merged;
+    return {
+      text,
+      streamPhase: "done",
+      statusLine: null,
+      assistantMessageId:
+        typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null,
+      conversationId:
+        typeof ev.conversation_id === "string" ? ev.conversation_id : null,
+      ...(products ? { products, productDetail: null } : {}),
+      ...(productDetail ? { productDetail, products: null } : {}),
+    };
+  }
   if (ev.type === "done") {
     const reply = typeof ev.response === "string" ? ev.response : "";
     const merged = reply.trim() || current.text.trim();

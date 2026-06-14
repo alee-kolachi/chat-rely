@@ -511,7 +511,7 @@ async def _finalize_stream_turn_persist(
             fallback_used=fallback_used,
         )
         if assistant_id and answer.strip():
-            await _attach_turn_signals(
+            _schedule_attach_turn_signals(
                 user_id=user_id,
                 agent_id=agent_id,
                 conversation_id=conversation_id,
@@ -527,6 +527,28 @@ async def _finalize_stream_turn_persist(
             conversation_id=str(conversation_id),
         )
         return None
+
+
+def _schedule_attach_turn_signals(
+    *,
+    user_id: UUID,
+    agent_id: UUID,
+    conversation_id: UUID,
+    assistant_message_id: UUID,
+    user_message: str,
+    assistant_reply: str,
+) -> None:
+    async def _run() -> None:
+        await _attach_turn_signals(
+            user_id=user_id,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            assistant_message_id=assistant_message_id,
+            user_message=user_message,
+            assistant_reply=assistant_reply,
+        )
+
+    asyncio.create_task(_run())
 
 
 async def _attach_turn_signals(
@@ -1372,24 +1394,6 @@ async def stream_chat(
         explicit=bool(done_payload.get("fallback_used")),
     )
 
-    yield format_sse(
-        "ready",
-        {
-            "conversation_id": str(conversation_id),
-            "response": answer,
-            "model": model,
-            "fallback_used": turn_fallback_used,
-            "contact_capture_required": contact_capture_required,
-            "escalation": escalation_info.model_dump(mode="json"),
-            **_sse_conversation_fields(
-                conv_status_for_sse,
-                escalation_occurred=escalation_occurred,
-            ),
-            **({"products": stream_products} if stream_products else {}),
-            **({"product_detail": stream_product_detail} if stream_product_detail else {}),
-        },
-    )
-
     assistant_id = await _finalize_stream_turn_persist(
         user_id=user_id,
         agent_id=payload.agent_id,
@@ -1406,12 +1410,32 @@ async def stream_chat(
         product_detail=stream_product_detail,
         fallback_used=turn_fallback_used,
     )
+    assistant_message_id = str(assistant_id) if assistant_id else None
+
+    yield format_sse(
+        "ready",
+        {
+            "conversation_id": str(conversation_id),
+            "assistant_message_id": assistant_message_id,
+            "response": answer,
+            "model": model,
+            "fallback_used": turn_fallback_used,
+            "contact_capture_required": contact_capture_required,
+            "escalation": escalation_info.model_dump(mode="json"),
+            **_sse_conversation_fields(
+                conv_status_for_sse,
+                escalation_occurred=escalation_occurred,
+            ),
+            **({"products": stream_products} if stream_products else {}),
+            **({"product_detail": stream_product_detail} if stream_product_detail else {}),
+        },
+    )
 
     yield format_sse(
         "done",
         {
             "conversation_id": str(conversation_id),
-            "assistant_message_id": str(assistant_id) if assistant_id else None,
+            "assistant_message_id": assistant_message_id,
             "response": answer,
             "model": model,
             "fallback_used": turn_fallback_used,

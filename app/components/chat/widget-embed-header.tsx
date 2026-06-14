@@ -40,13 +40,14 @@ export function WidgetEmbedHeader({
   const accent = headerColor ?? brandColorHex ?? "#831C91";
   const chrome = brandChromeClasses(accent);
   const displayName = agentName.trim() || "Support";
+  const showStatus = Boolean(statusLine?.trim());
 
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-between border-b px-4 pb-[11px] pt-2",
+        "flex shrink-0 items-center justify-between gap-3 border-b px-4 pb-[11px] pt-2",
         chatSurface
-          ? "border-[rgba(15,23,42,0.06)] bg-[color-mix(in_srgb,#ffffff_90%,#fcfbff)]"
+          ? "border-[rgba(15,23,42,0.06)]"
           : hasBrand
             ? "border-black/10"
             : "border-ds-outline bg-ds-sidebar",
@@ -55,7 +56,7 @@ export function WidgetEmbedHeader({
       style={
         style ??
         (chatSurface
-          ? undefined
+          ? { backgroundColor: "color-mix(in srgb, #ffffff 90%, #fcfbff)" }
           : hasBrand
             ? { backgroundColor: accent }
             : themeMode === "dark"
@@ -65,31 +66,34 @@ export function WidgetEmbedHeader({
     >
       <div className="flex min-w-0 flex-1 items-center gap-1">
         {leading}
-        <WidgetBrandAvatar
-          logoUrl={websiteLogoUrl ?? null}
-          logoPending={websiteLogoPending}
-          hasBrand={hasBrand}
-          chrome={chrome}
-          size="header"
-        />
-        <div className="relative h-9 min-w-0 pl-1">
-          <h3
+        <div className="ml-0.5 flex h-9 shrink-0 items-center">
+          <WidgetBrandAvatar
+            logoUrl={websiteLogoUrl ?? null}
+            logoPending={websiteLogoPending}
+            hasBrand={hasBrand}
+            chrome={chrome}
+            brandColorHex={brandColorHex}
+            size="header"
+          />
+        </div>
+        <div className="relative flex h-9 min-w-0 items-center pl-0.5">
+          <div
             className={cn(
               "truncate text-[14px] font-semibold leading-none tracking-[-0.02em]",
               chatSurface ? "text-slate-900" : chrome.titleClass
             )}
           >
             {displayName}
-          </h3>
-          {statusLine ? (
+          </div>
+          {showStatus && chatSurface ? (
+            <p className="absolute left-0 top-[calc(100%-1px)] max-w-full truncate text-[11px] font-[450] leading-[1.3] tracking-[0.005em] text-slate-500">
+              {statusLine}
+            </p>
+          ) : showStatus ? (
             <p
               className={cn(
-                "absolute left-0 top-[calc(100%-1px)] max-w-full truncate text-[11px] leading-[1.3]",
-                chatSurface
-                  ? "text-slate-500"
-                  : chrome.lightBg
-                    ? "text-ds-on-surface-variant"
-                    : "text-white/85"
+                "absolute left-0 top-[calc(100%-1px)] max-w-full truncate text-[11px] font-[450] leading-[1.3] tracking-[0.005em]",
+                chrome.lightBg ? "text-ds-on-surface-variant" : "text-white/85"
               )}
             >
               {statusLine}

@@ -492,6 +492,60 @@
   }
 }
 
+.widget-embed-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 0 8px 2px;
+  line-height: 1;
+}
+
+.widget-embed-thinking-dot {
+  display: block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  opacity: 0.35;
+  animation: widget-embed-thinking-wave 1.15s ease-in-out infinite;
+}
+
+.widget-embed-thinking-dot:nth-child(1) {
+  background: color-mix(in srgb, var(--cr-header-bg, var(--cr-accent, #831c91)) 28%, #ffffff);
+  animation-delay: 0s;
+}
+
+.widget-embed-thinking-dot:nth-child(2) {
+  background: color-mix(in srgb, var(--cr-header-bg, var(--cr-accent, #831c91)) 58%, #ffffff);
+  animation-delay: 0.16s;
+}
+
+.widget-embed-thinking-dot:nth-child(3) {
+  background: var(--cr-header-bg, var(--cr-accent, #831c91));
+  animation-delay: 0.32s;
+}
+
+@keyframes widget-embed-thinking-wave {
+
+  0%,
+  100% {
+    opacity: 0.32;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-embed-thinking-dot {
+    animation: none;
+    opacity: 0.72;
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: 200% 0;

@@ -519,25 +519,40 @@ function preloadWidgetGeistFonts(): void {
   }
 }
 
-function applyWidgetAppearance(host: HTMLElement, root: HTMLElement, theme: ResolvedWidgetTheme, headerChrome: ReturnType<typeof brandChromeClasses>, userChrome: ReturnType<typeof brandChromeClasses>): void {
-  host.style.setProperty("--cr-font-family", theme.fontFamily);
-  host.style.setProperty("--cr-panel-bg", theme.panelBackground);
-  host.style.setProperty("--cr-surface", theme.panelBackground);
-  host.style.setProperty("--cr-sidebar", theme.composerBackground);
-  host.style.setProperty("--cr-assistant-bubble", theme.assistantBubble);
-  host.style.setProperty("--cr-assistant-border", theme.assistantBubbleBorder);
-  host.style.setProperty("--cr-composer-bg", theme.composerBackground);
-  host.style.setProperty("--cr-on-surface", theme.textPrimary);
-  host.style.setProperty("--cr-text-muted", theme.textMuted);
-  host.style.setProperty("--cr-border", theme.assistantBubbleBorder);
-  host.style.setProperty("--cr-user-bubble", theme.userBubbleColor);
-  host.style.setProperty("--cr-header-bg", theme.headerColor);
-  host.style.setProperty("--cr-user-text", userChrome.userText);
-  host.style.setProperty("--cr-header-text", headerChrome.headerText);
-  host.style.setProperty("--cr-header-icon", headerChrome.headerIcon);
-  host.style.setProperty("--cr-header-icon-hover", headerChrome.headerIconHover);
-  host.style.setProperty("--cr-header-icon-hover-bg", headerChrome.headerIconHoverBg);
-  host.style.setProperty("--cr-header-icon-active-bg", headerChrome.headerIconActiveBg);
+function applyWidgetAppearance(
+  targets: HTMLElement[],
+  root: HTMLElement,
+  theme: ResolvedWidgetTheme,
+  headerChrome: ReturnType<typeof brandChromeClasses>,
+  userChrome: ReturnType<typeof brandChromeClasses>
+): void {
+  const vars: Array<[string, string]> = [
+    ["--cr-font-family", theme.fontFamily],
+    ["--cr-panel-bg", theme.panelBackground],
+    ["--cr-surface", theme.panelBackground],
+    ["--cr-chat-surface-bottom", theme.panelBackground],
+    ["--cr-welcome-gradient-bottom", theme.panelBackground],
+    ["--cr-sidebar", theme.composerBackground],
+    ["--cr-assistant-bubble", theme.assistantBubble],
+    ["--cr-assistant-border", theme.assistantBubbleBorder],
+    ["--cr-composer-bg", theme.composerBackground],
+    ["--cr-on-surface", theme.textPrimary],
+    ["--cr-text-muted", theme.textMuted],
+    ["--cr-border", theme.assistantBubbleBorder],
+    ["--cr-user-bubble", theme.userBubbleColor],
+    ["--cr-header-bg", theme.headerColor],
+    ["--cr-user-text", userChrome.userText],
+    ["--cr-header-text", headerChrome.headerText],
+    ["--cr-header-icon", headerChrome.headerIcon],
+    ["--cr-header-icon-hover", headerChrome.headerIconHover],
+    ["--cr-header-icon-hover-bg", headerChrome.headerIconHoverBg],
+    ["--cr-header-icon-active-bg", headerChrome.headerIconActiveBg],
+  ];
+  for (const el of targets) {
+    for (const [name, value] of vars) {
+      el.style.setProperty(name, value);
+    }
+  }
   if (theme.themeMode === "dark") {
     root.classList.add("cr-root--dark");
   }
@@ -1094,6 +1109,36 @@ function mountMessageFeedback(
   col.appendChild(row);
 }
 
+function syncAssistantFeedbackButtons(
+  messagesEl: HTMLElement,
+  transcript: StoredMessage[],
+  cfg: WidgetConfig,
+  apiBase: string,
+  agentKey: string,
+  visitorId: string
+): void {
+  if (!cfg.message_feedback_enabled) return;
+  const rows = messagesEl.querySelectorAll<HTMLElement>(".cr-msg-row--assistant");
+  let assistantIndex = 0;
+  for (const msg of transcript) {
+    if (msg.role !== "assistant") continue;
+    const row = rows[assistantIndex];
+    assistantIndex += 1;
+    if (!row || !msg.server_id) continue;
+    const wrap = row.querySelector(":scope .cr-msg-wrap");
+    if (!(wrap instanceof HTMLElement)) continue;
+    if (
+      !isAssistantFeedbackEligible(msg.text, {
+        hasProducts: Boolean(msg.products?.length),
+        hasProductDetail: Boolean(msg.product_detail),
+      })
+    ) {
+      continue;
+    }
+    mountMessageFeedback(wrap, apiBase, agentKey, visitorId, msg.server_id);
+  }
+}
+
 async function boot(): Promise<void> {
   const script = getEmbedLoaderScript();
   if (!script) {
@@ -1145,7 +1190,6 @@ async function boot(): Promise<void> {
 
   const root = document.createElement("div");
   root.className = `cr-root${bottomLeft ? " cr-root--bl" : " cr-root--br"}`;
-  applyWidgetAppearance(host, root, theme, headerChrome, userChrome);
   host.append(root);
 
   const launcher = document.createElement("button");
@@ -1414,6 +1458,7 @@ async function boot(): Promise<void> {
 
   composer.append(composerEscalated, composerContact, composerRow, poweredByEl, composerHint);
   panel.append(header, body, composer);
+  applyWidgetAppearance([host, root, panel], root, theme, headerChrome, userChrome);
   root.append(launcher, panel);
   document.body.appendChild(host);
 
@@ -1929,6 +1974,7 @@ async function boot(): Promise<void> {
       if (msg.role === "user") appendUserMessage(msg.text, false, msg.created_at);
       else appendAssistantMessage(msg, true, false);
     }
+    syncAssistantFeedbackButtons(messages, chatMessages, cfg, apiBase, agentKey, visitorId);
     updatePoweredByVisibility();
     scrollMessages();
   }
@@ -2280,6 +2326,111 @@ async function boot(): Promise<void> {
     };
 
     let gotDone = false;
+    let streamTurnFinalized = false;
+
+    const applyStreamConversationMeta = (ev: Record<string, unknown>): void => {
+      if (typeof ev.conversation_id === "string") conversationId = ev.conversation_id;
+      if (typeof ev.conversation_status === "string") {
+        applyConversationStatus(ev.conversation_status);
+      } else if (ev.ai_chat_disabled === true) {
+        applyConversationStatus("escalated");
+      }
+      applyAiChatDisabledFromSse(ev.ai_chat_disabled);
+      setContactCaptureRequired(readContactCaptureRequired(ev));
+      const handoff = readHandoffFromEscalationIfActive(ev);
+      if (handoff) {
+        setHandoffContext(handoff);
+      } else if (
+        ev.ai_chat_disabled !== true &&
+        !isEscalatedStatus(
+          typeof ev.conversation_status === "string" ? ev.conversation_status : null
+        ) &&
+        !readContactCaptureRequired(ev)
+      ) {
+        setHandoffContext(null);
+      }
+    };
+
+    const finalizeAssistantStream = (ev: Record<string, unknown>): void => {
+      if (streamTurnFinalized) return;
+      streamTurnFinalized = true;
+      hideDots();
+      clearStatus();
+      assistantEl.classList.remove("cr-msg--thinking");
+      const hasRichProducts =
+        Boolean(pendingDetail) ||
+        Boolean(pendingProducts?.length) ||
+        (Array.isArray(ev.products) && ev.products.length > 0) ||
+        Boolean(ev.product_detail && typeof ev.product_detail === "object");
+      const aiChatDisabled =
+        ev.ai_chat_disabled === true ||
+        isEscalatedStatus(
+          typeof ev.conversation_status === "string" ? ev.conversation_status : conversationStatus
+        );
+      const plainAccumulated = (assistantEl.getAttribute("data-plain") || "").trim();
+      const fullReply =
+        (typeof ev.response === "string" ? ev.response : "").trim() ||
+        plainAccumulated ||
+        (hasRichProducts || aiChatDisabled || isHumanHandoffActive() ? "" : EMPTY_REPLY_FALLBACK);
+      let displayText = hasRichProducts ? introTextForProductCards(fullReply) : fullReply;
+      if (!displayText.trim() && !hasRichProducts) {
+        if (conversationId) void ensureThreadStateFresh();
+        if (aiChatDisabled || isHumanHandoffActive()) {
+          row.remove();
+          chatMessages = chatMessages.filter(
+            (m) => !(m.role === "assistant" && m.created_at === createdAt)
+          );
+          persistStore();
+          return;
+        }
+        displayText = EMPTY_REPLY_FALLBACK;
+      }
+      setAssistantBubbleText(assistantEl, displayText);
+      ensureMessageTimestamp(assistantEl, createdAt, "assistant");
+      const mid = typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
+      const stored: StoredMessage = {
+        role: "assistant",
+        text: fullReply || displayText,
+        created_at: createdAt,
+        ...(mid ? { server_id: mid } : {}),
+      };
+      if (pendingDetail) stored.product_detail = pendingDetail;
+      else if (pendingProducts?.length) stored.products = pendingProducts;
+      else if (Array.isArray(ev.products) && ev.products.length) {
+        stored.products = ev.products as ProductCard[];
+      } else if (ev.product_detail && typeof ev.product_detail === "object") {
+        stored.product_detail = ev.product_detail as ProductDetail;
+      }
+      const lastMsg = chatMessages[chatMessages.length - 1];
+      if (lastMsg?.role === "assistant" && lastMsg.created_at === createdAt) {
+        Object.assign(lastMsg, stored);
+      } else {
+        chatMessages.push(stored);
+      }
+      renderAssistantRichContent(
+        wrap,
+        assistantEl,
+        stored,
+        (card) => void runProductAction("details", card),
+        (card) => void runProductAction("similar", card),
+        false
+      );
+      ensureMessageTimestamp(assistantEl, createdAt, "assistant");
+      persistStore();
+      if (
+        cfg.message_feedback_enabled &&
+        mid &&
+        isAssistantFeedbackEligible(displayText, {
+          hasProducts: Boolean(stored.products?.length),
+          hasProductDetail: Boolean(stored.product_detail),
+        })
+      ) {
+        mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
+      }
+      syncAssistantFeedbackButtons(messages, chatMessages, cfg, apiBase, agentKey, visitorId);
+      scrollMessages();
+    };
+
     try {
       for await (const ev of streamChat(apiBase, agentKey, {
         message: userText,
@@ -2338,119 +2489,17 @@ async function boot(): Promise<void> {
           } else {
             assistantEl.innerHTML = renderAssistantHtml(nextPlain);
           }
+          ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           scrollMessages();
         } else if (ev.type === "ready") {
-          if (ev.conversation_id) conversationId = ev.conversation_id;
-          if (typeof ev.conversation_status === "string") {
-            applyConversationStatus(ev.conversation_status);
-          } else if (ev.ai_chat_disabled === true) {
-            applyConversationStatus("escalated");
-          }
-          applyAiChatDisabledFromSse(ev.ai_chat_disabled);
-          setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
-          const readyHandoff = readHandoffFromEscalationIfActive(ev as Record<string, unknown>);
-          if (readyHandoff) {
-            setHandoffContext(readyHandoff);
-          } else if (
-            ev.ai_chat_disabled !== true &&
-            !isEscalatedStatus(
-              typeof ev.conversation_status === "string" ? ev.conversation_status : null
-            ) &&
-            !readContactCaptureRequired(ev as Record<string, unknown>)
-          ) {
-            setHandoffContext(null);
-          }
+          gotDone = true;
+          applyStreamConversationMeta(ev as Record<string, unknown>);
+          finalizeAssistantStream(ev as Record<string, unknown>);
           onComposerReady?.();
         } else if (ev.type === "done") {
           gotDone = true;
-          if (ev.conversation_id) conversationId = ev.conversation_id;
-          if (typeof ev.conversation_status === "string") {
-            applyConversationStatus(ev.conversation_status);
-          } else if (ev.ai_chat_disabled === true) {
-            applyConversationStatus("escalated");
-          }
-          applyAiChatDisabledFromSse(ev.ai_chat_disabled);
-          setContactCaptureRequired(readContactCaptureRequired(ev as Record<string, unknown>));
-          const handoff = readHandoffFromEscalationIfActive(ev as Record<string, unknown>);
-          if (handoff) {
-            setHandoffContext(handoff);
-          } else if (
-            ev.ai_chat_disabled !== true &&
-            !isEscalatedStatus(
-              typeof ev.conversation_status === "string" ? ev.conversation_status : null
-            ) &&
-            !readContactCaptureRequired(ev as Record<string, unknown>)
-          ) {
-            setHandoffContext(null);
-          }
-          hideDots();
-          clearStatus();
-          assistantEl.classList.remove("cr-msg--thinking");
-          const hasRichProducts =
-            Boolean(pendingDetail) ||
-            Boolean(pendingProducts?.length) ||
-            (Array.isArray(ev.products) && ev.products.length > 0) ||
-            Boolean(ev.product_detail && typeof ev.product_detail === "object");
-          const aiChatDisabled =
-            ev.ai_chat_disabled === true ||
-            isEscalatedStatus(
-              typeof ev.conversation_status === "string" ? ev.conversation_status : conversationStatus
-            );
-          const plainAccumulated = (assistantEl.getAttribute("data-plain") || "").trim();
-          const fullReply =
-            (typeof ev.response === "string" ? ev.response : "").trim() ||
-            plainAccumulated ||
-            (hasRichProducts || aiChatDisabled || isHumanHandoffActive() ? "" : EMPTY_REPLY_FALLBACK);
-          let displayText = hasRichProducts ? introTextForProductCards(fullReply) : fullReply;
-          if (!displayText.trim() && !hasRichProducts) {
-            if (conversationId) void ensureThreadStateFresh();
-            if (aiChatDisabled || isHumanHandoffActive()) {
-              row.remove();
-              chatMessages = chatMessages.filter(
-                (m) => !(m.role === "assistant" && m.created_at === createdAt)
-              );
-              persistStore();
-              return;
-            }
-            displayText = EMPTY_REPLY_FALLBACK;
-          }
-          setAssistantBubbleText(assistantEl, displayText);
-          ensureMessageTimestamp(assistantEl, createdAt, "assistant");
-          const mid = typeof ev.assistant_message_id === "string" ? ev.assistant_message_id : null;
-          const stored: StoredMessage = {
-            role: "assistant",
-            text: fullReply || displayText,
-            created_at: createdAt,
-            ...(mid ? { server_id: mid } : {}),
-          };
-          if (pendingDetail) stored.product_detail = pendingDetail;
-          else if (pendingProducts?.length) stored.products = pendingProducts;
-          else if (Array.isArray(ev.products) && ev.products.length) {
-            stored.products = ev.products as ProductCard[];
-          } else if (ev.product_detail && typeof ev.product_detail === "object") {
-            stored.product_detail = ev.product_detail as ProductDetail;
-          }
-          chatMessages.push(stored);
-          renderAssistantRichContent(
-            wrap,
-            assistantEl,
-            stored,
-            (card) => void runProductAction("details", card),
-            (card) => void runProductAction("similar", card),
-            false
-          );
-          ensureMessageTimestamp(assistantEl, createdAt, "assistant");
-          persistStore();
-          if (
-            cfg.message_feedback_enabled &&
-            mid &&
-            isAssistantFeedbackEligible(displayText, {
-              hasProducts: Boolean(stored.products?.length),
-              hasProductDetail: Boolean(stored.product_detail),
-            })
-          ) {
-            mountMessageFeedback(wrap, apiBase, agentKey, visitorId, mid);
-          }
+          applyStreamConversationMeta(ev as Record<string, unknown>);
+          finalizeAssistantStream(ev as Record<string, unknown>);
         } else if (ev.type === "error") {
           if (!retrying && isVisitorMismatchError(ev.message || "")) {
             clearStaleConversation();
@@ -2477,7 +2526,7 @@ async function boot(): Promise<void> {
     } finally {
       hideDots();
       clearStatus();
-      if (!gotDone) {
+      if (!gotDone && !streamTurnFinalized) {
         const plain = (assistantEl.getAttribute("data-plain") || "").trim();
         if (plain) {
           assistantEl.innerHTML = renderAssistantHtml(plain);

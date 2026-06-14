@@ -238,9 +238,17 @@
 
 .cr-panel.cr-panel--chat-surface {
   --cr-chat-surface-top: #fcfbff;
-  --cr-chat-surface-bottom: color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 7%, #f8f5ff);
+  --cr-chat-surface-bottom: var(
+    --cr-panel-bg,
+    color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 7%, #f8f5ff)
+  );
   --cr-header-title-size: 14px;
-  --cr-header-logo-size: 15px;
+  --cr-header-logo-size: 17px;
+  background: var(--cr-chat-surface-top);
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+.cr-panel--chat-surface .cr-body {
   background: linear-gradient(
     0deg,
     var(--cr-chat-surface-bottom) 0%,
@@ -260,7 +268,7 @@
 .cr-panel--chat-surface .cr-panel-header--brand .cr-panel-header-copy .cr-panel-title {
   color: #0f172a;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1;
 }
@@ -545,8 +553,8 @@
 }
 
 .cr-avatar-wrap--header .cr-avatar-fallback {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 400;
   color: var(--cr-header-text, #fff);
 }
 
@@ -666,7 +674,7 @@
 
 .cr-panel-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.025em;
   white-space: nowrap;
   overflow: hidden;
@@ -772,12 +780,12 @@
 
 .cr-welcome-hero {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   min-height: 88px;
   overflow: hidden;
-  padding: 12px 20px 8px;
+  padding: 28px 20px 12px;
   color: var(--cr-header-text, #ffffff);
   background: transparent;
 }
@@ -849,11 +857,11 @@
 
 .cr-welcome-panel {
   display: flex;
-  flex: 1;
+  flex: 0 0 auto;
   flex-direction: column;
   margin-top: 12px;
   min-height: 0;
-  padding: 0 16px 0;
+  padding: 0 16px 12px;
   background: transparent;
 }
 
@@ -1030,8 +1038,7 @@
 }
 
 .cr-welcome-spacer {
-  flex: 1;
-  min-height: 8px;
+  display: none;
 }
 
 .cr-composer.cr-composer--footer-only {
@@ -1130,7 +1137,7 @@
   max-width: 100%;
   padding: 10px 14px;
   border-radius: 16px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   letter-spacing: normal;
   white-space: pre-wrap;
@@ -1185,7 +1192,7 @@
   border: 1px solid rgba(15, 23, 42, 0.05);
   border-top-left-radius: 4px;
   box-shadow: none;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -1207,7 +1214,7 @@
   align-items: flex-end;
   width: auto;
   max-width: 100%;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
   background: linear-gradient(
     90deg,

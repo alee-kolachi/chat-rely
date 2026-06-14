@@ -122,7 +122,7 @@ export function WidgetWelcomeScreen({
         aria-hidden
       />
 
-      <div className="relative flex min-h-[88px] flex-1 items-center px-5 sm:px-6">
+      <div className="relative flex min-h-[88px] shrink-0 items-center px-5 pt-7 pb-3 sm:px-6">
         <h2
           className="w-full pr-9 text-[24px] font-normal leading-tight tracking-[-0.02em]"
           style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR }}

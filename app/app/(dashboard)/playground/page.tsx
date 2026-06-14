@@ -75,6 +75,7 @@ import { VisitorContactForm } from "@/components/chat/visitor-contact-form";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
 import { WidgetEmbedHeader } from "@/components/chat/widget-embed-header";
+import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
 import { WidgetWelcomeMessages } from "@/components/chat/widget-chat-shell";
 import {
   PlaygroundComposer,
@@ -846,7 +847,7 @@ function PlaygroundPreviewConversation({
       if (ev.type === "error") {
         throw new BackendApiError(ev.message ?? "Chat failed", 0, ev.code, ev.details);
       }
-      if (ev.type === "done") {
+      if (ev.type === "ready" || ev.type === "done") {
         setIsSending(false);
       }
     }
@@ -1197,23 +1198,7 @@ function PlaygroundPreviewConversation({
   const hasBrand = Boolean(brandColorHex);
   const chrome = headerChrome;
   const displayName = (agentName?.trim() || "Assistant preview").trim();
-  const toneDescription = toneDescriptionRaw?.trim() || null;
   const languageLabel = languagePreviewLabel(languageRaw);
-  const emptyAssistantLines = effectiveWelcomeMessages(behaviorSettings, agentName);
-
-  const headerToolbarIconBtnClass = useMemo(
-    () =>
-      cn(
-        "cursor-pointer rounded-ds-md p-2.5 transition-colors disabled:pointer-events-none disabled:opacity-40",
-        !hasBrand && "text-ds-on-surface-variant hover:bg-ds-outline/50 hover:text-ds-on-surface",
-        hasBrand &&
-          chrome &&
-          (chrome.lightBg
-            ? "text-ds-on-surface-variant hover:bg-black/[0.06] hover:text-ds-on-surface"
-            : "text-white/90 hover:bg-white/15 hover:text-white")
-      ),
-    [hasBrand, chrome]
-  );
 
   const assistantBubbleClass =
     "max-w-full rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[13px] leading-snug";
@@ -1223,16 +1208,30 @@ function PlaygroundPreviewConversation({
     color: appearanceResolved.colors.textPrimary,
   };
   const chatSurface = hasBrand && appearanceResolved.themeMode === "light";
-  const shellBackgroundStyle = chatSurface
+  const emptyAssistantLines = effectiveWelcomeMessages(behaviorSettings, agentName);
+  const messagesBackgroundStyle = chatSurface
     ? {
         background: chatSurfaceGradient(
           appearanceResolved.colors.header,
           appearanceResolved.colors.panelBackground
         ),
       }
-    : {
-        backgroundColor: appearanceResolved.colors.panelBackground,
-      };
+    : undefined;
+
+  const headerToolbarIconBtnClass = useMemo(
+    () =>
+      cn(
+        "inline-flex size-10 cursor-pointer items-center justify-center rounded-lg transition-colors disabled:pointer-events-none disabled:opacity-40",
+        chatSurface
+          ? "text-slate-600 hover:bg-slate-900/6 hover:text-slate-900"
+          : !hasBrand
+            ? "text-ds-on-surface-variant hover:bg-ds-outline/50 hover:text-ds-on-surface"
+            : chrome?.lightBg
+              ? "text-ds-on-surface-variant hover:bg-black/[0.06] hover:text-ds-on-surface"
+              : "text-white/90 hover:bg-white/15 hover:text-white"
+      ),
+    [chatSurface, hasBrand, chrome]
+  );
 
   return (
     <div
@@ -1251,7 +1250,7 @@ function PlaygroundPreviewConversation({
           chatSurface ? "border-black/5" : "border-ds-outline"
         )}
         style={{
-          ...shellBackgroundStyle,
+          backgroundColor: chatSurface ? "#fcfbff" : appearanceResolved.colors.panelBackground,
           borderColor: chatSurface ? "rgba(15, 23, 42, 0.06)" : appearanceResolved.colors.assistantBubbleBorder,
           color: appearanceResolved.colors.textPrimary,
         }}
@@ -1265,6 +1264,7 @@ function PlaygroundPreviewConversation({
         chatSurface={chatSurface}
         headerColor={appearanceResolved.colors.header}
         themeMode={appearanceResolved.themeMode}
+        statusLine={undefined}
         actions={
           <>
             <button
@@ -1299,7 +1299,8 @@ function PlaygroundPreviewConversation({
       <div
         ref={messagesScrollRef}
         onScroll={historyOpen ? undefined : onMessagesScroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-transparent"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+        style={messagesBackgroundStyle}
       >
         {historyOpen ? (
           <div className="flex flex-col p-4 sm:p-5" role="region" aria-label="Conversations">
@@ -1381,13 +1382,6 @@ function PlaygroundPreviewConversation({
                   messages={emptyAssistantLines}
                   resolved={appearanceResolved}
                 />
-                {toneDescription || languageLabel ? (
-                  <p className={cn(onboardingType.hint, "ds-app-body-muted pl-11 text-left text-xs")}>
-                    {toneDescription ? `Tone guidance: ${toneDescription}` : null}
-                    {toneDescription && languageLabel ? " \u00b7 " : null}
-                    {languageLabel ? `Reply language: ${languageLabel}` : null}
-                  </p>
-                ) : null}
               </div>
             ) : null}
             {previewMessages.map((msg, index) => {
@@ -1404,7 +1398,7 @@ function PlaygroundPreviewConversation({
                 msg.from === "assistant" &&
                 Boolean(msg.products?.length && !msg.productDetail);
               const assistantTimeFooter =
-                msg.createdAt && (phase === "done" || phase === "error") ? (
+                msg.createdAt && phase !== "thinking" && (msg.text.trim() || phase === "error") ? (
                   <MessageTimestamp
                     variant="bubble"
                     value={msg.createdAt}
@@ -1448,6 +1442,8 @@ function PlaygroundPreviewConversation({
                               })
                             }
                           />
+                        ) : phase === "thinking" && !msg.text.trim() ? (
+                          <WidgetEmbedThinkingDots accentColor={appearanceResolved.colors.header} />
                         ) : (
                           <div className={assistantBubbleClass} style={assistantBubbleStyle}>
                             <StreamingAssistantMessage

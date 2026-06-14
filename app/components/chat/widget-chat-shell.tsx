@@ -88,14 +88,20 @@ export function WidgetChatShell({
     color: resolved.colors.textPrimary,
     ...(chatSurface
       ? {
-          background: chatSurfaceGradient(resolved.colors.header, resolved.colors.panelBackground),
-          borderColor: resolved.colors.assistantBubbleBorder,
+          backgroundColor: "#fcfbff",
+          borderColor: "rgba(15, 23, 42, 0.06)",
         }
       : {
           backgroundColor: resolved.colors.panelBackground,
           borderColor: resolved.colors.assistantBubbleBorder,
         }),
   };
+
+  const messagesBackgroundStyle: CSSProperties | undefined = chatSurface
+    ? {
+        background: chatSurfaceGradient(resolved.colors.header, resolved.colors.panelBackground),
+      }
+    : undefined;
 
   const footerStyle: CSSProperties = chatSurface
     ? { background: "transparent", borderColor: "transparent" }
@@ -146,7 +152,9 @@ export function WidgetChatShell({
         actions={headerActions}
       />
 
-      <div className="min-h-0 flex-1 overflow-hidden bg-transparent">{children}</div>
+      <div className="min-h-0 flex-1 overflow-hidden" style={messagesBackgroundStyle}>
+        {children}
+      </div>
 
       {previewUserBubble}
 

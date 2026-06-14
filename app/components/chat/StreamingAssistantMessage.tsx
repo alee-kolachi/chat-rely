@@ -1,7 +1,7 @@
 "use client";
 
 import { AssistantMarkdown } from "@/components/chat/assistant-markdown";
-import { AssistantThinkingDots } from "@/components/chat/assistant-thinking-dots";
+import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
 import { ProductCarousel } from "@/components/chat/product-carousel";
 import { ProductDetailView } from "@/components/chat/product-detail-view";
 import { ToolActivityLine } from "@/components/chat/tool-activity-line";
@@ -94,7 +94,7 @@ export function StreamingAssistantMessage({
   if (showRichProducts && products) {
     return (
       <div className={cn("flex w-full min-w-0 flex-col gap-2", className)}>
-        {showDots ? <AssistantThinkingDots brandColorHex={brandColorHex} /> : null}
+        {showDots ? <WidgetEmbedThinkingDots accentColor={brandColorHex} /> : null}
         {statusLine && phase === "streaming" ? (
           <ToolActivityLine message={statusLine} />
         ) : null}
@@ -120,7 +120,7 @@ export function StreamingAssistantMessage({
   if (hasRichUi) {
     return (
       <div className={cn("min-h-[1.25rem]", className)}>
-        {showDots ? <AssistantThinkingDots brandColorHex={brandColorHex} /> : null}
+        {showDots ? <WidgetEmbedThinkingDots accentColor={brandColorHex} /> : null}
         {statusLine && phase === "streaming" ? (
           <ToolActivityLine message={statusLine} />
         ) : null}
@@ -143,7 +143,7 @@ export function StreamingAssistantMessage({
 
   return (
     <div className={cn("min-h-[1.25rem]", className)}>
-      {showDots ? <AssistantThinkingDots brandColorHex={brandColorHex} /> : null}
+      {showDots ? <WidgetEmbedThinkingDots accentColor={brandColorHex} /> : null}
       {statusLine && (phase === "thinking" || phase === "streaming") ? (
         <ToolActivityLine message={statusLine} />
       ) : null}
