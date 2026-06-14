@@ -521,8 +521,8 @@ export function AccountPlanContent() {
                     </>
                   ) : (
                     <>
-                      You passed your included conversation allowance. Replies now use normal models. Chat stays on until
-                      the cycle resets or you upgrade.
+                      You passed your included conversation allowance. Replies now use normal models. The widget stays
+                      open until the cycle resets or you upgrade.
                     </>
                   )}
                 </p>

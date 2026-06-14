@@ -71,7 +71,7 @@ function MatrixCellDisplay({ cell }: { cell: DetailCell }) {
     case "dash":
       return (
         <span className={`inline-flex min-h-8 min-w-8 items-center justify-center text-sm font-medium ${muted}`} aria-label="Not included">
-          -
+          —
         </span>
       );
     case "comingSoon":

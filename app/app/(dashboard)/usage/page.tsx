@@ -239,8 +239,8 @@ export default function UsagePage() {
             </dl>
             {throttleTier === "strong" ? (
               <p className="ds-app-body-muted mt-4 text-sm leading-relaxed">
-                Heavy usage this period: chat stays on, but replies may take longer until your cycle resets or you
-                upgrade.
+                Heavy usage this period: the widget stays open, but replies may take longer until your cycle resets or
+                you upgrade.
               </p>
             ) : null}
           </article>

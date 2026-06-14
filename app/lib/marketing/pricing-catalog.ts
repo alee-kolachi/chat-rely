@@ -28,7 +28,7 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
     name: "Free",
     monthlyPriceCents: 0,
     includedConversations: 30,
-    displayCostPerConversation: "$0.000",
+    displayCostPerConversation: "$0",
     tagline: "Try ChatRely on your site",
   },
   {
@@ -61,39 +61,39 @@ export const PRICING_TIER_CARDS: PricingTierCard[] = [
 export const PRICING_CARD_BULLETS: Record<PricingTierSlug, readonly string[]> = {
   free: [
     "1 agent",
-    "30 conversations per month on normal models",
+    "30 conversations on normal models",
     "Answers from your website knowledge",
     "500 KB training content",
-    "Chat stops after 30 conversations / month",
+    "Chat stops after 30 conversations",
   ],
   hobby: [
     "Everything in Free",
-    "250 conversations per month on premium models",
-    "1 AI action per agent (you choose which)",
+    "250 conversations on premium AI models",
+    "Unlimited conversations on normal models after that",
+    "1 AI action per agent",
     "Shopify connect",
     "Basic analytics",
     "5 MB training content",
-    "Normal models after allowance (chat stays on)",
   ],
   standard: [
     "Everything in Hobby",
     "2 agents",
-    "1,000 conversations per month on premium models",
-    "5 AI actions per agent (you choose which)",
+    "1,000 conversations on premium AI models",
+    "Unlimited conversations on normal models after that",
+    "5 AI actions per agent",
     "Advanced analytics",
     "Source suggestions",
     "40 MB training content",
-    "Normal models after allowance (chat stays on)",
   ],
   pro: [
     "Everything in Standard",
     "5 agents",
-    "5,000 conversations per month on premium models",
+    "5,000 conversations on premium AI models",
+    "Unlimited conversations on normal models after that",
     "Visitor feedback and summaries",
     "All 6 AI actions per agent",
     "Remove Powered by ChatRely",
     "100 MB training content",
-    "Normal models after allowance (chat stays on)",
   ],
 };
 
@@ -135,19 +135,19 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
       {
         label: "Est. cost per conversation",
         cells: {
-          free: { kind: "dash" },
+          free: { kind: "text", value: "$0" },
           hobby: { kind: "text", value: "$0.145" },
           standard: { kind: "text", value: "$0.099" },
           pro: { kind: "text", value: "$0.080" },
         },
       },
       {
-        label: "Chat stays on after allowance",
+        label: "Past monthly conversation limit",
         cells: {
-          free: { kind: "dash" },
-          hobby: { kind: "tick" },
-          standard: { kind: "tick" },
-          pro: { kind: "tick" },
+          free: { kind: "text", value: "AI replies stop" },
+          hobby: { kind: "text", value: "Normal models · widget open" },
+          standard: { kind: "text", value: "Normal models · widget open" },
+          pro: { kind: "text", value: "Normal models · widget open" },
         },
       },
       {
@@ -264,15 +264,6 @@ export const PRICING_DETAIL_SECTIONS: PricingDetailSection[] = [
           pro: { kind: "text", value: "After allowance" },
         },
       },
-      {
-        label: "Chat stays on after allowance",
-        cells: {
-          free: { kind: "dash" },
-          hobby: { kind: "tick" },
-          standard: { kind: "tick" },
-          pro: { kind: "tick" },
-        },
-      },
     ],
   },
   {
@@ -298,8 +289,8 @@ export const PRICING_AI_FOOTNOTES: { title: string; lines: string[] }[] = [
     lines: [
       "Premium models give faster, sharper replies on paid plans within your monthly conversation allowance.",
       "Normal models keep chat online with slower replies. Free uses normal models only.",
-      "If you pass your allowance on a paid plan, chat switches to normal models until your cycle resets or you upgrade.",
-      "Free stops AI replies after 30 conversations in a billing month. Upgrade to keep chat online.",
+      "If you pass your allowance on a paid plan, the widget switches to normal models until your cycle resets or you upgrade.",
+      "Free stops AI replies after 30 conversations in a billing month. Upgrade to reopen the widget for visitors.",
       "We count a conversation when a chat closes after the visitor sent a message, got a reply, or a tool ran.",
     ],
   },
@@ -310,7 +301,7 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
     case "tick":
       return "\u2713";
     case "dash":
-      return "-";
+      return "\u2014";
     case "comingSoon":
       return "Soon";
     case "text":
@@ -324,7 +315,7 @@ export function detailCellToShortDisplay(cell: DetailCell): string {
 export const LANDING_COMPACT_LABELS: Record<string, string> = {
   "Conversations included / month": "Conversations / mo",
   "Est. cost per conversation": "Est. cost / chat",
-  "Chat stays on after allowance": "Chat stays on",
+  "Past monthly conversation limit": "Past monthly limit",
   "Source suggestions": "Source suggestions",
   "Visitor feedback and summaries (widget)": "Visitor feedback",
   Attachments: "Attachments",
@@ -340,8 +331,8 @@ export const LANDING_ROW_TOOLTIPS: Record<string, string> = {
     "Closed chats that count toward your monthly allowance.",
   "Est. cost per conversation":
     "Rough monthly price divided by included conversations on paid plans. You pay the subscription, not per chat.",
-  "Chat stays on after allowance":
-    "Paid plans keep answering on normal models after the allowance. Free stops AI replies at 30 conversations.",
+  "Past monthly conversation limit":
+    "Free stops AI replies at 30 conversations. Paid plans switch to normal models but the widget keeps accepting messages.",
   "Premium models":
     "Faster, sharper reply models on paid plans within your monthly conversation allowance.",
   "Normal models":
@@ -366,7 +357,7 @@ export const PRICING_ROW_TOOLTIP_LABELS = new Set<string>([
   "Shopify",
   "Conversations included / month",
   "Est. cost per conversation",
-  "Chat stays on after allowance",
+  "Past monthly conversation limit",
   "Premium models",
   "Normal models",
   "AI actions per agent",
@@ -401,7 +392,7 @@ export const LANDING_TEASER_TOOLTIP_KEYS = new Set<string>([
   "Channels:Shopify",
   "usage:Conversations included / month",
   "usage:Est. cost per conversation",
-  "usage:Chat stays on after allowance",
+  "usage:Past monthly conversation limit",
   "Models:Premium models",
   "Models:Normal models",
   "usage:AI actions per agent",
@@ -436,7 +427,7 @@ function _compactLabel(sourceLabel: string): string {
 
 function _excludedTeaserValue(v: string, rowKey?: string): boolean {
   if (v === "Soon" && rowKey && LANDING_TEASER_SOON_KEYS.has(rowKey)) return false;
-  return v === "-" || v === "Soon";
+  return v === "\u2014" || v === "-" || v === "Soon";
 }
 
 type _TeaserMatrixRow = {

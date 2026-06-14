@@ -19,7 +19,7 @@ const faqs = [
   {
     question: "What happens if I go over my included conversations?",
     answer:
-      "On paid plans, replies switch to normal models and chat stays on until the cycle resets or you upgrade. On Free, AI replies stop after 30 conversations for the month.",
+      "On paid plans, replies switch to normal models and the widget stays open until the cycle resets or you upgrade. On Free, AI replies stop after 30 conversations for the month.",
   },
   {
     question: "What are premium and normal models?",
@@ -99,7 +99,7 @@ export function MarketingPricingClient() {
           <h1 className="mkt-display mt-6 text-4xl sm:text-5xl">Plans &amp; pricing</h1>
           <p className="mkt-body mt-5 max-w-2xl">Find the right plan for your store.</p>
           <p className="mt-4 max-w-2xl text-[0.9375rem] leading-relaxed text-ds-on-surface-variant">
-            Paid plans use premium models within your conversation allowance. After that, normal models keep chat online.
+            Paid plans use premium models within your conversation allowance. After that, normal models keep the widget open.
             Free is limited to 30 conversations per month, then AI replies stop until the next cycle or you upgrade.
           </p>
 
@@ -157,10 +157,10 @@ export function MarketingPricingClient() {
               {showDashboard ? "Open dashboard" : "Create your agent"}
             </Link>
             <a
-              href="mailto:support@chatrely.com"
+              href="mailto:alee@chatrely.com"
               className="text-sm font-medium text-ds-on-primary/80 underline underline-offset-4 transition hover:text-ds-on-primary"
             >
-              Questions? Email support@chatrely.com
+              Questions? Email alee@chatrely.com
             </a>
           </div>
         </div>

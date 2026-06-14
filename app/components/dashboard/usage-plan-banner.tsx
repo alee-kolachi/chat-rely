@@ -51,12 +51,12 @@ export function UsagePlanBanner() {
         {atFreeLimit
           ? ". Free plan limit reached. AI replies are paused until the cycle resets or you upgrade."
           : beyondIncluded > 0
-            ? ` · ${beyondIncluded.toLocaleString()} above allowance. Normal models · chat stays on`
+            ? ` · ${beyondIncluded.toLocaleString()} above allowance. Normal models · widget stays open`
             : ""}
       </p>
       {snap.throttle_tier === "strong" && !atFreeLimit ? (
         <p className="ds-app-body-muted mt-1">
-          Heavy usage this period: we never turn off chat, but responses may take longer.
+          Heavy usage this period: the widget stays open, but responses may take longer.
         </p>
       ) : null}
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">

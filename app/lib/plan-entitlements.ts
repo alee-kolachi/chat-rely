@@ -203,8 +203,8 @@ export function buildPlanEntitlementSections(
       included: true,
     },
     {
-      label: "Chat stays on",
-      value: slug === "free" ? "Stops at 30 conversations" : "After allowance",
+      label: "Past monthly limit",
+      value: slug === "free" ? "AI replies stop" : "Normal models · widget open",
       included: slug !== "free",
       upgradeNote: slug === "free" ? tierLabel("hobby") : undefined,
       minimumTier: slug === "free" ? "hobby" : undefined,
