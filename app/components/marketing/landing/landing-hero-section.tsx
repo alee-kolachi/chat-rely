@@ -33,7 +33,7 @@ export function LandingHeroSection() {
           </p>
         </LandingReveal>
 
-        <LandingReveal className="flex items-center justify-center lg:justify-end" delayMs={120}>
+        <LandingReveal className="flex items-center justify-center sm:ml-6 lg:ml-10 lg:justify-end" delayMs={120}>
           <div className={cn("w-full", LANDING_CHAT_WIDTH_CLASS)}>
             <HeroChatDemo />
           </div>
