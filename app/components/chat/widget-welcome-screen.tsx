@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { ArrowRight } from "lucide-react";
 import {
   PoweredByChatRely,
@@ -16,7 +17,10 @@ import {
   detectWelcomeSocialPlatform,
   WelcomeSocialPlatformIcon,
 } from "@/lib/welcome-social-platform";
-import { defaultAccentPanelBackground } from "@/lib/widget-appearance";
+import {
+  defaultAccentPanelBackground,
+  welcomePanelGradient,
+} from "@/lib/widget-appearance";
 import { cn } from "@/lib/utils";
 
 export type WidgetWelcomeScreenProps = {
@@ -35,27 +39,6 @@ export type WidgetWelcomeScreenProps = {
   onChatClick?: () => void;
 };
 
-function welcomeHeroBackground(accent: string): string {
-  return `linear-gradient(165deg, ${accent} 0%, color-mix(in srgb, ${accent} 78%, #000000) 100%)`;
-}
-
-function SocialLinkArrow({
-  accentHex,
-  panelBgHex,
-}: {
-  accentHex: string;
-  panelBgHex: string;
-}) {
-  return (
-    <span
-      className="flex size-9 shrink-0 items-center justify-center rounded-full"
-      style={{ backgroundColor: accentHex, color: panelBgHex }}
-    >
-      <ArrowRight className="size-5" strokeWidth={3.25} aria-hidden />
-    </span>
-  );
-}
-
 function isExternalUrl(url: string): boolean {
   const normalized = normalizeExternalUrl(url);
   return normalized.startsWith("http://") || normalized.startsWith("https://");
@@ -65,25 +48,30 @@ function WelcomeSocialCard({
   label,
   url,
   accentHex,
-  panelBgHex,
-}: WelcomeScreenSocialLink & { accentHex: string; panelBgHex: string }) {
+}: WelcomeScreenSocialLink & { accentHex: string }) {
   const clickable = isExternalUrl(url);
   const platform = detectWelcomeSocialPlatform(label, url);
   const className = cn(
-    "flex items-center gap-3 rounded-[14px] border border-slate-200 bg-white px-3.5 py-3.5 text-sm shadow-[0_8px_24px_rgba(15,23,42,0.1)]",
-    clickable && "cursor-pointer"
+    "flex items-center gap-2.5 rounded-full border border-slate-200/95 bg-white/[0.97] px-2.5 py-2 text-[13px] font-medium shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+    clickable ? "cursor-pointer hover:border-[color-mix(in_srgb,var(--cr-accent)_28%,#e2e8f0)] hover:bg-white" : "cursor-default opacity-90"
   );
+  const style = { ["--cr-accent" as string]: accentHex } as CSSProperties;
 
   const content = (
     <>
       <span
-        className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50"
-        style={{ color: accentHex }}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full"
+        style={{
+          background: `color-mix(in srgb, ${accentHex} 8%, #f8fafc)`,
+          color: accentHex,
+        }}
       >
-        <WelcomeSocialPlatformIcon platform={platform} className="size-5" />
+        <WelcomeSocialPlatformIcon platform={platform} className="size-[17px]" />
       </span>
-      <span className="text-ds-on-surface min-w-0 flex-1 font-medium leading-snug">{label}</span>
-      <SocialLinkArrow accentHex={accentHex} panelBgHex={panelBgHex} />
+      <span className="text-ds-on-surface min-w-0 flex-1 leading-snug">{label}</span>
+      <span className="inline-flex shrink-0 text-[color-mix(in_srgb,var(--cr-accent)_50%,transparent)] opacity-50">
+        <ArrowRight className="size-4" strokeWidth={2.5} aria-hidden />
+      </span>
     </>
   );
 
@@ -94,13 +82,18 @@ function WelcomeSocialCard({
         target="_blank"
         rel="noopener noreferrer"
         className={className}
+        style={style}
       >
         {content}
       </a>
     );
   }
 
-  return <div className={cn(className, "opacity-90")}>{content}</div>;
+  return (
+    <div className={className} style={style}>
+      {content}
+    </div>
+  );
 }
 
 export function WidgetWelcomeScreen({
@@ -123,31 +116,31 @@ export function WidgetWelcomeScreen({
   const chrome = brandChromeClasses(brand);
   const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
   const displayName = agentName.trim() || "Support";
+  const ctaTextColor = chrome.lightBg ? "#0f172a" : "#ffffff";
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+    <div
+      className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden", className)}
+      style={{ background: welcomePanelGradient(brand, panelBg) }}
+    >
       <div
-        className="relative shrink-0 overflow-hidden px-5 pb-20 sm:px-6"
-        style={{ background: welcomeHeroBackground(brand) }}
-      >
-        <div
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.14),transparent_58%)]"
-          aria-hidden
-        />
-        <div className="relative flex min-h-[6.5rem] items-center">
-          <h2
-            className="text-[1.7rem] font-bold leading-tight tracking-tight sm:text-[1.8rem]"
-            style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR }}
-          >
-            {headline}
-          </h2>
-        </div>
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_55%_at_50%_-8%,rgba(255,255,255,0.16),transparent_62%)]"
+        aria-hidden
+      />
+
+      <div className="relative shrink-0 px-5 sm:px-6">
+        <h2
+          className="flex min-h-[76px] items-center py-2 pr-9 text-2xl font-normal leading-tight tracking-tight"
+          style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR }}
+        >
+          {headline}
+        </h2>
       </div>
 
-      <div className="relative z-[1] -mt-[5.5rem] flex min-h-0 flex-1 flex-col">
-        <div className="px-4 sm:px-5">
-          <div className="rounded-[18px] border border-slate-200 bg-white p-[18px] shadow-[0_12px_36px_rgba(15,23,42,0.12)]">
-            <div className="flex items-stretch gap-3.5">
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pt-0 sm:px-4">
+          <div className="rounded-2xl border border-slate-200/95 bg-white/[0.97] p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="flex items-center gap-3">
               <WidgetBrandAvatar
                 logoUrl={websiteLogoUrl ?? null}
                 logoPending={websiteLogoPending}
@@ -157,18 +150,21 @@ export function WidgetWelcomeScreen({
                 size="welcome"
               />
               <div className="min-w-0 flex-1">
-                <p className="text-ds-on-surface truncate text-sm font-semibold tracking-tight">{displayName}</p>
-                <p className="text-ds-on-surface-variant mt-1.5 text-[13px] leading-relaxed">{description}</p>
+                <p className="text-ds-on-surface truncate text-sm font-semibold tracking-tight">
+                  {displayName}
+                </p>
+                <p className="text-ds-on-surface-variant mt-1 text-[13px] leading-snug">
+                  {description}
+                </p>
               </div>
             </div>
             <button
               type="button"
               className={cn(
-                "mt-4 w-full rounded-xl px-4 py-3 text-sm font-bold shadow-[0_6px_18px_rgba(15,23,42,0.14)]",
-                chrome.titleClass,
+                "mt-3.5 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90",
                 onChatClick && "cursor-pointer"
               )}
-              style={{ backgroundColor: brand }}
+              style={{ backgroundColor: brand, color: ctaTextColor }}
               disabled={!onChatClick}
               onClick={onChatClick}
             >
@@ -177,11 +173,8 @@ export function WidgetWelcomeScreen({
           </div>
         </div>
 
-        <div
-          className="mt-4 flex min-h-0 flex-1 flex-col px-4 sm:px-5"
-          style={{ backgroundColor: panelBg }}
-        >
-          <div className="space-y-3.5">
+        <div className="mt-3 flex min-h-0 flex-1 flex-col px-4 pb-3 sm:px-4">
+          <div className="space-y-2.5">
             {socialLinks
               .filter((link) => link.url.trim())
               .map((link) => (
@@ -190,12 +183,11 @@ export function WidgetWelcomeScreen({
                   label={link.label}
                   url={link.url}
                   accentHex={brand}
-                  panelBgHex={panelBg}
                 />
               ))}
           </div>
 
-          <div className="flex-1" />
+          <div className="flex-1 min-h-3" />
 
           {!hidePoweredBy ? (
             <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />

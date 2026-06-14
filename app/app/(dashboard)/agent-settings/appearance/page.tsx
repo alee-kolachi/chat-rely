@@ -61,11 +61,9 @@ import {
   type WidgetThemeMode,
 } from "@/lib/widget-appearance";
 import {
-  clampWidgetBorderRadius,
   readWidgetAnimationEnabled,
   readWidgetBorderRadius,
-  WIDGET_BORDER_RADIUS_MAX,
-  WIDGET_BORDER_RADIUS_MIN,
+  snapWidgetBorderRadiusToPreset,
   WIDGET_BORDER_RADIUS_PRESETS,
 } from "@/lib/widget-shape";
 import { faviconServiceUrl } from "@/lib/website-url";
@@ -357,7 +355,7 @@ function AppearanceForm() {
       const partial: Record<string, unknown> = {
         brand_color: formatted,
         widget_position: position,
-        widget_border_radius: clampWidgetBorderRadius(widgetBorderRadius),
+        widget_border_radius: snapWidgetBorderRadiusToPreset(widgetBorderRadius),
         widget_animation_enabled: widgetAnimationEnabled,
       };
       if (widgetStylingIncluded) {
@@ -706,24 +704,6 @@ function AppearanceForm() {
                   );
                 })}
               </div>
-              <div className="flex items-center gap-3">
-                <input
-                  id="appearance-widget-border-radius"
-                  type="range"
-                  min={WIDGET_BORDER_RADIUS_MIN}
-                  max={WIDGET_BORDER_RADIUS_MAX}
-                  step={1}
-                  value={widgetBorderRadius}
-                  onChange={(e) =>
-                    setWidgetBorderRadius(clampWidgetBorderRadius(Number(e.target.value)))
-                  }
-                  aria-label="Widget corner radius"
-                  className="text-ds-primary h-2 min-w-0 flex-1 cursor-pointer accent-ds-primary"
-                />
-                <span className="text-ds-on-surface-variant w-12 shrink-0 text-right font-mono text-xs">
-                  {widgetBorderRadius}px
-                </span>
-              </div>
             </div>
 
             <div>
@@ -739,7 +719,7 @@ function AppearanceForm() {
                     Attention animation
                   </span>
                   <span className="ds-app-body-muted mt-0.5 block text-sm">
-                    Plays once when the page loads: a short brand-color arc on the white ring.
+                    Plays once on page load: a brief brand ring pulse on the white border.
                   </span>
                 </span>
               </label>
@@ -902,11 +882,8 @@ function AppearanceForm() {
       </div>
 
       <div className="lg:sticky lg:top-6 lg:self-start">
-        <div className="mx-auto flex w-full max-w-[26rem] flex-col items-center">
-          <div
-            className="flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border border-ds-outline shadow-[0_20px_55px_rgba(15,23,42,0.06)]"
-            style={{ backgroundColor: resolvedPreview.colors.panelBackground }}
-          >
+          <div className="mx-auto flex w-full max-w-[26rem] flex-col items-center">
+          <div className="flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border border-ds-outline shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
             {welcomeScreenEnabled && !previewChatOpen ? (
               <WidgetWelcomeScreen
                 agentName={agentDisplayName}

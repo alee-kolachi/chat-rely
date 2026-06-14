@@ -66,18 +66,22 @@ export function readEscalationHandoffFromSse(
 export function readEscalationHandoffFromSseIfActive(
   payload: Record<string, unknown>
 ): EscalationHandoffContext | null {
-  const handoff = readEscalationHandoffFromSse(payload);
-  if (!handoff) return null;
+  const escalated =
+    payload.ai_chat_disabled === true ||
+    isAiChatDisabledStatus(readConversationStatus(payload.conversation_status));
   const escalation = payload.escalation;
   const row =
     escalation && typeof escalation === "object" && !Array.isArray(escalation)
       ? (escalation as Record<string, unknown>)
       : null;
-  if (row?.occurred === true) return handoff;
-  if (payload.ai_chat_disabled === true) return handoff;
-  if (isAiChatDisabledStatus(readConversationStatus(payload.conversation_status))) return handoff;
-  if (payload.contact_capture_required === true) return handoff;
-  return null;
+  if (
+    !escalated &&
+    row?.occurred !== true &&
+    payload.contact_capture_required !== true
+  ) {
+    return null;
+  }
+  return readEscalationHandoffFromSse(payload);
 }
 
 export function readEscalationHandoffFromApiFields(data: {

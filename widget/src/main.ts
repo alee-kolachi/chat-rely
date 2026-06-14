@@ -21,7 +21,7 @@ import { clientChatContext } from "./client-context";
 
 declare global {
   interface Window {
-    __CHATRELY_WIDGET__?: { agentKey?: string; apiBase?: string };
+    __CHATRELY_WIDGET__?: { agentKey?: string; apiBase?: string; demo?: boolean; demoSeed?: boolean };
   }
 }
 
@@ -80,9 +80,9 @@ const WIDGET_STYLES_ID = "chatrely-widget-styles";
 const WIDGET_OPERATOR_SYNC_MS = 4000;
 
 const ICON_REFRESH =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>';
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>';
 const ICON_LIST =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>';
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M4 6h.01"/><path d="M4 12h.01"/><path d="M4 18h.01"/></svg>';
 const ICON_SEND =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></svg>';
 const ICON_CHEVRON =
@@ -91,6 +91,122 @@ const ICON_ARROW_RIGHT_BOLD =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>';
 const ICON_CLOSE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+const ICON_LAUNCHER_CHAT =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#ffffff" fill-rule="evenodd" clip-rule="evenodd" d="M13.0867 21.3877L13.6288 20.4718C14.0492 19.7614 14.2595 19.4062 14.5972 19.2098C14.9349 19.0134 15.36 19.0061 16.2104 18.9915C17.4658 18.9698 18.2531 18.8929 18.9134 18.6194C20.1386 18.1119 21.1119 17.1386 21.6194 15.9134C22 14.9946 22 13.8297 22 11.5V10.5C22 7.22657 22 5.58985 21.2632 4.38751C20.8509 3.71473 20.2853 3.14908 19.6125 2.7368C18.4101 2 16.7734 2 13.5 2H10.5C7.22657 2 5.58985 2 4.38751 2.7368C3.71473 3.14908 3.14908 3.71473 2.7368 4.38751C2 5.58985 2 7.22657 2 10.5V11.5C2 13.8297 2 14.9946 2.3806 15.9134C2.88807 17.1386 3.86144 18.1119 5.08658 18.6194C5.74689 18.8929 6.53422 18.9698 7.78958 18.9915C8.63992 19.0061 9.06509 19.0134 9.40279 19.2098C9.74049 19.4063 9.95073 19.7614 10.3712 20.4718L10.9133 21.3877C11.3965 22.204 12.6035 22.204 13.0867 21.3877ZM7.5 9.71476C7.5 11.4673 9.6633 13.3304 10.9901 14.3082C11.4442 14.6429 11.6713 14.8103 12 14.8103C12.3287 14.8103 12.5558 14.643 13.0099 14.3082C14.3367 13.3304 16.5 11.4674 16.5 9.71474C16.5 7.03758 14.0249 6.03806 12 8.10614C9.97507 6.03806 7.5 7.03758 7.5 9.71476Z"/></svg>';
+
+function widgetDemoMode(): boolean {
+  try {
+    if (window.__CHATRELY_WIDGET__?.demo === true) return true;
+    return new URLSearchParams(window.location.search).get("demo") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function widgetDemoSeed(): boolean {
+  try {
+    if (window.__CHATRELY_WIDGET__?.demoSeed === true) return true;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("seed") === "1" || params.get("demo") === "seed";
+  } catch {
+    return false;
+  }
+}
+
+const DEMO_STORE_LOGO_URL =
+  "https://www.gstatic.com/images/branding/product/2x/googleg_48dp.png";
+
+function buildDemoWidgetConfig(): WidgetConfig {
+  return {
+    agent_id: "demo",
+    name: "AI support agent",
+    brand_color: "#79178C",
+    widget_position: "bottom_right",
+    widget_border_radius: 28,
+    widget_animation_enabled: true,
+    welcome_screen_enabled: true,
+    welcome_screen_headline: "How can we help?",
+    welcome_screen_description: "Ask about orders, products, or store policies.",
+    welcome_screen_button_label: "Chat with us",
+    greeting_messages: ["Hey there! Ask me anything while you preview the chat layout."],
+    hide_powered_by_chatrely: false,
+    message_feedback_enabled: false,
+    avatar_url: DEMO_STORE_LOGO_URL,
+  };
+}
+
+const DEMO_REPLY_LINES = [
+  "Thanks for reaching out. I can help with orders, shipping, returns, and product questions.",
+  "Got it. Here is a sample reply so you can preview spacing, bubbles, and scroll behavior.",
+  "Happy to help. Send another message to see how the thread looks with more turns.",
+  "This is a local preview reply with no backend connected.",
+  "Looks good from here. Keep testing font size, padding, and the header fade effect.",
+];
+
+function pickDemoReply(userText: string, index: number): string {
+  const trimmed = userText.trim();
+  if (trimmed.endsWith("?")) {
+    return `Good question about “${trimmed.slice(0, 48)}${trimmed.length > 48 ? "…" : ""}”. ${DEMO_REPLY_LINES[index % DEMO_REPLY_LINES.length]}`;
+  }
+  return DEMO_REPLY_LINES[index % DEMO_REPLY_LINES.length] ?? DEMO_REPLY_LINES[0]!;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+function buildDemoChatMessages(): StoredMessage[] {
+  const pairs: Array<[string, string]> = [
+    [
+      "Hi, do you ship to Canada?",
+      "Yes. We ship to Canada on most orders. Standard delivery is usually 5–9 business days after dispatch.",
+    ],
+    [
+      "What's your return policy?",
+      "You can return unworn items within 30 days of delivery. Start a return from your order confirmation email.",
+    ],
+    [
+      "I need help with order #10482.",
+      "I can help with that. What issue are you seeing with order #10482?",
+    ],
+    [
+      "It still says processing after a week.",
+      "Thanks for checking. Processing can take 3–5 business days before tracking is added. I can flag this order for a manual review if you want.",
+    ],
+    [
+      "Yes please, that would be great.",
+      "Done. Our team will review order #10482 and email you within 24 hours with an update.",
+    ],
+    [
+      "Do you have the linen shirt in medium?",
+      "Let me check live inventory for the linen shirt in medium.",
+    ],
+    [
+      "Any restock date if it's out?",
+      "If medium is out of stock, restocks usually land on Thursdays. I can notify you when medium is back.",
+    ],
+    [
+      "Yes, notify me at alex@example.com.",
+      "Got it. I saved alex@example.com for restock alerts on the linen shirt in medium.",
+    ],
+    [
+      "One more thing — do you offer gift wrapping?",
+      "Yes. Add a note at checkout that says gift wrap and we will wrap it at no extra charge.",
+    ],
+    [
+      "Perfect, thanks for your help!",
+      "Happy to help. Message us anytime if anything else comes up.",
+    ],
+  ];
+  const started = Date.now() - pairs.length * 180_000;
+  const rows: StoredMessage[] = [];
+  pairs.forEach(([userText, assistantText], index) => {
+    const userAt = new Date(started + index * 180_000).toISOString();
+    const assistantAt = new Date(started + index * 180_000 + 55_000).toISOString();
+    rows.push({ role: "user", text: userText, created_at: userAt });
+    rows.push({ role: "assistant", text: assistantText, created_at: assistantAt });
+  });
+  return rows;
+}
 
 function messageCreatedAtIso(iso?: string): string {
   return iso ?? new Date().toISOString();
@@ -192,12 +308,23 @@ function newVisitorId(): string {
   }
 }
 
+function sanitizeWidgetStore(store: WidgetStore): WidgetStore {
+  return {
+    ...store,
+    threads: store.threads.map((thread) => {
+      const status = (thread.status ?? "open").trim().toLowerCase();
+      const escalated = status === "escalated";
+      return escalated ? thread : { ...thread, handoff: undefined };
+    }),
+  };
+}
+
 function readWidgetStore(agentKey: string): WidgetStore {
   try {
     const raw = window.localStorage?.getItem(widgetStoreKey(agentKey));
     if (!raw) return { visitorId: newVisitorId(), activeConversationId: null, threads: [] };
     const parsed = JSON.parse(raw) as Partial<WidgetStore>;
-    return {
+    return sanitizeWidgetStore({
       visitorId: typeof parsed.visitorId === "string" && parsed.visitorId.trim() ? parsed.visitorId : newVisitorId(),
       activeConversationId:
         typeof parsed.activeConversationId === "string" || parsed.activeConversationId === null
@@ -213,7 +340,7 @@ function readWidgetStore(agentKey: string): WidgetStore {
               Array.isArray((t as ThreadRecord).messages)
           )
         : [],
-    };
+    });
   } catch {
     return { visitorId: newVisitorId(), activeConversationId: null, threads: [] };
   }
@@ -335,7 +462,7 @@ function defaultAccentPanelBackground(brandHex: string, themeMode: "light" | "da
   if (themeMode === "dark") {
     return `color-mix(in srgb, ${accent} 5%, #0F172A)`;
   }
-  return `color-mix(in srgb, ${accent} 5%, #ffffff)`;
+  return `color-mix(in srgb, ${accent} 7%, #f8f5ff)`;
 }
 
 function resolveWidgetTheme(cfg: WidgetConfig, brandHex: string): ResolvedWidgetTheme {
@@ -449,7 +576,7 @@ function createWelcomeSocialCard(link: WelcomeSocialLink): HTMLElement {
   labelEl.textContent = link.label;
   const iconEl = document.createElement("span");
   iconEl.className = "cr-welcome-social-icon";
-  iconEl.innerHTML = ICON_ARROW_RIGHT_BOLD;
+  iconEl.innerHTML = ICON_CHEVRON_RIGHT;
   card.append(platformEl, labelEl, iconEl);
   return card;
 }
@@ -459,22 +586,33 @@ const WIDGET_BORDER_RADIUS_MAX = 28;
 const WIDGET_BORDER_RADIUS_DEFAULT = 28;
 
 function clampWidgetBorderRadius(value: unknown): number {
+  const presets = [0, 12, 28];
+  let clamped = WIDGET_BORDER_RADIUS_DEFAULT;
   if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(
+    clamped = Math.max(
       WIDGET_BORDER_RADIUS_MIN,
       Math.min(WIDGET_BORDER_RADIUS_MAX, Math.round(value))
     );
-  }
-  if (typeof value === "string") {
+  } else if (typeof value === "string") {
     const parsed = Number.parseInt(value.trim(), 10);
     if (Number.isFinite(parsed)) {
-      return Math.max(
+      clamped = Math.max(
         WIDGET_BORDER_RADIUS_MIN,
         Math.min(WIDGET_BORDER_RADIUS_MAX, Math.round(parsed))
       );
     }
   }
-  return WIDGET_BORDER_RADIUS_DEFAULT;
+  if (presets.includes(clamped)) return clamped;
+  let best = WIDGET_BORDER_RADIUS_DEFAULT;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const preset of presets) {
+    const distance = Math.abs(preset - clamped);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = preset;
+    }
+  }
+  return best;
 }
 
 function widgetAnimationEnabled(cfg: WidgetConfig): boolean {
@@ -487,6 +625,13 @@ function prefersReducedMotion(): boolean {
   } catch {
     return false;
   }
+}
+
+function createLauncherAttentionRing(): HTMLSpanElement {
+  const ring = document.createElement("span");
+  ring.className = "cr-launcher-attention";
+  ring.setAttribute("aria-hidden", "true");
+  return ring;
 }
 
 function greetingMessagesFromConfig(cfg: WidgetConfig): string[] {
@@ -937,7 +1082,9 @@ async function boot(): Promise<void> {
   const agentKey = resolveAgentKey(script);
   const apiBase = resolveApiBase(script);
   const appOrigin = resolveWidgetAppOrigin(script);
-  if (!agentKey || !apiBase) {
+  const demoMode = widgetDemoMode();
+  const demoSeed = widgetDemoSeed();
+  if (!demoMode && (!agentKey || !apiBase)) {
     console.warn("[ChatRely] Missing data-chatrely-agent-key or API base.");
     return;
   }
@@ -945,11 +1092,15 @@ async function boot(): Promise<void> {
   ensureWidgetStyles();
 
   let cfg: Awaited<ReturnType<typeof fetchWidgetConfig>>;
-  try {
-    cfg = await fetchWidgetConfig(apiBase, agentKey);
-  } catch (e) {
-    console.warn("[ChatRely] Config error:", e);
-    return;
+  if (demoMode) {
+    cfg = buildDemoWidgetConfig();
+  } else {
+    try {
+      cfg = await fetchWidgetConfig(apiBase, agentKey);
+    } catch (e) {
+      console.warn("[ChatRely] Config error:", e);
+      return;
+    }
   }
 
   const brandHex = cfg.brand_color ? normalizeHexColor(cfg.brand_color, DEFAULT_ACCENT) : null;
@@ -982,64 +1133,37 @@ async function boot(): Promise<void> {
   launcher.setAttribute("aria-expanded", "false");
   launcher.style.background = widgetAccent;
   const widgetBorderRadius = clampWidgetBorderRadius(cfg.widget_border_radius);
-  host.style.setProperty("--cr-launcher-radius", `${widgetBorderRadius}px`);
+  const radiusPx = `${widgetBorderRadius}px`;
+  host.style.setProperty("--cr-launcher-radius", radiusPx);
+  launcher.style.setProperty("--cr-launcher-radius", radiusPx);
+  launcher.style.borderRadius = radiusPx;
 
-  const launcherInitial =
-    (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
-
-  const launcherLogo = document.createElement("img");
-  launcherLogo.className = "cr-launcher-logo";
-  launcherLogo.alt = "";
-  launcherLogo.hidden = true;
-
-  const launcherFallback = document.createElement("span");
-  launcherFallback.className = "cr-launcher-fallback";
-  launcherFallback.style.color = launcherChrome.launcherIcon;
-  launcherFallback.textContent = launcherInitial;
-
-  const launcherClose = document.createElement("span");
-  launcherClose.className = "cr-launcher-close";
-  launcherClose.innerHTML = ICON_CLOSE;
+  const launcherChatIcon = document.createElement("span");
+  launcherChatIcon.className = "cr-launcher-icon";
+  launcherChatIcon.innerHTML = ICON_LAUNCHER_CHAT;
 
   const launcherSurface = document.createElement("span");
   launcherSurface.className = "cr-launcher-surface";
 
   if (widgetAnimationEnabled(cfg) && !prefersReducedMotion()) {
-    const launcherArc = document.createElement("span");
-    launcherArc.className = "cr-launcher-arc";
-    launcherArc.setAttribute("aria-hidden", "true");
-    launcher.append(launcherArc);
+    launcher.append(createLauncherAttentionRing());
   }
 
-  launcherSurface.append(launcherLogo, launcherFallback, launcherClose);
+  launcherSurface.append(launcherChatIcon);
   launcher.append(launcherSurface);
-
-  if (cfg.avatar_url) {
-    launcherFallback.hidden = true;
-    launcherLogo.referrerPolicy = "no-referrer";
-    launcherLogo.src = cfg.avatar_url;
-    launcherLogo.onload = () => {
-      launcherLogo.hidden = false;
-      launcherFallback.hidden = true;
-    };
-    launcherLogo.onerror = () => {
-      launcherLogo.hidden = true;
-      launcherFallback.hidden = false;
-    };
-  }
 
   const panel = document.createElement("div");
   panel.className = "cr-panel";
 
   const header = document.createElement("div");
   header.className = `cr-panel-header${hasBrand ? " cr-panel-header--brand" : ""}`;
-  if (hasBrand) header.style.backgroundColor = theme.headerColor;
 
   const headerMain = document.createElement("div");
   headerMain.className = "cr-panel-header-main";
 
   const headerAvatarWrap = document.createElement("div");
-  headerAvatarWrap.className = "cr-avatar-wrap";
+  headerAvatarWrap.className = "cr-avatar-wrap--header";
+  headerAvatarWrap.hidden = true;
   const headerAvatarImg = document.createElement("img");
   headerAvatarImg.className = "cr-avatar-img";
   headerAvatarImg.alt = "";
@@ -1049,11 +1173,19 @@ async function boot(): Promise<void> {
   headerAvatarFallback.textContent = (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
   headerAvatarWrap.append(headerAvatarImg, headerAvatarFallback);
 
+  const headerCopy = document.createElement("div");
+  headerCopy.className = "cr-panel-header-copy";
+
   const titleEl = document.createElement("div");
   titleEl.className = "cr-panel-title";
   titleEl.textContent = cfg.name || "Chat";
 
-  headerMain.append(headerAvatarWrap, titleEl);
+  const titleSub = document.createElement("div");
+  titleSub.className = "cr-panel-subtitle";
+  titleSub.textContent = demoMode ? "Offline preview" : "Typically replies instantly";
+
+  headerCopy.append(titleEl, titleSub);
+  headerMain.append(headerAvatarWrap, headerCopy);
 
   const headerActions = document.createElement("div");
   headerActions.className = "cr-header-actions";
@@ -1072,7 +1204,14 @@ async function boot(): Promise<void> {
   historyBtn.setAttribute("aria-label", "Browse conversations");
   historyBtn.title = "Browse conversations";
 
-  headerActions.append(resetBtn, historyBtn);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "cr-header-btn";
+  closeBtn.innerHTML = ICON_CLOSE;
+  closeBtn.setAttribute("aria-label", "Close chat");
+  closeBtn.title = "Close chat";
+
+  headerActions.append(resetBtn, historyBtn, closeBtn);
   header.append(headerMain, headerActions);
 
   const body = document.createElement("div");
@@ -1089,6 +1228,14 @@ async function boot(): Promise<void> {
 
   const welcomeHero = document.createElement("div");
   welcomeHero.className = "cr-welcome-hero";
+
+  const welcomeCloseBtn = document.createElement("button");
+  welcomeCloseBtn.type = "button";
+  welcomeCloseBtn.className = "cr-welcome-close";
+  welcomeCloseBtn.innerHTML = ICON_CLOSE;
+  welcomeCloseBtn.setAttribute("aria-label", "Close chat");
+  welcomeCloseBtn.title = "Close chat";
+
   const welcomeHeadline = document.createElement("h2");
   welcomeHeadline.className = "cr-welcome-headline";
   welcomeHeadline.textContent = (cfg.welcome_screen_headline || "How can we help?").trim();
@@ -1096,7 +1243,7 @@ async function boot(): Promise<void> {
     cfg.welcome_screen_headline_color,
     "#ffffff"
   );
-  welcomeHero.appendChild(welcomeHeadline);
+  welcomeHero.append(welcomeCloseBtn, welcomeHeadline);
 
   const welcomeContent = document.createElement("div");
   welcomeContent.className = "cr-welcome-content";
@@ -1115,23 +1262,14 @@ async function boot(): Promise<void> {
     welcomeAvatarImg.referrerPolicy = "no-referrer";
     welcomeAvatarImg.src = cfg.avatar_url;
     welcomeAvatarImg.onerror = () => {
+      welcomeCardAvatar.replaceChildren();
+      welcomeCardAvatar.classList.add("cr-welcome-card-avatar--fallback");
       welcomeCardAvatar.textContent = headerAvatarFallback.textContent || "?";
-      welcomeCardAvatar.style.display = "flex";
-      welcomeCardAvatar.style.alignItems = "center";
-      welcomeCardAvatar.style.justifyContent = "center";
-      welcomeCardAvatar.style.fontWeight = "700";
-      welcomeCardAvatar.style.fontSize = "18px";
-      welcomeCardAvatar.style.color = widgetAccent;
     };
     welcomeCardAvatar.appendChild(welcomeAvatarImg);
   } else {
+    welcomeCardAvatar.classList.add("cr-welcome-card-avatar--fallback");
     welcomeCardAvatar.textContent = headerAvatarFallback.textContent || "?";
-    welcomeCardAvatar.style.display = "flex";
-    welcomeCardAvatar.style.alignItems = "center";
-    welcomeCardAvatar.style.justifyContent = "center";
-    welcomeCardAvatar.style.fontWeight = "700";
-    welcomeCardAvatar.style.fontSize = "18px";
-    welcomeCardAvatar.style.color = widgetAccent;
   }
   const welcomeCardCopy = document.createElement("div");
   welcomeCardCopy.className = "cr-welcome-card-copy";
@@ -1149,7 +1287,6 @@ async function boot(): Promise<void> {
   const welcomeCta = document.createElement("button");
   welcomeCta.type = "button";
   welcomeCta.className = "cr-welcome-cta";
-  welcomeCta.style.backgroundColor = widgetAccent;
   welcomeCta.textContent = (cfg.welcome_screen_button_label || "Chat with us").trim();
 
   welcomeCard.append(welcomeCardRow, welcomeCta);
@@ -1210,6 +1347,24 @@ async function boot(): Promise<void> {
   composerField.append(input, send);
   composerRow.append(composerField);
 
+  const COMPOSER_INPUT_MAX_HEIGHT = 120;
+  const COMPOSER_SINGLE_LINE_HEIGHT = 40;
+
+  function syncComposerInputLayout(): void {
+    input.style.height = "auto";
+    const nextHeight = Math.min(input.scrollHeight, COMPOSER_INPUT_MAX_HEIGHT);
+    input.style.height = `${nextHeight}px`;
+    composerField.classList.toggle(
+      "cr-composer-field--multiline",
+      nextHeight > COMPOSER_SINGLE_LINE_HEIGHT
+    );
+  }
+
+  function resetComposerInputLayout(): void {
+    input.style.height = "auto";
+    composerField.classList.remove("cr-composer-field--multiline");
+  }
+
   const poweredByEl = document.createElement("div");
   poweredByEl.className = "cr-powered";
   if (!cfg.hide_powered_by_chatrely) {
@@ -1252,12 +1407,12 @@ async function boot(): Promise<void> {
     headerAvatarImg.referrerPolicy = "no-referrer";
     headerAvatarImg.src = cfg.avatar_url;
     headerAvatarImg.onload = () => {
+      headerAvatarWrap.hidden = false;
       headerAvatarImg.style.display = "block";
-      headerAvatarFallback.style.display = "none";
+      headerAvatarFallback.hidden = true;
     };
     headerAvatarImg.onerror = () => {
-      headerAvatarImg.style.display = "none";
-      headerAvatarFallback.style.display = "flex";
+      headerAvatarWrap.hidden = true;
     };
   }
 
@@ -1291,19 +1446,22 @@ async function boot(): Promise<void> {
     composerContact.classList.toggle("cr-view--hidden", history || !contactCaptureRequired);
     composerHint.classList.toggle("cr-view--hidden", !history);
     const showWaitingBanner =
-      Boolean(handoffContext) && isHumanHandoffActive() && !operatorEngaged;
+      !operatorEngaged &&
+      !contactCaptureRequired &&
+      isEscalatedStatus(conversationStatus);
     composerEscalated.classList.toggle(
       "cr-view--hidden",
       history || contactCaptureRequired || !showWaitingBanner
     );
     poweredByEl.classList.toggle("cr-view--hidden", welcome || contactCaptureRequired);
     welcomePowered.hidden = Boolean(cfg.hide_powered_by_chatrely) || !welcome;
+    panel.classList.toggle("cr-panel--chat-surface", chat || history);
   }
 
   function ensureChatGreetings(): void {
     if (greetingsRendered || chatMessages.length > 0) return;
     greetingMessagesFromConfig(cfg).forEach((text) => {
-      appendAssistantMessage({ text }, true, true, true);
+      appendAssistantMessage({ text }, true, true);
     });
     greetingsRendered = true;
   }
@@ -1359,22 +1517,42 @@ async function boot(): Promise<void> {
 
   function isHumanHandoffActive(): boolean {
     return (
+      contactCaptureRequired ||
       aiChatDisabled ||
       isEscalatedStatus(conversationStatus) ||
-      operatorEngaged ||
-      handoffContext !== null
+      operatorEngaged
+    );
+  }
+
+  function threadAwaitingHumanTeam(data: {
+    conversation_status?: string;
+    ai_chat_disabled?: boolean;
+  }): boolean {
+    return (
+      data.ai_chat_disabled === true ||
+      isEscalatedStatus(data.conversation_status)
     );
   }
 
   function applyConversationStatus(status: string | null | undefined): void {
     conversationStatus = (status ?? "open").trim().toLowerCase() || "open";
-    if (isEscalatedStatus(conversationStatus)) aiChatDisabled = true;
+    if (isEscalatedStatus(conversationStatus)) {
+      aiChatDisabled = true;
+    } else if (!operatorEngaged) {
+      aiChatDisabled = false;
+    }
     updateComposerState();
     if (conversationId) persistStore();
   }
 
   function applyAiChatDisabledFromSse(value: unknown): void {
-    if (value === true) aiChatDisabled = true;
+    if (value === true) {
+      aiChatDisabled = true;
+      return;
+    }
+    if (value === false && !isEscalatedStatus(conversationStatus) && !operatorEngaged) {
+      aiChatDisabled = false;
+    }
   }
 
   function purgePhantomAssistantFallbacks(): void {
@@ -1413,8 +1591,7 @@ async function boot(): Promise<void> {
     aiChatDisabled =
       data.ai_chat_disabled === true ||
       isEscalatedStatus(conversationStatus) ||
-      operatorEngaged ||
-      handoffContext !== null;
+      operatorEngaged;
     updateComposerState();
   }
 
@@ -1488,8 +1665,10 @@ async function boot(): Promise<void> {
     }
   }
 
+  let demoReplyIndex = 0;
+
   function ensureThreadStateFresh(): Promise<void> {
-    if (!conversationId) {
+    if (demoMode || !conversationId) {
       threadStateReady = true;
       return Promise.resolve();
     }
@@ -1502,7 +1681,7 @@ async function boot(): Promise<void> {
   }
 
   function requestThreadSync(): void {
-    if (!conversationId) return;
+    if (demoMode || !conversationId) return;
     void ensureThreadStateFresh();
   }
 
@@ -1521,6 +1700,8 @@ async function boot(): Promise<void> {
   }
 
   function readHandoffFromThread(data: {
+    conversation_status?: string;
+    ai_chat_disabled?: boolean;
     handoff?: {
       seller_live?: boolean;
       estimated_minutes?: number | null;
@@ -1528,6 +1709,7 @@ async function boot(): Promise<void> {
     } | null;
   }): HandoffContext | null {
     if (!data.handoff || typeof data.handoff !== "object") return null;
+    if (!threadAwaitingHumanTeam(data)) return null;
     return readHandoffFromApiFields(data.handoff);
   }
 
@@ -1546,20 +1728,16 @@ async function boot(): Promise<void> {
 
   /** Only treat handoff as active after a real escalation, not metadata on every chat turn. */
   function readHandoffFromEscalationIfActive(data: Record<string, unknown>): HandoffContext | null {
-    const handoff = readHandoffFromEscalation(data);
-    if (!handoff) return null;
+    const escalated =
+      data.ai_chat_disabled === true ||
+      isEscalatedStatus(typeof data.conversation_status === "string" ? data.conversation_status : null);
     const escalation = data.escalation;
     const row =
       escalation && typeof escalation === "object" && !Array.isArray(escalation)
         ? (escalation as Record<string, unknown>)
         : null;
-    if (row?.occurred === true) return handoff;
-    if (data.ai_chat_disabled === true) return handoff;
-    if (isEscalatedStatus(typeof data.conversation_status === "string" ? data.conversation_status : null)) {
-      return handoff;
-    }
-    if (readContactCaptureRequired(data)) return handoff;
-    return null;
+    if (!escalated && row?.occurred !== true && !readContactCaptureRequired(data)) return null;
+    return readHandoffFromEscalation(data);
   }
 
   function removeConfigGreetingsFromTranscript(): void {
@@ -1576,11 +1754,6 @@ async function boot(): Promise<void> {
 
   function setHandoffContext(next: HandoffContext | null): void {
     handoffContext = next;
-    if (next) {
-      aiChatDisabled = true;
-    } else if (!isEscalatedStatus(conversationStatus) && !operatorEngaged) {
-      aiChatDisabled = false;
-    }
     if (conversationId && store.threads.length) {
       const idx = store.threads.findIndex((t) => t.id === conversationId);
       if (idx >= 0) {
@@ -1602,7 +1775,21 @@ async function boot(): Promise<void> {
     );
   }
 
+  function isConfigGreetingText(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    return greetingMessagesFromConfig(cfg).some((line) => line.trim() === trimmed);
+  }
+
   function applySyncedThreadMessage(msg: WidgetThreadMessage): void {
+    if (
+      msg.role === "assistant" &&
+      chatMessages.some((m) => m.role === "user") &&
+      isConfigGreetingText(msg.content)
+    ) {
+      syncedServerMessageIds.add(msg.id);
+      return;
+    }
     if (messageAlreadyInTranscript(msg)) {
       syncedServerMessageIds.add(msg.id);
       return;
@@ -1616,7 +1803,6 @@ async function boot(): Promise<void> {
       appendAssistantMessage(
         { text: msg.content, created_at: msg.created_at, server_id: msg.id },
         true,
-        true,
         true
       );
       persistStore();
@@ -1629,8 +1815,8 @@ async function boot(): Promise<void> {
       visitorId = thread.visitorId;
       chatMessages = [...thread.messages];
       conversationStatus = thread.status ?? "open";
-      handoffContext = thread.handoff ?? null;
-      if (isEscalatedStatus(conversationStatus) || handoffContext) aiChatDisabled = true;
+      handoffContext = isEscalatedStatus(conversationStatus) ? (thread.handoff ?? null) : null;
+      aiChatDisabled = isEscalatedStatus(conversationStatus) || operatorEngaged;
       for (const msg of chatMessages) {
         if (msg.server_id) syncedServerMessageIds.add(msg.server_id);
       }
@@ -1663,7 +1849,10 @@ async function boot(): Promise<void> {
         preview,
         updatedAt: Date.now(),
         status: conversationStatus,
-        handoff: handoffContext ?? undefined,
+        handoff:
+          isEscalatedStatus(conversationStatus) || aiChatDisabled
+            ? handoffContext ?? undefined
+            : undefined,
       };
       if (idx >= 0) store.threads[idx] = row;
       else store.threads.unshift(row);
@@ -1675,38 +1864,22 @@ async function boot(): Promise<void> {
     writeWidgetStore(agentKey, store);
   }
 
-  function createBubbleAvatar(): HTMLDivElement {
-    const wrap = document.createElement("div");
-    wrap.className = "cr-avatar-wrap cr-avatar-wrap--bubble";
-    if (cfg.avatar_url) {
-      const img = document.createElement("img");
-      img.className = "cr-avatar-img";
-      img.alt = "";
-      img.referrerPolicy = "no-referrer";
-      img.src = cfg.avatar_url;
-      img.onerror = () => {
-        wrap.textContent = headerAvatarFallback.textContent || "?";
-        wrap.style.display = "flex";
-        wrap.style.alignItems = "center";
-        wrap.style.justifyContent = "center";
-        wrap.style.fontWeight = "700";
-        wrap.style.fontSize = "12px";
-        wrap.style.color = accent;
-      };
-      wrap.appendChild(img);
-    } else {
-      wrap.textContent = headerAvatarFallback.textContent || "?";
-      wrap.style.display = "flex";
-      wrap.style.alignItems = "center";
-      wrap.style.justifyContent = "center";
-      wrap.style.fontWeight = "700";
-      wrap.style.fontSize = "12px";
-      wrap.style.color = accent;
-    }
-    return wrap;
+  function syncMessageRowSpacing(): void {
+    const rows = messages.querySelectorAll<HTMLElement>(".cr-msg-row");
+    rows.forEach((row, index) => {
+      row.classList.remove("cr-msg-row--grouped");
+      const prev = rows[index - 1];
+      if (!prev) return;
+      const sameSender =
+        (row.classList.contains("cr-msg-row--user") && prev.classList.contains("cr-msg-row--user")) ||
+        (row.classList.contains("cr-msg-row--assistant") &&
+          prev.classList.contains("cr-msg-row--assistant"));
+      if (sameSender) row.classList.add("cr-msg-row--grouped");
+    });
   }
 
   function scrollMessages(): void {
+    syncMessageRowSpacing();
     if (historyOpen) return;
     messages.scrollTop = messages.scrollHeight;
   }
@@ -1717,7 +1890,8 @@ async function boot(): Promise<void> {
 
   function renderChatMessages(): void {
     clearMessagesDom();
-    for (const msg of chatMessages) {
+    for (let i = 0; i < chatMessages.length; i += 1) {
+      const msg = chatMessages[i];
       if (msg.role === "user") appendUserMessage(msg.text, false, msg.created_at);
       else appendAssistantMessage(msg, true, false);
     }
@@ -1744,8 +1918,8 @@ async function boot(): Promise<void> {
     textEl.className = "cr-msg-text";
     textEl.textContent = text;
     body.appendChild(textEl);
-    ensureMessageTimestamp(body, iso, "user");
     bubble.appendChild(body);
+    ensureMessageTimestamp(bubble, iso, "user");
     col.appendChild(bubble);
     row.appendChild(col);
     messages.appendChild(row);
@@ -1755,8 +1929,7 @@ async function boot(): Promise<void> {
   function appendAssistantMessage(
     msg: Pick<StoredMessage, "text" | "products" | "product_detail" | "created_at" | "server_id">,
     html = true,
-    record = true,
-    showAvatar = true
+    record = true
   ): HTMLDivElement {
     const iso = messageCreatedAtIso(msg.created_at);
     if (record) {
@@ -1772,15 +1945,6 @@ async function boot(): Promise<void> {
     }
     const row = document.createElement("div");
     row.className = "cr-msg-row cr-msg-row--assistant";
-    if (showAvatar) {
-      row.appendChild(createBubbleAvatar());
-    } else {
-      const spacer = document.createElement("div");
-      spacer.className = "cr-avatar-wrap cr-avatar-wrap--bubble";
-      spacer.setAttribute("aria-hidden", "true");
-      spacer.style.visibility = "hidden";
-      row.appendChild(spacer);
-    }
     const col = document.createElement("div");
     col.className = "cr-msg-col";
     const wrap = document.createElement("div");
@@ -1798,8 +1962,8 @@ async function boot(): Promise<void> {
       (card) => void runProductAction("similar", card),
       sending
     );
-    ensureMessageTimestamp(bubble, iso, "assistant");
     col.appendChild(wrap);
+    ensureMessageTimestamp(bubble, iso, "assistant");
     row.appendChild(col);
     messages.appendChild(row);
     if (
@@ -1836,21 +2000,20 @@ async function boot(): Promise<void> {
     const createdAt = messageCreatedAtIso();
     const row = document.createElement("div");
     row.className = "cr-msg-row cr-msg-row--assistant";
-    row.appendChild(createBubbleAvatar());
     const col = document.createElement("div");
     col.className = "cr-msg-col";
     const wrap = document.createElement("div");
     wrap.className = "cr-msg-wrap";
     const assistantEl = document.createElement("div");
-    assistantEl.className = "cr-msg cr-msg--assistant";
+    assistantEl.className = "cr-msg cr-msg--assistant cr-msg--thinking";
     const dotsEl = document.createElement("div");
     dotsEl.className = "cr-thinking-dots";
     dotsEl.innerHTML =
       '<span class="cr-thinking-dot"></span><span class="cr-thinking-dot"></span><span class="cr-thinking-dot"></span>';
     assistantEl.appendChild(dotsEl);
-    ensureMessageTimestamp(assistantEl, createdAt, "assistant");
     wrap.appendChild(assistantEl);
     col.appendChild(wrap);
+    ensureMessageTimestamp(assistantEl, createdAt, "assistant");
     row.appendChild(col);
     messages.appendChild(row);
     scrollMessages();
@@ -1929,6 +2092,7 @@ async function boot(): Promise<void> {
 
   function resetChat(): void {
     if (conversationId && chatMessages.length) persistStore();
+    demoReplyIndex = 0;
     visitorId = newVisitorId();
     conversationId = null;
     chatMessages = [];
@@ -1957,9 +2121,9 @@ async function boot(): Promise<void> {
   function setPanelOpen(next: boolean): void {
     panelOpen = next;
     panel.classList.toggle("cr-panel--open", next);
-    launcher.classList.toggle("cr-launcher--open", next);
+    root.classList.toggle("cr-root--panel-open", next);
+    launcher.classList.toggle("cr-launcher--hidden", next);
     launcher.setAttribute("aria-expanded", next ? "true" : "false");
-    launcher.setAttribute("aria-label", next ? "Close chat" : "Open chat");
     if (next) {
       requestThreadSync();
     } else {
@@ -1971,6 +2135,30 @@ async function boot(): Promise<void> {
     conversationId = null;
     store.activeConversationId = null;
     writeWidgetStore(agentKey, store);
+  }
+
+  async function streamDemoAssistantReply(
+    userText: string,
+    streamWrap: {
+      row: HTMLDivElement;
+      wrap: HTMLDivElement;
+      assistantEl: HTMLDivElement;
+      createdAt: string;
+    }
+  ): Promise<void> {
+    const { assistantEl, createdAt } = streamWrap;
+    const dotsEl = assistantEl.querySelector(".cr-thinking-dots");
+    await sleep(850 + Math.random() * 450);
+    const reply = pickDemoReply(userText, demoReplyIndex);
+    demoReplyIndex += 1;
+    if (dotsEl instanceof HTMLElement) dotsEl.hidden = true;
+    assistantEl.classList.remove("cr-msg--thinking");
+    assistantEl.setAttribute("data-plain", reply);
+    assistantEl.innerHTML = renderAssistantHtml(reply);
+    ensureMessageTimestamp(assistantEl, createdAt, "assistant");
+    chatMessages.push({ role: "assistant", text: reply, created_at: createdAt });
+    persistStore();
+    scrollMessages();
   }
 
   async function streamAssistantReply(
@@ -1985,6 +2173,11 @@ async function boot(): Promise<void> {
     productAction?: ProductActionRequest,
     onComposerReady?: () => void
   ): Promise<void> {
+    if (demoMode) {
+      await streamDemoAssistantReply(userText, streamWrap);
+      onComposerReady?.();
+      return;
+    }
     if (conversationId) await ensureThreadStateFresh();
     if (isHumanHandoffActive() && conversationId && !productAction) {
       streamWrap.row.remove();
@@ -2030,6 +2223,7 @@ async function boot(): Promise<void> {
       if (!trimmed) return;
       hideDots();
       clearStatus();
+      assistantEl.classList.remove("cr-msg--thinking");
       assistantEl.setAttribute("data-plain", trimmed);
       assistantEl.innerHTML = renderAssistantHtml(trimmed);
       ensureMessageTimestamp(assistantEl, createdAt, "assistant");
@@ -2320,14 +2514,14 @@ async function boot(): Promise<void> {
   async function sendMessage(): Promise<void> {
     const text = input.value.trim();
     if (!text || sending || contactCaptureRequired) return;
-    if (conversationId) await ensureThreadStateFresh();
+    if (!demoMode && conversationId) await ensureThreadStateFresh();
     const humanHandoff = isHumanHandoffActive();
     removeConfigGreetingsFromTranscript();
     sending = true;
     blockThreadSync = true;
     send.disabled = true;
     input.value = "";
-    input.style.height = "auto";
+    resetComposerInputLayout();
     appendUserMessage(text);
     try {
       if (humanHandoff && conversationId) {
@@ -2354,6 +2548,13 @@ async function boot(): Promise<void> {
     }
   }
 
+  if (demoMode && demoSeed) {
+    chatMessages = buildDemoChatMessages();
+    conversationId = null;
+    store.activeConversationId = null;
+    greetingsRendered = true;
+  }
+
   if (chatMessages.length) {
     renderChatMessages();
     bodyView = "chat";
@@ -2368,17 +2569,20 @@ async function boot(): Promise<void> {
   updatePoweredByVisibility();
 
   welcomeCta.addEventListener("click", () => openChatView());
+  welcomeCloseBtn.addEventListener("click", () => setPanelOpen(false));
   resetBtn.addEventListener("click", resetChat);
   historyBtn.addEventListener("click", () => setHistoryOpen(!historyOpen));
-  launcher.addEventListener("click", () => setPanelOpen(!panelOpen));
+  closeBtn.addEventListener("click", () => setPanelOpen(false));
+  launcher.addEventListener("click", () => {
+    if (!panelOpen) setPanelOpen(true);
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && panelOpen) requestThreadSync();
   });
   composerContact.addEventListener("submit", (ev) => void submitVisitorContact(ev));
   send.addEventListener("click", () => void sendMessage());
   input.addEventListener("input", () => {
-    input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+    syncComposerInputLayout();
     send.disabled = sending || contactCaptureRequired || !input.value.trim();
   });
   input.addEventListener("keydown", (ev) => {

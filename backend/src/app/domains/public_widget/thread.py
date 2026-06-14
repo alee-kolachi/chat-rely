@@ -139,14 +139,15 @@ async def fetch_public_widget_thread(
     )
     if ai_chat_disabled and status != "escalated":
         status = "escalated"
+    handoff = _handoff_from_metadata(meta) if ai_chat_disabled else None
     return PublicWidgetThreadResponse(
         conversation_status=status,
         ai_chat_disabled=ai_chat_disabled,
         operator_engaged=bool(meta.get(OPERATOR_ENGAGED_META_KEY)),
         conversation_active=conversation_is_active(status),
         visitor_online=visitor_is_online(meta),
-        handoff_banner=_handoff_banner_from_metadata(meta),
-        handoff=_handoff_from_metadata(meta),
+        handoff_banner=_handoff_banner_from_metadata(meta) if ai_chat_disabled else None,
+        handoff=handoff,
         messages=out,
     )
 

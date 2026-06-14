@@ -16,15 +16,33 @@ export function clampWidgetBorderRadius(value: number): number {
   );
 }
 
+export function snapWidgetBorderRadiusToPreset(value: number): number {
+  const clamped = clampWidgetBorderRadius(value);
+  const presetValues = WIDGET_BORDER_RADIUS_PRESETS.map((preset) => preset.value);
+  if (presetValues.includes(clamped as (typeof presetValues)[number])) {
+    return clamped;
+  }
+  let best = WIDGET_BORDER_RADIUS_DEFAULT;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const preset of presetValues) {
+    const distance = Math.abs(preset - clamped);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = preset;
+    }
+  }
+  return best;
+}
+
 export function readWidgetBorderRadius(
   behavior: Record<string, unknown> | null | undefined
 ): number {
   const raw = behavior?.widget_border_radius;
   if (raw == null || raw === "") return WIDGET_BORDER_RADIUS_DEFAULT;
-  if (typeof raw === "number") return clampWidgetBorderRadius(raw);
+  if (typeof raw === "number") return snapWidgetBorderRadiusToPreset(raw);
   if (typeof raw === "string") {
     const parsed = Number.parseInt(raw.trim(), 10);
-    if (Number.isFinite(parsed)) return clampWidgetBorderRadius(parsed);
+    if (Number.isFinite(parsed)) return snapWidgetBorderRadiusToPreset(parsed);
   }
   return WIDGET_BORDER_RADIUS_DEFAULT;
 }

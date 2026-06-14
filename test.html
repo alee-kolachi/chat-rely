@@ -8,13 +8,15 @@
     <h1>Widget test</h1>
     <p>Do <strong>not</strong> open this file as <code>file://</code>. Serve the repo root and open over HTTP, e.g.:</p>
     <pre>python3 -m http.server 3333</pre>
-    <p>Open <code>http://127.0.0.1:3333/</code> (see root <code>index.html</code>) or <code>http://127.0.0.1:3333/test.html</code>.</p>
-    <p>Next.js must be on <code>:3000</code> and you must set <code>data-chatrely-agent-key</code> to a real <code>agents.public_key</code> from your DB (Deploy page copy button).</p>
+    <p>Open <code>http://127.0.0.1:3333/test.html?demo=1</code> for offline layout preview (no backend).</p>
+    <p>Add <code>&amp;seed=1</code> to preload 10 sample messages (e.g. <code>test.html?demo=1&amp;seed=1</code>).</p>
 
+    <script>
+      window.__CHATRELY_WIDGET__ = { demo: true };
+    </script>
     <script
-      async
-      src="http://127.0.0.1:3000/widget.js"
-      data-chatrely-agent-key="REPLACE_WITH_YOUR_AGENTS_PUBLIC_KEY"
+      src="app/public/widget.js"
+      data-chatrely-agent-key="c7a2737d4f90e4b9849801c0d6163b7b"
       data-chatrely-api-base="http://127.0.0.1:3000"
     ></script>
   </body>

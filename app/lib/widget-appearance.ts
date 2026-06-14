@@ -120,7 +120,7 @@ export const WIDGET_COLOR_GROUPS: ReadonlyArray<{
   },
 ] as const;
 
-/** Default chat / welcome panel: 5% accent, 95% white (light) or dark base. */
+/** Default chat / welcome panel bottom tint (matches embed chat-surface mix). */
 export function defaultAccentPanelBackground(
   brandColorHex: string | null | undefined,
   themeMode: WidgetThemeMode = "light"
@@ -129,7 +129,46 @@ export function defaultAccentPanelBackground(
   if (themeMode === "dark") {
     return `color-mix(in srgb, ${accent} 5%, #0F172A)`;
   }
-  return `color-mix(in srgb, ${accent} 5%, #ffffff)`;
+  return `color-mix(in srgb, ${accent} 7%, #f8f5ff)`;
+}
+
+/** Full welcome panel gradient from one accent color (matches embed `.cr-welcome`). */
+export function welcomePanelGradient(accentHex: string, panelBgHex: string): string {
+  const top = accentHex;
+  const mid = `color-mix(in srgb, ${top} 78%, #000000)`;
+  const bottom = panelBgHex;
+  return [
+    "linear-gradient(180deg,",
+    `${top} 0%,`,
+    `${top} 18%,`,
+    `color-mix(in srgb, ${top} 92%, #000000) 24%,`,
+    `${mid} 28%,`,
+    `color-mix(in srgb, ${mid} 82%, ${bottom}) 38%,`,
+    `color-mix(in srgb, ${mid} 62%, ${bottom}) 48%,`,
+    `color-mix(in srgb, ${mid} 42%, ${bottom}) 58%,`,
+    `color-mix(in srgb, ${mid} 26%, ${bottom}) 68%,`,
+    `color-mix(in srgb, ${mid} 14%, ${bottom}) 78%,`,
+    `color-mix(in srgb, ${mid} 6%, ${bottom}) 88%,`,
+    `${bottom} 100%)`,
+  ].join(" ");
+}
+
+/** Chat view background gradient (matches embed `.cr-panel--chat-surface`). */
+export function chatSurfaceGradient(headerHex: string, panelBgHex?: string): string {
+  const bottom = panelBgHex ?? `color-mix(in srgb, ${headerHex} 7%, #f8f5ff)`;
+  const top = "#fcfbff";
+  return [
+    "linear-gradient(0deg,",
+    `${bottom} 0%,`,
+    `color-mix(in srgb, ${bottom} 28%, ${top}) 32%,`,
+    `color-mix(in srgb, ${bottom} 10%, ${top}) 58%,`,
+    `${top} 100%)`,
+  ].join(" ");
+}
+
+/** User message bubble fill (matches embed `.cr-msg--user`). */
+export function userBubbleGradient(userBubbleHex: string): string {
+  return `linear-gradient(90deg, color-mix(in srgb, ${userBubbleHex} 92%, #000000) 0%, ${userBubbleHex} 100%)`;
 }
 
 const THEME_DEFAULTS: Record<

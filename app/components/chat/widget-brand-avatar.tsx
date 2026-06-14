@@ -8,6 +8,29 @@ import { cn } from "@/lib/utils";
 
 type WidgetBrandChrome = ReturnType<typeof brandChromeClasses> | null;
 
+function WidgetLauncherChatIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="size-7" width={28} height={28}>
+      <path
+        fill="#ffffff"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M13.0867 21.3877L13.6288 20.4718C14.0492 19.7614 14.2595 19.4062 14.5972 19.2098C14.9349 19.0134 15.36 19.0061 16.2104 18.9915C17.4658 18.9698 18.2531 18.8929 18.9134 18.6194C20.1386 18.1119 21.1119 17.1386 21.6194 15.9134C22 14.9946 22 13.8297 22 11.5V10.5C22 7.22657 22 5.58985 21.2632 4.38751C20.8509 3.71473 20.2853 3.14908 19.6125 2.7368C18.4101 2 16.7734 2 13.5 2H10.5C7.22657 2 5.58985 2 4.38751 2.7368C3.71473 3.14908 3.14908 3.71473 2.7368 4.38751C2 5.58985 2 7.22657 2 10.5V11.5C2 13.8297 2 14.9946 2.3806 15.9134C2.88807 17.1386 3.86144 18.1119 5.08658 18.6194C5.74689 18.8929 6.53422 18.9698 7.78958 18.9915C8.63992 19.0061 9.06509 19.0134 9.40279 19.2098C9.74049 19.4063 9.95073 19.7614 10.3712 20.4718L10.9133 21.3877C11.3965 22.204 12.6035 22.204 13.0867 21.3877ZM7.5 9.71476C7.5 11.4673 9.6633 13.3304 10.9901 14.3082C11.4442 14.6429 11.6713 14.8103 12 14.8103C12.3287 14.8103 12.5558 14.643 13.0099 14.3082C14.3367 13.3304 16.5 11.4674 16.5 9.71474C16.5 7.03758 14.0249 6.03806 12 8.10614C9.97507 6.03806 7.5 7.03758 7.5 9.71476Z"
+      />
+    </svg>
+  );
+}
+
+function WidgetLauncherAttentionPreview({ animationKey }: { animationKey: number }) {
+  return (
+    <span
+      key={animationKey}
+      className="widget-preview-launcher-attention"
+      aria-hidden
+    />
+  );
+}
+
 function LauncherPreviewShell({
   chrome,
   brandColorHex,
@@ -43,11 +66,7 @@ function LauncherPreviewShell({
       aria-hidden
     >
       {animationEnabled && !pending ? (
-        <span
-          key={animationKey}
-          className="widget-preview-launcher-arc"
-          aria-hidden
-        />
+        <WidgetLauncherAttentionPreview animationKey={animationKey} />
       ) : null}
       <span
         className="widget-preview-launcher-surface"
@@ -100,12 +119,8 @@ export function WidgetBrandAvatar({
   }, [logoUrl]);
 
   const headerShellClass = cn(
-    "relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg shadow-sm ring-1 ring-black/10",
-    hasBrand && chrome
-      ? chrome.lightBg
-        ? "bg-black/[0.06]"
-        : "bg-white/20"
-      : "bg-ds-primary"
+    "relative inline-flex h-[15px] shrink-0 items-center justify-center overflow-hidden",
+    hasBrand && chrome ? "" : "size-9 rounded-lg bg-ds-primary shadow-sm ring-1 ring-black/10"
   );
 
   const fallbackBot = (
@@ -120,14 +135,12 @@ export function WidgetBrandAvatar({
         size === "launcher" && "text-xl",
         size === "header" &&
           (hasBrand && chrome
-            ? chrome.lightBg
-              ? "bg-black/[0.06] text-ds-on-surface"
-              : "bg-white/20 text-white"
-            : "bg-ds-primary text-ds-on-primary")
+            ? ""
+            : "bg-ds-primary text-ds-on-primary size-9 rounded-lg shadow-sm ring-1 ring-black/10")
       )}
     >
       {size === "launcher" ? (
-        <span aria-hidden>💬</span>
+        <WidgetLauncherChatIcon />
       ) : (
         <Bot
           className={
@@ -144,24 +157,36 @@ export function WidgetBrandAvatar({
     </div>
   );
 
-  if (logoPending) {
-    if (size === "launcher") {
-      return (
-        <LauncherPreviewShell
-          chrome={chrome}
-          brandColorHex={brandColorHex}
-          borderRadius={borderRadius}
-          pending
-        />
-      );
-    }
+  if (size === "launcher") {
+    return (
+      <LauncherPreviewShell
+        chrome={chrome}
+        brandColorHex={brandColorHex}
+        borderRadius={borderRadius}
+        animationEnabled={animationEnabled}
+        animationKey={animationKey}
+        pending={logoPending}
+      >
+        <WidgetLauncherChatIcon />
+      </LauncherPreviewShell>
+    );
+  }
+
+  if (!logoUrl || imageState === "error") {
     if (size === "header") {
-      return <div className={cn(headerShellClass, "animate-pulse bg-black/10")} aria-hidden />;
+      return null;
+    }
+    return fallbackBot;
+  }
+
+  if (logoPending) {
+    if (size === "header") {
+      return <div className={cn(headerShellClass, "w-[15px] animate-pulse bg-black/10")} aria-hidden />;
     }
     if (size === "welcome") {
       return (
         <div
-          className="border-ds-outline aspect-square h-full min-h-16 w-auto shrink-0 animate-pulse self-stretch rounded-xl border bg-ds-sidebar"
+          className="border-ds-outline size-11 shrink-0 animate-pulse rounded-[10px] border bg-ds-sidebar"
           aria-hidden
         />
       );
@@ -174,61 +199,18 @@ export function WidgetBrandAvatar({
     );
   }
 
-  if (!logoUrl || imageState === "error") {
-    if (size === "launcher") {
-      return (
-        <LauncherPreviewShell
-          chrome={chrome}
-          brandColorHex={brandColorHex}
-          borderRadius={borderRadius}
-          animationEnabled={animationEnabled}
-          animationKey={animationKey}
-        >
-          <span aria-hidden>💬</span>
-        </LauncherPreviewShell>
-      );
-    }
-    return fallbackBot;
-  }
+  const welcomeShellClass =
+    "relative flex size-11 shrink-0 items-center justify-center overflow-hidden";
 
-  if (size === "launcher") {
-    return (
-      <LauncherPreviewShell
-        chrome={chrome}
-        brandColorHex={brandColorHex}
-        borderRadius={borderRadius}
-        animationEnabled={animationEnabled}
-        animationKey={animationKey}
-      >
-        {imageState !== "loaded" ? (
-          <div className="absolute inset-0 animate-pulse bg-black/10" aria-hidden />
-        ) : null}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          ref={bindLogoImage}
-          src={logoUrl}
-          alt=""
-          className={cn(
-            "relative z-[1] size-8 object-contain transition-opacity",
-            imageState === "loaded" ? "opacity-100" : "opacity-0"
-          )}
-          referrerPolicy="no-referrer"
-          onLoad={() => setImageState("loaded")}
-          onError={() => setImageState("error")}
-        />
-      </LauncherPreviewShell>
-    );
-  }
+  const bubbleShellClass =
+    "border-ds-outline relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm";
 
-  const shellClass =
-    size === "welcome"
-      ? "border-ds-outline relative flex aspect-square h-full min-h-16 w-auto shrink-0 items-center justify-center self-stretch overflow-hidden rounded-xl border bg-white shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
-      : "border-ds-outline relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white shadow-sm";
+  const shellClass = size === "welcome" ? welcomeShellClass : bubbleShellClass;
 
   const headerLogo = (
     <>
       {imageState !== "loaded" ? (
-        <div className="absolute inset-0 animate-pulse rounded-lg bg-black/10" aria-hidden />
+        <div className="h-[15px] w-[15px] animate-pulse rounded bg-black/10" aria-hidden />
       ) : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -236,11 +218,10 @@ export function WidgetBrandAvatar({
         src={logoUrl}
         alt=""
         className={cn(
-          "relative z-[1] max-h-full max-w-full rounded-lg object-contain transition-opacity",
+          "block h-[15px] w-auto max-w-none object-contain transition-opacity",
           imageState === "loaded" ? "opacity-100" : "opacity-0"
         )}
-        width={36}
-        height={36}
+        height={15}
         referrerPolicy="no-referrer"
         onLoad={() => setImageState("loaded")}
         onError={() => setImageState("error")}
@@ -271,7 +252,7 @@ export function WidgetBrandAvatar({
         alt=""
         className={cn(
           size === "welcome"
-            ? "relative z-[1] size-full object-contain p-1.5 transition-opacity"
+            ? "relative z-[1] size-full rounded-lg object-contain transition-opacity"
             : "relative z-[1] size-full object-contain p-0.5 transition-opacity",
           imageState === "loaded" ? "opacity-100" : "opacity-0"
         )}

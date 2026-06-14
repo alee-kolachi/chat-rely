@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && cp dist/widget.js ../app/public/widget.js && cp dist/widget.js.map ../app/public/widget.js.map 2>/dev/null || true",
     "check": "tsc --noEmit"
   },
   "devDependencies": {

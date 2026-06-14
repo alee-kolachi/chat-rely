@@ -84,7 +84,7 @@ import {
   readConversationStatus,
   readEscalationHandoffFromApiFields,
   readEscalationHandoffFromMetadata,
-  readEscalationHandoffFromSse,
+  readEscalationHandoffFromSseIfActive,
 } from "@/lib/escalated-conversation";
 import { isAssistantFeedbackEligible } from "@/lib/message-feedback-eligibility";
 import { readContactCaptureRequired } from "@/lib/visitor-contact";
@@ -482,7 +482,7 @@ function PlaygroundPreviewConversation({
   const [handoffContext, setHandoffContext] = useState<EscalationHandoffContext | null>(null);
   const [operatorEngaged, setOperatorEngaged] = useState(false);
   const humanHandoffActive =
-    isAiChatDisabledStatus(conversationStatus) || operatorEngaged || handoffContext !== null;
+    isAiChatDisabledStatus(conversationStatus) || operatorEngaged;
   const aiChatDisabled = humanHandoffActive;
   const [, setThreadCacheState] = useState<Record<string, PlaygroundThreadCacheEntry>>({});
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -658,7 +658,11 @@ function PlaygroundPreviewConversation({
         if (row) mapped.push(row);
       }
       setConversationStatus(nextStatus);
-      setHandoffContext(readEscalationHandoffFromMetadata(data.conversation.metadata));
+      setHandoffContext(
+        isAiChatDisabledStatus(nextStatus)
+          ? readEscalationHandoffFromMetadata(data.conversation.metadata)
+          : null
+      );
       setOperatorEngaged(data.conversation.metadata?.operator_engaged === true);
       setPreviewMessages((current) => {
         if (!shouldApplyServerPlaygroundTranscript(current, mapped)) {
@@ -809,12 +813,15 @@ function PlaygroundPreviewConversation({
         }
         const contactRequired = readContactCaptureRequired(ev as Record<string, unknown>);
         setContactCaptureRequired(contactRequired);
-        const handoff = readEscalationHandoffFromSse(ev as Record<string, unknown>);
-        if (
-          handoff &&
-          (isAiChatDisabledStatus(nextStatus) || ev.ai_chat_disabled === true || contactRequired)
-        ) {
+        const handoff = readEscalationHandoffFromSseIfActive(ev as Record<string, unknown>);
+        if (handoff) {
           setHandoffContext(handoff);
+        } else if (
+          ev.ai_chat_disabled !== true &&
+          !isAiChatDisabledStatus(nextStatus) &&
+          !contactRequired
+        ) {
+          setHandoffContext(null);
         }
       }
       const patchMessages = () => {
@@ -1216,15 +1223,24 @@ function PlaygroundPreviewConversation({
   return (
     <div
       className={cn(
-        "border-ds-outline flex min-h-0 w-full max-w-[26rem] shrink-0 flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+        "relative mx-4 my-6 w-full max-w-[26rem] shrink-0 sm:mx-6 sm:my-8",
         "h-[min(37.5rem,85vh)] max-h-full"
       )}
-      style={{
-        backgroundColor: appearanceResolved.colors.panelBackground,
-        borderColor: appearanceResolved.colors.assistantBubbleBorder,
-        color: appearanceResolved.colors.textPrimary,
-      }}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 scale-[1.03] rounded-[28px] bg-slate-900/10 blur-[36px]"
+      />
+      <div
+        className={cn(
+          "border-ds-outline relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[28px] border",
+        )}
+        style={{
+          backgroundColor: appearanceResolved.colors.panelBackground,
+          borderColor: appearanceResolved.colors.assistantBubbleBorder,
+          color: appearanceResolved.colors.textPrimary,
+        }}
+      >
       <div
         className={cn(
           "flex shrink-0 items-center justify-between border-b px-5 py-3.5 sm:px-6",
@@ -1544,7 +1560,7 @@ function PlaygroundPreviewConversation({
           />
         ) : (
           <div className="flex flex-col gap-1">
-            {humanHandoffActive && handoffContext && !operatorEngaged ? (
+            {isAiChatDisabledStatus(conversationStatus) && !operatorEngaged ? (
               <EscalatedChatNotice handoff={handoffContext} />
             ) : null}
             <PlaygroundComposer
@@ -1575,6 +1591,7 @@ function PlaygroundPreviewConversation({
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
@@ -2073,7 +2090,7 @@ export default function PlaygroundPage() {
           )}
         >
           <IsoGridPanelBackground id="playground-iso-grid" className="min-h-full" />
-          <div className="relative z-10 flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-start overflow-hidden">
+          <div className="relative z-10 flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-start">
             <PlaygroundPreviewConversation
               key={selectedAgentId ?? "__no_agent__"}
               agentId={selectedAgentId}
