@@ -4,7 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect } from "react";
 import { ChevronLeft } from "lucide-react";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
-import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+import { WidgetEmbedHeader } from "@/components/chat/widget-embed-header";
 import {
   widgetComposerFieldClass,
   widgetComposerSendButtonClass,
@@ -97,17 +97,6 @@ export function WidgetChatShell({
         }),
   };
 
-  const headerStyle: CSSProperties | undefined = chatSurface
-    ? {
-        background: "color-mix(in srgb, #ffffff 90%, #fcfbff)",
-        borderColor: "rgba(15, 23, 42, 0.06)",
-      }
-    : hasBrand
-      ? { backgroundColor: resolved.colors.header }
-      : resolved.themeMode === "dark"
-        ? { backgroundColor: resolved.colors.composerBackground }
-        : undefined;
-
   const footerStyle: CSSProperties = chatSurface
     ? { background: "transparent", borderColor: "transparent" }
     : {
@@ -124,15 +113,18 @@ export function WidgetChatShell({
       )}
       style={shellStyle}
     >
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-between border-b px-4 py-2.5",
-          chatSurface ? "" : hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
-        )}
-        style={headerStyle}
-      >
-        <div className="flex min-w-0 items-center gap-1">
-          {onHeaderBack ? (
+      <WidgetEmbedHeader
+        agentName={displayName}
+        statusLine={statusLine}
+        hasBrand={hasBrand}
+        brandColorHex={brandColorHex}
+        websiteLogoUrl={websiteLogoUrl}
+        websiteLogoPending={websiteLogoPending}
+        chatSurface={chatSurface}
+        headerColor={resolved.colors.header}
+        themeMode={resolved.themeMode}
+        leading={
+          onHeaderBack ? (
             <button
               type="button"
               onClick={onHeaderBack}
@@ -149,39 +141,10 @@ export function WidgetChatShell({
             >
               <ChevronLeft className="size-5" strokeWidth={2} aria-hidden />
             </button>
-          ) : null}
-          <WidgetBrandAvatar
-            logoUrl={websiteLogoUrl ?? null}
-            logoPending={websiteLogoPending}
-            hasBrand={hasBrand}
-            chrome={brandChromeClasses(resolved.colors.header)}
-            size="header"
-          />
-          <div className="min-w-0 pl-1">
-            <h3
-              className={cn(
-                "truncate text-sm font-semibold leading-none tracking-tight",
-                chatSurface ? "text-slate-900" : brandChromeClasses(resolved.colors.header).titleClass
-              )}
-            >
-              {displayName}
-            </h3>
-            {statusLine ? (
-              <p
-                className={cn(
-                  "mt-1 truncate text-[11px] leading-snug",
-                  chatSurface ? "text-slate-500" : brandChromeClasses(resolved.colors.header).lightBg
-                    ? "text-ds-on-surface-variant"
-                    : "text-white/85"
-                )}
-              >
-                {statusLine}
-              </p>
-            ) : null}
-          </div>
-        </div>
-        {headerActions ? <div className="flex shrink-0 items-center gap-0.5">{headerActions}</div> : null}
-      </div>
+          ) : undefined
+        }
+        actions={headerActions}
+      />
 
       <div className="min-h-0 flex-1 overflow-hidden bg-transparent">{children}</div>
 
@@ -280,11 +243,13 @@ export function WidgetComposerPreview({
   placeholder = "Write a message…",
   brandColorHex,
   accentColor,
+  composerBackground,
   className,
 }: {
   placeholder?: string;
   brandColorHex?: string | null;
   accentColor: string;
+  composerBackground?: string;
   className?: string;
 }) {
   const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
@@ -292,7 +257,10 @@ export function WidgetComposerPreview({
 
   return (
     <div className={cn("px-4 pb-1.5 pt-1", className)}>
-      <div className={cn(widgetComposerFieldClass, "pointer-events-none")}>
+      <div
+        className={cn(widgetComposerFieldClass, "pointer-events-none")}
+        style={{ backgroundColor: composerBackground ?? "#FFFFFF" }}
+      >
         <span className="min-h-9 flex-1 py-2 text-sm leading-snug text-ds-on-surface-variant/70">
           {placeholder}
         </span>

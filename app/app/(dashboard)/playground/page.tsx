@@ -51,6 +51,7 @@ import {
 } from "@/lib/agent-settings";
 import {
   PoweredByChatRely,
+  WIDGET_FOOTER_PADDING_WITHOUT_POWERED,
   WIDGET_POWERED_BY_STRIP_CLASS,
 } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
@@ -73,6 +74,7 @@ import { EscalatedChatNotice } from "@/components/chat/escalated-chat-notice";
 import { VisitorContactForm } from "@/components/chat/visitor-contact-form";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
+import { WidgetEmbedHeader } from "@/components/chat/widget-embed-header";
 import { WidgetWelcomeMessages } from "@/components/chat/widget-chat-shell";
 import {
   PlaygroundComposer,
@@ -1254,78 +1256,45 @@ function PlaygroundPreviewConversation({
           color: appearanceResolved.colors.textPrimary,
         }}
       >
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-between border-b px-4 py-2.5",
-          chatSurface ? "border-black/5 bg-[color-mix(in_srgb,#ffffff_90%,#fcfbff)]" : hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
-        )}
-        style={
-          chatSurface
-            ? undefined
-            : hasBrand
-              ? { backgroundColor: appearanceResolved.colors.header }
-              : appearanceResolved.themeMode === "dark"
-                ? { backgroundColor: appearanceResolved.colors.composerBackground }
-                : undefined
+      <WidgetEmbedHeader
+        agentName={displayName}
+        hasBrand={hasBrand}
+        brandColorHex={brandColorHex}
+        websiteLogoUrl={websiteLogoUrl}
+        websiteLogoPending={websiteLogoPending}
+        chatSurface={chatSurface}
+        headerColor={appearanceResolved.colors.header}
+        themeMode={appearanceResolved.themeMode}
+        actions={
+          <>
+            <button
+              type="button"
+              className={headerToolbarIconBtnClass}
+              aria-label="Reset conversation and start a new chat thread"
+              title="Reset preview and start a new thread"
+              onClick={handleResetPreviewChat}
+              disabled={!agentId}
+            >
+              <IconRefresh className="size-5" />
+            </button>
+            <button
+              type="button"
+              className={cn(
+                headerToolbarIconBtnClass,
+                !hasBrand && historyOpen && "bg-ds-outline/50 text-ds-on-surface",
+                hasBrand && chrome && historyOpen && (chrome.lightBg ? "bg-black/[0.08]" : "bg-white/20")
+              )}
+              aria-expanded={historyOpen}
+              aria-label={historyOpen ? "Close conversations list" : "Browse conversations"}
+              title={historyOpen ? "Back to chat" : "Browse conversations"}
+              onClick={() => setHistoryOpen((o) => !o)}
+              disabled={!agentId || historyThreadLoading}
+            >
+              <IconListChats className="size-5" />
+            </button>
+          </>
         }
-      >
-        <div className="flex min-w-0 items-center gap-1">
-          <WidgetBrandAvatar
-            logoUrl={websiteLogoUrl}
-            logoPending={websiteLogoPending}
-            hasBrand={hasBrand}
-            chrome={chrome}
-            size="header"
-          />
-          <div className="min-w-0 pl-1">
-            <h3
-              className={cn(
-                "truncate text-sm font-semibold leading-none tracking-tight",
-                chatSurface ? "text-slate-900" : hasBrand && chrome ? chrome.titleClass : "text-ds-on-surface"
-              )}
-            >
-              {displayName}
-            </h3>
-            <p
-              className={cn(
-                "mt-1 truncate text-[11px] leading-snug",
-                chatSurface ? "text-slate-500" : hasBrand && chrome?.lightBg
-                  ? "text-ds-on-surface-variant"
-                  : "text-white/85"
-              )}
-            >
-              Typically replies instantly
-            </p>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            className={headerToolbarIconBtnClass}
-            aria-label="Reset conversation and start a new chat thread"
-            title="Reset preview and start a new thread"
-            onClick={handleResetPreviewChat}
-            disabled={!agentId}
-          >
-            <IconRefresh className="size-5" />
-          </button>
-          <button
-            type="button"
-            className={cn(
-              headerToolbarIconBtnClass,
-              !hasBrand && historyOpen && "bg-ds-outline/50 text-ds-on-surface",
-              hasBrand && chrome && historyOpen && (chrome.lightBg ? "bg-black/[0.08]" : "bg-white/20")
-            )}
-            aria-expanded={historyOpen}
-            aria-label={historyOpen ? "Close conversations list" : "Browse conversations"}
-            title={historyOpen ? "Back to chat" : "Browse conversations"}
-            onClick={() => setHistoryOpen((o) => !o)}
-            disabled={!agentId || historyThreadLoading}
-          >
-            <IconListChats className="size-5" />
-          </button>
-        </div>
-      </div>
+      />
 
       <div
         ref={messagesScrollRef}
@@ -1553,7 +1522,12 @@ function PlaygroundPreviewConversation({
       </div>
 
       <div
-        className={cn("shrink-0 px-4 pb-1.5 pt-1", chatSurface && "bg-transparent")}
+        className={cn(
+          "shrink-0 px-4 pt-1",
+          hidePoweredByPlan ? WIDGET_FOOTER_PADDING_WITHOUT_POWERED : "pb-1.5",
+          chatSurface && "bg-transparent",
+          historyOpen && chatSurface && "border-t border-[rgba(15,23,42,0.06)]"
+        )}
         style={chatSurface ? undefined : { backgroundColor: appearanceResolved.colors.panelBackground }}
       >
         {historyOpen ? (
@@ -1561,6 +1535,9 @@ function PlaygroundPreviewConversation({
             <p className="ds-app-body-muted text-center">
               Choose a conversation above to load it, or use <span className="font-semibold">Back to chat</span>.
             </p>
+            {!hidePoweredByPlan ? (
+              <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
+            ) : null}
             {footerError ? (
               <p className="text-rose-600 mt-3 text-center text-sm">{footerError}</p>
             ) : null}

@@ -10,6 +10,7 @@ import { WidgetWelcomeScreen } from "@/components/chat/widget-welcome-screen";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
 import {
   PoweredByChatRely,
+  WIDGET_FOOTER_PADDING_WITHOUT_POWERED,
   WIDGET_POWERED_BY_STRIP_CLASS,
 } from "@/components/branding/powered-by-chatrely";
 import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
@@ -58,7 +59,6 @@ import {
   type WidgetAppearanceColors,
   type WidgetAppearanceSettings,
   type WidgetFontFamily,
-  type WidgetThemeMode,
 } from "@/lib/widget-appearance";
 import {
   readWidgetAnimationEnabled,
@@ -68,6 +68,7 @@ import {
 } from "@/lib/widget-shape";
 import { faviconServiceUrl } from "@/lib/website-url";
 import { appButtonClassName } from "@/lib/button-styles";
+import { AppSegmentGroupSimple } from "@/components/ui/app-segment-group";
 import { cn } from "@/lib/utils";
 
 export default function AgentSettingsAppearancePage() {
@@ -131,7 +132,6 @@ function AppearanceForm() {
   const [widgetBorderRadius, setWidgetBorderRadius] = useState(initialBorderRadius);
   const [widgetAnimationEnabled, setWidgetAnimationEnabled] = useState(initialAnimationEnabled);
   const [previewAnimationKey, setPreviewAnimationKey] = useState(0);
-  const [themeMode, setThemeMode] = useState<WidgetThemeMode>(initialAppearance.theme_mode ?? "light");
   const [fontFamily, setFontFamily] = useState<WidgetFontFamily>(
     initialAppearance.font_family ?? "geist"
   );
@@ -163,7 +163,6 @@ function AppearanceForm() {
       setPosition(initialPosition);
       setWidgetBorderRadius(initialBorderRadius);
       setWidgetAnimationEnabled(initialAnimationEnabled);
-      setThemeMode(initialAppearance.theme_mode ?? "light");
       setFontFamily(initialAppearance.font_family ?? "geist");
       setCustomColors(initialAppearance.colors ?? {});
       setWelcomeScreenEnabled(initialWelcomeScreen.enabled);
@@ -200,11 +199,11 @@ function AppearanceForm() {
 
   const draftAppearance: WidgetAppearanceSettings = useMemo(
     () => ({
-      theme_mode: themeMode,
+      theme_mode: "light",
       font_family: fontFamily,
       colors: Object.keys(customColors).length > 0 ? customColors : undefined,
     }),
-    [themeMode, fontFamily, customColors]
+    [fontFamily, customColors]
   );
 
   const previewAppearance = widgetStylingIncluded ? draftAppearance : {};
@@ -281,15 +280,15 @@ function AppearanceForm() {
 
   const appearanceDirty = useMemo(() => {
     const saved = initialAppearance;
-    if ((saved.theme_mode ?? "light") !== themeMode) return true;
     if ((saved.font_family ?? "geist") !== fontFamily) return true;
+    if ((saved.theme_mode ?? "light") !== "light") return true;
     for (const field of WIDGET_COLOR_FIELDS) {
       const a = formatHex(saved.colors?.[field.key] ?? "") ?? "";
       const b = formatHex(customColors[field.key] ?? "") ?? "";
       if (a !== b) return true;
     }
     return false;
-  }, [initialAppearance, themeMode, fontFamily, customColors]);
+  }, [initialAppearance, fontFamily, customColors]);
 
   const dirty = useMemo(() => {
     const formatted = formatHex(hex) ?? "";
@@ -382,7 +381,6 @@ function AppearanceForm() {
     setPosition(initialPosition);
     setWidgetBorderRadius(initialBorderRadius);
     setWidgetAnimationEnabled(initialAnimationEnabled);
-    setThemeMode(initialAppearance.theme_mode ?? "light");
     setFontFamily(initialAppearance.font_family ?? "geist");
     setCustomColors(initialAppearance.colors ?? {});
     setWelcomeScreenEnabled(initialWelcomeScreen.enabled);
@@ -431,14 +429,14 @@ function AppearanceForm() {
         <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
           <h2 className="ds-app-section-title mb-1">Basics</h2>
         <p className="text-ds-on-surface-variant mb-6 text-sm leading-relaxed">
-          Welcome screen, brand color, and widget position for your storefront.
+          Welcome screen and widget position for your storefront.
         </p>
 
         <div className="space-y-6">
           <div>
             <p className="text-ds-on-surface mb-1 text-sm font-semibold">Welcome screen</p>
             <p className="ds-app-body-muted mb-4">
-              Home view visitors see before chat. Uses your brand accent color below.
+              Home view visitors see before chat. Uses your brand color from Widget colors.
             </p>
             <label className="mb-4 flex cursor-pointer items-center gap-3">
               <input
@@ -604,53 +602,6 @@ function AppearanceForm() {
             </div>
           </div>
 
-          <div>
-            <p className="text-ds-on-surface mb-1 text-sm font-semibold">Brand color</p>
-              <p className="ds-app-body-muted mb-4">Primary accent for launcher and default header tones.</p>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <input
-                  type="color"
-                  className="border-ds-outline size-10 shrink-0 cursor-pointer rounded-ds-lg border bg-white p-1 sm:size-11"
-                  value={formatHex(hex) ?? BRAND_COLOR_PRESETS[0].hex}
-                  onChange={(e) => setHex(e.target.value.replace("#", ""))}
-                  aria-label="Brand color picker"
-                />
-                {BRAND_COLOR_PRESETS.map((preset) => {
-                  const presetHex = preset.hex.replace("#", "").toUpperCase();
-                  const isSelected = presetHex === hex.toUpperCase();
-                  return (
-                    <button
-                      key={preset.hex}
-                      type="button"
-                      onClick={() => setHex(presetHex)}
-                      aria-label={preset.label}
-                      title={preset.label}
-                      className={cn(
-                        "size-10 rounded-full border-2 transition-transform hover:scale-105 sm:size-11",
-                        isSelected
-                          ? "border-ds-primary ring-2 ring-ds-primary/25 ring-offset-2"
-                          : "border-transparent"
-                      )}
-                      style={{ backgroundColor: preset.hex }}
-                    />
-                  );
-                })}
-                <div className="border-ds-outline-subtle ml-1 flex items-center overflow-hidden rounded-ds-md border">
-                  <span className="ds-app-body-muted px-2 font-mono">#</span>
-                  <input
-                    className="ds-app-field w-24 border-0 py-2 font-mono text-xs uppercase focus:ring-0"
-                    value={hex}
-                    onChange={(e) => setHex(normaliseHex(e.target.value))}
-                    aria-label="Hex color"
-                    spellCheck={false}
-                  />
-                </div>
-              </div>
-              {!validHex && hex.length > 0 ? (
-                <p className="mt-2 text-xs font-medium text-rose-600">Hex must be 6 characters (0-9, A-F).</p>
-              ) : null}
-            </div>
-
             <div>
               <p className="text-ds-on-surface mb-1 text-sm font-semibold">Widget position</p>
               <p className="ds-app-body-muted mb-3">Where the widget sits on the page.</p>
@@ -730,34 +681,62 @@ function AppearanceForm() {
         <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
           <div className="mb-6">
             <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
-              <h2 className="ds-app-section-title">Widget styling</h2>
+              <h2 className="ds-app-section-title">Widget colors</h2>
             </PlanFeatureLabel>
             <p className="text-ds-on-surface-variant text-sm leading-relaxed">
-              Dark mode and font for your storefront widget.
+              Brand color, font, chat background, bubbles, and input area. Leave optional colors blank to use defaults.
             </p>
           </div>
 
           <div className="space-y-6">
             <div>
-              <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
-                <p className="text-ds-on-surface text-sm font-semibold">Theme</p>
-              </PlanFeatureLabel>
-              <p className="ds-app-body-muted mb-3">Light or dark chat panel styling.</p>
-              <div role="radiogroup" aria-label="Widget theme" className="grid grid-cols-2 gap-3">
-                <ThemeOption
-                  value="light"
-                  label="Light"
-                  checked={themeMode === "light"}
-                  disabled={widgetStyling.blockInteraction}
-                  onSelect={() => setThemeMode("light")}
-                />
-                <ThemeOption
-                  value="dark"
-                  label="Dark"
-                  checked={themeMode === "dark"}
-                  disabled={widgetStyling.blockInteraction}
-                  onSelect={() => setThemeMode("dark")}
-                />
+              <p className="text-ds-on-surface text-sm font-semibold">Brand color</p>
+              <p className="ds-app-body-muted mb-3 text-xs">
+                Primary accent for launcher, chat header, and send button.
+              </p>
+              <div className="border-ds-outline-subtle rounded-ds-lg border bg-ds-surface p-3">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <input
+                    type="color"
+                    className="border-ds-outline size-10 shrink-0 cursor-pointer rounded-ds-lg border bg-white p-1 sm:size-11"
+                    value={formatHex(hex) ?? BRAND_COLOR_PRESETS[0].hex}
+                    onChange={(e) => setHex(e.target.value.replace("#", ""))}
+                    aria-label="Brand color picker"
+                  />
+                  {BRAND_COLOR_PRESETS.map((preset) => {
+                    const presetHex = preset.hex.replace("#", "").toUpperCase();
+                    const isSelected = presetHex === hex.toUpperCase();
+                    return (
+                      <button
+                        key={preset.hex}
+                        type="button"
+                        onClick={() => setHex(presetHex)}
+                        aria-label={preset.label}
+                        title={preset.label}
+                        className={cn(
+                          "size-10 rounded-full border-2 transition-transform hover:scale-105 sm:size-11",
+                          isSelected
+                            ? "border-ds-primary ring-2 ring-ds-primary/25 ring-offset-2"
+                            : "border-transparent"
+                        )}
+                        style={{ backgroundColor: preset.hex }}
+                      />
+                    );
+                  })}
+                  <div className="border-ds-outline-subtle ml-1 flex items-center overflow-hidden rounded-ds-md border">
+                    <span className="ds-app-body-muted px-2 font-mono">#</span>
+                    <input
+                      className="ds-app-field w-24 border-0 bg-ds-surface py-2 font-mono text-xs uppercase focus:ring-0"
+                      value={hex}
+                      onChange={(e) => setHex(normaliseHex(e.target.value))}
+                      aria-label="Brand color hex"
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+                {!validHex && hex.length > 0 ? (
+                  <p className="mt-2 text-xs font-medium text-rose-600">Hex must be 6 characters (0-9, A-F).</p>
+                ) : null}
               </div>
             </div>
 
@@ -767,7 +746,7 @@ function AppearanceForm() {
                   Font
                 </label>
               </PlanFeatureLabel>
-              <p className="ds-app-body-muted mb-3">Typeface for widget copy on your site.</p>
+              <p className="ds-app-body-muted mb-3 text-xs">Typeface for widget copy on your site.</p>
               <select
                 id="widget-font"
                 className="ds-app-field w-full max-w-sm"
@@ -782,20 +761,7 @@ function AppearanceForm() {
                 ))}
               </select>
             </div>
-          </div>
-        </section>
 
-        <section className="border-ds-outline bg-ds-surface rounded-ds-xl border p-6 shadow-sm">
-          <div className="mb-6">
-            <PlanFeatureLabel showCrown={widgetStyling.showCrown} className="mb-1">
-              <h2 className="ds-app-section-title">Widget colors</h2>
-            </PlanFeatureLabel>
-            <p className="text-ds-on-surface-variant text-sm leading-relaxed">
-              Override header, chat background, bubbles, and input area. Leave blank to use theme defaults.
-            </p>
-          </div>
-
-          <div className="space-y-6">
             {WIDGET_COLOR_GROUPS.map((group) => {
               const groupFields = WIDGET_COLOR_FIELDS.filter((field) =>
                 (group.fields as readonly string[]).includes(field.key)
@@ -882,7 +848,22 @@ function AppearanceForm() {
       </div>
 
       <div className="lg:sticky lg:top-6 lg:self-start">
-          <div className="mx-auto flex w-full max-w-[26rem] flex-col items-center">
+        <div className="mx-auto flex w-full max-w-[26rem] flex-col items-center">
+          <div className="mb-3 flex w-full items-center justify-between gap-3">
+            <p className="text-ds-on-surface shrink-0 text-sm font-semibold">Preview</p>
+            {welcomeScreenEnabled ? (
+              <AppSegmentGroupSimple
+                aria-label="Widget preview screen"
+                value={previewChatOpen ? "chat" : "welcome"}
+                onChange={(value) => setPreviewChatOpen(value === "chat")}
+                options={[
+                  { value: "welcome", label: "Welcome" },
+                  { value: "chat", label: "Chat" },
+                ]}
+                className="w-auto shrink-0"
+              />
+            ) : null}
+          </div>
           <div
             className={cn(
               "flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
@@ -892,21 +873,25 @@ function AppearanceForm() {
             )}
           >
             {welcomeScreenEnabled && !previewChatOpen ? (
-              <WidgetWelcomeScreen
-                agentName={agentDisplayName}
-                brandColorHex={previewBrandColor}
-                panelBackgroundHex={resolvedPreview.colors.panelBackground}
-                headline={welcomeScreenPreview.headline}
-                headlineColor={welcomeScreenPreview.headlineColor}
-                description={welcomeScreenPreview.description}
-                buttonLabel={welcomeScreenPreview.buttonLabel}
-                socialLinks={welcomeScreenPreview.socialLinks}
-                websiteLogoUrl={websiteLogoUrl}
-                websiteLogoPending={websiteLogoPending}
-                hidePoweredBy={hidePoweredByPlan}
-                className="min-h-0 flex-1"
-                onChatClick={() => setPreviewChatOpen(true)}
-              />
+              <>
+                <WidgetWelcomeScreen
+                  agentName={agentDisplayName}
+                  brandColorHex={previewBrandColor}
+                  panelBackgroundHex={resolvedPreview.colors.panelBackground}
+                  headline={welcomeScreenPreview.headline}
+                  headlineColor={welcomeScreenPreview.headlineColor}
+                  description={welcomeScreenPreview.description}
+                  buttonLabel={welcomeScreenPreview.buttonLabel}
+                  socialLinks={welcomeScreenPreview.socialLinks}
+                  websiteLogoUrl={websiteLogoUrl}
+                  websiteLogoPending={websiteLogoPending}
+                  className="min-h-0 flex-1"
+                  onChatClick={() => setPreviewChatOpen(true)}
+                />
+                {!hidePoweredByPlan ? (
+                  <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
+                ) : null}
+              </>
             ) : (
               <WidgetChatShell
                 agentName={agentDisplayName}
@@ -922,16 +907,20 @@ function AppearanceForm() {
                 }
                 headerBackLabel="Back to welcome screen"
                 footer={
-                  <>
+                  <div
+                    className={cn(
+                      hidePoweredByPlan && WIDGET_FOOTER_PADDING_WITHOUT_POWERED
+                    )}
+                  >
                     <WidgetComposerPreview
                       brandColorHex={previewBrandColor}
                       accentColor={previewAccentColor}
-                      className={hidePoweredByPlan ? "pb-3.5" : undefined}
+                      composerBackground={resolvedPreview.colors.composerBackground}
                     />
                     {!hidePoweredByPlan ? (
                       <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
                     ) : null}
-                  </>
+                  </div>
                 }
               >
                 <div className="h-full space-y-3 overflow-y-auto p-4 sm:p-5">
@@ -1011,47 +1000,6 @@ function PositionOption({
           )}
         />
       </div>
-      <span className={cn("text-xs", checked ? "font-semibold text-ds-on-surface" : "font-medium text-ds-on-surface")}>
-        {label}
-      </span>
-    </button>
-  );
-}
-
-function ThemeOption({
-  value,
-  label,
-  checked,
-  disabled = false,
-  onSelect,
-}: {
-  value: WidgetThemeMode;
-  label: string;
-  checked: boolean;
-  disabled?: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={onSelect}
-      className={cn(
-        "rounded-ds-lg border p-3 text-left transition-colors",
-        checked
-          ? "border-ds-primary bg-white ring-2 ring-ds-primary/15"
-          : "border-ds-outline-subtle bg-ds-app-canvas/50 hover:border-ds-outline",
-        disabled && "cursor-not-allowed border-dashed border-amber-200/80 opacity-55"
-      )}
-    >
-      <div
-        className={cn(
-          "border-ds-outline-subtle mb-2 aspect-video rounded-ds-sm border",
-          value === "dark" ? "bg-slate-900" : "bg-white"
-        )}
-      />
       <span className={cn("text-xs", checked ? "font-semibold text-ds-on-surface" : "font-medium text-ds-on-surface")}>
         {label}
       </span>

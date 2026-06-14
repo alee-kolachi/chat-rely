@@ -16,7 +16,7 @@ export function messageFeedbackEnabledForPlanSlug(planSlug: string | null | unde
   return planTierAtLeast(normalizedPlanSlug(planSlug), "pro");
 }
 
-/** Pro / Scale: dark mode, fonts, granular widget colors. */
+/** Pro / Scale: fonts and granular widget colors. */
 export function planAllowsAdvancedAppearance(planSlug: string | null | undefined): boolean {
   return planTierAtLeast(normalizedPlanSlug(planSlug), "pro");
 }

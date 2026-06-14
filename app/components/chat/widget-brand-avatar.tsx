@@ -10,7 +10,7 @@ type WidgetBrandChrome = ReturnType<typeof brandChromeClasses> | null;
 
 function WidgetLauncherChatIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden className="size-7" width={28} height={28}>
+    <svg viewBox="0 0 24 24" aria-hidden className="size-8" width={32} height={32}>
       <path
         fill="#ffffff"
         fillRule="evenodd"

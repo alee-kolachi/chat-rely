@@ -39,7 +39,7 @@ COLOR_KEYS = (
 
 
 def advanced_appearance_enabled_for_plan_slug(plan_slug: str | None) -> bool:
-    """Pro / Scale: dark mode, fonts, granular widget colors."""
+    """Pro / Scale: fonts, granular widget colors."""
     s = (plan_slug or "").strip().lower()
     return s in ("pro", "scale")
 
@@ -139,7 +139,7 @@ def resolve_widget_appearance_colors(
     base = THEME_DEFAULTS[theme_mode]
     custom = appearance.colors.model_dump(exclude_none=True) if appearance and appearance.colors else {}
     return {
-        "header": custom.get("header") or brand,
+        "header": brand,
         "user_bubble": custom.get("user_bubble") or brand,
         "panel_background": custom.get("panel_background") or default_accent_panel_background(brand, theme_mode),
         "assistant_bubble": custom.get("assistant_bubble") or base["assistant_bubble"],

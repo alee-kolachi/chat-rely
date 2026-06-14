@@ -32,7 +32,10 @@
   line-height: 1.5;
   letter-spacing: normal;
   color: #000000;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   --cr-launcher-radius: 28px;
   --cr-accent: #831c91;
   --cr-user-bubble: var(--cr-accent);
@@ -166,8 +169,8 @@
 }
 
 .cr-launcher-icon svg {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: block;
 }
 
@@ -336,6 +339,18 @@
   gap: 4px;
 }
 
+.cr-composer.cr-composer--no-powered:not(.cr-composer--footer-only) {
+  padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+}
+
+.cr-panel--chat-surface .cr-composer.cr-composer--no-powered:not(.cr-composer--footer-only) {
+  padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+}
+
+.cr-composer.cr-composer--no-powered.cr-composer--footer-only {
+  padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+}
+
 .cr-panel--chat-surface .cr-powered {
   padding: 4px 20px 10px;
 }
@@ -381,6 +396,10 @@
     padding: 4px 12px max(6px, env(safe-area-inset-bottom, 0px));
   }
 
+  .cr-panel--chat-surface .cr-composer.cr-composer--no-powered:not(.cr-composer--footer-only) {
+    padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  }
+
   .cr-panel-header {
     padding: 10px 12px;
   }
@@ -390,7 +409,6 @@
   }
 
   .cr-welcome-headline {
-    min-height: 68px;
     padding-right: 32px;
     font-size: 24px;
   }
@@ -754,9 +772,12 @@
 
 .cr-welcome-hero {
   position: relative;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  min-height: 88px;
   overflow: hidden;
-  padding: 0 20px 12px;
+  padding: 12px 20px 8px;
   color: var(--cr-header-text, #ffffff);
   background: transparent;
 }
@@ -800,9 +821,10 @@
   z-index: 1;
   display: flex;
   align-items: center;
-  min-height: 76px;
+  width: 100%;
+  min-height: 0;
   margin: 0;
-  padding: 8px 36px 0 0;
+  padding: 0 36px 0 0;
   font-size: 24px;
   font-weight: 400;
   line-height: 1.25;
@@ -814,7 +836,7 @@
   position: relative;
   z-index: 1;
   display: flex;
-  flex: 1;
+  flex: 0 0 auto;
   flex-direction: column;
   margin-top: 0;
   min-height: 0;
@@ -890,7 +912,7 @@
 .cr-welcome-card-name {
   margin: 0;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--cr-on-surface, #0f172a);
   white-space: nowrap;
@@ -1009,39 +1031,48 @@
 
 .cr-welcome-spacer {
   flex: 1;
-  min-height: 12px;
+  min-height: 8px;
 }
 
-.cr-welcome-powered {
-  flex-shrink: 0;
+.cr-composer.cr-composer--footer-only {
+  background: transparent;
+  padding: 0;
+  gap: 0;
+  border-top: none;
+}
+
+.cr-panel--chat-surface .cr-composer.cr-composer--footer-only {
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.cr-composer.cr-composer--footer-only .cr-powered {
+  padding: 4px 20px max(10px, env(safe-area-inset-bottom, 0px));
+}
+
+.cr-powered {
   display: flex;
   width: 100%;
   align-items: center;
   justify-content: center;
+  margin: 0;
   padding: 4px 20px max(10px, env(safe-area-inset-bottom, 0px));
 }
 
-.cr-welcome-powered .cr-powered-link {
-  opacity: 0.55;
+.cr-powered-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 5px;
+  margin: 0 auto;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  line-height: 1;
+  opacity: 0.66;
 }
 
-.cr-welcome-powered .cr-powered-link:hover {
-  opacity: 0.7;
-}
-
-.cr-welcome-powered .cr-powered-logo {
-  height: 11px;
-  max-height: 11px;
-}
-
-.cr-welcome-powered .cr-powered-text {
-  color: var(--cr-text-muted, #64748b);
-}
-
-.cr-welcome-powered .cr-powered-brand {
-  color: var(--cr-text-muted, #64748b);
-  font-weight: 500;
+.cr-powered-link:hover {
+  opacity: 0.84;
 }
 
 .cr-view--hidden {
@@ -1164,6 +1195,10 @@
   padding: 8px 0 8px 2px;
   box-shadow: none;
   border-radius: 0;
+}
+
+.cr-msg--assistant.cr-msg--thinking .cr-msg-time {
+  display: none;
 }
 
 .cr-msg--user {
@@ -1618,32 +1653,6 @@
 .cr-contact-submit:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.cr-powered {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  padding: 10px 20px 16px;
-}
-
-.cr-powered-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  margin: 0 auto;
-  min-width: 0;
-  text-decoration: none;
-  color: inherit;
-  line-height: 1;
-  opacity: 0.55;
-}
-
-.cr-powered-link:hover {
-  opacity: 0.7;
 }
 
 .cr-powered-logo {

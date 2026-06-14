@@ -1,5 +1,5 @@
 /**
- * Pro-only widget appearance (theme, font, granular colors).
+ * Pro-only widget appearance (font, granular colors).
  * Stored in `behavior_settings.widget_appearance`.
  */
 
@@ -73,16 +73,9 @@ export const WIDGET_COLOR_FIELDS: ReadonlyArray<{
   hint: string;
   usesBrand?: boolean;
 }> = [
-  {
-    key: "header",
-    label: "Brand accent",
-    hint: "Header bar, send button, and storefront launcher.",
-    usesBrand: true,
-  },
   { key: "user_bubble", label: "Visitor messages", hint: "Background for customer replies.", usesBrand: true },
   { key: "panel_background", label: "Chat background", hint: "Main conversation area." },
   { key: "assistant_bubble", label: "Assistant messages", hint: "Background for bot replies." },
-  { key: "assistant_bubble_border", label: "Assistant border", hint: "Outline on bot reply bubbles." },
   { key: "composer_background", label: "Message input", hint: "Area behind the text field." },
 ] as const;
 
@@ -93,20 +86,14 @@ export const WIDGET_COLOR_GROUPS: ReadonlyArray<{
   fields: ReadonlyArray<(typeof WIDGET_COLOR_FIELDS)[number]["key"]>;
 }> = [
   {
-    title: "Brand accent",
-    description:
-      "Chat header, send button, and storefront launcher. Leave blank to use your brand color from Basics.",
-    fields: ["header"],
-  },
-  {
     title: "Chat background",
     description: "Main conversation panel behind messages.",
     fields: ["panel_background"],
   },
   {
     title: "Assistant messages",
-    description: "Bot reply bubbles and their outline.",
-    fields: ["assistant_bubble", "assistant_bubble_border"],
+    description: "Bot reply bubbles.",
+    fields: ["assistant_bubble"],
   },
   {
     title: "Visitor messages",
@@ -307,7 +294,7 @@ export function resolveWidgetAppearance(
     themeMode,
     fontFamily,
     colors: {
-      header: resolveAppearanceColor(custom.header, brand),
+      header: brand,
       userBubble: resolveAppearanceColor(custom.user_bubble, brand),
       panelBackground: resolveAppearanceColor(
         custom.panel_background,

@@ -2,10 +2,6 @@
 
 import type { CSSProperties } from "react";
 import { ArrowRight } from "lucide-react";
-import {
-  PoweredByChatRely,
-  WIDGET_POWERED_BY_STRIP_CLASS,
-} from "@/components/branding/powered-by-chatrely";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
 import {
@@ -33,7 +29,6 @@ export type WidgetWelcomeScreenProps = {
   socialLinks: [WelcomeScreenSocialLink, WelcomeScreenSocialLink];
   websiteLogoUrl?: string | null;
   websiteLogoPending?: boolean;
-  hidePoweredBy?: boolean;
   panelBackgroundHex?: string | null;
   className?: string;
   onChatClick?: () => void;
@@ -106,7 +101,6 @@ export function WidgetWelcomeScreen({
   socialLinks,
   websiteLogoUrl,
   websiteLogoPending = false,
-  hidePoweredBy = false,
   panelBackgroundHex,
   className,
   onChatClick,
@@ -128,16 +122,16 @@ export function WidgetWelcomeScreen({
         aria-hidden
       />
 
-      <div className="relative shrink-0 px-5 sm:px-6">
+      <div className="relative flex min-h-[88px] flex-1 items-center px-5 sm:px-6">
         <h2
-          className="flex min-h-[76px] items-center py-2 pr-9 text-2xl font-normal leading-tight tracking-tight"
-          style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR, fontSize: "24px" }}
+          className="w-full pr-9 text-[24px] font-normal leading-tight tracking-[-0.02em]"
+          style={{ color: headlineColor?.trim() || DEFAULT_WELCOME_SCREEN_HEADLINE_COLOR }}
         >
           {headline}
         </h2>
       </div>
 
-      <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+      <div className="relative z-[1] shrink-0">
         <div className="px-4 pt-0 sm:px-4">
           <div className="rounded-2xl border border-slate-200/95 bg-white/[0.97] p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="flex items-center gap-3">
@@ -150,7 +144,7 @@ export function WidgetWelcomeScreen({
                 size="welcome"
               />
               <div className="min-w-0 flex-1">
-                <p className="text-ds-on-surface truncate text-sm font-semibold tracking-tight">
+                <p className="text-ds-on-surface truncate text-[14px] font-bold tracking-[-0.02em]">
                   {displayName}
                 </p>
                 <p className="text-ds-on-surface-variant mt-1 text-[13px] leading-snug">
@@ -161,7 +155,7 @@ export function WidgetWelcomeScreen({
             <button
               type="button"
               className={cn(
-                "mt-3.5 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90",
+                "mt-3.5 w-full rounded-xl px-4 py-2.5 text-[14px] font-semibold transition-opacity hover:opacity-90",
                 onChatClick && "cursor-pointer"
               )}
               style={{ backgroundColor: brand, color: ctaTextColor }}
@@ -173,7 +167,7 @@ export function WidgetWelcomeScreen({
           </div>
         </div>
 
-        <div className="mt-3 flex min-h-0 flex-1 flex-col px-4 pb-3 sm:px-4">
+        <div className="mt-3 px-4 pb-3 sm:px-4">
           <div className="space-y-2.5">
             {socialLinks
               .filter((link) => link.url.trim())
@@ -186,12 +180,6 @@ export function WidgetWelcomeScreen({
                 />
               ))}
           </div>
-
-          <div className="flex-1 min-h-3" />
-
-          {!hidePoweredBy ? (
-            <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
-          ) : null}
         </div>
       </div>
     </div>

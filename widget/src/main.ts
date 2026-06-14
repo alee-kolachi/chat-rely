@@ -249,6 +249,10 @@ function ensureMessageTimestamp(
   time.textContent = label;
 }
 
+function clearMessageTimestamp(parent: HTMLElement): void {
+  parent.querySelector(":scope > time.cr-msg-time")?.remove();
+}
+
 function messageColumn(wrap: HTMLElement): HTMLElement | null {
   const col = wrap.closest(".cr-msg-col");
   return col instanceof HTMLElement ? col : null;
@@ -475,7 +479,7 @@ function resolveWidgetTheme(cfg: WidgetConfig, brandHex: string): ResolvedWidget
   return {
     themeMode,
     fontFamily,
-    headerColor: normalizeHexColor(custom.header, brandHex),
+    headerColor: brandHex,
     userBubbleColor: normalizeHexColor(custom.user_bubble, brandHex),
     panelBackground: normalizeHexColor(
       custom.panel_background,
@@ -497,6 +501,22 @@ function loadWidgetFont(fontKey: string): void {
   link.href = url;
   link.setAttribute("data-cr-font", fontKey);
   document.head.appendChild(link);
+}
+
+function preloadWidgetGeistFonts(): void {
+  const weights = ["400", "600", "700"] as const;
+  const base = "https://cdn.jsdelivr.net/npm/@fontsource/geist-sans@5.2.5/files/geist-sans-latin-";
+  for (const weight of weights) {
+    const href = `${base}${weight}-normal.woff2`;
+    if (document.querySelector(`link[rel="preload"][href="${href}"]`)) continue;
+    const link = document.createElement("link");
+    link.rel = "preload";
+    link.as = "font";
+    link.type = "font/woff2";
+    link.crossOrigin = "anonymous";
+    link.href = href;
+    document.head.appendChild(link);
+  }
 }
 
 function applyWidgetAppearance(host: HTMLElement, root: HTMLElement, theme: ResolvedWidgetTheme, headerChrome: ReturnType<typeof brandChromeClasses>, userChrome: ReturnType<typeof brandChromeClasses>): void {
@@ -1115,6 +1135,7 @@ async function boot(): Promise<void> {
   const bottomLeft = cfg.widget_position === "bottom_left";
 
   const fontKey = (cfg.widget_appearance?.font_family ?? "geist").trim().toLowerCase().replace(/_/g, "-");
+  preloadWidgetGeistFonts();
   loadWidgetFont(fontKey);
 
   const host = document.createElement("div");
@@ -1302,21 +1323,13 @@ async function boot(): Promise<void> {
   const welcomeSpacer = document.createElement("div");
   welcomeSpacer.className = "cr-welcome-spacer";
 
-  const welcomePowered = document.createElement("div");
-  welcomePowered.className = "cr-welcome-powered";
-  if (!cfg.hide_powered_by_chatrely) {
-    welcomePowered.innerHTML = poweredByChatRelyHtml(appOrigin);
-  } else {
-    welcomePowered.hidden = true;
-  }
-
   const welcomeCardWrap = document.createElement("div");
   welcomeCardWrap.className = "cr-welcome-card-wrap";
   welcomeCardWrap.appendChild(welcomeCard);
 
   const welcomePanel = document.createElement("div");
   welcomePanel.className = "cr-welcome-panel";
-  welcomePanel.append(welcomeSocialList, welcomeSpacer, welcomePowered);
+  welcomePanel.append(welcomeSocialList, welcomeSpacer);
 
   welcomeContent.append(welcomeCardWrap, welcomePanel);
   welcomeView.append(welcomeHero, welcomeContent);
@@ -1441,7 +1454,8 @@ async function boot(): Promise<void> {
     messages.classList.toggle("cr-view--hidden", !chat);
     historyView.classList.toggle("cr-view--hidden", !history);
     header.classList.toggle("cr-view--hidden", welcome);
-    composer.classList.toggle("cr-view--hidden", welcome);
+    composer.classList.remove("cr-view--hidden");
+    composer.classList.toggle("cr-composer--footer-only", welcome || history);
 
     composerRow.classList.toggle("cr-view--hidden", !chat || contactCaptureRequired);
     composerContact.classList.toggle("cr-view--hidden", history || !contactCaptureRequired);
@@ -1454,10 +1468,17 @@ async function boot(): Promise<void> {
       "cr-view--hidden",
       history || contactCaptureRequired || !showWaitingBanner
     );
-    poweredByEl.classList.toggle("cr-view--hidden", welcome || contactCaptureRequired);
-    welcomePowered.hidden = Boolean(cfg.hide_powered_by_chatrely) || !welcome;
+    poweredByEl.classList.toggle(
+      "cr-view--hidden",
+      Boolean(cfg.hide_powered_by_chatrely) || contactCaptureRequired
+    );
+    composer.classList.toggle(
+      "cr-composer--no-powered",
+      Boolean(cfg.hide_powered_by_chatrely) || contactCaptureRequired
+    );
     panel.classList.toggle("cr-panel--chat-surface", chat || history);
     panel.classList.toggle("cr-panel--welcome", welcome);
+    panel.classList.toggle("cr-panel--history", history);
   }
 
   function rebuildSyncedMessageIds(): void {
@@ -1845,6 +1866,10 @@ async function boot(): Promise<void> {
 
   function updatePoweredByVisibility(): void {
     poweredByEl.hidden = Boolean(cfg.hide_powered_by_chatrely);
+    composer.classList.toggle(
+      "cr-composer--no-powered",
+      Boolean(cfg.hide_powered_by_chatrely) || contactCaptureRequired
+    );
   }
 
   function persistStore(): void {
@@ -2022,7 +2047,6 @@ async function boot(): Promise<void> {
     assistantEl.appendChild(dotsEl);
     wrap.appendChild(assistantEl);
     col.appendChild(wrap);
-    ensureMessageTimestamp(assistantEl, createdAt, "assistant");
     row.appendChild(col);
     messages.appendChild(row);
     scrollMessages();
@@ -2287,7 +2311,6 @@ async function boot(): Promise<void> {
             (card) => void runProductAction("similar", card),
             true
           );
-          ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           scrollMessages();
         } else if (ev.type === "product_detail") {
           pendingDetail = ev.product;
@@ -2300,7 +2323,6 @@ async function boot(): Promise<void> {
             (card) => void runProductAction("similar", card),
             true
           );
-          ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           scrollMessages();
         } else if (ev.type === "token") {
           hideDots();
@@ -2316,7 +2338,6 @@ async function boot(): Promise<void> {
           } else {
             assistantEl.innerHTML = renderAssistantHtml(nextPlain);
           }
-          ensureMessageTimestamp(assistantEl, createdAt, "assistant");
           scrollMessages();
         } else if (ev.type === "ready") {
           if (ev.conversation_id) conversationId = ev.conversation_id;

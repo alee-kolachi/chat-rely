@@ -11,7 +11,7 @@ type Chrome = ReturnType<typeof brandChromeClasses>;
 
 /** Matches live widget `.cr-composer-field` (pill, multiline expands to 20px). */
 export const widgetComposerFieldClass = cn(
-  "flex w-full min-h-11 items-center gap-1.5 overflow-hidden rounded-full border border-ds-outline bg-white py-1 pl-3.5 pr-1.5",
+  "flex w-full min-h-11 items-center gap-1.5 overflow-hidden rounded-full border border-ds-outline py-1 pl-3.5 pr-1.5",
   "transition-[border-color,box-shadow,border-radius] duration-150",
   "focus-within:border-ds-primary/35 focus-within:shadow-[0_0_0_2px] focus-within:shadow-ds-primary/15",
   "has-[textarea[data-lines='multi']]:items-end has-[textarea[data-lines='multi']]:rounded-[20px] has-[textarea[data-lines='multi']]:py-1.5"

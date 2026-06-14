@@ -3,7 +3,12 @@ import { cn } from "@/lib/utils";
 import { CHAT_RELY_LOGO_PATH } from "@/components/branding/chat-rely-wordmark";
 
 /** Spacing for the embed-style strip under the composer (playground, appearance, widget preview). */
-export const WIDGET_POWERED_BY_STRIP_CLASS = "bg-transparent px-5 pt-2.5 pb-4";
+export const WIDGET_POWERED_BY_STRIP_CLASS =
+  "bg-transparent px-5 pt-1 pb-[max(10px,env(safe-area-inset-bottom,0px))]";
+
+/** Extra bottom padding on the composer when the powered-by strip is hidden (Pro / Scale). */
+export const WIDGET_FOOTER_PADDING_WITHOUT_POWERED =
+  "pb-[max(14px,env(safe-area-inset-bottom,0px))]";
 
 type PoweredByChatRelyProps = {
   className?: string;
@@ -27,30 +32,32 @@ export function PoweredByChatRely({ className, compact, href = "https://chatrely
         width={4931}
         height={3503}
       />
-      <span className={cn("text-ds-on-surface-variant font-medium", compact ? "text-[10px] leading-tight" : "text-[11px]")}>
-        Powered by <span className="text-ds-on-surface font-semibold">ChatRely</span>
+      <span
+        className={cn(
+          "font-medium text-[#64748b]",
+          compact ? "text-[10px] leading-tight" : "text-[11px]"
+        )}
+      >
+        Powered by <span className="font-semibold text-[#64748b]">ChatRely</span>
       </span>
     </>
   );
 
   return (
-    <div
-      className={cn(
-        "flex items-center justify-center gap-1.5 bg-ds-sidebar/35 px-2 py-1.5",
-        className
-      )}
-    >
+    <div className={cn("flex items-center justify-center gap-1.5", className)}>
       {href ? (
         <Link
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex min-w-0 items-center justify-center gap-1.5 no-underline transition-opacity hover:opacity-90"
+          className="inline-flex min-w-0 items-center justify-center gap-1.5 no-underline opacity-[0.66] transition-opacity hover:opacity-[0.84]"
         >
           {inner}
         </Link>
       ) : (
-        <span className="inline-flex min-w-0 items-center justify-center gap-1.5">{inner}</span>
+        <span className="inline-flex min-w-0 items-center justify-center gap-1.5 opacity-[0.66]">
+          {inner}
+        </span>
       )}
     </div>
   );

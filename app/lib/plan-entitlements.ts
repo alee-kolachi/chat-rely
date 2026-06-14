@@ -211,7 +211,7 @@ export function buildPlanEntitlementSections(
 
   const brandRows: PlanEntitlementRow[] = [
     {
-      label: "Widget styling (theme, fonts, colors)",
+      label: "Widget styling (fonts, colors)",
       value: tierAtLeast(slug, "pro") ? "Included" : "Not included",
       included: tierAtLeast(slug, "pro"),
       upgradeNote: tierAtLeast(slug, "pro") ? undefined : tierLabel("pro"),
