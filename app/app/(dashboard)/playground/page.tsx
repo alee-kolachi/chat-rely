@@ -1209,14 +1209,18 @@ function PlaygroundPreviewConversation({
   };
   const chatSurface = hasBrand && appearanceResolved.themeMode === "light";
   const emptyAssistantLines = effectiveWelcomeMessages(behaviorSettings, agentName);
-  const messagesBackgroundStyle = chatSurface
+  const panelBackgroundStyle = chatSurface
     ? {
         background: chatSurfaceGradient(
           appearanceResolved.colors.header,
           appearanceResolved.colors.panelBackground
         ),
+        borderColor: "rgba(15, 23, 42, 0.06)" as const,
       }
-    : undefined;
+    : {
+        backgroundColor: appearanceResolved.colors.panelBackground,
+        borderColor: appearanceResolved.colors.assistantBubbleBorder,
+      };
 
   const headerToolbarIconBtnClass = useMemo(
     () =>
@@ -1250,8 +1254,7 @@ function PlaygroundPreviewConversation({
           chatSurface ? "border-black/5" : "border-ds-outline"
         )}
         style={{
-          backgroundColor: chatSurface ? "#fcfbff" : appearanceResolved.colors.panelBackground,
-          borderColor: chatSurface ? "rgba(15, 23, 42, 0.06)" : appearanceResolved.colors.assistantBubbleBorder,
+          ...panelBackgroundStyle,
           color: appearanceResolved.colors.textPrimary,
         }}
       >
@@ -1300,7 +1303,6 @@ function PlaygroundPreviewConversation({
         ref={messagesScrollRef}
         onScroll={historyOpen ? undefined : onMessagesScroll}
         className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
-        style={messagesBackgroundStyle}
       >
         {historyOpen ? (
           <div className="flex flex-col p-4 sm:p-5" role="region" aria-label="Conversations">
@@ -1567,7 +1569,7 @@ function PlaygroundPreviewConversation({
               brandColorHex={brandColorHex}
               hasBrand={hasBrand}
               chrome={chrome}
-              shellStyle={{ backgroundColor: "#FFFFFF" }}
+              shellStyle={{ backgroundColor: appearanceResolved.colors.composerBackground }}
             />
             {!hidePoweredByPlan ? (
               <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />

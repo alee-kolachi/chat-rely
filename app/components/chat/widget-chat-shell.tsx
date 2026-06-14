@@ -64,7 +64,7 @@ export function WidgetChatShell({
   widgetAppearance,
   websiteLogoUrl,
   websiteLogoPending = false,
-  statusLine = "Typically replies instantly",
+  statusLine,
   headerActions,
   onHeaderBack,
   headerBackLabel = "Back to welcome screen",
@@ -88,7 +88,7 @@ export function WidgetChatShell({
     color: resolved.colors.textPrimary,
     ...(chatSurface
       ? {
-          backgroundColor: "#fcfbff",
+          background: chatSurfaceGradient(resolved.colors.header, resolved.colors.panelBackground),
           borderColor: "rgba(15, 23, 42, 0.06)",
         }
       : {
@@ -96,12 +96,6 @@ export function WidgetChatShell({
           borderColor: resolved.colors.assistantBubbleBorder,
         }),
   };
-
-  const messagesBackgroundStyle: CSSProperties | undefined = chatSurface
-    ? {
-        background: chatSurfaceGradient(resolved.colors.header, resolved.colors.panelBackground),
-      }
-    : undefined;
 
   const footerStyle: CSSProperties = chatSurface
     ? { background: "transparent", borderColor: "transparent" }
@@ -152,9 +146,7 @@ export function WidgetChatShell({
         actions={headerActions}
       />
 
-      <div className="min-h-0 flex-1 overflow-hidden" style={messagesBackgroundStyle}>
-        {children}
-      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
 
       {previewUserBubble}
 

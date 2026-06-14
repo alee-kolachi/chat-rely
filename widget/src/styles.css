@@ -243,12 +243,8 @@
     color-mix(in srgb, var(--cr-header-bg, var(--cr-accent)) 7%, #f8f5ff)
   );
   --cr-header-title-size: 14px;
-  --cr-header-logo-size: 17px;
-  background: var(--cr-chat-surface-top);
+  --cr-header-logo-size: 19px;
   border-color: rgba(15, 23, 42, 0.06);
-}
-
-.cr-panel--chat-surface .cr-body {
   background: linear-gradient(
     0deg,
     var(--cr-chat-surface-bottom) 0%,
@@ -258,9 +254,13 @@
   );
 }
 
+.cr-panel--chat-surface .cr-body {
+  background: transparent;
+}
+
 .cr-panel--chat-surface .cr-panel-header,
 .cr-panel--chat-surface .cr-panel-header--brand {
-  background: color-mix(in srgb, #ffffff 90%, var(--cr-chat-surface-top));
+  background: transparent;
   border-bottom: 1px solid rgba(15, 23, 42, 0.06);
 }
 
@@ -553,7 +553,7 @@
 }
 
 .cr-avatar-wrap--header .cr-avatar-fallback {
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 400;
   color: var(--cr-header-text, #fff);
 }

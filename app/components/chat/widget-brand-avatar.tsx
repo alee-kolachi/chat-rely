@@ -119,7 +119,7 @@ export function WidgetBrandAvatar({
   }, [logoUrl]);
 
   const headerShellClass = cn(
-    "relative inline-flex h-[15px] shrink-0 items-center justify-center overflow-hidden",
+    "relative inline-flex h-[19px] shrink-0 items-center justify-center overflow-hidden",
     hasBrand && chrome ? "" : "size-9 rounded-lg bg-ds-primary shadow-sm ring-1 ring-black/10"
   );
 
@@ -210,7 +210,7 @@ export function WidgetBrandAvatar({
   const headerLogo = (
     <>
       {imageState !== "loaded" ? (
-        <div className="h-[15px] w-[15px] animate-pulse rounded bg-black/10" aria-hidden />
+        <div className="h-[19px] w-[19px] animate-pulse rounded bg-black/10" aria-hidden />
       ) : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -218,10 +218,10 @@ export function WidgetBrandAvatar({
         src={logoUrl}
         alt=""
         className={cn(
-          "block h-[15px] w-auto max-w-none object-contain transition-opacity",
+          "block h-[19px] w-auto max-w-none object-contain transition-opacity",
           imageState === "loaded" ? "opacity-100" : "opacity-0"
         )}
-        height={15}
+        height={19}
         referrerPolicy="no-referrer"
         onLoad={() => setImageState("loaded")}
         onError={() => setImageState("error")}

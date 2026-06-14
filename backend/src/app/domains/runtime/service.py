@@ -791,14 +791,17 @@ async def _retrieve_merged_chunks_for_message(
         meta_timing["embed_ms"] = (time.perf_counter() - t_embed) * 1000.0
 
     async def merged_at(floor: float) -> list[dict[str, Any]]:
-        tasks = [
-            _match_chunks_with_embedding(db, agent_id, raw_embedding, floor, match_count=match_count)
+        parts: list[list[dict[str, Any]]] = [
+            await _match_chunks_with_embedding(
+                db, agent_id, raw_embedding, floor, match_count=match_count
+            )
         ]
         if expanded_embedding is not None:
-            tasks.append(
-                _match_chunks_with_embedding(db, agent_id, expanded_embedding, floor, match_count=match_count)
+            parts.append(
+                await _match_chunks_with_embedding(
+                    db, agent_id, expanded_embedding, floor, match_count=match_count
+                )
             )
-        parts = await asyncio.gather(*tasks)
         return _merge_chunks_by_best_similarity(parts)[:RAG_MERGED_CHUNK_CAP]
 
     t_db = time.perf_counter()

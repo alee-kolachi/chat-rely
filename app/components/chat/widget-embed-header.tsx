@@ -24,7 +24,7 @@ export type WidgetEmbedHeaderProps = {
 /** Header chrome aligned with live embed `.cr-panel--chat-surface` header. */
 export function WidgetEmbedHeader({
   agentName,
-  statusLine = "Typically replies instantly",
+  statusLine,
   hasBrand,
   brandColorHex,
   websiteLogoUrl,
@@ -53,10 +53,10 @@ export function WidgetEmbedHeader({
             : "border-ds-outline bg-ds-sidebar",
         className
       )}
-      style={
+        style={
         style ??
         (chatSurface
-          ? { backgroundColor: "color-mix(in srgb, #ffffff 90%, #fcfbff)" }
+          ? { backgroundColor: "transparent" }
           : hasBrand
             ? { backgroundColor: accent }
             : themeMode === "dark"

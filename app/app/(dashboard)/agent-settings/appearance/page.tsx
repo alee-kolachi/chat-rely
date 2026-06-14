@@ -68,7 +68,6 @@ import {
 } from "@/lib/widget-shape";
 import { faviconServiceUrl } from "@/lib/website-url";
 import { appButtonClassName } from "@/lib/button-styles";
-import { AppSegmentGroupSimple } from "@/components/ui/app-segment-group";
 import { cn } from "@/lib/utils";
 
 export default function AgentSettingsAppearancePage() {
@@ -849,21 +848,7 @@ function AppearanceForm() {
 
       <div className="lg:sticky lg:top-6 lg:self-start">
         <div className="mx-auto flex w-full max-w-[26rem] flex-col items-center">
-          <div className="mb-3 flex w-full items-center justify-between gap-3">
-            <p className="text-ds-on-surface shrink-0 text-sm font-semibold">Preview</p>
-            {welcomeScreenEnabled ? (
-              <AppSegmentGroupSimple
-                aria-label="Widget preview screen"
-                value={previewChatOpen ? "chat" : "welcome"}
-                onChange={(value) => setPreviewChatOpen(value === "chat")}
-                options={[
-                  { value: "welcome", label: "Welcome" },
-                  { value: "chat", label: "Chat" },
-                ]}
-                className="w-auto shrink-0"
-              />
-            ) : null}
-          </div>
+          <p className="text-ds-on-surface mb-3 text-sm font-semibold">Preview</p>
           <div
             className={cn(
               "flex h-[min(37.5rem,85vh)] w-full flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
