@@ -190,7 +190,7 @@ export default function AppearanceToneOnboardingPage() {
   );
 
   const appearanceChatHeightClass =
-    "h-full min-h-[15.4rem] w-full sm:min-h-[22rem] lg:min-h-[572px]";
+    "h-full min-h-[14.63rem] w-full sm:min-h-[20.9rem] lg:min-h-[543px]";
 
   async function handleContinue() {
     if (!agentId || isSaving) return;
@@ -262,7 +262,8 @@ export default function AppearanceToneOnboardingPage() {
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <p className="text-ds-on-surface mb-3 text-sm font-semibold">Welcome screen</p>
+                      <p className="text-ds-on-surface mb-1 text-sm font-semibold">Welcome screen</p>
+                      <p className="ds-app-body-muted mb-4">Home view visitors see before chat.</p>
                       <label className="flex cursor-pointer items-center gap-3">
                         <input
                           type="checkbox"
@@ -275,7 +276,8 @@ export default function AppearanceToneOnboardingPage() {
                     </div>
 
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <p className="text-ds-on-surface mb-3 text-sm font-semibold">Tone</p>
+                      <p className="text-ds-on-surface mb-1 text-sm font-semibold">Tone</p>
+                      <p className="ds-app-body-muted mb-4">How your agent sounds in replies.</p>
                       <AppSegmentGroupSimple
                         aria-label="Tone"
                         value={tone}
@@ -385,14 +387,14 @@ export default function AppearanceToneOnboardingPage() {
                               brandColorHex={previewBrandColor}
                               accentColor={resolvedPreview.colors.header}
                               composerBackground={resolvedPreview.colors.composerBackground}
-                              className="pb-[max(14px,env(safe-area-inset-bottom,0px))] pt-0"
+                              className="pt-0"
                             />
                           </WidgetChatPreviewFooter>
                         }
                       >
                         <div
                           ref={messagesScrollRef}
-                          className="h-full space-y-3 overflow-y-auto px-4 py-4 sm:px-4"
+                          className="h-full space-y-3 overflow-y-auto bg-transparent px-4 py-4 sm:px-4"
                         >
                           <WidgetWelcomeMessages
                             messages={previewAssistantMessages}

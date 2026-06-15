@@ -10,7 +10,9 @@ from app.domains.agents.schemas import AgentCreateRequest, AgentUpdateRequest
 from app.domains.agents.service import create_agent, update_agent
 from app.domains.knowledge.schemas import KnowledgeSourceCreateRequest
 from app.domains.knowledge.service import (
+    _agent_used_storage_bytes,
     _coerce_job_metrics,
+    _effective_storage_cap_bytes,
     _fetch_active_subscription_plan,
     _included_storage_bytes_from_plan_features,
     _indexing_job_storage_limit_reached,
@@ -299,7 +301,7 @@ async def get_onboarding_status(db: AsyncSession, user_id: UUID, agent_id: UUID)
             await db.execute(
                 text(
                     """
-                    select status, phase, pages_total, pages_processed, chunks_total, chunks_embedded, progress_pct, error_message, metrics
+                    select status, phase, pages_total, pages_processed, chunks_total, chunks_embedded, progress_pct, error_message, metrics, updated_at
                     from public.indexing_jobs
                     where knowledge_source_id = :source_id and user_id = :user_id
                     order by created_at desc
@@ -355,20 +357,42 @@ async def get_onboarding_status(db: AsyncSession, user_id: UUID, agent_id: UUID)
     website_title = str(source_row["title"]) if source_row else None
 
     indexing_job_payload: dict[str, object] | None = None
+    knowledge_used_storage_bytes = 0
+    knowledge_plan_storage_cap_bytes = 0
+    knowledge_effective_storage_cap_bytes = 0
+    knowledge_remaining_storage_bytes = 0
+    knowledge_storage_limit_reached = False
+
     if indexing_job:
         job_dict = dict(indexing_job)
         metrics = _coerce_job_metrics(job_dict.get("metrics"))
         job_dict["metrics"] = metrics
         _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
         plan_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
-        job_dict["plan_storage_cap_bytes"] = plan_storage_cap_bytes
-        job_dict["storage_limit_reached"] = _indexing_job_storage_limit_reached(
+        effective_storage_cap_bytes = _effective_storage_cap_bytes(plan_storage_cap_bytes)
+        used_storage_bytes = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=agent_id)
+        remaining_storage_bytes = max(0, effective_storage_cap_bytes - used_storage_bytes)
+
+        knowledge_used_storage_bytes = used_storage_bytes
+        knowledge_plan_storage_cap_bytes = plan_storage_cap_bytes
+        knowledge_effective_storage_cap_bytes = effective_storage_cap_bytes
+        knowledge_remaining_storage_bytes = remaining_storage_bytes
+
+        storage_limit_reached = _indexing_job_storage_limit_reached(
             str(job_dict.get("status") or ""),
             metrics,
             job_dict.get("pages_total"),
             job_dict.get("pages_processed"),
             plan_storage_cap_bytes,
+            used_storage_bytes=used_storage_bytes,
+            effective_storage_cap_bytes=effective_storage_cap_bytes,
         )
+        knowledge_storage_limit_reached = storage_limit_reached
+        job_dict["plan_storage_cap_bytes"] = plan_storage_cap_bytes
+        job_dict["effective_storage_cap_bytes"] = effective_storage_cap_bytes
+        job_dict["used_storage_bytes"] = used_storage_bytes
+        job_dict["remaining_storage_bytes"] = remaining_storage_bytes
+        job_dict["storage_limit_reached"] = storage_limit_reached
         indexing_job_payload = job_dict
 
     return OnboardingStatusResponse(
@@ -381,4 +405,9 @@ async def get_onboarding_status(db: AsyncSession, user_id: UUID, agent_id: UUID)
         preview_asset=dict(preview_asset) if preview_asset else None,
         indexing_job=indexing_job_payload,
         checklist=checklist,
+        knowledge_used_storage_bytes=knowledge_used_storage_bytes,
+        knowledge_plan_storage_cap_bytes=knowledge_plan_storage_cap_bytes,
+        knowledge_effective_storage_cap_bytes=knowledge_effective_storage_cap_bytes,
+        knowledge_remaining_storage_bytes=knowledge_remaining_storage_bytes,
+        knowledge_storage_limit_reached=knowledge_storage_limit_reached,
     )

@@ -2,6 +2,16 @@ import { formatStorageBytes } from "@/lib/plan-entitlements";
 
 export type IndexingJobPayload = Record<string, unknown> | null | undefined;
 
+export type OnboardingIndexingContext = {
+  knowledge_storage_limit_reached?: boolean;
+  knowledge_plan_storage_cap_bytes?: number;
+  knowledge_used_storage_bytes?: number;
+  knowledge_remaining_storage_bytes?: number;
+  knowledge_effective_storage_cap_bytes?: number;
+  /** Set when crawl counters stop moving on a large sitemap import (free-tier pattern). */
+  stalledSitemapImport?: boolean;
+};
+
 export type OnboardingIndexingSnapshot = {
   status: string;
   running: boolean;
@@ -40,9 +50,18 @@ function jobMetrics(job: IndexingJobPayload): Record<string, unknown> {
   return {};
 }
 
-function planStorageCapBytes(job: IndexingJobPayload): number {
+function isTruthyFlag(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function planStorageCapBytes(job: IndexingJobPayload, context: OnboardingIndexingContext): number {
   const metrics = jobMetrics(job);
-  return Number(job?.plan_storage_cap_bytes) || Number(metrics.plan_storage_cap_bytes) || 0;
+  return (
+    Number(context.knowledge_plan_storage_cap_bytes) ||
+    Number(job?.plan_storage_cap_bytes) ||
+    Number(metrics.plan_storage_cap_bytes) ||
+    0
+  );
 }
 
 function crawlStoppedForBudget(job: IndexingJobPayload): boolean {
@@ -53,26 +72,66 @@ function crawlBytesUsed(job: IndexingJobPayload): number {
   return Number(jobMetrics(job).crawl_http_bytes) || 0;
 }
 
-export function onboardingStorageLimitLabel(job: IndexingJobPayload): string | null {
-  const cap = planStorageCapBytes(job);
+function crawlBudgetBytes(job: IndexingJobPayload, context: OnboardingIndexingContext): number {
+  const metrics = jobMetrics(job);
+  return (
+    Number(metrics.crawl_budget_bytes) ||
+    Number(context.knowledge_effective_storage_cap_bytes) ||
+    Number(job?.effective_storage_cap_bytes) ||
+    0
+  );
+}
+
+export function onboardingStorageLimitLabel(
+  job: IndexingJobPayload,
+  context: OnboardingIndexingContext = {},
+): string | null {
+  const cap = planStorageCapBytes(job, context);
   if (cap > 0) return formatStorageBytes(cap);
   return null;
+}
+
+export function isSitemapScaleImport(pagesProcessed: number, pagesTotal: number): boolean {
+  return pagesTotal >= 100 && pagesProcessed > 0 && pagesProcessed < pagesTotal;
 }
 
 export function onboardingStorageLimitReached(
   job: IndexingJobPayload,
   pagesProcessed: number,
   pagesTotal: number,
+  context: OnboardingIndexingContext = {},
 ): boolean {
-  if (job?.storage_limit_reached === true) return true;
+  if (context.stalledSitemapImport) return true;
+  if (isTruthyFlag(context.knowledge_storage_limit_reached)) return true;
+  if (isTruthyFlag(job?.storage_limit_reached)) return true;
 
   if (pagesProcessed <= 0) return false;
   if (pagesTotal > 0 && pagesProcessed >= pagesTotal) return false;
 
   if (crawlStoppedForBudget(job)) return true;
 
-  const planCap = planStorageCapBytes(job);
-  if (planCap > 0 && crawlBytesUsed(job) >= planCap * 0.9) {
+  const planCap = planStorageCapBytes(job, context);
+  const usedStorage =
+    Number(context.knowledge_used_storage_bytes) || Number(job?.used_storage_bytes) || 0;
+  const remainingStorageRaw =
+    context.knowledge_remaining_storage_bytes ?? job?.remaining_storage_bytes;
+  const remainingStorage =
+    remainingStorageRaw === undefined || remainingStorageRaw === null
+      ? null
+      : Number(remainingStorageRaw);
+
+  const crawlBytes = crawlBytesUsed(job);
+  const crawlBudget = crawlBudgetBytes(job, context);
+
+  if (crawlBudget > 0 && crawlBytes >= crawlBudget * 0.85) return true;
+  if (planCap > 0 && crawlBytes >= planCap * 0.72) return true;
+  if (planCap > 0 && usedStorage >= planCap * 0.72) return true;
+  if (
+    remainingStorage !== null &&
+    Number.isFinite(remainingStorage) &&
+    remainingStorage <= 32_768 &&
+    pagesTotal > pagesProcessed
+  ) {
     return true;
   }
 
@@ -83,7 +142,10 @@ function storageLimitHeadline(label: string | null): string {
   return label ? `${label} limit reached` : "Storage limit reached";
 }
 
-export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingIndexingSnapshot {
+export function parseOnboardingIndexingJob(
+  job: IndexingJobPayload,
+  context: OnboardingIndexingContext = {},
+): OnboardingIndexingSnapshot {
   if (!job) {
     return {
       status: "idle",
@@ -112,8 +174,8 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
   const chunksTotal = Number(job.chunks_total) || 0;
   const chunksEmbedded = Number(job.chunks_embedded) || 0;
   const jobProgress = Number(job.progress_pct);
-  const storageLimitLabel = onboardingStorageLimitLabel(job);
-  const storageLimitReached = onboardingStorageLimitReached(job, pagesProcessed, pagesTotal);
+  const storageLimitLabel = onboardingStorageLimitLabel(job, context);
+  const storageLimitReached = onboardingStorageLimitReached(job, pagesProcessed, pagesTotal, context);
 
   let pct = 0;
   if (storageLimitReached) {

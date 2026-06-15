@@ -1,6 +1,7 @@
 "use client";
 
 import type { OnboardingIndexingSnapshot } from "@/lib/onboarding-indexing";
+import { isSitemapScaleImport } from "@/lib/onboarding-indexing";
 import { cn } from "@/lib/utils";
 
 function progressPercent(snapshot: OnboardingIndexingSnapshot): number {
@@ -17,6 +18,9 @@ function progressDetail(snapshot: OnboardingIndexingSnapshot): string {
   }
   if (snapshot.succeeded) return "100%";
   if (snapshot.failed) return "Needs attention";
+  if (isSitemapScaleImport(snapshot.pagesProcessed, snapshot.pagesTotal)) {
+    return `${snapshot.pagesProcessed} page${snapshot.pagesProcessed === 1 ? "" : "s"} imported`;
+  }
   if (snapshot.pagesTotal > 0 && snapshot.pct > 0) {
     return `${snapshot.pct}% · ${snapshot.pagesProcessed} / ${snapshot.pagesTotal} pages`;
   }

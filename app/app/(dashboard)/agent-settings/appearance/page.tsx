@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   WidgetChatShell,
+  WidgetChatPreviewFooter,
   WidgetComposerPreview,
   WidgetWelcomeMessages,
 } from "@/components/chat/widget-chat-shell";
@@ -892,20 +893,15 @@ function AppearanceForm() {
                 }
                 headerBackLabel="Back to welcome screen"
                 footer={
-                  <div
-                    className={cn(
-                      hidePoweredByPlan && WIDGET_FOOTER_PADDING_WITHOUT_POWERED
-                    )}
-                  >
-                    <WidgetComposerPreview
-                      brandColorHex={previewBrandColor}
-                      accentColor={previewAccentColor}
-                      composerBackground={resolvedPreview.colors.composerBackground}
-                    />
-                    {!hidePoweredByPlan ? (
-                      <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
-                    ) : null}
-                  </div>
+                  <WidgetChatPreviewFooter showPoweredBy={!hidePoweredByPlan}>
+                    <div className={cn(hidePoweredByPlan && WIDGET_FOOTER_PADDING_WITHOUT_POWERED)}>
+                      <WidgetComposerPreview
+                        brandColorHex={previewBrandColor}
+                        accentColor={previewAccentColor}
+                        composerBackground={resolvedPreview.colors.composerBackground}
+                      />
+                    </div>
+                  </WidgetChatPreviewFooter>
                 }
               >
                 <div className="h-full space-y-3 overflow-y-auto p-4 sm:p-5">

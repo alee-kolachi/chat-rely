@@ -18,7 +18,7 @@ import {
   PoweredByChatRely,
 } from "@/components/branding/powered-by-chatrely";
 import {
-  chatSurfaceGradient,
+  chatSurfaceShellStyle,
   resolveWidgetAppearance,
   type ResolvedWidgetAppearance,
   type WidgetAppearanceSettings,
@@ -107,7 +107,7 @@ export function WidgetChatShell({
     color: resolved.colors.textPrimary,
     ...(chatSurface
       ? {
-          background: chatSurfaceGradient(
+          ...chatSurfaceShellStyle(
             resolved.colors.header,
             resolved.colors.panelBackground,
             chatSurfaceTopColor,
@@ -173,12 +173,20 @@ export function WidgetChatShell({
         actions={headerActions}
       />
 
-      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      <div
+        className={cn("min-h-0 flex-1 overflow-hidden", chatSurface && "bg-transparent")}
+        style={chatSurface ? { background: "transparent" } : undefined}
+      >
+        {children}
+      </div>
 
       {previewUserBubble}
 
       {footer ? (
-        <div className={cn("shrink-0", !footerBorderless && "border-t")} style={footerStyle}>
+        <div
+          className={cn("shrink-0", !footerBorderless && "border-t", chatSurface && "bg-transparent")}
+          style={footerStyle}
+        >
           {footer}
         </div>
       ) : null}
@@ -275,7 +283,7 @@ export function WidgetPreviewUserBubble({
   );
 }
 
-/** Powered-by strip centered in the gap above the composer (onboarding / previews). */
+/** Powered-by strip between the message area and composer (onboarding / previews). */
 export function WidgetChatPreviewFooter({
   showPoweredBy = true,
   children,

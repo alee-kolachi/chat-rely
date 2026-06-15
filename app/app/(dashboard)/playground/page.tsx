@@ -56,7 +56,7 @@ import {
 } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
 import { humanEscalationPlanAccess, shopifyConnectAccess } from "@/lib/plan-features";
-import { getWidgetPreviewContext, chatSurfaceGradient, userBubbleGradient } from "@/lib/widget-appearance";
+import { getWidgetPreviewContext, chatSurfaceShellStyle, userBubbleGradient } from "@/lib/widget-appearance";
 import { InfoHint } from "@/components/ui/info-hint";
 import { PlanFeatureLabel, PlanGatedBlock } from "@/components/ui/plan-unlock-footer";
 import { AppSegmentGroup, AppSegmentOption } from "@/components/ui/app-segment-group";
@@ -1211,7 +1211,7 @@ function PlaygroundPreviewConversation({
   const emptyAssistantLines = effectiveWelcomeMessages(behaviorSettings, agentName);
   const panelBackgroundStyle = chatSurface
     ? {
-        background: chatSurfaceGradient(
+        ...chatSurfaceShellStyle(
           appearanceResolved.colors.header,
           appearanceResolved.colors.panelBackground
         ),
@@ -1550,6 +1550,11 @@ function PlaygroundPreviewConversation({
             {isAiChatDisabledStatus(conversationStatus) && !operatorEngaged ? (
               <EscalatedChatNotice handoff={handoffContext} />
             ) : null}
+            {!hidePoweredByPlan ? (
+              <div className="flex items-center justify-center px-5 py-2.5">
+                <PoweredByChatRely compact className="px-0 pb-0 pt-0" />
+              </div>
+            ) : null}
             <PlaygroundComposer
               textareaRef={messageInputRef}
               value={messageInput}
@@ -1571,9 +1576,6 @@ function PlaygroundPreviewConversation({
               chrome={chrome}
               shellStyle={{ backgroundColor: appearanceResolved.colors.composerBackground }}
             />
-            {!hidePoweredByPlan ? (
-              <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
-            ) : null}
             {footerError ? <p className="text-rose-600 text-sm">{footerError}</p> : null}
           </div>
         )}

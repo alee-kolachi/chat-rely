@@ -2060,6 +2060,7 @@ async def _dashboard_update_crawl_job_progress(
     crawl_phase: str = "fetching_html",
     crawl_stopped_reason: str | None = None,
     plan_storage_cap_bytes: int | None = None,
+    crawl_budget_bytes: int | None = None,
 ) -> None:
     """Update indexing job counters only (no per-page DB writes). Used while the worker fetches HTML."""
     pct = 5 + int(min(19, 19 * pages_processed / max(pages_total_cap, 1)))
@@ -2070,6 +2071,8 @@ async def _dashboard_update_crawl_job_progress(
         mextra["crawl_stopped_reason"] = crawl_stopped_reason
     if plan_storage_cap_bytes is not None and plan_storage_cap_bytes > 0:
         mextra["plan_storage_cap_bytes"] = plan_storage_cap_bytes
+    if crawl_budget_bytes is not None and crawl_budget_bytes > 0:
+        mextra["crawl_budget_bytes"] = crawl_budget_bytes
     await db.execute(
         text(
             """
@@ -2104,6 +2107,7 @@ async def _dashboard_persist_crawl_pages(
     crawl_http_bytes_so_far: int | None = None,
     crawl_stopped_reason: str | None = None,
     plan_storage_cap_bytes: int | None = None,
+    crawl_budget_bytes: int | None = None,
 ) -> None:
     """Bulk-upsert crawled page rows once per phase (chunked), then refresh job progress."""
     await _require_knowledge_source_exists(db, source_id)
@@ -2123,6 +2127,7 @@ async def _dashboard_persist_crawl_pages(
         crawl_phase="fetching_html",
         crawl_stopped_reason=crawl_stopped_reason,
         plan_storage_cap_bytes=plan_storage_cap_bytes,
+        crawl_budget_bytes=crawl_budget_bytes,
     )
 
 
@@ -2400,6 +2405,7 @@ async def _dashboard_fetch_planned_urls_in_batches(
                 crawl_http_bytes_so_far=total_saved,
                 crawl_stopped_reason="budget",
                 plan_storage_cap_bytes=plan_storage_cap_bytes,
+                crawl_budget_bytes=crawl_budget_bytes,
             )
             await db.commit()
             break
@@ -2424,6 +2430,7 @@ async def _dashboard_fetch_planned_urls_in_batches(
             crawl_http_bytes_so_far=total_saved,
             crawl_stopped_reason=stopped if stopped == "budget" else None,
             plan_storage_cap_bytes=plan_storage_cap_bytes,
+            crawl_budget_bytes=crawl_budget_bytes,
         )
         await db.commit()
         if stopped == "budget":
@@ -2440,6 +2447,7 @@ async def _dashboard_fetch_planned_urls_in_batches(
             crawl_http_bytes_so_far=total_saved,
             crawl_stopped_reason=stopped if stopped == "budget" else None,
             plan_storage_cap_bytes=plan_storage_cap_bytes,
+            crawl_budget_bytes=crawl_budget_bytes,
         )
         await db.commit()
     if stopped not in ("budget", "max_pages_safety"):
@@ -5293,6 +5301,9 @@ def _indexing_job_storage_limit_reached(
     pages_total: object,
     pages_processed: object,
     plan_storage_cap_bytes: int,
+    *,
+    used_storage_bytes: int = 0,
+    effective_storage_cap_bytes: int | None = None,
 ) -> bool:
     """True when a website import stopped early because plan storage was full."""
     m = _coerce_job_metrics(metrics)
@@ -5309,13 +5320,34 @@ def _indexing_job_storage_limit_reached(
     if str(m.get("crawl_stopped_reason") or "") == "budget":
         return True
 
-    if plan_storage_cap_bytes > 0:
-        try:
-            crawl_bytes = int(m.get("crawl_http_bytes") or 0)
-        except (TypeError, ValueError):
-            crawl_bytes = 0
-        if crawl_bytes >= int(plan_storage_cap_bytes * 0.9):
-            return True
+    try:
+        crawl_bytes = int(m.get("crawl_http_bytes") or 0)
+    except (TypeError, ValueError):
+        crawl_bytes = 0
+    try:
+        crawl_budget_bytes = int(m.get("crawl_budget_bytes") or 0)
+    except (TypeError, ValueError):
+        crawl_budget_bytes = 0
+
+    effective_cap = (
+        effective_storage_cap_bytes
+        if effective_storage_cap_bytes is not None and effective_storage_cap_bytes > 0
+        else _effective_storage_cap_bytes(plan_storage_cap_bytes)
+        if plan_storage_cap_bytes > 0
+        else 0
+    )
+
+    if crawl_budget_bytes > 0 and crawl_bytes >= int(crawl_budget_bytes * 0.85):
+        return True
+    if effective_cap > 0 and crawl_bytes >= int(effective_cap * 0.85):
+        return True
+    if plan_storage_cap_bytes > 0 and crawl_bytes >= int(plan_storage_cap_bytes * 0.72):
+        return True
+
+    if plan_storage_cap_bytes > 0 and used_storage_bytes >= int(plan_storage_cap_bytes * 0.72):
+        return True
+    if effective_cap > 0 and used_storage_bytes >= int(effective_cap * 0.85):
+        return True
 
     if (job_status or "").lower() == "succeeded":
         return _job_crawl_limit_exceeded(

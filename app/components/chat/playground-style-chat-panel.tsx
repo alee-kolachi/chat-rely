@@ -9,6 +9,7 @@ import {
   WidgetChatShell,
 } from "@/components/chat/widget-chat-shell";
 import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
+import { WIDGET_FOOTER_PADDING_WITHOUT_POWERED } from "@/components/branding/powered-by-chatrely";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
 import {
   getWidgetPreviewContext,
@@ -111,7 +112,12 @@ export function PlaygroundStyleChatPanel({
       footerBorderless
       footer={
         <WidgetChatPreviewFooter showPoweredBy={showPoweredBy}>
-          <div className="px-4 pt-0 pb-[max(14px,env(safe-area-inset-bottom,0px))]">
+          <div
+            className={cn(
+              "px-4 pt-0",
+              showPoweredBy ? "pb-1.5" : WIDGET_FOOTER_PADDING_WITHOUT_POWERED,
+            )}
+          >
             <div className="flex flex-col gap-1">
               <PlaygroundComposer
                 textareaRef={messageInputRef}
@@ -139,7 +145,7 @@ export function PlaygroundStyleChatPanel({
       <div
         ref={messagesScrollRef}
         onScroll={onMessagesScroll}
-        className="h-full min-h-0 overflow-y-auto overscroll-contain"
+        className="h-full min-h-0 overflow-y-auto overscroll-contain bg-transparent"
       >
         <div className="space-y-3 px-4 py-4 sm:px-4">
           {messages.map((msg, index) => {

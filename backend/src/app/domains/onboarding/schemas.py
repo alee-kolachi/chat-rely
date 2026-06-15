@@ -55,6 +55,11 @@ class OnboardingStatusResponse(BaseModel):
     preview_asset: dict[str, Any] | None
     indexing_job: dict[str, Any] | None
     checklist: list[OnboardingStepStatusDTO]
+    knowledge_used_storage_bytes: int = 0
+    knowledge_plan_storage_cap_bytes: int = 0
+    knowledge_effective_storage_cap_bytes: int = 0
+    knowledge_remaining_storage_bytes: int = 0
+    knowledge_storage_limit_reached: bool = False
 
 
 class OnboardingStartResponse(BaseModel):

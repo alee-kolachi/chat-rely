@@ -3,6 +3,7 @@
  * Stored in `behavior_settings.widget_appearance`.
  */
 
+import type { CSSProperties } from "react";
 import { brandChromeClasses, formatHex, parseBrandColorHex } from "@/lib/brand-chrome";
 import { planAllowsAdvancedAppearance } from "@/lib/widget-branding";
 
@@ -142,21 +143,36 @@ export function welcomePanelGradient(accentHex: string, panelBgHex: string): str
   ].join(" ");
 }
 
-/** Chat view background gradient (matches embed `.cr-panel--chat-surface`). */
+/** Chat view background gradient string (legacy callers). */
 export function chatSurfaceGradient(
   headerHex: string,
   panelBgHex?: string,
   topHex: string = CHAT_SURFACE_TOP,
 ): string {
+  return chatSurfaceShellStyle(headerHex, panelBgHex, topHex).background as string;
+}
+
+/**
+ * Chat panel background (matches embed `.cr-panel--chat-surface`).
+ * Uses CSS variables so `color-mix` panel tints do not nest inside the gradient stops.
+ */
+export function chatSurfaceShellStyle(
+  headerHex: string,
+  panelBgHex?: string,
+  topHex: string = CHAT_SURFACE_TOP,
+): CSSProperties {
   const bottom = panelBgHex ?? `color-mix(in srgb, ${headerHex} 14%, ${topHex})`;
-  const top = topHex;
-  return [
-    "linear-gradient(0deg,",
-    `${bottom} 0%,`,
-    `color-mix(in srgb, ${bottom} 28%, ${top}) 32%,`,
-    `color-mix(in srgb, ${bottom} 10%, ${top}) 58%,`,
-    `${top} 100%)`,
-  ].join(" ");
+  return {
+    ["--cr-chat-surface-top" as string]: topHex,
+    ["--cr-chat-surface-bottom" as string]: bottom,
+    background: [
+      "linear-gradient(0deg,",
+      "var(--cr-chat-surface-bottom) 0%,",
+      "color-mix(in srgb, var(--cr-chat-surface-bottom) 28%, var(--cr-chat-surface-top)) 32%,",
+      "color-mix(in srgb, var(--cr-chat-surface-bottom) 10%, var(--cr-chat-surface-top)) 58%,",
+      "var(--cr-chat-surface-top) 100%)",
+    ].join(" "),
+  };
 }
 
 /** User message bubble fill (matches embed `.cr-msg--user`). */

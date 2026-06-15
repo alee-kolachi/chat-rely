@@ -439,6 +439,9 @@ export default function AgentPreviewOnboardingPage() {
                         ))}
                       </ul>
                     </div>
+                    {showChatImportNotice ? (
+                      <AgentPreviewChatNotice snapshot={indexing} siteName={siteName} />
+                    ) : null}
                   </div>
                 </div>
               </section>
@@ -458,44 +461,39 @@ export default function AgentPreviewOnboardingPage() {
                   }}
                   aria-hidden
                 />
-                <div className={cn(onboardingSplitPreviewWrap, "max-h-full lg:flex-1")}>
-                  <div className="flex h-full min-h-0 w-full flex-col gap-3">
-                    {showChatImportNotice ? (
-                      <AgentPreviewChatNotice snapshot={indexing} siteName={siteName} className="shrink-0" />
-                    ) : null}
-                    <PlaygroundStyleChatPanel
-                      agentName={agentName}
-                      brandColorHex={brandColorHex}
-                      behaviorSettings={behaviorSettings}
-                      websiteLogoUrl={siteIcon || null}
-                      messages={messages}
-                      isSending={isSending}
-                      messageInput={input}
-                      onMessageInputChange={setInput}
-                      onSend={handleSend}
-                      sendDisabled={!canSend}
-                      composerPlaceholder={agentId ? "Test your agent…" : "Complete previous steps first"}
-                      composerError={error}
-                      messageInputRef={messageInputRef}
-                      messagesScrollRef={messagesScrollRef}
-                      onMessagesScroll={onMessagesScroll}
-                      shellHeightClass="h-full max-h-[min(520px,calc(100dvh-12rem))] min-h-[18rem] w-full flex-1 sm:min-h-[24rem] lg:max-h-[520px] lg:min-h-0"
-                      onShowProductDetails={(product) =>
-                        void runProductAction({
-                          type: "details",
-                          handle: product.handle,
-                          title: product.title,
-                        })
-                      }
-                      onShowSimilarProducts={(product) =>
-                        void runProductAction({
-                          type: "similar",
-                          handle: product.handle,
-                          title: product.title,
-                        })
-                      }
-                    />
-                  </div>
+                <div className={onboardingSplitPreviewWrap}>
+                  <PlaygroundStyleChatPanel
+                    agentName={agentName}
+                    brandColorHex={brandColorHex}
+                    behaviorSettings={behaviorSettings}
+                    websiteLogoUrl={siteIcon || null}
+                    messages={messages}
+                    isSending={isSending}
+                    messageInput={input}
+                    onMessageInputChange={setInput}
+                    onSend={handleSend}
+                    sendDisabled={!canSend}
+                    composerPlaceholder={agentId ? "Test your agent…" : "Complete previous steps first"}
+                    composerError={error}
+                    messageInputRef={messageInputRef}
+                    messagesScrollRef={messagesScrollRef}
+                    onMessagesScroll={onMessagesScroll}
+                    shellHeightClass="h-full max-h-[min(494px,calc(100dvh-12rem))] min-h-[17.1rem] w-full sm:min-h-[22.8rem] lg:max-h-[494px] lg:min-h-[494px]"
+                    onShowProductDetails={(product) =>
+                      void runProductAction({
+                        type: "details",
+                        handle: product.handle,
+                        title: product.title,
+                      })
+                    }
+                    onShowSimilarProducts={(product) =>
+                      void runProductAction({
+                        type: "similar",
+                        handle: product.handle,
+                        title: product.title,
+                      })
+                    }
+                  />
                 </div>
               </section>
             </div>
