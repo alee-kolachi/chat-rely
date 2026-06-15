@@ -1302,7 +1302,7 @@ function PlaygroundPreviewConversation({
       <div
         ref={messagesScrollRef}
         onScroll={historyOpen ? undefined : onMessagesScroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-transparent"
       >
         {historyOpen ? (
           <div className="flex flex-col p-4 sm:p-5" role="region" aria-label="Conversations">
@@ -1550,11 +1550,6 @@ function PlaygroundPreviewConversation({
             {isAiChatDisabledStatus(conversationStatus) && !operatorEngaged ? (
               <EscalatedChatNotice handoff={handoffContext} />
             ) : null}
-            {!hidePoweredByPlan ? (
-              <div className="flex items-center justify-center px-5 py-2.5">
-                <PoweredByChatRely compact className="px-0 pb-0 pt-0" />
-              </div>
-            ) : null}
             <PlaygroundComposer
               textareaRef={messageInputRef}
               value={messageInput}
@@ -1577,6 +1572,11 @@ function PlaygroundPreviewConversation({
               shellStyle={{ backgroundColor: appearanceResolved.colors.composerBackground }}
             />
             {footerError ? <p className="text-rose-600 text-sm">{footerError}</p> : null}
+            {!hidePoweredByPlan ? (
+              <div className="flex items-center justify-center px-5 pt-1 pb-[max(10px,env(safe-area-inset-bottom,0px))]">
+                <PoweredByChatRely compact className="px-0 pb-0 pt-0" />
+              </div>
+            ) : null}
           </div>
         )}
       </div>

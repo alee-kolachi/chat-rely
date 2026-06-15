@@ -108,11 +108,23 @@ export const WIDGET_COLOR_GROUPS: ReadonlyArray<{
   },
 ] as const;
 
-/** Default chat / welcome panel bottom tint (matches embed chat-surface mix). */
+/** @deprecated Use {@link chatSurfaceTopForBrand} — kept for nav/UI tokens only. */
 export const CHAT_SURFACE_TOP = "#f3edff";
 
 /** Tailwind/CSS class for embed chat-surface gradient (see `globals.css`). */
 export const WIDGET_EMBED_CHAT_SURFACE_CLASS = "widget-embed-chat-surface";
+
+const CHAT_SURFACE_WHITE = "#ffffff";
+
+/** Gradient top stop: almost white with a hint of brand (matches live embed look). */
+export function chatSurfaceTopForBrand(headerHex: string): string {
+  return `color-mix(in srgb, ${headerHex} 4%, ${CHAT_SURFACE_WHITE})`;
+}
+
+/** Gradient bottom stop: light brand tint on white. */
+export function chatSurfaceBottomForBrand(headerHex: string): string {
+  return `color-mix(in srgb, ${headerHex} 14%, ${CHAT_SURFACE_WHITE})`;
+}
 
 export function defaultAccentPanelBackground(
   brandColorHex: string | null | undefined,
@@ -122,7 +134,7 @@ export function defaultAccentPanelBackground(
   if (themeMode === "dark") {
     return `color-mix(in srgb, ${accent} 5%, #0F172A)`;
   }
-  return `color-mix(in srgb, ${accent} 14%, ${CHAT_SURFACE_TOP})`;
+  return chatSurfaceBottomForBrand(accent);
 }
 
 /** Full welcome panel gradient from one accent color (matches embed `.cr-welcome`). */
@@ -150,15 +162,16 @@ export function welcomePanelGradient(accentHex: string, panelBgHex: string): str
 export function chatSurfaceGradient(
   headerHex: string,
   panelBgHex?: string,
-  topHex: string = CHAT_SURFACE_TOP,
+  topHex?: string,
 ): string {
-  const bottom = panelBgHex ?? `color-mix(in srgb, ${headerHex} 14%, ${topHex})`;
+  const bottom = panelBgHex ?? chatSurfaceBottomForBrand(headerHex);
+  const top = topHex ?? chatSurfaceTopForBrand(headerHex);
   return [
     "linear-gradient(0deg,",
     `${bottom} 0%,`,
-    `color-mix(in srgb, ${bottom} 28%, ${topHex}) 32%,`,
-    `color-mix(in srgb, ${bottom} 10%, ${topHex}) 58%,`,
-    `${topHex} 100%)`,
+    `color-mix(in srgb, ${bottom} 28%, ${top}) 32%,`,
+    `color-mix(in srgb, ${bottom} 10%, ${top}) 58%,`,
+    `${top} 100%)`,
   ].join(" ");
 }
 
@@ -169,12 +182,12 @@ export function chatSurfaceGradient(
 export function chatSurfaceShellStyle(
   headerHex: string,
   panelBgHex?: string,
-  _topHex: string = CHAT_SURFACE_TOP,
+  topHex?: string,
 ): CSSProperties {
   return {
     ["--cr-header-bg" as string]: headerHex,
-    ["--cr-panel-bg" as string]:
-      panelBgHex ?? defaultAccentPanelBackground(headerHex),
+    ["--cr-chat-surface-top" as string]: topHex ?? chatSurfaceTopForBrand(headerHex),
+    ["--cr-panel-bg" as string]: panelBgHex ?? chatSurfaceBottomForBrand(headerHex),
   };
 }
 

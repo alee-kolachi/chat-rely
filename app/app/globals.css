@@ -403,12 +403,12 @@
   }
 }
 
-/* Matches embed `.cr-panel.cr-panel--chat-surface` (set `--cr-header-bg`, `--cr-panel-bg` on element). */
+/* Matches embed `.cr-panel.cr-panel--chat-surface` (set `--cr-header-bg`, `--cr-panel-bg`, `--cr-chat-surface-top` on element). */
 .widget-embed-chat-surface {
-  --cr-chat-surface-top: #f3edff;
+  --cr-chat-surface-top: color-mix(in srgb, var(--cr-header-bg, #831c91) 4%, #ffffff);
   --cr-chat-surface-bottom: var(
     --cr-panel-bg,
-    color-mix(in srgb, var(--cr-header-bg, #831c91) 14%, #f3edff)
+    color-mix(in srgb, var(--cr-header-bg, #831c91) 14%, #ffffff)
   );
   background: linear-gradient(
     0deg,

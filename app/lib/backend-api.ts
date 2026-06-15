@@ -1,5 +1,6 @@
 "use client";
 
+import type { AuthChangeEvent } from "@supabase/supabase-js";
 import { clearStaleBrowserAuthSession } from "@/lib/auth-stale-session";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import {
@@ -30,24 +31,65 @@ export class BackendApiError extends Error {
   }
 }
 
+let browserAuthHydrationPromise: Promise<void> | null = null;
+
+/** Wait for Supabase's first `INITIAL_SESSION` after a hard refresh (cookie hydration race). */
+function waitForBrowserAuthHydration(
+  supabase: ReturnType<typeof createBrowserSupabaseClient>
+): Promise<void> {
+  if (browserAuthHydrationPromise) return browserAuthHydrationPromise;
+
+  browserAuthHydrationPromise = new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent) => {
+      if (event === "INITIAL_SESSION") {
+        subscription.unsubscribe();
+        finish();
+      }
+    });
+
+    window.setTimeout(() => {
+      subscription.unsubscribe();
+      finish();
+    }, 1500);
+  });
+
+  return browserAuthHydrationPromise;
+}
+
 export async function getAccessToken(): Promise<string | null> {
   if (typeof window === "undefined") {
     return null;
   }
   try {
     const supabase = createBrowserSupabaseClient();
-    const {
-      data: { session },
-      error,
-    } = await supabase.auth.getSession();
-    if (error) {
-      await clearStaleBrowserAuthSession(supabase, error);
-      return null;
-    }
-    if (!session?.access_token) {
-      return null;
-    }
-    return session.access_token;
+
+    const readToken = async (): Promise<string | null> => {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+      if (error) {
+        await clearStaleBrowserAuthSession(supabase, error);
+        return null;
+      }
+      return session?.access_token ?? null;
+    };
+
+    const immediate = await readToken();
+    if (immediate) return immediate;
+
+    // Hard refresh can fire client API calls before the browser client reads auth cookies.
+    await waitForBrowserAuthHydration(supabase);
+    return readToken();
   } catch {
     return null;
   }

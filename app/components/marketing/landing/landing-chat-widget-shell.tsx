@@ -28,14 +28,9 @@ export const LANDING_CHAT_MSG_IN = "animate-[mkt-msg-in_0.5s_cubic-bezier(0.22,1
 
 const LANDING_CHAT_TEXT_CLASS = "text-[14px]";
 
-/** Lighter marketing-demo gradient: soft purple at bottom, near-white purple at top. */
-const LANDING_CHAT_SURFACE_TOP = "#fefcff";
-const LANDING_CHAT_SURFACE_BOTTOM = `color-mix(in srgb, ${LANDING_DEMO_BRAND_COLOR} 5%, #faf9ff)`;
-
 const landingWidgetAppearance = {
   colors: {
     user_bubble: LANDING_DEMO_BRAND_COLOR,
-    panel_background: LANDING_CHAT_SURFACE_BOTTOM,
     assistant_bubble: "#FFFFFF",
   },
 } as const;
@@ -75,7 +70,6 @@ export function LandingChatWidgetShell({
       websiteLogoUrl={CHAT_RELY_LOGO_PATH}
       headerActions={<LandingHeaderStatusDot />}
       shellHeightClass={LANDING_CHAT_SHELL_HEIGHT_CLASS}
-      chatSurfaceTopColor={LANDING_CHAT_SURFACE_TOP}
       headerTitleClassName="text-[15px]"
       footerBorderless
       className={cn("pointer-events-none w-full", LANDING_CHAT_WIDTH_CLASS, className)}
