@@ -20,6 +20,7 @@ import {
 import {
   chatSurfaceShellStyle,
   resolveWidgetAppearance,
+  WIDGET_EMBED_CHAT_SURFACE_CLASS,
   type ResolvedWidgetAppearance,
   type WidgetAppearanceSettings,
   userBubbleGradient,
@@ -133,6 +134,7 @@ export function WidgetChatShell({
         "flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
         shellBorderless ? "border-0" : "border",
         !shellBorderless && (chatSurface ? "border-black/5" : "border-ds-outline"),
+        chatSurface && WIDGET_EMBED_CHAT_SURFACE_CLASS,
         shellHeightClass,
         className
       )}
@@ -283,7 +285,7 @@ export function WidgetPreviewUserBubble({
   );
 }
 
-/** Powered-by strip between the message area and composer (onboarding / previews). */
+/** Powered-by strip below the composer (onboarding / previews; matches live embed order). */
 export function WidgetChatPreviewFooter({
   showPoweredBy = true,
   children,
@@ -295,12 +297,12 @@ export function WidgetChatPreviewFooter({
 }) {
   return (
     <div className={cn("flex flex-col", className)}>
+      {children}
       {showPoweredBy ? (
-        <div className="flex items-center justify-center px-5 py-2.5">
+        <div className="flex items-center justify-center px-5 pt-1 pb-[max(10px,env(safe-area-inset-bottom,0px))]">
           <PoweredByChatRely compact className="px-0 pb-0 pt-0" />
         </div>
       ) : null}
-      {children}
     </div>
   );
 }

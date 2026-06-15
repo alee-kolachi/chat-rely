@@ -403,6 +403,22 @@
   }
 }
 
+/* Matches embed `.cr-panel.cr-panel--chat-surface` (set `--cr-header-bg`, `--cr-panel-bg` on element). */
+.widget-embed-chat-surface {
+  --cr-chat-surface-top: #f3edff;
+  --cr-chat-surface-bottom: var(
+    --cr-panel-bg,
+    color-mix(in srgb, var(--cr-header-bg, #831c91) 14%, #f3edff)
+  );
+  background: linear-gradient(
+    0deg,
+    var(--cr-chat-surface-bottom) 0%,
+    color-mix(in srgb, var(--cr-chat-surface-bottom) 28%, var(--cr-chat-surface-top)) 32%,
+    color-mix(in srgb, var(--cr-chat-surface-bottom) 10%, var(--cr-chat-surface-top)) 58%,
+    var(--cr-chat-surface-top) 100%
+  );
+}
+
 @keyframes onboarding-index-indeterminate {
   0% {
     transform: translateX(-100%);

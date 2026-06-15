@@ -56,7 +56,7 @@ import {
 } from "@/components/branding/powered-by-chatrely";
 import { messageFeedbackEnabledForPlanSlug, planHidesPoweredByChatrely } from "@/lib/widget-branding";
 import { humanEscalationPlanAccess, shopifyConnectAccess } from "@/lib/plan-features";
-import { getWidgetPreviewContext, chatSurfaceShellStyle, userBubbleGradient } from "@/lib/widget-appearance";
+import { getWidgetPreviewContext, chatSurfaceShellStyle, userBubbleGradient, WIDGET_EMBED_CHAT_SURFACE_CLASS } from "@/lib/widget-appearance";
 import { InfoHint } from "@/components/ui/info-hint";
 import { PlanFeatureLabel, PlanGatedBlock } from "@/components/ui/plan-unlock-footer";
 import { AppSegmentGroup, AppSegmentOption } from "@/components/ui/app-segment-group";
@@ -1251,7 +1251,7 @@ function PlaygroundPreviewConversation({
       <div
         className={cn(
           "relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[28px] border",
-          chatSurface ? "border-black/5" : "border-ds-outline"
+          chatSurface ? cn("border-black/5", WIDGET_EMBED_CHAT_SURFACE_CLASS) : "border-ds-outline"
         )}
         style={{
           ...panelBackgroundStyle,

@@ -73,7 +73,14 @@ export const onboardingSplitPreviewShell = cn(
   "border-ds-outline flex min-h-[18rem] w-full flex-col overflow-hidden rounded-2xl border bg-ds-surface shadow-xl sm:min-h-[24rem] lg:min-h-[520px]"
 );
 
-export const onboardingSplitPreviewWrap = "relative mx-auto flex h-full min-h-0 w-full max-w-[400px] flex-col";
+export const onboardingSplitPreviewWrap =
+  "relative mx-auto flex h-full min-h-0 w-full max-w-[min(400px,100%)] flex-col px-1 sm:px-2";
+
+/** Step 5 appearance preview card — welcome and chat share the same outer size. */
+export const onboardingAppearancePreviewCard = cn(
+  "border-ds-outline flex w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+  "min-h-[14.63rem] sm:min-h-[20.9rem] lg:min-h-[543px]",
+);
 
 export function OnboardingPageHeader({
   kicker,

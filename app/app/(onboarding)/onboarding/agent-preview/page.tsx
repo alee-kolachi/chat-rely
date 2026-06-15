@@ -449,7 +449,7 @@ export default function AgentPreviewOnboardingPage() {
               <section
                 className={cn(
                   onboardingSplitRightSection,
-                  "items-center justify-center p-4 sm:p-6 lg:items-stretch lg:justify-center lg:p-8"
+                  "items-center justify-center overflow-visible p-4 sm:p-6 lg:items-stretch lg:justify-center lg:overflow-visible lg:p-8",
                 )}
               >
                 <div
@@ -478,7 +478,7 @@ export default function AgentPreviewOnboardingPage() {
                     messageInputRef={messageInputRef}
                     messagesScrollRef={messagesScrollRef}
                     onMessagesScroll={onMessagesScroll}
-                    shellHeightClass="h-full max-h-[min(494px,calc(100dvh-12rem))] min-h-[17.1rem] w-full sm:min-h-[22.8rem] lg:max-h-[494px] lg:min-h-[494px]"
+                    shellHeightClass="h-full max-h-[min(519px,calc(100dvh-11.4rem))] min-h-[17.96rem] w-full sm:min-h-[23.94rem] lg:max-h-[519px] lg:min-h-[519px]"
                     onShowProductDetails={(product) =>
                       void runProductAction({
                         type: "details",

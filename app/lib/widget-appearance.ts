@@ -111,6 +111,9 @@ export const WIDGET_COLOR_GROUPS: ReadonlyArray<{
 /** Default chat / welcome panel bottom tint (matches embed chat-surface mix). */
 export const CHAT_SURFACE_TOP = "#f3edff";
 
+/** Tailwind/CSS class for embed chat-surface gradient (see `globals.css`). */
+export const WIDGET_EMBED_CHAT_SURFACE_CLASS = "widget-embed-chat-surface";
+
 export function defaultAccentPanelBackground(
   brandColorHex: string | null | undefined,
   themeMode: WidgetThemeMode = "light"
@@ -149,29 +152,29 @@ export function chatSurfaceGradient(
   panelBgHex?: string,
   topHex: string = CHAT_SURFACE_TOP,
 ): string {
-  return chatSurfaceShellStyle(headerHex, panelBgHex, topHex).background as string;
+  const bottom = panelBgHex ?? `color-mix(in srgb, ${headerHex} 14%, ${topHex})`;
+  return [
+    "linear-gradient(0deg,",
+    `${bottom} 0%,`,
+    `color-mix(in srgb, ${bottom} 28%, ${topHex}) 32%,`,
+    `color-mix(in srgb, ${bottom} 10%, ${topHex}) 58%,`,
+    `${topHex} 100%)`,
+  ].join(" ");
 }
 
 /**
- * Chat panel background (matches embed `.cr-panel--chat-surface`).
- * Uses CSS variables so `color-mix` panel tints do not nest inside the gradient stops.
+ * Chat panel CSS variables (matches embed `.cr-panel--chat-surface`).
+ * Pair with {@link WIDGET_EMBED_CHAT_SURFACE_CLASS} for the gradient background.
  */
 export function chatSurfaceShellStyle(
   headerHex: string,
   panelBgHex?: string,
-  topHex: string = CHAT_SURFACE_TOP,
+  _topHex: string = CHAT_SURFACE_TOP,
 ): CSSProperties {
-  const bottom = panelBgHex ?? `color-mix(in srgb, ${headerHex} 14%, ${topHex})`;
   return {
-    ["--cr-chat-surface-top" as string]: topHex,
-    ["--cr-chat-surface-bottom" as string]: bottom,
-    background: [
-      "linear-gradient(0deg,",
-      "var(--cr-chat-surface-bottom) 0%,",
-      "color-mix(in srgb, var(--cr-chat-surface-bottom) 28%, var(--cr-chat-surface-top)) 32%,",
-      "color-mix(in srgb, var(--cr-chat-surface-bottom) 10%, var(--cr-chat-surface-top)) 58%,",
-      "var(--cr-chat-surface-top) 100%)",
-    ].join(" "),
+    ["--cr-header-bg" as string]: headerHex,
+    ["--cr-panel-bg" as string]:
+      panelBgHex ?? defaultAccentPanelBackground(headerHex),
   };
 }
 

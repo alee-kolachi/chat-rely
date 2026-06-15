@@ -42,6 +42,7 @@ import {
   onboardingSplitLeftSection,
   onboardingSplitRightSectionCentered,
   onboardingSplitRoot,
+  onboardingAppearancePreviewCard,
   OnboardingStickyFooter,
 } from "@/components/onboarding/onboarding-ui";
 
@@ -189,8 +190,7 @@ export default function AppearanceToneOnboardingPage() {
     [widgetAppearance, previewBrandColor],
   );
 
-  const appearanceChatHeightClass =
-    "h-full min-h-[14.63rem] w-full sm:min-h-[20.9rem] lg:min-h-[543px]";
+  const appearancePreviewCardClass = onboardingAppearancePreviewCard;
 
   async function handleContinue() {
     if (!agentId || isSaving) return;
@@ -349,7 +349,7 @@ export default function AppearanceToneOnboardingPage() {
                 />
                 <div className="relative z-[1] mx-auto flex w-full max-w-[26rem] flex-col items-center pb-2">
                     {welcomeScreenEnabled && !previewChatOpen ? (
-                      <div className="border-ds-outline flex w-full flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
+                      <div className={appearancePreviewCardClass}>
                         <WidgetWelcomeScreen
                           agentName={agentName}
                           brandColorHex={previewBrandColor}
@@ -361,52 +361,55 @@ export default function AppearanceToneOnboardingPage() {
                           socialLinks={welcomeScreenPreview.socialLinks}
                           websiteLogoUrl={websiteLogoUrl}
                           websiteLogoPending={isLoading}
-                          className={appearanceChatHeightClass}
+                          className="min-h-0 flex-1"
                           onChatClick={() => setPreviewChatOpen(true)}
                         />
-                        <div className="flex items-center justify-center px-5 py-2.5">
+                        <div className="flex shrink-0 items-center justify-center bg-white px-5 py-2.5">
                           <PoweredByChatRely compact className="px-0 pb-[max(10px,env(safe-area-inset-bottom,0px))] pt-0" />
                         </div>
                       </div>
                     ) : (
-                      <WidgetChatShell
-                        agentName={agentName}
-                        brandColorHex={previewBrandColor}
-                        widgetAppearance={widgetAppearance}
-                        websiteLogoUrl={websiteLogoUrl}
-                        websiteLogoPending={isLoading}
-                        shellHeightClass={appearanceChatHeightClass}
-                        footerBorderless
-                        onHeaderBack={
-                          welcomeScreenEnabled ? () => setPreviewChatOpen(false) : undefined
-                        }
-                        headerBackLabel="Back to welcome screen"
-                        footer={
-                          <WidgetChatPreviewFooter>
-                            <WidgetComposerPreview
-                              brandColorHex={previewBrandColor}
-                              accentColor={resolvedPreview.colors.header}
-                              composerBackground={resolvedPreview.colors.composerBackground}
-                              className="pt-0"
-                            />
-                          </WidgetChatPreviewFooter>
-                        }
-                      >
-                        <div
-                          ref={messagesScrollRef}
-                          className="h-full space-y-3 overflow-y-auto bg-transparent px-4 py-4 sm:px-4"
+                      <div className={appearancePreviewCardClass}>
+                        <WidgetChatShell
+                          agentName={agentName}
+                          brandColorHex={previewBrandColor}
+                          widgetAppearance={widgetAppearance}
+                          websiteLogoUrl={websiteLogoUrl}
+                          websiteLogoPending={isLoading}
+                          shellHeightClass="h-full min-h-0"
+                          className="min-h-0 max-w-none flex-1 rounded-none border-0 shadow-none"
+                          footerBorderless
+                          onHeaderBack={
+                            welcomeScreenEnabled ? () => setPreviewChatOpen(false) : undefined
+                          }
+                          headerBackLabel="Back to welcome screen"
+                          footer={
+                            <WidgetChatPreviewFooter>
+                              <WidgetComposerPreview
+                                brandColorHex={previewBrandColor}
+                                accentColor={resolvedPreview.colors.header}
+                                composerBackground={resolvedPreview.colors.composerBackground}
+                                className="pt-0"
+                              />
+                            </WidgetChatPreviewFooter>
+                          }
                         >
-                          <WidgetWelcomeMessages
-                            messages={previewAssistantMessages}
-                            resolved={resolvedPreview}
-                          />
-                          <div className="flex justify-end">
-                            <WidgetPreviewUserBubble resolved={resolvedPreview}>
-                              Sample visitor reply
-                            </WidgetPreviewUserBubble>
+                          <div
+                            ref={messagesScrollRef}
+                            className="h-full space-y-3 overflow-y-auto bg-transparent px-4 py-4 sm:px-4"
+                          >
+                            <WidgetWelcomeMessages
+                              messages={previewAssistantMessages}
+                              resolved={resolvedPreview}
+                            />
+                            <div className="flex justify-end">
+                              <WidgetPreviewUserBubble resolved={resolvedPreview}>
+                                Sample visitor reply
+                              </WidgetPreviewUserBubble>
+                            </div>
                           </div>
-                        </div>
-                      </WidgetChatShell>
+                        </WidgetChatShell>
+                      </div>
                     )}
                   <div className="mt-3 flex w-full justify-end">
                     <WidgetBrandAvatar

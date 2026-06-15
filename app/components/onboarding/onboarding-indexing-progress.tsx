@@ -86,15 +86,18 @@ export function OnboardingIndexingProgress({
   if (variant === "header") {
     return (
       <div
-        className={cn("flex min-w-0 max-w-[min(100%,14rem)] flex-col items-end gap-1 sm:max-w-[16rem]", className)}
+        className={cn(
+          "mr-1 flex min-w-0 max-w-[min(100%,10.5rem)] shrink flex-col items-end gap-1 sm:mr-2 sm:max-w-[12.5rem] md:max-w-[14rem]",
+          className,
+        )}
         role="status"
         aria-live="polite"
         aria-label={`${title}, ${detail}`}
       >
-        <div className="flex w-full items-center justify-between gap-2">
+        <div className="flex w-full min-w-0 flex-col items-end gap-0.5 text-right">
           <span
             className={cn(
-              "shrink-0 text-[11px] font-medium sm:text-xs",
+              "w-full truncate text-[11px] font-medium sm:text-xs",
               snapshot.storageLimitReached ? "text-amber-800" : "text-ds-on-surface-variant",
             )}
           >
@@ -102,7 +105,7 @@ export function OnboardingIndexingProgress({
           </span>
           <span
             className={cn(
-              "shrink-0 text-xs font-semibold tabular-nums sm:text-sm",
+              "w-full truncate text-[11px] font-semibold tabular-nums sm:text-xs",
               snapshot.storageLimitReached ? "text-amber-900" : "text-ds-on-surface",
             )}
           >

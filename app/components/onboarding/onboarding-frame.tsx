@@ -225,7 +225,11 @@ export function OnboardingFrame({
                 </div>
               </div>
               {showBanner && !hideIndexingBanner ? (
-                <OnboardingIndexingProgress snapshot={snapshot} variant="header" className="ml-auto shrink-0" />
+                <OnboardingIndexingProgress
+                  snapshot={snapshot}
+                  variant="header"
+                  className="ml-2 min-w-0 shrink sm:ml-3"
+                />
               ) : null}
             </div>
             <div
