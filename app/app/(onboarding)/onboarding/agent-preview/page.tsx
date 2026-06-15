@@ -6,6 +6,7 @@ import {
   type PlaygroundStyleChatMessage,
 } from "@/components/chat/playground-style-chat-panel";
 import { BackendApiError, backendFetch } from "@/lib/backend-api";
+import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
 import { clientChatContext } from "@/lib/client-context";
 import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
@@ -22,7 +23,10 @@ import { getOnboardingAgentName } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import { cn } from "@/lib/utils";
-import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
+import { OnboardingFrame, OnboardingStepIndicator } from "@/components/onboarding/onboarding-frame";
+import {
+  AgentPreviewChatNotice,
+} from "@/components/onboarding/agent-preview-chat-notice";
 import {
   OnboardingMainColumn,
   onboardingSplitBody,
@@ -106,9 +110,13 @@ export default function AgentPreviewOnboardingPage() {
   const siteName = siteDisplayName(onboardingStatus);
   const siteUrl = onboardingStatus?.website_url ?? null;
   const siteIcon = faviconUrl(siteUrl);
-  const brandColorHex = parseBrandColorHex(
-    typeof behaviorSettings?.brand_color === "string" ? behaviorSettings.brand_color : null
-  );
+  const brandColorHex =
+    parseBrandColorHex(
+      typeof behaviorSettings?.brand_color === "string" ? behaviorSettings.brand_color : null,
+    ) ?? BRAND_COLOR_PRESETS[0].hex;
+
+  const showChatImportNotice =
+    indexing.running || indexing.storageLimitReached || indexing.failed;
 
   const welcomeMessage = useMemo(() => {
     const who = agentName.trim() || "your support agent";
@@ -117,7 +125,7 @@ export default function AgentPreviewOnboardingPage() {
       return `Hi! I'm ${who}. Ask me something your customers would. We hit ${capPhrase}, so only part of ${siteName} was imported.`;
     }
     if (indexing.running) {
-      return `Hi! I'm ${who}. Ask me something your customers would. We're still reading ${siteName}, so answers get better as more pages are indexed.`;
+      return `Hi! I'm ${who}. Ask me something your customers would. We're still reading ${siteName}, so "I'm not sure" answers are normal until import finishes.`;
     }
     if (indexing.failed) {
       return `Hi! I'm ${who}. Site import hit a snag, but you can still try a question about ${siteName}.`;
@@ -407,19 +415,9 @@ export default function AgentPreviewOnboardingPage() {
                     Test your <span className="text-ds-primary font-bold">agent</span> before go-live
                   </h1>
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                    Ask questions your customers actually ask. This uses the same AI setup as the playground and live
-                    widget.
+                    Ask questions your customers actually ask. This uses the same AI setup as the playground and
+                    live widget.
                   </p>
-
-                  {indexing.running && !indexing.storageLimitReached ? (
-                    <div className="border-ds-outline mt-5 rounded-ds-lg border border-dashed bg-ds-sidebar/50 px-4 py-3">
-                      <p className="text-ds-on-surface text-sm font-medium">Note</p>
-                      <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">
-                        We&apos;re still crawling pages from your site. You can test now; answers will be more
-                        accurate once your site content is ready for chat.
-                      </p>
-                    </div>
-                  ) : null}
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
@@ -427,16 +425,7 @@ export default function AgentPreviewOnboardingPage() {
                       <ul className="space-y-3">
                         {checklist.map((item) => (
                           <li key={item.label} className="flex items-start gap-3">
-                            {item.done ? (
-                              <span className="bg-ds-primary/15 text-ds-primary mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
-                                ✓
-                              </span>
-                            ) : (
-                              <span
-                                className="border-ds-outline mt-0.5 size-5 shrink-0 rounded-full border-2 border-dashed"
-                                aria-hidden
-                              />
-                            )}
+                            <OnboardingStepIndicator completed={item.done} className="mt-0.5" />
                             <span
                               className={
                                 item.done
@@ -470,38 +459,43 @@ export default function AgentPreviewOnboardingPage() {
                   aria-hidden
                 />
                 <div className={cn(onboardingSplitPreviewWrap, "max-h-full lg:flex-1")}>
-                  <PlaygroundStyleChatPanel
-                    agentName={agentName}
-                    brandColorHex={brandColorHex}
-                    behaviorSettings={behaviorSettings}
-                    websiteLogoUrl={siteIcon || null}
-                    messages={messages}
-                    isSending={isSending}
-                    messageInput={input}
-                    onMessageInputChange={setInput}
-                    onSend={handleSend}
-                    sendDisabled={!canSend}
-                    composerPlaceholder={agentId ? "Test your agent…" : "Complete previous steps first"}
-                    composerError={error}
-                    messageInputRef={messageInputRef}
-                    messagesScrollRef={messagesScrollRef}
-                    onMessagesScroll={onMessagesScroll}
-                    shellHeightClass="h-full max-h-[min(520px,calc(100dvh-12rem))] min-h-[18rem] w-full sm:min-h-[24rem] lg:h-[520px] lg:max-h-[520px] lg:min-h-0"
-                    onShowProductDetails={(product) =>
-                      void runProductAction({
-                        type: "details",
-                        handle: product.handle,
-                        title: product.title,
-                      })
-                    }
-                    onShowSimilarProducts={(product) =>
-                      void runProductAction({
-                        type: "similar",
-                        handle: product.handle,
-                        title: product.title,
-                      })
-                    }
-                  />
+                  <div className="flex h-full min-h-0 w-full flex-col gap-3">
+                    {showChatImportNotice ? (
+                      <AgentPreviewChatNotice snapshot={indexing} siteName={siteName} className="shrink-0" />
+                    ) : null}
+                    <PlaygroundStyleChatPanel
+                      agentName={agentName}
+                      brandColorHex={brandColorHex}
+                      behaviorSettings={behaviorSettings}
+                      websiteLogoUrl={siteIcon || null}
+                      messages={messages}
+                      isSending={isSending}
+                      messageInput={input}
+                      onMessageInputChange={setInput}
+                      onSend={handleSend}
+                      sendDisabled={!canSend}
+                      composerPlaceholder={agentId ? "Test your agent…" : "Complete previous steps first"}
+                      composerError={error}
+                      messageInputRef={messageInputRef}
+                      messagesScrollRef={messagesScrollRef}
+                      onMessagesScroll={onMessagesScroll}
+                      shellHeightClass="h-full max-h-[min(520px,calc(100dvh-12rem))] min-h-[18rem] w-full flex-1 sm:min-h-[24rem] lg:max-h-[520px] lg:min-h-0"
+                      onShowProductDetails={(product) =>
+                        void runProductAction({
+                          type: "details",
+                          handle: product.handle,
+                          title: product.title,
+                        })
+                      }
+                      onShowSimilarProducts={(product) =>
+                        void runProductAction({
+                          type: "similar",
+                          handle: product.handle,
+                          title: product.title,
+                        })
+                      }
+                    />
+                  </div>
                 </div>
               </section>
             </div>

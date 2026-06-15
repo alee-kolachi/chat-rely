@@ -2392,6 +2392,16 @@ async def _dashboard_fetch_planned_urls_in_batches(
         remaining_budget = max(0, crawl_budget_bytes - total_saved)
         if remaining_budget == 0 and len(all_pages) > 0:
             stopped = "budget"
+            await _dashboard_update_crawl_job_progress(
+                db,
+                job_id=job_id,
+                pages_total_cap=n,
+                pages_processed=len(all_pages),
+                crawl_http_bytes_so_far=total_saved,
+                crawl_stopped_reason="budget",
+                plan_storage_cap_bytes=plan_storage_cap_bytes,
+            )
+            await db.commit()
             break
         batch_urls = urls[start : start + DASHBOARD_CRAWL_CONTENT_BATCH]
         batch_pages, ld, pv, b_used, st = await _fetch_pages_for_urls(
@@ -2413,7 +2423,7 @@ async def _dashboard_fetch_planned_urls_in_batches(
             pages_processed=len(all_pages),
             crawl_http_bytes_so_far=total_saved,
             crawl_stopped_reason=stopped if stopped == "budget" else None,
-            plan_storage_cap_bytes=plan_storage_cap_bytes if stopped == "budget" else None,
+            plan_storage_cap_bytes=plan_storage_cap_bytes,
         )
         await db.commit()
         if stopped == "budget":
@@ -2429,7 +2439,7 @@ async def _dashboard_fetch_planned_urls_in_batches(
             pages_total_cap=n,
             crawl_http_bytes_so_far=total_saved,
             crawl_stopped_reason=stopped if stopped == "budget" else None,
-            plan_storage_cap_bytes=plan_storage_cap_bytes if stopped == "budget" else None,
+            plan_storage_cap_bytes=plan_storage_cap_bytes,
         )
         await db.commit()
     if stopped not in ("budget", "max_pages_safety"):
@@ -5275,6 +5285,47 @@ def _coerce_job_metrics(metrics: object) -> dict[str, Any]:
         except json.JSONDecodeError:
             return {}
     return {}
+
+
+def _indexing_job_storage_limit_reached(
+    job_status: str | None,
+    metrics: object,
+    pages_total: object,
+    pages_processed: object,
+    plan_storage_cap_bytes: int,
+) -> bool:
+    """True when a website import stopped early because plan storage was full."""
+    m = _coerce_job_metrics(metrics)
+    try:
+        pp = int(pages_processed) if pages_processed is not None else 0
+        pt = int(pages_total) if pages_total is not None else 0
+    except (TypeError, ValueError):
+        return False
+    if pp <= 0:
+        return False
+    if pt > 0 and pp >= pt:
+        return False
+
+    if str(m.get("crawl_stopped_reason") or "") == "budget":
+        return True
+
+    if plan_storage_cap_bytes > 0:
+        try:
+            crawl_bytes = int(m.get("crawl_http_bytes") or 0)
+        except (TypeError, ValueError):
+            crawl_bytes = 0
+        if crawl_bytes >= int(plan_storage_cap_bytes * 0.9):
+            return True
+
+    if (job_status or "").lower() == "succeeded":
+        return _job_crawl_limit_exceeded(
+            job_status,
+            metrics,
+            pages_total,
+            pages_processed,
+            storage_cap_bytes=plan_storage_cap_bytes,
+        )
+    return False
 
 
 def _job_crawl_limit_exceeded(

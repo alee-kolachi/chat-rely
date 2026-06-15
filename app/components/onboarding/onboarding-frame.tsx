@@ -4,8 +4,9 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Menu, X } from "lucide-react";
+import { Check, Menu, X } from "lucide-react";
 import { ChatRelyWordmark } from "@/components/branding/chat-rely-wordmark";
+import { COMPANY_CONTACT_EMAIL } from "@/components/marketing/company-page-shell";
 import { OnboardingIndexingProgress } from "@/components/onboarding/onboarding-indexing-progress";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,38 @@ const onboardingItemRoutes: Record<OnboardingMenuItem, string> = {
 function onboardingNavHref(route: string, linkAgentId: string | null | undefined) {
   if (!linkAgentId) return route;
   return `${route}?agentId=${encodeURIComponent(linkAgentId)}`;
+}
+
+export function OnboardingStepIndicator({
+  completed,
+  className,
+}: {
+  completed: boolean;
+  className?: string;
+}) {
+  if (completed) {
+    return (
+      <span
+        className={cn(
+          "bg-ds-primary text-ds-on-primary inline-flex size-4 shrink-0 items-center justify-center rounded-full",
+          className,
+        )}
+        aria-hidden
+      >
+        <Check className="size-2.5" strokeWidth={2.5} />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        "border-ds-outline inline-flex size-4 shrink-0 rounded-full border border-dashed",
+        className,
+      )}
+      aria-hidden
+    />
+  );
 }
 
 export function OnboardingFrame({
@@ -107,15 +140,7 @@ export function OnboardingFrame({
                   isActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm",
                 )}
               >
-                <span
-                  className={cn(
-                    "inline-flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] leading-none",
-                    isCompleted ? "bg-emerald-500 text-white" : "bg-zinc-200/70 text-transparent",
-                  )}
-                  aria-hidden
-                >
-                  ✓
-                </span>
+                <OnboardingStepIndicator completed={isCompleted} />
                 {item}
               </Link>
             );
@@ -157,15 +182,7 @@ export function OnboardingFrame({
                   isActive && "border-ds-primary/35 bg-white !text-ds-primary font-semibold shadow-sm",
                 )}
               >
-                <span
-                  className={cn(
-                    "inline-flex size-4 items-center justify-center rounded-full text-[10px] leading-none",
-                    isCompleted ? "bg-emerald-500 text-white" : "bg-zinc-200/70 text-transparent",
-                  )}
-                  aria-hidden
-                >
-                  ✓
-                </span>
+                <OnboardingStepIndicator completed={isCompleted} />
                 {item}
               </Link>
             );
@@ -173,12 +190,15 @@ export function OnboardingFrame({
         </nav>
 
         <div className="border-ds-outline mt-auto border-t p-3">
-          <button
-            type="button"
-            className="text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface flex w-full items-center justify-center rounded-lg border border-transparent px-3 py-2 text-sm font-medium transition-colors"
+          <a
+            href={`mailto:${COMPANY_CONTACT_EMAIL}?subject=${encodeURIComponent("ChatRely onboarding help")}`}
+            className="text-ds-on-surface-variant hover:bg-ds-outline/35 hover:text-ds-on-surface flex w-full flex-col items-center justify-center rounded-lg border border-transparent px-3 py-2 text-sm font-medium transition-colors"
           >
-            Need Help?
-          </button>
+            <span>Need help?</span>
+            <span className="text-ds-on-surface-variant mt-0.5 text-[11px] font-normal">
+              {COMPANY_CONTACT_EMAIL}
+            </span>
+          </a>
         </div>
       </aside>
 
@@ -226,7 +246,7 @@ export function OnboardingFrame({
           <main className="onboarding-main-surface flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 sm:px-6">{children}</div>
             {footer ? (
-              <div className="relative z-50 w-full shrink-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] sm:px-6">
+              <div className="relative z-50 w-full shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
                 {footer}
               </div>
             ) : null}

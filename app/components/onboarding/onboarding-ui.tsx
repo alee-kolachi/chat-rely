@@ -161,20 +161,19 @@ export function OnboardingStickyFooter({
 
   const primaryButtonClass = appButtonClassName("primary", {
     className:
-      "touch-manipulation max-w-full min-h-11 min-w-[2.75rem] tracking-wide uppercase sm:min-h-0 [-webkit-tap-highlight-color:transparent] relative isolate z-[1]",
+      "touch-manipulation max-w-full min-h-11 min-w-[2.75rem] tracking-wide uppercase md:min-h-0 [-webkit-tap-highlight-color:transparent] relative isolate z-[1]",
   });
   const backClass =
-    "touch-manipulation text-ds-on-surface-variant hover:text-ds-on-surface ds-app-kicker inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-ds-md px-3 py-2 font-semibold transition-colors [-webkit-tap-highlight-color:transparent] sm:min-h-0 sm:gap-2 sm:px-3";
+    "touch-manipulation text-ds-on-surface-variant hover:text-ds-on-surface ds-app-kicker inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-ds-md px-3 font-semibold transition-colors [-webkit-tap-highlight-color:transparent] md:min-h-0 md:gap-2";
 
   return (
     <footer
       className={cn(
-        "bg-ds-surface/95 border-ds-outline pointer-events-auto relative z-10 flex w-full shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t px-3 py-2.5 shadow-[0_-6px_24px_rgba(15,23,42,0.06)]",
-        "min-h-[3.25rem] pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pt-2.5",
-        "md:h-16 md:flex-nowrap md:gap-4 md:px-8 md:py-0 md:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] md:pt-0"
+        "bg-ds-surface border-ds-outline pointer-events-auto relative z-10 flex w-full shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t px-3 shadow-[0_-6px_24px_rgba(15,23,42,0.06)] sm:px-6 md:flex-nowrap md:gap-4 md:px-8",
+        "min-h-14 md:min-h-16"
       )}
     >
-      <div className="order-1 flex min-w-0 shrink items-center">
+      <div className="order-1 flex min-h-0 min-w-0 shrink items-center self-center">
         {backHref ? (
           <Link href={backHref} className={backClass}>
             <OnboardingBackChevron className="size-4 shrink-0" />
@@ -187,7 +186,7 @@ export function OnboardingStickyFooter({
       {tertiary ? (
         <div className="order-3 w-full shrink-0 sm:order-2 sm:w-auto [&:empty]:hidden">{tertiary}</div>
       ) : null}
-      <div className="order-2 flex shrink-0 items-center justify-end sm:order-3">
+      <div className="order-2 flex shrink-0 items-center justify-end self-center sm:order-3">
         {primaryAsButton ? (
           <button
             type="button"

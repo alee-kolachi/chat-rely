@@ -24,19 +24,37 @@ export type OnboardingIndexingSnapshot = {
 
 function jobMetrics(job: IndexingJobPayload): Record<string, unknown> {
   const raw = job?.metrics;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* ignore malformed metrics */
+    }
+  }
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     return raw as Record<string, unknown>;
   }
   return {};
 }
 
+function planStorageCapBytes(job: IndexingJobPayload): number {
+  const metrics = jobMetrics(job);
+  return Number(job?.plan_storage_cap_bytes) || Number(metrics.plan_storage_cap_bytes) || 0;
+}
+
 function crawlStoppedForBudget(job: IndexingJobPayload): boolean {
   return String(jobMetrics(job).crawl_stopped_reason ?? "") === "budget";
 }
 
+function crawlBytesUsed(job: IndexingJobPayload): number {
+  return Number(jobMetrics(job).crawl_http_bytes) || 0;
+}
+
 export function onboardingStorageLimitLabel(job: IndexingJobPayload): string | null {
-  const metrics = jobMetrics(job);
-  const cap = Number(metrics.plan_storage_cap_bytes) || 0;
+  const cap = planStorageCapBytes(job);
   if (cap > 0) return formatStorageBytes(cap);
   return null;
 }
@@ -46,10 +64,19 @@ export function onboardingStorageLimitReached(
   pagesProcessed: number,
   pagesTotal: number,
 ): boolean {
-  if (!crawlStoppedForBudget(job)) return false;
+  if (job?.storage_limit_reached === true) return true;
+
   if (pagesProcessed <= 0) return false;
   if (pagesTotal > 0 && pagesProcessed >= pagesTotal) return false;
-  return true;
+
+  if (crawlStoppedForBudget(job)) return true;
+
+  const planCap = planStorageCapBytes(job);
+  if (planCap > 0 && crawlBytesUsed(job) >= planCap * 0.9) {
+    return true;
+  }
+
+  return false;
 }
 
 function storageLimitHeadline(label: string | null): string {

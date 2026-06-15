@@ -4,16 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
 import {
+  WidgetChatPreviewFooter,
   WidgetChatShell,
   WidgetComposerPreview,
   WidgetPreviewUserBubble,
   WidgetWelcomeMessages,
 } from "@/components/chat/widget-chat-shell";
 import { WidgetWelcomeScreen } from "@/components/chat/widget-welcome-screen";
-import {
-  PoweredByChatRely,
-  WIDGET_POWERED_BY_STRIP_CLASS,
-} from "@/components/branding/powered-by-chatrely";
+import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import { backendFetch } from "@/lib/backend-api";
 import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
@@ -191,6 +189,9 @@ export default function AppearanceToneOnboardingPage() {
     [widgetAppearance, previewBrandColor],
   );
 
+  const appearanceChatHeightClass =
+    "h-full min-h-[15.4rem] w-full sm:min-h-[22rem] lg:min-h-[572px]";
+
   async function handleContinue() {
     if (!agentId || isSaving) return;
     setIsSaving(true);
@@ -255,19 +256,13 @@ export default function AppearanceToneOnboardingPage() {
                     <span className="text-ds-primary font-bold">Appearance</span> and tone
                   </h1>
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
-                    Match your brand and how the agent sounds. These settings apply in the playground and on your site.
-                  </p>
-                  <p className="text-ds-on-surface-variant mt-3 text-sm leading-relaxed">
-                    <span className="text-ds-on-surface font-bold">Advanced settings</span> (welcome message, welcome
-                    screen copy, tone instructions, and widget colors) are in Agent Settings after onboarding.
+                    <span className="text-ds-on-surface font-bold">Advanced settings</span> (welcome screen copy,
+                    detailed tone instructions, widget colors) are in Agent Settings after onboarding.
                   </p>
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <p className="text-ds-on-surface mb-1 text-sm font-semibold">Welcome screen</p>
-                      <p className="ds-app-body-muted mb-4">
-                        Home view visitors see before chat. Customize the copy later in Agent Settings → Appearance.
-                      </p>
+                      <p className="text-ds-on-surface mb-3 text-sm font-semibold">Welcome screen</p>
                       <label className="flex cursor-pointer items-center gap-3">
                         <input
                           type="checkbox"
@@ -280,12 +275,7 @@ export default function AppearanceToneOnboardingPage() {
                     </div>
 
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <p className="text-ds-on-surface mb-1 text-sm font-semibold">Tone</p>
-                      <p className="ds-app-body-muted mb-3">How replies sound to customers.</p>
-                      <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
-                        <span className="text-ds-on-surface font-bold">Detailed tone instructions</span> are in Agent
-                        Settings → Tone.
-                      </p>
+                      <p className="text-ds-on-surface mb-3 text-sm font-semibold">Tone</p>
                       <AppSegmentGroupSimple
                         aria-label="Tone"
                         value={tone}
@@ -356,16 +346,8 @@ export default function AppearanceToneOnboardingPage() {
                   aria-hidden
                 />
                 <div className="relative z-[1] mx-auto flex w-full max-w-[26rem] flex-col items-center pb-2">
-                  <div
-                    className={cn(
-                      "flex w-full flex-col overflow-hidden rounded-[28px]",
-                      welcomeScreenEnabled && !previewChatOpen
-                        ? "border-transparent shadow-none"
-                        : "border-ds-outline shadow-[0_20px_55px_rgba(15,23,42,0.06)] border",
-                    )}
-                  >
                     {welcomeScreenEnabled && !previewChatOpen ? (
-                      <>
+                      <div className="border-ds-outline flex w-full flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]">
                         <WidgetWelcomeScreen
                           agentName={agentName}
                           brandColorHex={previewBrandColor}
@@ -377,11 +359,13 @@ export default function AppearanceToneOnboardingPage() {
                           socialLinks={welcomeScreenPreview.socialLinks}
                           websiteLogoUrl={websiteLogoUrl}
                           websiteLogoPending={isLoading}
-                          className="min-h-[14rem] w-full sm:min-h-[20rem] lg:min-h-[520px]"
+                          className={appearanceChatHeightClass}
                           onChatClick={() => setPreviewChatOpen(true)}
                         />
-                        <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
-                      </>
+                        <div className="flex items-center justify-center px-5 py-2.5">
+                          <PoweredByChatRely compact className="px-0 pb-[max(10px,env(safe-area-inset-bottom,0px))] pt-0" />
+                        </div>
+                      </div>
                     ) : (
                       <WidgetChatShell
                         agentName={agentName}
@@ -389,23 +373,21 @@ export default function AppearanceToneOnboardingPage() {
                         widgetAppearance={widgetAppearance}
                         websiteLogoUrl={websiteLogoUrl}
                         websiteLogoPending={isLoading}
-                        statusLine="Typically replies instantly"
-                        shellHeightClass="h-full min-h-[14rem] w-full sm:min-h-[20rem] lg:min-h-[520px]"
-                        className="w-full rounded-none border-0 shadow-none"
+                        shellHeightClass={appearanceChatHeightClass}
                         footerBorderless
                         onHeaderBack={
                           welcomeScreenEnabled ? () => setPreviewChatOpen(false) : undefined
                         }
                         headerBackLabel="Back to welcome screen"
                         footer={
-                          <div>
+                          <WidgetChatPreviewFooter>
                             <WidgetComposerPreview
                               brandColorHex={previewBrandColor}
-                              accentColor={resolvedPreview.colors.userBubble}
+                              accentColor={resolvedPreview.colors.header}
                               composerBackground={resolvedPreview.colors.composerBackground}
+                              className="pb-[max(14px,env(safe-area-inset-bottom,0px))] pt-0"
                             />
-                            <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
-                          </div>
+                          </WidgetChatPreviewFooter>
                         }
                       >
                         <div
@@ -424,7 +406,6 @@ export default function AppearanceToneOnboardingPage() {
                         </div>
                       </WidgetChatShell>
                     )}
-                  </div>
                   <div className="mt-3 flex w-full justify-end">
                     <WidgetBrandAvatar
                       logoUrl={websiteLogoUrl}

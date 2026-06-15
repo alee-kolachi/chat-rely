@@ -6,10 +6,17 @@ import { ChevronLeft } from "lucide-react";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
 import { WidgetEmbedHeader } from "@/components/chat/widget-embed-header";
 import {
+  widgetComposerAccentColor,
   widgetComposerFieldClass,
+  widgetComposerFieldStyle,
+  widgetComposerPlaceholderClass,
   widgetComposerSendButtonClass,
+  widgetComposerSendStyle,
 } from "@/components/chat/playground-composer";
 import { WidgetSendIcon } from "@/components/chat/widget-send-icon";
+import {
+  PoweredByChatRely,
+} from "@/components/branding/powered-by-chatrely";
 import {
   chatSurfaceGradient,
   resolveWidgetAppearance,
@@ -268,9 +275,31 @@ export function WidgetPreviewUserBubble({
   );
 }
 
+/** Powered-by strip centered in the gap above the composer (onboarding / previews). */
+export function WidgetChatPreviewFooter({
+  showPoweredBy = true,
+  children,
+  className,
+}: {
+  showPoweredBy?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-col", className)}>
+      {showPoweredBy ? (
+        <div className="flex items-center justify-center px-5 py-2.5">
+          <PoweredByChatRely compact className="px-0 pb-0 pt-0" />
+        </div>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 /** Static composer row for appearance preview; matches live widget field + send chrome. */
 export function WidgetComposerPreview({
-  placeholder = "Write a message…",
+  placeholder = "Message…",
   brandColorHex,
   accentColor,
   composerBackground,
@@ -279,37 +308,23 @@ export function WidgetComposerPreview({
 }: {
   placeholder?: string;
   brandColorHex?: string | null;
+  /** Header/accent color for the send button (live widget uses header, not user bubble). */
   accentColor: string;
   composerBackground?: string;
   className?: string;
   placeholderClassName?: string;
 }) {
-  const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
-  const chrome = brandChromeClasses(accentColor);
+  const accent = accentColor.trim() || widgetComposerAccentColor(brandColorHex);
 
   return (
-    <div className={cn("px-4 pb-1.5 pt-1", className)}>
+    <div className={cn("px-4 pt-1 pb-1.5", className)}>
       <div
         className={cn(widgetComposerFieldClass, "pointer-events-none")}
-        style={{ backgroundColor: composerBackground ?? "#FFFFFF" }}
+        style={widgetComposerFieldStyle(accent, composerBackground)}
       >
-        <span
-          className={cn(
-            "min-h-9 flex-1 py-2 text-sm leading-snug text-ds-on-surface-variant/70",
-            placeholderClassName,
-          )}
-        >
-          {placeholder}
-        </span>
-        <span
-          className={cn(
-            widgetComposerSendButtonClass,
-            hasBrand ? chrome.fabIconClass : "text-ds-on-primary"
-          )}
-          style={{ backgroundColor: accentColor }}
-          aria-hidden
-        >
-          <WidgetSendIcon className="size-4" />
+        <span className={cn(widgetComposerPlaceholderClass, placeholderClassName)}>{placeholder}</span>
+        <span className={widgetComposerSendButtonClass} style={widgetComposerSendStyle(accent)} aria-hidden>
+          <WidgetSendIcon className="size-[18px]" />
         </span>
       </div>
     </div>

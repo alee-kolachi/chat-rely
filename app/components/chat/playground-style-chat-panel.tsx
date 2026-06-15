@@ -5,13 +5,10 @@ import { StreamingAssistantMessage, type AssistantStreamPhase } from "@/componen
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
 import { PlaygroundComposer } from "@/components/chat/playground-composer";
 import {
+  WidgetChatPreviewFooter,
   WidgetChatShell,
 } from "@/components/chat/widget-chat-shell";
 import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
-import {
-  PoweredByChatRely,
-  WIDGET_POWERED_BY_STRIP_CLASS,
-} from "@/components/branding/powered-by-chatrely";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
 import {
   getWidgetPreviewContext,
@@ -56,7 +53,7 @@ export function PlaygroundStyleChatPanel({
   onShowSimilarProducts,
   composerDisabled = false,
   showPoweredBy = true,
-  statusLine = "Typically replies instantly",
+  statusLine,
 }: {
   agentName: string;
   brandColorHex?: string | null;
@@ -82,7 +79,7 @@ export function PlaygroundStyleChatPanel({
   /** Static preview: composer is visible but not interactive. */
   composerDisabled?: boolean;
   showPoweredBy?: boolean;
-  statusLine?: string;
+  statusLine?: string | null;
 }) {
   const widgetAppearance = readWidgetAppearance(behaviorSettings);
   const { resolved, headerChrome, userChrome } = getWidgetPreviewContext(
@@ -108,35 +105,35 @@ export function PlaygroundStyleChatPanel({
       widgetAppearance={widgetAppearance}
       websiteLogoUrl={websiteLogoUrl}
       websiteLogoPending={websiteLogoPending}
-      statusLine={statusLine}
+      statusLine={statusLine ?? undefined}
       headerActions={headerExtra}
       shellHeightClass={shellHeightClass ?? "h-[min(37.5rem,85vh)] max-h-full shrink-0"}
       footerBorderless
       footer={
-        <div className="px-4 pb-1.5 pt-1 sm:px-5">
-          <div className="flex flex-col gap-1">
-            <PlaygroundComposer
-              textareaRef={messageInputRef}
-              value={messageInput}
-              onChange={onMessageInputChange}
-              onSend={onSend}
-              sendDisabled={sendDisabled}
-              disabled={composerDisabled}
-              placeholder={composerPlaceholder}
-              brandColorHex={brandColorHex}
-              hasBrand={hasBrand}
-              chrome={headerChrome}
-              shellStyle={{
-                backgroundColor: resolved.colors.composerBackground,
-              }}
-              submitType="submit"
-            />
-            {composerError ? <p className="text-sm text-rose-600">{composerError}</p> : null}
+        <WidgetChatPreviewFooter showPoweredBy={showPoweredBy}>
+          <div className="px-4 pt-0 pb-[max(14px,env(safe-area-inset-bottom,0px))]">
+            <div className="flex flex-col gap-1">
+              <PlaygroundComposer
+                textareaRef={messageInputRef}
+                value={messageInput}
+                onChange={onMessageInputChange}
+                onSend={onSend}
+                sendDisabled={sendDisabled}
+                disabled={composerDisabled}
+                placeholder={composerPlaceholder}
+                brandColorHex={brandColorHex}
+                hasBrand={hasBrand}
+                chrome={headerChrome}
+                sendAccentColor={resolved.colors.header}
+                shellStyle={{
+                  backgroundColor: resolved.colors.composerBackground,
+                }}
+                submitType="submit"
+              />
+              {composerError ? <p className="text-sm text-rose-600">{composerError}</p> : null}
+            </div>
           </div>
-          {showPoweredBy ? (
-            <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
-          ) : null}
-        </div>
+        </WidgetChatPreviewFooter>
       }
     >
       <div

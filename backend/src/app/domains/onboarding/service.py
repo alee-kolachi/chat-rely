@@ -9,7 +9,14 @@ from app.core.errors import AppError
 from app.domains.agents.schemas import AgentCreateRequest, AgentUpdateRequest
 from app.domains.agents.service import create_agent, update_agent
 from app.domains.knowledge.schemas import KnowledgeSourceCreateRequest
-from app.domains.knowledge.service import enqueue_index_website_source_queued, get_latest_job
+from app.domains.knowledge.service import (
+    _coerce_job_metrics,
+    _fetch_active_subscription_plan,
+    _included_storage_bytes_from_plan_features,
+    _indexing_job_storage_limit_reached,
+    enqueue_index_website_source_queued,
+    get_latest_job,
+)
 from app.domains.onboarding.schemas import (
     OnboardingCrawledPageDTO,
     OnboardingFinishRequest,
@@ -346,6 +353,24 @@ async def get_onboarding_status(db: AsyncSession, user_id: UUID, agent_id: UUID)
     ]
     website_url = str(source_row["source_url"]) if source_row else None
     website_title = str(source_row["title"]) if source_row else None
+
+    indexing_job_payload: dict[str, object] | None = None
+    if indexing_job:
+        job_dict = dict(indexing_job)
+        metrics = _coerce_job_metrics(job_dict.get("metrics"))
+        job_dict["metrics"] = metrics
+        _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+        plan_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+        job_dict["plan_storage_cap_bytes"] = plan_storage_cap_bytes
+        job_dict["storage_limit_reached"] = _indexing_job_storage_limit_reached(
+            str(job_dict.get("status") or ""),
+            metrics,
+            job_dict.get("pages_total"),
+            job_dict.get("pages_processed"),
+            plan_storage_cap_bytes,
+        )
+        indexing_job_payload = job_dict
+
     return OnboardingStatusResponse(
         agent_id=agent_id,
         current_step=int(session_row["current_step"]),
@@ -354,6 +379,6 @@ async def get_onboarding_status(db: AsyncSession, user_id: UUID, agent_id: UUID)
         website_url=website_url,
         website_title=website_title,
         preview_asset=dict(preview_asset) if preview_asset else None,
-        indexing_job=dict(indexing_job) if indexing_job else None,
+        indexing_job=indexing_job_payload,
         checklist=checklist,
     )
