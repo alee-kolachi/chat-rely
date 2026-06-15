@@ -10,6 +10,7 @@ import {
   TONE_OPTIONS,
   type AgentTone,
   mergeBehaviorSettings,
+  normalizeAgentTone,
   readBehaviorString,
 } from "@/lib/agent-settings";
 
@@ -24,10 +25,7 @@ export default function AgentSettingsTonePage() {
 function ToneForm() {
   const { selectedAgent, selectedAgentId, refreshAgents } = useDashboardAgent();
 
-  const initialTone = (() => {
-    const raw = readBehaviorString(selectedAgent?.behavior_settings, "tone");
-    return TONE_OPTIONS.includes(raw as AgentTone) ? (raw as AgentTone) : "Friendly";
-  })();
+  const initialTone = normalizeAgentTone(readBehaviorString(selectedAgent?.behavior_settings, "tone"));
   const initialDescription = readBehaviorString(selectedAgent?.behavior_settings, "tone_description");
 
   const [tone, setTone] = useState<AgentTone>(initialTone);

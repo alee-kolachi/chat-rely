@@ -109,6 +109,16 @@ export type AgentBehaviorSettings = {
 
 export const TONE_OPTIONS: readonly AgentTone[] = ["Friendly", "Professional", "Concise"] as const;
 
+/** Map stored `behavior_settings.tone` to a dashboard tone preset. */
+export function normalizeAgentTone(raw: unknown): AgentTone {
+  const key = typeof raw === "string" ? raw.trim() : "";
+  if (TONE_OPTIONS.includes(key as AgentTone)) return key as AgentTone;
+  const lower = key.toLowerCase();
+  if (lower === "professional" || lower === "formal") return "Professional";
+  if (lower === "concise" || lower === "brief" || lower === "short") return "Concise";
+  return "Friendly";
+}
+
 export const BRAND_COLOR_SWATCHES: readonly string[] = [
   "#000000",
   "#FB923C",

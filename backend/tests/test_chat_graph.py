@@ -630,6 +630,14 @@ def test_resolve_agent_type_prompt_custom_uses_stored_text_only() -> None:
     assert resolve_agent_type_prompt("custom", "") == ""
 
 
+def test_resolve_tone_instruction_accepts_dashboard_presets() -> None:
+    from app.domains.runtime.prompts.system import resolve_tone_instruction
+
+    assert "Friendly" in resolve_tone_instruction("Friendly")
+    assert "Professional" in resolve_tone_instruction("Professional")
+    assert "Concise" in resolve_tone_instruction("Concise")
+
+
 def test_agent_system_prompt_without_order_lookup_warns_on_order_questions() -> None:
     from app.domains.runtime.prompts.system import build_agent_system_prompt_for_tools
 
@@ -913,3 +921,33 @@ def test_count_unresolved_uses_message_metadata() -> None:
         count_consecutive_unresolved_assistant_turns(history, fallback_message="unused fallback")
         == 1
     )
+
+
+def test_grounding_prompts_forbid_inventing_and_internal_leakage() -> None:
+    from app.domains.runtime.prompts.grounding import (
+        customer_decline_language,
+        no_source_system_appendix,
+        relevance_gate_rules,
+    )
+    from app.domains.runtime.prompts.user import build_grounded_user_prompt
+    from app.domains.runtime.service import _build_open_chat_system_prompt
+
+    relevance = relevance_gate_rules(weak_match=True).lower()
+    assert "do not infer" in relevance
+    assert "loosely" in relevance
+
+    decline = customer_decline_language().lower()
+    assert "not sure" in decline
+    assert "what i have" in decline
+
+    open_chat = _build_open_chat_system_prompt("", human_escalation_enabled=False).lower()
+    assert "do not invent" in open_chat or "do not infer" in open_chat
+
+    grounded = build_grounded_user_prompt(
+        "[Excerpt 1]\nSome navigation text.",
+        "I'm not sure about that. Please contact support.",
+        "What is your refund policy?",
+        rag_fallback_mode="lexical_grounded_below_threshold",
+    ).lower()
+    assert "directly" in grounded
+    assert "decline" in grounded or "not sure" in grounded

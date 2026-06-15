@@ -1,3 +1,9 @@
+from app.domains.runtime.prompts.grounding import (
+    customer_decline_language,
+    relevance_gate_rules,
+)
+
+
 def resolve_tone_instruction(tone: str | None) -> str:
     """Maps merchant tone preset to an explicit model instruction (not UI-only)."""
     key = (tone or "").strip().lower()
@@ -248,7 +254,8 @@ def build_system_prompt(
             "If you are uncertain, say so explicitly and tell the customer how to get a confirmed answer.\n\n"
             "WHEN YOU CANNOT ANSWER\n"
             "- Do not guess. Do not hedge with vague industry generics.\n"
-            "- State in one sentence what you cannot confirm, then offer the most useful next step. "
+            "- If tool results and excerpts do not directly answer the question, decline politely, "
+            f"then offer the most useful next step. "
             "Never mention excerpts or the index to the customer.\n"
             f"{cannot_answer_next}"
         )
@@ -276,12 +283,13 @@ def build_system_prompt(
             "- Never mention excerpts, the knowledge index, or retrieval to the customer — reply as the brand.\n"
             "- Never say 'typically' or 'usually' as a substitute for confirmed brand-specific information.\n\n"
             "WHEN YOU CANNOT ANSWER\n"
-            "- Do not guess or fill gaps with plausible-sounding information.\n"
-            "- State in one sentence what you cannot confirm, then offer the most useful next step: "
-            f"{kb_cannot_answer_next}"
+            "- Do not guess or fill gaps with plausible-sounding or industry-generic information.\n"
+            "- If excerpts do not directly answer the question, decline politely in one short sentence, "
+            f"then offer the most useful next step: {kb_cannot_answer_next}"
         )
 
-    full = f"{support}{behavior}"
+    decline_block = customer_decline_language(escalation_enabled=human_escalation_enabled)
+    full = f"{support}{behavior}\n\n{relevance_gate_rules()}\n\n{decline_block}"
     if custom:
         return f"{custom}\n\n{full}"
     return full
@@ -302,6 +310,8 @@ def build_agent_system_prompt_for_tools(
     parts = [
         "You are this brand's support assistant. Be concise, accurate, and genuinely useful. "
         "A confident wrong answer damages trust more than an honest admission of uncertainty.",
+        relevance_gate_rules(),
+        customer_decline_language(escalation_enabled=human_escalation_enabled),
         "Use tools when the question requires live or sourced data. "
         "Reply directly — without calling any tool — for greetings, simple chitchat, "
         "questions about what you or this chat assistant can do (e.g. \"what do you do\", \"who are you\"), "
@@ -319,8 +329,8 @@ def build_agent_system_prompt_for_tools(
             "promotions, purchase perks, gifts, bonuses, deals, and any static content from the knowledge base. "
             "When they ask what they get with a purchase (e.g. 'do you offer anything when I buy'), "
             "search the knowledge base — not the product catalog. "
-            "Always call it before telling the customer you do not have information on a policy or promotion topic — "
-            "do not assume the knowledge base is empty."
+            "Always call it before declining on a policy or promotion topic — "
+            "if results are empty or irrelevant, decline politely; do not assume or invent."
         )
 
     if has_shopify_tools:
@@ -462,8 +472,8 @@ def build_agent_system_prompt_for_tools(
         "- Never invent prices, policies, order details, product facts, or contact information.\n"
         "- Never speculate about internal brand operations or team decisions not in your sources.\n"
         "- Never mention excerpts, the knowledge index, retrieval, or tools to the customer — reply as the brand.\n"
-        "- If tools return no useful data and indexed content does not cover it, say so in one sentence "
-        "and offer the most helpful next step available — do not guess."
+        f"- {relevance_gate_rules().replace(chr(10), ' ')}\n"
+        "- If tool results or passages do not directly answer the question, decline politely — do not guess."
     )
 
     block = "\n".join(parts)

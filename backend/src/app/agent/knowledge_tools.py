@@ -27,7 +27,8 @@ _SEARCH_KB_TOOL_DESCRIPTION = (
     "When the customer asks what they get with a purchase (offers, freebies, gifts, deals), "
     "search here — not the product catalog. "
     "Do not call for greetings, thanks, or chitchat. "
-    "Call this before telling the customer you do not have information on a policy or promotion topic."
+    "Call this before declining on a policy or promotion topic. "
+    "If results are empty or do not directly answer the question, decline politely — do not invent."
 )
 
 _SEARCH_KB_QUERY_DESCRIPTION = (
@@ -78,10 +79,23 @@ def build_search_knowledge_base_tool(
                 match_count=10,
             )
         block = _build_context_block(chunks[:RAG_PROMPT_CHUNK_COUNT], user_message=q)
+        rag_mode = str(_billing.get("rag_fallback_mode") or "")
+        weak = rag_mode in ("lexical_grounded_below_threshold", "lexical_supplement")
         return json.dumps(
             {
                 "excerpts": block,
                 "chunk_count": len(chunks),
+                "relevance": (
+                    "weak_match"
+                    if weak
+                    else ("no_match" if not block else "ok")
+                ),
+                "instruction": (
+                    "Excerpts are empty or not directly relevant. "
+                    "Do not invent an answer — decline politely in the brand voice."
+                    if not block or weak
+                    else "Use excerpts only if they directly answer the query."
+                ),
             }
         )
 

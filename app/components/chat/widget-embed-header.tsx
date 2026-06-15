@@ -84,7 +84,7 @@ export function WidgetEmbedHeader({
         <div className="relative flex h-9 min-w-0 items-center pl-0.5">
           <div
             className={cn(
-              "truncate text-[14px] font-semibold leading-none tracking-[-0.02em]",
+              "truncate text-[14px] font-normal leading-none tracking-[-0.02em]",
               chatSurface ? "text-slate-900" : chrome.titleClass,
               titleClassName,
             )}

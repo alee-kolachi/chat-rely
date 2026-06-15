@@ -2058,12 +2058,18 @@ async def _dashboard_update_crawl_job_progress(
     pages_processed: int,
     crawl_http_bytes_so_far: int | None = None,
     crawl_phase: str = "fetching_html",
+    crawl_stopped_reason: str | None = None,
+    plan_storage_cap_bytes: int | None = None,
 ) -> None:
     """Update indexing job counters only (no per-page DB writes). Used while the worker fetches HTML."""
     pct = 5 + int(min(19, 19 * pages_processed / max(pages_total_cap, 1)))
     mextra: dict[str, object] = {"crawl_phase": crawl_phase}
     if crawl_http_bytes_so_far is not None:
         mextra["crawl_http_bytes"] = crawl_http_bytes_so_far
+    if crawl_stopped_reason:
+        mextra["crawl_stopped_reason"] = crawl_stopped_reason
+    if plan_storage_cap_bytes is not None and plan_storage_cap_bytes > 0:
+        mextra["plan_storage_cap_bytes"] = plan_storage_cap_bytes
     await db.execute(
         text(
             """
@@ -2096,6 +2102,8 @@ async def _dashboard_persist_crawl_pages(
     pages: list[dict[str, object]],
     pages_total_cap: int,
     crawl_http_bytes_so_far: int | None = None,
+    crawl_stopped_reason: str | None = None,
+    plan_storage_cap_bytes: int | None = None,
 ) -> None:
     """Bulk-upsert crawled page rows once per phase (chunked), then refresh job progress."""
     await _require_knowledge_source_exists(db, source_id)
@@ -2113,6 +2121,8 @@ async def _dashboard_persist_crawl_pages(
         pages_processed=len(pages),
         crawl_http_bytes_so_far=crawl_http_bytes_so_far,
         crawl_phase="fetching_html",
+        crawl_stopped_reason=crawl_stopped_reason,
+        plan_storage_cap_bytes=plan_storage_cap_bytes,
     )
 
 
@@ -2367,6 +2377,7 @@ async def _dashboard_fetch_planned_urls_in_batches(
     crawl_run_id: UUID,
     urls: list[str],
     crawl_budget_bytes: int,
+    plan_storage_cap_bytes: int | None = None,
 ) -> tuple[list[dict[str, object]], int, str | None, int, str]:
     """Fetch HTML for URLs discovered via sitemap in small batches; commit after each batch."""
     if not urls:
@@ -2401,6 +2412,8 @@ async def _dashboard_fetch_planned_urls_in_batches(
             pages_total_cap=n,
             pages_processed=len(all_pages),
             crawl_http_bytes_so_far=total_saved,
+            crawl_stopped_reason=stopped if stopped == "budget" else None,
+            plan_storage_cap_bytes=plan_storage_cap_bytes if stopped == "budget" else None,
         )
         await db.commit()
         if stopped == "budget":
@@ -2415,6 +2428,8 @@ async def _dashboard_fetch_planned_urls_in_batches(
             pages=all_pages,
             pages_total_cap=n,
             crawl_http_bytes_so_far=total_saved,
+            crawl_stopped_reason=stopped if stopped == "budget" else None,
+            plan_storage_cap_bytes=plan_storage_cap_bytes if stopped == "budget" else None,
         )
         await db.commit()
     if stopped not in ("budget", "max_pages_safety"):
@@ -2601,6 +2616,7 @@ async def _complete_website_indexing_embedding_phase(
     include_rules: list[dict[str, str]],
     exclude_rules: list[dict[str, str]],
     effective_storage_cap_bytes: int,
+    plan_storage_cap_bytes: int | None = None,
 ) -> str | None:
     crawled_pages_with_text_count = len(usable_pages)
     skipped_already_indexed = 0
@@ -2693,6 +2709,8 @@ async def _complete_website_indexing_embedding_phase(
             "links_discovered_raw_anchors": links_discovered,
             "fetch_stats": fetch_stats,
         }
+        if plan_storage_cap_bytes and plan_storage_cap_bytes > 0:
+            success_metrics_obj["plan_storage_cap_bytes"] = plan_storage_cap_bytes
         if partial_warnings:
             success_metrics_obj["warnings"] = partial_warnings
         success_metrics = json.dumps(success_metrics_obj, default=str)
@@ -2884,6 +2902,8 @@ async def _complete_website_indexing_embedding_phase(
         "links_discovered_raw_anchors": links_discovered,
         "fetch_stats": fetch_stats,
     }
+    if plan_storage_cap_bytes and plan_storage_cap_bytes > 0:
+        success_metrics_obj["plan_storage_cap_bytes"] = plan_storage_cap_bytes
     if skipped_already_indexed:
         success_metrics_obj["urls_skipped_already_indexed"] = skipped_already_indexed
     if partial_warnings:
@@ -3023,6 +3043,7 @@ async def _process_website_embedding_only(
     dpc = job_metrics.get("dashboard_planned_url_count")
     dashboard_planned_url_count = int(dpc) if dpc is not None else None
     urls_fetched = int(job_metrics.get("urls_fetched") or len(pages))
+    stored_plan_cap = int(job_metrics.get("plan_storage_cap_bytes") or 0) or included_storage_cap_bytes
 
     return await _complete_website_indexing_embedding_phase(
         db,
@@ -3044,6 +3065,7 @@ async def _process_website_embedding_only(
         include_rules=include_rules,
         exclude_rules=exclude_rules,
         effective_storage_cap_bytes=effective_storage_cap_bytes,
+        plan_storage_cap_bytes=stored_plan_cap,
     )
 
 
@@ -3153,6 +3175,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                         crawl_run_id=crawl_run_id,
                         urls=queued_urls,
                         crawl_budget_bytes=crawl_budget_bytes,
+                        plan_storage_cap_bytes=included_storage_cap_bytes,
                     )
                 )
                 pages_persisted_incrementally = True
@@ -3267,6 +3290,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                         crawl_run_id=crawl_run_id,
                         urls=sitemap_urls,
                         crawl_budget_bytes=crawl_budget_bytes,
+                        plan_storage_cap_bytes=included_storage_cap_bytes,
                     )
                 )
                 pages_persisted_incrementally = True
@@ -3308,6 +3332,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                             crawl_run_id=crawl_run_id,
                             urls=sitemap_plan,
                             crawl_budget_bytes=crawl_budget_bytes,
+                            plan_storage_cap_bytes=included_storage_cap_bytes,
                         )
                     )
                     pages_persisted_incrementally = True
@@ -3368,6 +3393,18 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                         )
                     )
                     await _bfs_progress(pages, crawl_http_bytes, bfs_visits)
+                    if crawl_stopped_reason == "budget" and pages:
+                        await _dashboard_update_crawl_job_progress(
+                            db,
+                            job_id=job_id,
+                            pages_total_cap=max_pages,
+                            pages_processed=len(pages),
+                            crawl_http_bytes_so_far=crawl_http_bytes,
+                            crawl_phase="bfs_fetch",
+                            crawl_stopped_reason="budget",
+                            plan_storage_cap_bytes=included_storage_cap_bytes,
+                        )
+                        await db.commit()
                     if pages:
                         await _dashboard_persist_crawl_pages(
                             db,
@@ -3456,6 +3493,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                         {
                             "crawl_http_bytes": crawl_http_bytes,
                             "crawl_stopped_reason": crawl_stopped_reason,
+                            "plan_storage_cap_bytes": included_storage_cap_bytes,
                             "urls_fetched": len(pages),
                             "discovery_mode": website_discovery_mode,
                             **fetch_stats,
@@ -3497,6 +3535,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
                 "website_discovery_mode": website_discovery_mode,
                 "crawl_http_bytes": crawl_http_bytes,
                 "crawl_budget_bytes": crawl_budget_bytes,
+                "plan_storage_cap_bytes": included_storage_cap_bytes,
                 "crawl_stopped_reason": crawl_stopped_reason,
                 "links_discovered": links_discovered,
                 "fetch_stats": fetch_stats,
@@ -3526,6 +3565,7 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             include_rules=include_rules,
             exclude_rules=exclude_rules,
             effective_storage_cap_bytes=effective_storage_cap_bytes,
+            plan_storage_cap_bytes=included_storage_cap_bytes,
         )
     except Exception as exc:
         if isinstance(exc, IntegrityError):

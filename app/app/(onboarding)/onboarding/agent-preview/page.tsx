@@ -112,6 +112,10 @@ export default function AgentPreviewOnboardingPage() {
 
   const welcomeMessage = useMemo(() => {
     const who = agentName.trim() || "your support agent";
+    if (indexing.storageLimitReached) {
+      const capPhrase = indexing.storageLimitLabel ? `the ${indexing.storageLimitLabel} limit` : "your plan storage cap";
+      return `Hi! I'm ${who}. Ask me something your customers would. We hit ${capPhrase}, so only part of ${siteName} was imported.`;
+    }
     if (indexing.running) {
       return `Hi! I'm ${who}. Ask me something your customers would. We're still reading ${siteName}, so answers get better as more pages are indexed.`;
     }
@@ -119,7 +123,7 @@ export default function AgentPreviewOnboardingPage() {
       return `Hi! I'm ${who}. Site import hit a snag, but you can still try a question about ${siteName}.`;
     }
     return `Hi! I'm ${who}. Ask me something your customers would. I'll use what we know about ${siteName}.`;
-  }, [agentName, siteName, indexing.running, indexing.failed]);
+  }, [agentName, siteName, indexing.running, indexing.failed, indexing.storageLimitReached, indexing.storageLimitLabel]);
 
   const [messages, setMessages] = useState<PreviewMessage[]>([]);
 
@@ -407,7 +411,7 @@ export default function AgentPreviewOnboardingPage() {
                     widget.
                   </p>
 
-                  {indexing.running ? (
+                  {indexing.running && !indexing.storageLimitReached ? (
                     <div className="border-ds-outline mt-5 rounded-ds-lg border border-dashed bg-ds-sidebar/50 px-4 py-3">
                       <p className="text-ds-on-surface text-sm font-medium">Note</p>
                       <p className="text-ds-on-surface-variant mt-1 text-sm leading-relaxed">

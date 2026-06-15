@@ -1,22 +1,34 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
-import { PlaygroundStyleChatPanel } from "@/components/chat/playground-style-chat-panel";
+import {
+  WidgetChatShell,
+  WidgetComposerPreview,
+  WidgetPreviewUserBubble,
+  WidgetWelcomeMessages,
+} from "@/components/chat/widget-chat-shell";
+import { WidgetWelcomeScreen } from "@/components/chat/widget-welcome-screen";
+import {
+  PoweredByChatRely,
+  WIDGET_POWERED_BY_STRIP_CLASS,
+} from "@/components/branding/powered-by-chatrely";
 import { backendFetch } from "@/lib/backend-api";
 import { BRAND_COLOR_PRESETS } from "@/lib/brand-color-presets";
 import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
 import {
   TONE_OPTIONS,
-  WELCOME_MESSAGE_MAX,
   type AgentTone,
-  defaultWelcomeMessage,
-  defaultWelcomeMessages,
   effectiveWelcomeMessages,
+  formatHex,
+  normaliseHex,
+  normalizeAgentTone,
   readBehaviorString,
+  readWelcomeScreenEnabled,
+  resolveWelcomeScreenSettings,
 } from "@/lib/agent-settings";
-import { messageCreatedAtIso } from "@/lib/format-locale-datetime";
+import { readWidgetAppearance, resolveWidgetAppearance } from "@/lib/widget-appearance";
 import { faviconServiceUrl } from "@/lib/website-url";
 import { getOnboardingAgentName } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
@@ -49,13 +61,6 @@ type BootstrapPayload = {
   website_preview?: { source_url: string | null } | null;
 };
 
-function normalizeTone(raw: string | undefined): AgentTone {
-  const key = (raw ?? "").trim().toLowerCase();
-  if (key === "professional") return "Professional";
-  if (key === "concise") return "Concise";
-  return "Friendly";
-}
-
 export default function AppearanceToneOnboardingPage() {
   const router = useRouter();
   const [tone, setTone] = useState<AgentTone>("Friendly");
@@ -63,15 +68,14 @@ export default function AppearanceToneOnboardingPage() {
   const [selectedPreset, setSelectedPreset] = useState(0);
   const [agentName, setAgentName] = useState(() => getOnboardingAgentName()?.trim() || "Your agent");
   const [behaviorSettings, setBehaviorSettings] = useState<Record<string, unknown> | null>(null);
-  const [welcome, setWelcome] = useState("");
+  const [welcomeScreenEnabled, setWelcomeScreenEnabled] = useState(true);
+  const [previewChatOpen, setPreviewChatOpen] = useState(false);
   const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const agentId = useResolvedOnboardingAgentId();
-  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
-  const previewSampleTimestamp = useMemo(() => messageCreatedAtIso(), []);
 
   const agentPreviewBackHref = useMemo(() => {
     const path = "/onboarding/agent-preview";
@@ -105,7 +109,7 @@ export default function AppearanceToneOnboardingPage() {
 
         const agent = agentsRes.agents.find((row) => row.id === agentId);
         const behavior = agent?.behavior_settings ?? {};
-        const savedTone = normalizeTone(readBehaviorString(behavior, "tone"));
+        const savedTone = normalizeAgentTone(readBehaviorString(behavior, "tone"));
         const savedColor = parseBrandColorHex(behavior.brand_color) ?? BRAND_COLOR_PRESETS[0].hex;
         const presetIndex = BRAND_COLOR_PRESETS.findIndex(
           (p) => p.hex.toUpperCase() === savedColor.toUpperCase(),
@@ -113,7 +117,7 @@ export default function AppearanceToneOnboardingPage() {
 
         setAgentName(agent?.name?.trim() || getOnboardingAgentName()?.trim() || "Your agent");
         setBehaviorSettings(behavior);
-        setWelcome(readBehaviorString(behavior, "greeting_message"));
+        setWelcomeScreenEnabled(readWelcomeScreenEnabled(behavior));
         setTone(savedTone);
         setHex(savedColor.replace("#", ""));
         setSelectedPreset(presetIndex >= 0 ? presetIndex : 0);
@@ -132,11 +136,26 @@ export default function AppearanceToneOnboardingPage() {
     };
   }, [agentId]);
 
+  useEffect(() => {
+    if (!welcomeScreenEnabled) setPreviewChatOpen(false);
+  }, [welcomeScreenEnabled]);
+
+  const validHex = formatHex(hex) !== null;
+
   const previewBrandColor = useMemo(() => {
-    const parsed = parseBrandColorHex(`#${hex}`);
+    const parsed = formatHex(hex) ?? parseBrandColorHex(`#${hex}`);
     if (parsed) return parsed;
     return BRAND_COLOR_PRESETS[selectedPreset]?.hex ?? "#831C91";
   }, [hex, selectedPreset]);
+
+  function syncHexFromPicker(value: string) {
+    const newHex = value.replace("#", "").toUpperCase();
+    setHex(newHex);
+    const presetIndex = BRAND_COLOR_PRESETS.findIndex(
+      (p) => p.hex.replace("#", "").toUpperCase() === newHex,
+    );
+    if (presetIndex >= 0) setSelectedPreset(presetIndex);
+  }
 
   const previewBrandChrome = useMemo(() => brandChromeClasses(previewBrandColor), [previewBrandColor]);
 
@@ -148,26 +167,28 @@ export default function AppearanceToneOnboardingPage() {
     [behaviorSettings, previewBrandColor],
   );
 
-  const previewAssistantMessages = useMemo(() => {
-    const behavior = { greeting_message: welcome.trim() || undefined };
-    return effectiveWelcomeMessages(behavior, agentName);
-  }, [welcome, agentName]);
+  const previewAssistantMessages = useMemo(
+    () => effectiveWelcomeMessages(behaviorSettings ?? {}, agentName),
+    [behaviorSettings, agentName],
+  );
 
-  const previewMessages = useMemo(
-    () => [
-      ...previewAssistantMessages.map((text) => ({
-        from: "assistant" as const,
-        text,
-        streamPhase: "done" as const,
-      })),
-      {
-        from: "user" as const,
-        text: "Sample visitor reply",
-        streamPhase: "done" as const,
-        createdAt: previewSampleTimestamp,
-      },
-    ],
-    [previewAssistantMessages, previewSampleTimestamp],
+  const welcomeScreenPreview = useMemo(
+    () =>
+      resolveWelcomeScreenSettings({
+        ...(behaviorSettings ?? {}),
+        welcome_screen_enabled: welcomeScreenEnabled,
+      }),
+    [behaviorSettings, welcomeScreenEnabled],
+  );
+
+  const widgetAppearance = useMemo(
+    () => readWidgetAppearance(previewBehaviorSettings),
+    [previewBehaviorSettings],
+  );
+
+  const resolvedPreview = useMemo(
+    () => resolveWidgetAppearance(widgetAppearance, previewBrandColor),
+    [widgetAppearance, previewBrandColor],
   );
 
   async function handleContinue() {
@@ -180,9 +201,8 @@ export default function AppearanceToneOnboardingPage() {
         tone,
         brand_color: previewBrandColor,
         widget_position: "bottom_right",
+        welcome_screen_enabled: welcomeScreenEnabled,
       };
-      const trimmedWelcome = welcome.trim();
-      if (trimmedWelcome) prefs.greeting_message = trimmedWelcome;
       await backendFetch("/api/v1/onboarding/preferences", {
         method: "PATCH",
         body: JSON.stringify(prefs),
@@ -193,10 +213,6 @@ export default function AppearanceToneOnboardingPage() {
     } finally {
       setIsSaving(false);
     }
-  }
-
-  function handlePreviewSend(event: FormEvent) {
-    event.preventDefault();
   }
 
   return (
@@ -211,7 +227,7 @@ export default function AppearanceToneOnboardingPage() {
           backLabel="Back"
           primaryAsButton
           onPrimaryClick={handleContinue}
-          primaryDisabled={!agentId || isLoading}
+          primaryDisabled={!agentId || isLoading || !validHex}
           primaryPending={isSaving}
           primaryLabel={isSaving ? "Saving..." : "Continue"}
         />
@@ -241,35 +257,34 @@ export default function AppearanceToneOnboardingPage() {
                   <p className="text-ds-on-surface-variant mt-2 text-sm leading-relaxed">
                     Match your brand and how the agent sounds. These settings apply in the playground and on your site.
                   </p>
+                  <p className="text-ds-on-surface-variant mt-3 text-sm leading-relaxed">
+                    <span className="text-ds-on-surface font-bold">Advanced settings</span> (welcome message, welcome
+                    screen copy, tone instructions, and widget colors) are in Agent Settings after onboarding.
+                  </p>
 
                   <div className="mt-8 space-y-5 sm:mt-10">
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
-                      <label htmlFor="onboarding-welcome" className="text-ds-on-surface mb-1 block text-sm font-semibold">
-                        Welcome message <span className="text-ds-on-surface-variant font-normal">(optional)</span>
-                      </label>
-                      <p className="ds-app-body-muted mb-2 text-sm">
-                        First messages customers see. Leave blank to use:
+                      <p className="text-ds-on-surface mb-1 text-sm font-semibold">Welcome screen</p>
+                      <p className="ds-app-body-muted mb-4">
+                        Home view visitors see before chat. Customize the copy later in Agent Settings → Appearance.
                       </p>
-                      <ul className="ds-app-body-muted mb-2 list-disc space-y-1 pl-5 text-sm">
-                        {defaultWelcomeMessages(agentName).map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                      <textarea
-                        id="onboarding-welcome"
-                        className="ds-app-field min-h-[4.5rem] w-full rounded-ds-lg text-sm leading-relaxed"
-                        value={welcome}
-                        onChange={(e) => setWelcome(e.target.value)}
-                        maxLength={WELCOME_MESSAGE_MAX}
-                        placeholder={defaultWelcomeMessage(agentName)}
-                      />
+                      <label className="flex cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          className="border-ds-outline text-ds-primary size-4 rounded border"
+                          checked={welcomeScreenEnabled}
+                          onChange={(e) => setWelcomeScreenEnabled(e.target.checked)}
+                        />
+                        <span className="text-ds-on-surface text-sm font-medium">Show welcome screen in widget</span>
+                      </label>
                     </div>
 
                     <div className="border-ds-outline rounded-ds-lg border bg-white p-4 sm:p-5">
                       <p className="text-ds-on-surface mb-1 text-sm font-semibold">Tone</p>
                       <p className="ds-app-body-muted mb-3">How replies sound to customers.</p>
                       <p className="text-ds-on-surface-variant mb-3 text-xs leading-relaxed">
-                        You can add detailed brand instructions later in Agent Settings → Tone.
+                        <span className="text-ds-on-surface font-bold">Detailed tone instructions</span> are in Agent
+                        Settings → Tone.
                       </p>
                       <AppSegmentGroupSimple
                         aria-label="Tone"
@@ -283,6 +298,13 @@ export default function AppearanceToneOnboardingPage() {
                       <p className="text-ds-on-surface mb-1 text-sm font-semibold">Brand color</p>
                       <p className="ds-app-body-muted mb-4">Widget header and launcher accent.</p>
                       <div className="flex flex-wrap items-center gap-2.5">
+                        <input
+                          type="color"
+                          className="border-ds-outline size-11 shrink-0 cursor-pointer rounded-ds-lg border bg-white p-1 touch-manipulation sm:size-10"
+                          value={formatHex(hex) ?? BRAND_COLOR_PRESETS[0].hex}
+                          onChange={(e) => syncHexFromPicker(e.target.value)}
+                          aria-label="Brand color picker"
+                        />
                         {BRAND_COLOR_PRESETS.map((preset, index) => (
                           <button
                             key={preset.hex}
@@ -306,12 +328,16 @@ export default function AppearanceToneOnboardingPage() {
                           <span className="ds-app-body-muted shrink-0 px-2 font-mono">#</span>
                           <OnboardingInput
                             value={hex}
-                            onChange={(e) => setHex(e.target.value.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6))}
+                            onChange={(e) => syncHexFromPicker(normaliseHex(e.target.value))}
                             className="min-w-0 w-full border-0 py-2 font-mono text-xs uppercase focus:ring-0 sm:w-24"
                             aria-label="Hex color"
+                            spellCheck={false}
                           />
                         </div>
                       </div>
+                      {!validHex && hex.length > 0 ? (
+                        <p className="mt-2 text-xs font-medium text-rose-600">Hex must be 6 characters (0-9, A-F).</p>
+                      ) : null}
                     </div>
 
                     {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
@@ -330,24 +356,75 @@ export default function AppearanceToneOnboardingPage() {
                   aria-hidden
                 />
                 <div className="relative z-[1] mx-auto flex w-full max-w-[26rem] flex-col items-center pb-2">
-                  <PlaygroundStyleChatPanel
-                    agentName={agentName}
-                    brandColorHex={previewBrandColor}
-                    behaviorSettings={previewBehaviorSettings}
-                    websiteLogoUrl={websiteLogoUrl}
-                    websiteLogoPending={isLoading}
-                    messages={previewMessages}
-                    isSending={false}
-                    messageInput=""
-                    onMessageInputChange={() => {}}
-                    onSend={handlePreviewSend}
-                    sendDisabled
-                    composerDisabled
-                    composerPlaceholder="Test your agent…"
-                    messageInputRef={messageInputRef}
-                    messagesScrollRef={messagesScrollRef}
-                    shellHeightClass="h-full min-h-[14rem] w-full sm:min-h-[20rem] lg:min-h-[520px]"
-                  />
+                  <div
+                    className={cn(
+                      "flex w-full flex-col overflow-hidden rounded-[28px]",
+                      welcomeScreenEnabled && !previewChatOpen
+                        ? "border-transparent shadow-none"
+                        : "border-ds-outline shadow-[0_20px_55px_rgba(15,23,42,0.06)] border",
+                    )}
+                  >
+                    {welcomeScreenEnabled && !previewChatOpen ? (
+                      <>
+                        <WidgetWelcomeScreen
+                          agentName={agentName}
+                          brandColorHex={previewBrandColor}
+                          panelBackgroundHex={resolvedPreview.colors.panelBackground}
+                          headline={welcomeScreenPreview.headline}
+                          headlineColor={welcomeScreenPreview.headlineColor}
+                          description={welcomeScreenPreview.description}
+                          buttonLabel={welcomeScreenPreview.buttonLabel}
+                          socialLinks={welcomeScreenPreview.socialLinks}
+                          websiteLogoUrl={websiteLogoUrl}
+                          websiteLogoPending={isLoading}
+                          className="min-h-[14rem] w-full sm:min-h-[20rem] lg:min-h-[520px]"
+                          onChatClick={() => setPreviewChatOpen(true)}
+                        />
+                        <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
+                      </>
+                    ) : (
+                      <WidgetChatShell
+                        agentName={agentName}
+                        brandColorHex={previewBrandColor}
+                        widgetAppearance={widgetAppearance}
+                        websiteLogoUrl={websiteLogoUrl}
+                        websiteLogoPending={isLoading}
+                        statusLine="Typically replies instantly"
+                        shellHeightClass="h-full min-h-[14rem] w-full sm:min-h-[20rem] lg:min-h-[520px]"
+                        className="w-full rounded-none border-0 shadow-none"
+                        footerBorderless
+                        onHeaderBack={
+                          welcomeScreenEnabled ? () => setPreviewChatOpen(false) : undefined
+                        }
+                        headerBackLabel="Back to welcome screen"
+                        footer={
+                          <div>
+                            <WidgetComposerPreview
+                              brandColorHex={previewBrandColor}
+                              accentColor={resolvedPreview.colors.userBubble}
+                              composerBackground={resolvedPreview.colors.composerBackground}
+                            />
+                            <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
+                          </div>
+                        }
+                      >
+                        <div
+                          ref={messagesScrollRef}
+                          className="h-full space-y-3 overflow-y-auto px-4 py-4 sm:px-4"
+                        >
+                          <WidgetWelcomeMessages
+                            messages={previewAssistantMessages}
+                            resolved={resolvedPreview}
+                          />
+                          <div className="flex justify-end">
+                            <WidgetPreviewUserBubble resolved={resolvedPreview}>
+                              Sample visitor reply
+                            </WidgetPreviewUserBubble>
+                          </div>
+                        </div>
+                      </WidgetChatShell>
+                    )}
+                  </div>
                   <div className="mt-3 flex w-full justify-end">
                     <WidgetBrandAvatar
                       logoUrl={websiteLogoUrl}

@@ -3,10 +3,21 @@
 import type { FormEvent, ReactNode, RefObject } from "react";
 import { StreamingAssistantMessage, type AssistantStreamPhase } from "@/components/chat/StreamingAssistantMessage";
 import { MessageTimestamp, UserBubbleBody } from "@/components/chat/message-timestamp";
-import { WidgetBrandAvatar } from "@/components/chat/widget-brand-avatar";
-import { parseBrandColorHex } from "@/lib/brand-chrome";
 import { PlaygroundComposer } from "@/components/chat/playground-composer";
-import { getWidgetPreviewContext } from "@/lib/widget-appearance";
+import {
+  WidgetChatShell,
+} from "@/components/chat/widget-chat-shell";
+import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
+import {
+  PoweredByChatRely,
+  WIDGET_POWERED_BY_STRIP_CLASS,
+} from "@/components/branding/powered-by-chatrely";
+import { parseBrandColorHex } from "@/lib/brand-chrome";
+import {
+  getWidgetPreviewContext,
+  readWidgetAppearance,
+  userBubbleGradient,
+} from "@/lib/widget-appearance";
 import { cn } from "@/lib/utils";
 import type { ProductCard, ProductDetail } from "@/lib/product-card";
 
@@ -44,6 +55,8 @@ export function PlaygroundStyleChatPanel({
   onShowProductDetails,
   onShowSimilarProducts,
   composerDisabled = false,
+  showPoweredBy = true,
+  statusLine = "Typically replies instantly",
 }: {
   agentName: string;
   brandColorHex?: string | null;
@@ -68,76 +81,70 @@ export function PlaygroundStyleChatPanel({
   onShowSimilarProducts?: (product: ProductCard) => void;
   /** Static preview: composer is visible but not interactive. */
   composerDisabled?: boolean;
+  showPoweredBy?: boolean;
+  statusLine?: string;
 }) {
+  const widgetAppearance = readWidgetAppearance(behaviorSettings);
   const { resolved, headerChrome, userChrome } = getWidgetPreviewContext(
     behaviorSettings,
     brandColorHex,
-    planSlug
+    planSlug,
   );
   const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
   const displayName = (agentName?.trim() || "Assistant preview").trim();
 
-  const assistantBubbleClass = "rounded-2xl rounded-tl-none border px-4 py-3 text-sm shadow-sm sm:px-5";
+  const assistantBubbleClass =
+    "max-w-full rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[13px] leading-snug";
   const assistantBubbleStyle = {
     backgroundColor: resolved.colors.assistantBubble,
-    borderColor: resolved.colors.assistantBubbleBorder,
+    borderColor: "rgba(15, 23, 42, 0.05)",
     color: resolved.colors.textPrimary,
   };
 
   return (
-    <div
-      className={cn(
-        "border-ds-outline flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] border shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
-        shellHeightClass ?? "h-[min(37.5rem,85vh)] max-h-full shrink-0"
-      )}
-      style={{
-        backgroundColor: resolved.colors.panelBackground,
-        borderColor: resolved.colors.assistantBubbleBorder,
-        color: resolved.colors.textPrimary,
-      }}
-    >
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-between border-b px-5 py-3.5 sm:px-6",
-          hasBrand ? "border-black/10" : "border-ds-outline bg-ds-sidebar"
-        )}
-        style={
-          hasBrand
-            ? { backgroundColor: resolved.colors.header }
-            : resolved.themeMode === "dark"
-              ? { backgroundColor: resolved.colors.composerBackground }
-              : undefined
-        }
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <WidgetBrandAvatar
-            logoUrl={websiteLogoUrl ?? null}
-            logoPending={websiteLogoPending}
-            hasBrand={hasBrand}
-            chrome={headerChrome}
-            size="header"
-          />
-          <div className="min-w-0">
-            <h3
-              className={cn(
-                "truncate text-sm font-semibold tracking-tight",
-                hasBrand && headerChrome ? headerChrome.titleClass : "text-ds-on-surface"
-              )}
-            >
-              {displayName}
-            </h3>
+    <WidgetChatShell
+      agentName={displayName}
+      brandColorHex={brandColorHex}
+      widgetAppearance={widgetAppearance}
+      websiteLogoUrl={websiteLogoUrl}
+      websiteLogoPending={websiteLogoPending}
+      statusLine={statusLine}
+      headerActions={headerExtra}
+      shellHeightClass={shellHeightClass ?? "h-[min(37.5rem,85vh)] max-h-full shrink-0"}
+      footerBorderless
+      footer={
+        <div className="px-4 pb-1.5 pt-1 sm:px-5">
+          <div className="flex flex-col gap-1">
+            <PlaygroundComposer
+              textareaRef={messageInputRef}
+              value={messageInput}
+              onChange={onMessageInputChange}
+              onSend={onSend}
+              sendDisabled={sendDisabled}
+              disabled={composerDisabled}
+              placeholder={composerPlaceholder}
+              brandColorHex={brandColorHex}
+              hasBrand={hasBrand}
+              chrome={headerChrome}
+              shellStyle={{
+                backgroundColor: resolved.colors.composerBackground,
+              }}
+              submitType="submit"
+            />
+            {composerError ? <p className="text-sm text-rose-600">{composerError}</p> : null}
           </div>
+          {showPoweredBy ? (
+            <PoweredByChatRely compact className={WIDGET_POWERED_BY_STRIP_CLASS} />
+          ) : null}
         </div>
-        {headerExtra ? <div className="shrink-0">{headerExtra}</div> : null}
-      </div>
-
+      }
+    >
       <div
         ref={messagesScrollRef}
         onScroll={onMessagesScroll}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-        style={{ backgroundColor: resolved.colors.panelBackground }}
+        className="h-full min-h-0 overflow-y-auto overscroll-contain"
       >
-        <div className="space-y-3 px-4 py-5 sm:px-5 sm:py-8">
+        <div className="space-y-3 px-4 py-4 sm:px-4">
           {messages.map((msg, index) => {
             const isLastAssistant = msg.from === "assistant" && index === messages.length - 1;
             const phase: AssistantStreamPhase =
@@ -146,7 +153,7 @@ export function PlaygroundStyleChatPanel({
             const hasCarousel =
               msg.from === "assistant" && Boolean(msg.products?.length && !msg.productDetail);
             const assistantTimeFooter =
-              msg.createdAt && (phase === "done" || phase === "error") ? (
+              msg.createdAt && phase !== "thinking" && (msg.text.trim() || phase === "error") ? (
                 <MessageTimestamp
                   variant="bubble"
                   value={msg.createdAt}
@@ -163,10 +170,29 @@ export function PlaygroundStyleChatPanel({
                   <div
                     className={cn(
                       "flex min-w-0 flex-col gap-1",
-                      hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[92%]"
+                      hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[92%]",
                     )}
                   >
-                      {hasCarousel ? (
+                    {hasCarousel ? (
+                      <StreamingAssistantMessage
+                        text={msg.text}
+                        phase={phase}
+                        errorMessage={msg.errorMessage}
+                        statusLine={msg.statusLine}
+                        brandColorHex={brandColorHex}
+                        products={msg.products}
+                        productDetail={msg.productDetail}
+                        productActionsDisabled={isSending}
+                        introBubbleClassName={assistantBubbleClass}
+                        introBubbleStyle={assistantBubbleStyle}
+                        bubbleFooter={assistantTimeFooter}
+                        onShowProductDetails={onShowProductDetails}
+                        onShowSimilarProducts={onShowSimilarProducts}
+                      />
+                    ) : phase === "thinking" && !msg.text.trim() ? (
+                      <WidgetEmbedThinkingDots accentColor={resolved.colors.header} />
+                    ) : (
+                      <div className={assistantBubbleClass} style={assistantBubbleStyle}>
                         <StreamingAssistantMessage
                           text={msg.text}
                           phase={phase}
@@ -176,35 +202,18 @@ export function PlaygroundStyleChatPanel({
                           products={msg.products}
                           productDetail={msg.productDetail}
                           productActionsDisabled={isSending}
-                          introBubbleClassName={assistantBubbleClass}
-                          introBubbleStyle={assistantBubbleStyle}
-                          bubbleFooter={assistantTimeFooter}
                           onShowProductDetails={onShowProductDetails}
                           onShowSimilarProducts={onShowSimilarProducts}
+                          bubbleFooter={assistantTimeFooter}
                         />
-                      ) : (
-                        <div className={assistantBubbleClass} style={assistantBubbleStyle}>
-                          <StreamingAssistantMessage
-                            text={msg.text}
-                            phase={phase}
-                            errorMessage={msg.errorMessage}
-                            statusLine={msg.statusLine}
-                            brandColorHex={brandColorHex}
-                            products={msg.products}
-                            productDetail={msg.productDetail}
-                            productActionsDisabled={isSending}
-                            onShowProductDetails={onShowProductDetails}
-                            onShowSimilarProducts={onShowSimilarProducts}
-                            bubbleFooter={assistantTimeFooter}
-                          />
-                        </div>
-                      )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div
-                    className="max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm leading-relaxed shadow-sm sm:px-5"
+                    className="max-w-[85%] rounded-2xl rounded-tr-sm px-3 py-2.5 text-[13px] leading-snug"
                     style={{
-                      backgroundColor: resolved.colors.userBubble,
+                      background: userBubbleGradient(resolved.colors.userBubble),
                       color: userChrome.lightBg ? "#0f172a" : "#ffffff",
                     }}
                   >
@@ -226,31 +235,6 @@ export function PlaygroundStyleChatPanel({
           })}
         </div>
       </div>
-
-      <div
-        className="shrink-0 px-4 pb-2.5 pt-2 sm:px-5"
-        style={{ backgroundColor: resolved.colors.panelBackground }}
-      >
-        <div className="flex flex-col gap-1">
-          <PlaygroundComposer
-            textareaRef={messageInputRef}
-            value={messageInput}
-            onChange={onMessageInputChange}
-            onSend={onSend}
-            sendDisabled={sendDisabled}
-            disabled={composerDisabled}
-            placeholder={composerPlaceholder}
-            brandColorHex={brandColorHex}
-            hasBrand={hasBrand}
-            chrome={headerChrome}
-            shellStyle={{
-              backgroundColor: "#FFFFFF",
-            }}
-            submitType="submit"
-          />
-          {composerError ? <p className="text-rose-600 text-sm">{composerError}</p> : null}
-        </div>
-      </div>
-    </div>
+    </WidgetChatShell>
   );
 }

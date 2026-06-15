@@ -1168,6 +1168,7 @@ async def stream_chat(
     retrieve_timing: dict[str, float] = {}
     retrieve_wall_ms = 0.0
     chunks: list[dict[str, Any]] = []
+    rag_fallback_mode: str | None = None
 
     rag_task: asyncio.Task[tuple[list[dict[str, Any]], dict[str, Any], str]] | None = None
     if not skip_rag:
@@ -1248,6 +1249,7 @@ async def stream_chat(
             }
             for c in chunks[:5]
         ]
+        rag_fallback_mode = str(rag_billing.get("rag_fallback_mode") or "threshold")
         _log_retrieval_trace(
             conversation_id=conversation_id,
             agent_id=payload.agent_id,
@@ -1321,6 +1323,7 @@ async def stream_chat(
             escalation_enabled=escalation_enabled,
             thread_has_prior_turns=bool(history_rows),
             thread_had_order_lookup=thread_had_order_lookup,
+            rag_fallback_mode=rag_fallback_mode,
         )
         if has_shopify_tools:
             grounded_user_content = f"{grounded_user_content}{_TOOL_RAG_SUPPLEMENT_FOR_TOOLS}".strip()
@@ -1332,11 +1335,7 @@ async def stream_chat(
         )
         grounded_user_content = f"{_SHOPIFY_NO_EXCERPT_GROUNDING}{thread_block}"
 
-    if (
-        has_indexed_kb
-        and not context_block
-        and not has_shopify_tools
-    ):
+    if not context_block and not has_shopify_tools:
         system_prompt = _build_open_chat_system_prompt(
             system_prompt,
             human_escalation_enabled=escalation_enabled,

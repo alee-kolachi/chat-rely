@@ -137,10 +137,11 @@ def build_shopify_tools_runtime_block(*, has_order_lookup_tool: bool) -> str:
 
 
 _SHOPIFY_NO_EXCERPT_GROUNDING = (
-    "No knowledge-base excerpts were retrieved for this turn. "
-    "For policies, returns, shipping rules, and FAQs, call `search_knowledge_base` when it is enabled. "
-    "For products, orders, and inventory, use the enabled Shopify tools only. "
-    "Do not invent or estimate products, prices, stock, order details, or policy terms not returned by a tool.\n\n"
+    "No site passages were attached for this turn. "
+    "For policies, returns, shipping, and FAQs, call `search_knowledge_base` when enabled. "
+    "For products, orders, and inventory, use Shopify tools only. "
+    "If tools return nothing useful or only irrelevant results, decline politely — "
+    "do not invent products, prices, stock, orders, or policy terms.\n\n"
 )
 
 _TOOL_RAG_SUPPLEMENT_FOR_TOOLS = (
@@ -357,24 +358,10 @@ def _build_open_chat_system_prompt(
     *,
     human_escalation_enabled: bool = False,
 ) -> str:
+    from app.domains.runtime.prompts.grounding import no_source_system_appendix
+
     base = (system_prompt or "").strip()
-    escalation_hint = (
-        " or offer to connect them with a human agent"
-        if human_escalation_enabled
-        else ". Do not mention human escalation or handoff"
-    )
-    guidance = (
-        "You are a customer-support chatbot for this brand. "
-        "No indexed knowledge-base excerpts were retrieved for this turn, "
-        "so do not invent catalog details, prices, or policies. "
-        "For greetings and small talk, respond warmly and briefly. "
-        "For product or policy questions, be honest: acknowledge you do not have the specific details available "
-        "right now, suggest what the customer could ask or where on the site they might look "
-        f"(without inventing URLs){escalation_hint}. "
-        "Use earlier messages in this thread to resolve follow-ups when the customer refers to something already discussed. "
-        "Never fabricate information to appear more helpful — an honest 'I don't have that detail' "
-        "builds more trust than a confident wrong answer."
-    )
+    guidance = no_source_system_appendix(escalation_enabled=human_escalation_enabled)
     return f"{base}\n\n{guidance}".strip() if base else guidance
 
 
@@ -430,8 +417,8 @@ async def _load_agent_runtime_config(db: AsyncSession, user_id: UUID, agent_id: 
     raw_agent_type = behavior.get("agent_type")
     agent_type = str(raw_agent_type).strip().lower() if isinstance(raw_agent_type, str) else "brand_support"
     fallback = row["fallback_message"] or (
-        "I don't have enough information to answer that right now. "
-        "For the most accurate answer, please contact our support team or visit our website."
+        "I'm not sure about that. For the most accurate answer, please contact our support team "
+        "or visit our website."
     )
     has_kb = bool(row.get("has_indexed_knowledge"))
     raw_tone_description = behavior.get("tone_description")

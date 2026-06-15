@@ -29,6 +29,7 @@ class OnboardingPreferencesRequest(BaseModel):
     brand_color: str | None = Field(default=None, max_length=40)
     widget_position: str | None = Field(default=None, pattern="^(bottom_right|bottom_left)$")
     greeting_message: str | None = Field(default=None, max_length=500)
+    welcome_screen_enabled: bool | None = None
 
 
 class OnboardingFinishRequest(BaseModel):

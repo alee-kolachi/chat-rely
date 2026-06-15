@@ -1,3 +1,5 @@
+import { formatStorageBytes } from "@/lib/plan-entitlements";
+
 export type IndexingJobPayload = Record<string, unknown> | null | undefined;
 
 export type OnboardingIndexingSnapshot = {
@@ -5,6 +7,10 @@ export type OnboardingIndexingSnapshot = {
   running: boolean;
   failed: boolean;
   succeeded: boolean;
+  /** Plan storage cap hit during website import; remaining pages were skipped. */
+  storageLimitReached: boolean;
+  /** Human-readable plan cap, e.g. "500 KB". */
+  storageLimitLabel: string | null;
   /** Safe to test the agent with site knowledge (at least one page indexed). */
   readyForPreview: boolean;
   pct: number;
@@ -16,6 +22,40 @@ export type OnboardingIndexingSnapshot = {
   chunksTotal: number;
 };
 
+function jobMetrics(job: IndexingJobPayload): Record<string, unknown> {
+  const raw = job?.metrics;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
+function crawlStoppedForBudget(job: IndexingJobPayload): boolean {
+  return String(jobMetrics(job).crawl_stopped_reason ?? "") === "budget";
+}
+
+export function onboardingStorageLimitLabel(job: IndexingJobPayload): string | null {
+  const metrics = jobMetrics(job);
+  const cap = Number(metrics.plan_storage_cap_bytes) || 0;
+  if (cap > 0) return formatStorageBytes(cap);
+  return null;
+}
+
+export function onboardingStorageLimitReached(
+  job: IndexingJobPayload,
+  pagesProcessed: number,
+  pagesTotal: number,
+): boolean {
+  if (!crawlStoppedForBudget(job)) return false;
+  if (pagesProcessed <= 0) return false;
+  if (pagesTotal > 0 && pagesProcessed >= pagesTotal) return false;
+  return true;
+}
+
+function storageLimitHeadline(label: string | null): string {
+  return label ? `${label} limit reached` : "Storage limit reached";
+}
+
 export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingIndexingSnapshot {
   if (!job) {
     return {
@@ -23,6 +63,8 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
       running: false,
       failed: false,
       succeeded: false,
+      storageLimitReached: false,
+      storageLimitLabel: null,
       readyForPreview: false,
       pct: 0,
       headline: "",
@@ -43,9 +85,13 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
   const chunksTotal = Number(job.chunks_total) || 0;
   const chunksEmbedded = Number(job.chunks_embedded) || 0;
   const jobProgress = Number(job.progress_pct);
+  const storageLimitLabel = onboardingStorageLimitLabel(job);
+  const storageLimitReached = onboardingStorageLimitReached(job, pagesProcessed, pagesTotal);
 
   let pct = 0;
-  if (succeeded) {
+  if (storageLimitReached) {
+    pct = 100;
+  } else if (succeeded) {
     pct = 100;
   } else if (Number.isFinite(jobProgress) && jobProgress > 0) {
     pct = Math.min(100, Math.round(jobProgress));
@@ -54,12 +100,24 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
   }
 
   const readyForPreview =
-    succeeded || failed || (pagesProcessed >= 1 && chunksEmbedded >= 1) || pct >= 25;
+    succeeded ||
+    failed ||
+    storageLimitReached ||
+    (pagesProcessed >= 1 && chunksEmbedded >= 1) ||
+    pct >= 25;
 
   let headline = "";
   let detail = "";
 
-  if (succeeded) {
+  if (storageLimitReached) {
+    headline = storageLimitHeadline(storageLimitLabel);
+    detail =
+      pagesProcessed > 0
+        ? `${pagesProcessed} page${pagesProcessed === 1 ? "" : "s"} ready for chat. Upgrade to import more.`
+        : storageLimitLabel
+          ? `Your plan includes ${storageLimitLabel} of training content. Upgrade to import more.`
+          : "Your plan storage cap was reached. Upgrade to import more site content.";
+  } else if (succeeded) {
     headline = "Website import complete";
     detail =
       pagesTotal > 0
@@ -91,6 +149,8 @@ export function parseOnboardingIndexingJob(job: IndexingJobPayload): OnboardingI
     running,
     failed,
     succeeded,
+    storageLimitReached,
+    storageLimitLabel,
     readyForPreview,
     pct,
     headline,

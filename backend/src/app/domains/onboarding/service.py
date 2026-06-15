@@ -196,26 +196,44 @@ async def create_source_website(db: AsyncSession, user_id: UUID, payload: Onboar
 
 async def save_preferences(db: AsyncSession, user_id: UUID, payload: OnboardingPreferencesRequest) -> None:
     await _ensure_agent_owned(db, user_id, payload.agent_id)
-    behavior_settings: dict[str, str] = {}
+    row = await db.execute(
+        text(
+            """
+            select behavior_settings
+            from public.agents
+            where id = :agent_id and user_id = :user_id
+            """
+        ),
+        {"agent_id": str(payload.agent_id), "user_id": str(user_id)},
+    )
+    existing_raw = row.scalar_one_or_none()
+    merged: dict[str, object] = dict(existing_raw) if isinstance(existing_raw, dict) else {}
     if payload.tone is not None:
-        behavior_settings["tone"] = payload.tone
+        merged["tone"] = payload.tone
     if payload.brand_color is not None:
-        behavior_settings["brand_color"] = payload.brand_color
+        merged["brand_color"] = payload.brand_color
     if payload.widget_position is not None:
-        behavior_settings["widget_position"] = payload.widget_position
+        merged["widget_position"] = payload.widget_position
     if payload.greeting_message is not None:
         trimmed = payload.greeting_message.strip()
         if trimmed:
-            behavior_settings["greeting_message"] = trimmed
+            merged["greeting_message"] = trimmed
+        else:
+            merged.pop("greeting_message", None)
+    if payload.welcome_screen_enabled is not None:
+        if payload.welcome_screen_enabled:
+            merged.pop("welcome_screen_enabled", None)
+        else:
+            merged["welcome_screen_enabled"] = False
 
     await update_agent(
         db,
         user_id,
         payload.agent_id,
-        AgentUpdateRequest(model=payload.model, behavior_settings=behavior_settings or None),
+        AgentUpdateRequest(model=payload.model, behavior_settings=merged),
     )
     await _ensure_session(db, user_id, payload.agent_id, current_step=4)
-    await _set_checklist_status(db, user_id, payload.agent_id, "appearance_configured", "done", behavior_settings)
+    await _set_checklist_status(db, user_id, payload.agent_id, "appearance_configured", "done", merged)
     await db.commit()
 
 
@@ -274,7 +292,7 @@ async def get_onboarding_status(db: AsyncSession, user_id: UUID, agent_id: UUID)
             await db.execute(
                 text(
                     """
-                    select status, phase, pages_total, pages_processed, chunks_total, chunks_embedded, progress_pct, error_message
+                    select status, phase, pages_total, pages_processed, chunks_total, chunks_embedded, progress_pct, error_message, metrics
                     from public.indexing_jobs
                     where knowledge_source_id = :source_id and user_id = :user_id
                     order by created_at desc

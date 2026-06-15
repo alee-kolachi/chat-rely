@@ -4,11 +4,17 @@ import type { OnboardingIndexingSnapshot } from "@/lib/onboarding-indexing";
 import { cn } from "@/lib/utils";
 
 function progressPercent(snapshot: OnboardingIndexingSnapshot): number {
-  if (snapshot.succeeded) return 100;
+  if (snapshot.storageLimitReached || snapshot.succeeded) return 100;
   return Math.max(0, Math.min(100, snapshot.pct));
 }
 
 function progressDetail(snapshot: OnboardingIndexingSnapshot): string {
+  if (snapshot.storageLimitReached) {
+    if (snapshot.pagesProcessed > 0) {
+      return `${snapshot.pagesProcessed} page${snapshot.pagesProcessed === 1 ? "" : "s"} ready for chat`;
+    }
+    return snapshot.storageLimitLabel ? `${snapshot.storageLimitLabel} cap reached` : "Plan storage cap reached";
+  }
   if (snapshot.succeeded) return "100%";
   if (snapshot.failed) return "Needs attention";
   if (snapshot.pagesTotal > 0 && snapshot.pct > 0) {
@@ -35,17 +41,21 @@ export function OnboardingIndexingProgress({
   variant?: "header" | "card";
   className?: string;
 }) {
-  const running = snapshot.running || snapshot.status === "queued";
+  const running = (snapshot.running || snapshot.status === "queued") && !snapshot.storageLimitReached;
   if (!snapshot.headline) return null;
 
   const pct = progressPercent(snapshot);
   const detail = progressDetail(snapshot);
   const showIndeterminate = running && pct === 0;
-  const title = snapshot.succeeded
-    ? "Import complete"
-    : snapshot.failed
-      ? "Import issue"
-      : "Import progress";
+  const title = snapshot.storageLimitReached
+    ? snapshot.storageLimitLabel
+      ? `${snapshot.storageLimitLabel} limit reached`
+      : "Storage limit reached"
+    : snapshot.succeeded
+      ? "Import complete"
+      : snapshot.failed
+        ? "Import issue"
+        : "Import progress";
 
   const bar = (
     <div
@@ -59,7 +69,10 @@ export function OnboardingIndexingProgress({
         <div className="onboarding-index-progress-indeterminate bg-ds-primary h-full w-1/3 rounded-full" />
       ) : (
         <div
-          className="bg-ds-primary h-full rounded-full transition-[width] duration-500 ease-out"
+          className={cn(
+            "h-full rounded-full transition-[width] duration-500 ease-out",
+            snapshot.storageLimitReached ? "bg-amber-600" : "bg-ds-primary",
+          )}
           style={{ width: `${pct}%` }}
         />
       )}
@@ -75,14 +88,24 @@ export function OnboardingIndexingProgress({
         aria-label={`${title}, ${detail}`}
       >
         <div className="flex w-full items-center justify-between gap-2">
-          <span className="text-ds-on-surface-variant shrink-0 text-[11px] font-medium sm:text-xs">
+          <span
+            className={cn(
+              "shrink-0 text-[11px] font-medium sm:text-xs",
+              snapshot.storageLimitReached ? "text-amber-800" : "text-ds-on-surface-variant",
+            )}
+          >
             {title}
           </span>
-          <span className="text-ds-on-surface shrink-0 text-xs font-semibold tabular-nums sm:text-sm">
+          <span
+            className={cn(
+              "shrink-0 text-xs font-semibold tabular-nums sm:text-sm",
+              snapshot.storageLimitReached ? "text-amber-900" : "text-ds-on-surface",
+            )}
+          >
             {detail}
           </span>
         </div>
-        {running || snapshot.succeeded ? bar : null}
+        {running || snapshot.succeeded || snapshot.storageLimitReached ? bar : null}
       </div>
     );
   }
@@ -103,7 +126,7 @@ export function OnboardingIndexingProgress({
           {detail}
         </span>
       </div>
-      {(running || snapshot.succeeded) && bar}
+      {(running || snapshot.succeeded || snapshot.storageLimitReached) && bar}
     </div>
   );
 }

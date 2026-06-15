@@ -2,25 +2,20 @@ from app.domains.runtime.prompts.fallback import (
     excerpt_fallback_instruction,
     shopify_supplement_fallback_instruction,
 )
-
-_CUSTOMER_FACING_LANGUAGE = (
-    "CUSTOMER-FACING LANGUAGE\n"
-    "- Reply as the brand. Never mention excerpts, passages, the knowledge index, retrieval, or tools.\n"
-    "- When the indexed content answers the question, state the answer directly.\n"
-    "- When it does not, say briefly what you do not know and suggest a useful next step. "
-    "Do not say the index or excerpts lack information.\n"
+from app.domains.runtime.prompts.grounding import (
+    customer_decline_language,
+    relevance_gate_rules,
 )
+
+_CUSTOMER_FACING_LANGUAGE = customer_decline_language(escalation_enabled=False)
 
 _EXCERPT_ANSWER_RULES = (
     "ANSWER FROM INDEXED CONTENT\n"
-    "- State facts directly — product names, styles, categories, policies, prices, promotions, gifts.\n"
+    "- State facts directly only when the passages below directly answer the question.\n"
     "- When the content lists types, designs, or categories, quote them in a short bulleted list.\n"
-    "- Do not replace specific names with vague phrases like 'versatility and timeless style' "
-    "unless those words directly answer the question.\n"
-    "- Do not say the content lacks detail when it names concrete types, features, or perks.\n"
-    "- Do not tell the customer to visit the website or contact support when the answer is already there.\n"
-    "- If the content genuinely does not contain the answer, say briefly what you cannot confirm "
-    "and offer the most useful next step — do not guess or paraphrase around the gap.\n"
+    "- Do not replace specific names with vague phrases or placeholder brackets.\n"
+    "- Do not tell the customer to visit the website when the answer is already in the passages.\n"
+    "- If passages are irrelevant or do not contain the answer, decline politely — do not guess.\n"
 )
 
 
@@ -126,8 +121,8 @@ def build_policy_knowledge_user_prompt(user_message: str) -> str:
         "asked about a specific order or product in the same message.\n"
         "- Search terms should include the topic (e.g. `return policy`, `purchase offer`, `free gift`).\n"
         "- If the content mentions sale/clearance rules or purchase perks, state them directly.\n"
-        "- If the knowledge search returns nothing useful, say you do not have that detail "
-        "and suggest they contact support or check the store site — do not invent policy terms.\n\n"
+        "- If the knowledge search returns nothing useful, decline politely — "
+        "do not invent policy terms or product categories.\n\n"
         f"Customer message:\n{user_message}"
     )
 
@@ -201,7 +196,13 @@ def build_grounded_user_prompt(
     escalation_enabled: bool = False,
     thread_has_prior_turns: bool = False,
     thread_had_order_lookup: bool = False,
+    rag_fallback_mode: str | None = None,
 ) -> str:
+    weak_match = rag_fallback_mode in (
+        "lexical_grounded_below_threshold",
+        "lexical_supplement",
+    )
+    relevance = relevance_gate_rules(weak_match=weak_match)
     if shopify_tools_enabled:
         fb_line = shopify_supplement_fallback_instruction(
             fallback_message,
@@ -212,17 +213,15 @@ def build_grounded_user_prompt(
             thread_had_order_lookup=thread_had_order_lookup,
         )
         return (
-            f"The following passages are **supplementary** context from the brand's indexed content. "
-            f"They may be outdated or not directly relevant to this question — "
-            f"do not treat them as this store's live catalog or authoritative source for products, pricing, or stock.\n\n"
+            f"The following passages are supplementary context from the brand's site. "
+            f"They may be outdated or not relevant to this question.\n\n"
+            f"{relevance}\n\n"
             f"{context_block}\n\n"
             f"**Grounding rules:** For products, catalog, availability, pricing, orders, tracking, and inventory "
             f"for **this connected store**, you **must** use the enabled Shopify tools. "
-            f"Never answer those topics from indexed content alone. "
-            f"Use indexed content for policies, FAQs, returns, shipping rules, promotions, purchase perks, "
-            f"and static copy when they clearly apply to this store and Shopify tools do not cover them.\n"
-            f"If this context does not answer a policy or promotion question, call `search_knowledge_base` "
-            f"with a rephrased query before concluding you do not have the detail.\n"
+            f"Never answer those topics from passages alone. "
+            f"Use passages for policies, FAQs, returns, shipping, and static copy only when they clearly apply.\n"
+            f"If passages do not answer a policy question, call `search_knowledge_base` before declining.\n"
             f"{_CUSTOMER_FACING_LANGUAGE}\n"
             f"{fb_line}\n\n"
             f"{follow_up}"
@@ -234,8 +233,9 @@ def build_grounded_user_prompt(
         escalation_enabled=escalation_enabled,
     )
     return (
-        f"The following passages are the best-matching content from the brand's knowledge index. "
-        f"Answer the customer's question using them as your primary source.\n\n"
+        f"The following passages are the closest matches from the brand's site. "
+        f"Use them only if they directly answer the question.\n\n"
+        f"{relevance}\n\n"
         f"{_EXCERPT_ANSWER_RULES}\n"
         f"{_CUSTOMER_FACING_LANGUAGE}\n\n"
         f"{context_block}\n\n"

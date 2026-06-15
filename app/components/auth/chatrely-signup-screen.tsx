@@ -76,6 +76,7 @@ export function ChatRelySignupScreen() {
     const password = String(formData.get("password") ?? "");
 
     const supabase = createBrowserSupabaseClient();
+    const emailRedirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/dashboard")}`;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -83,6 +84,7 @@ export function ChatRelySignupScreen() {
         data: {
           full_name: name,
         },
+        emailRedirectTo,
       },
     });
 
