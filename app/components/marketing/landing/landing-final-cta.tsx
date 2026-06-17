@@ -16,7 +16,8 @@ export function LandingFinalCta() {
               Put AI support on your Shopify store
             </h2>
             <p className="mkt-body mt-5 max-w-lg !text-ds-on-primary/85">
-              Free plan, no credit card. Add your help content and go live with one embed snippet. Connect Shopify on Hobby or above.
+              Start free, no credit card. Add your content, paste one snippet, and go live. Connect Shopify on Hobby or
+              above.
             </p>
             <Link href="/signup" className="mkt-pill mkt-pill-dark mt-8 inline-flex px-8 py-3.5 text-base sm:mt-10">
               Create your agent

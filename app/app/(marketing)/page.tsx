@@ -8,9 +8,9 @@ import { LandingHowItWorks } from "@/components/marketing/landing/landing-how-it
 import { LandingTrustSection } from "@/components/marketing/landing/landing-trust-section";
 
 export const metadata: Metadata = {
-  title: "AI chatbot for Shopify stores",
+  title: "ChatRely - AI support for Shopify, no per-ticket fees",
   description:
-    "ChatRely is the AI chatbot for your Shopify storefront. Live catalog and order answers, your help content, and human handoff. Free plan, no credit card required.",
+    "The AI chatbot built for Shopify. Answers from live catalog, orders, and help content, with human handoff. Flat pricing, no message credits. Free plan, no credit card.",
 };
 
 export default function LandingPage() {

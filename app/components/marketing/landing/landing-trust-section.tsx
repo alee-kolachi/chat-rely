@@ -20,7 +20,7 @@ const features: {
 }[] = [
   {
     title: "Knowledge base",
-    body: "Index your website, files, and Q&A snippets from one place.",
+    body: "Index your site, files, and Q&A so answers stay grounded in your content.",
     icon: BookOpen,
   },
   {
@@ -30,37 +30,37 @@ const features: {
   },
   {
     title: "Actions",
-    body: "Enable order lookup, product search, and human handoff per agent.",
+    body: "Toggle order lookup, product search, and handoff per agent.",
     icon: Plug,
   },
   {
     title: "Conversations",
-    body: "Review every thread with status, topic preview, and full history.",
+    body: "Review every thread with status, topic, and full history.",
     icon: MessageSquare,
   },
   {
     title: "Tickets",
-    body: "Escalations land in your inbox with the transcript attached.",
+    body: "Escalations arrive in your inbox with the transcript attached.",
     icon: Ticket,
   },
   {
     title: "Widget appearance",
-    body: "Custom colors, fonts, and welcome copy so the chat matches your storefront.",
+    body: "Match colors, fonts, and welcome copy to your storefront.",
     icon: Palette,
   },
   {
     title: "Visitor feedback",
-    body: "Shoppers thumb assistant replies in the widget. Summaries roll up on Pro.",
+    body: "Shoppers rate replies in the widget; summaries roll up on Pro.",
     icon: ThumbsUp,
   },
   {
     title: "Analytics",
-    body: "Conversation volume, resolution rate, and top shopper topics by plan.",
+    body: "Track volume, resolution rate, and top shopper topics.",
     icon: BarChart3,
   },
   {
     title: "Customer sentiment",
-    body: "Positive, neutral, and negative trends from shopper messages on Standard and Pro.",
+    body: "See positive, neutral, and negative trends on Standard and Pro.",
     icon: Smile,
   },
 ];
@@ -96,11 +96,11 @@ export function LandingTrustSection() {
         <LandingReveal>
           <LandingSectionLabel tone="dark">Merchant dashboard</LandingSectionLabel>
           <h2 className="mkt-display mt-5 max-w-3xl text-4xl !text-white sm:text-5xl">
-            One place to set up, run, and improve store support
+            Set up, run, and improve store support, all in one place
           </h2>
           <p className="mkt-font mt-4 max-w-2xl text-base leading-relaxed text-white/65">
-            Launch your agent, brand the widget, review every chat, and track analytics, sentiment, and visitor
-            feedback from the same workspace.
+            Launch your agent, brand the widget, review every chat, and track analytics, sentiment, and feedback from
+            one workspace.
           </p>
         </LandingReveal>
 

@@ -61,22 +61,22 @@ const intents: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: Package,
     title: "Order tracking",
-    body: "Looks up shipment status and tracking numbers from Shopify orders.",
+    body: "Pulls live shipment status and tracking from Shopify orders.",
   },
   {
     icon: LayoutGrid,
     title: "Product cards in chat",
-    body: "Catalog search returns swipeable cards with image, price, and actions.",
+    body: "Catalog search returns swipeable cards with image, price, and stock.",
   },
   {
     icon: ScanSearch,
     title: "Live stock answers",
-    body: "Checks real inventory for a named product before the shopper checks out.",
+    body: "Checks real inventory before a shopper checks out.",
   },
   {
     icon: Users,
     title: "Human handoff",
-    body: "Escalates to your inbox with the full thread so your team has context.",
+    body: "Escalates to your inbox with the full thread, so no one repeats themselves.",
   },
 ];
 
@@ -199,10 +199,11 @@ function ComparisonCopy() {
   return (
     <div className="shrink-0">
       <h2 className="mkt-display max-w-xl text-2xl leading-tight sm:text-3xl lg:text-[2rem] lg:leading-[1.15]">
-        One AI widget for Shopify storefront support
+        One widget that answers, sells, and escalates
       </h2>
       <p className="mkt-body mt-3 max-w-lg text-sm leading-relaxed text-ds-on-surface-variant sm:text-[0.9375rem]">
-        Live orders, product cards, and help content in one embed. Hands off with the full thread when needed.
+        Live orders, product cards, and your help content in a single embed, with a clean handoff to your team when
+        it&apos;s needed.
       </p>
     </div>
   );

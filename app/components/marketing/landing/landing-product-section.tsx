@@ -17,28 +17,28 @@ const panels: {
     theme: "gray",
     label: "Flat pricing",
     title: "No message credits. No mid-month shutdown.",
-    body: "Monthly plans cap conversations, not individual replies. Your widget stays live when traffic spikes instead of hitting a credit wall.",
+    body: "Generic bots meter every message and cut you off at the cap. ChatRely caps conversations, not replies, so your widget stays live when traffic spikes.",
     icon: MessagesSquare,
   },
   {
     theme: "purple",
     label: "Live data",
-    title: "Shopify and your sources at answer time.",
-    body: "Orders, stock, and catalog are fetched when the shopper asks. Policies and FAQs come from your search index, not a stale spreadsheet upload.",
+    title: "Live Shopify data, not a stale upload.",
+    body: "Orders, stock, and catalog are fetched the moment a shopper asks. Most bots only know the docs you uploaded last month.",
     icon: RefreshCw,
   },
   {
     theme: "purple",
     label: "Grounded answers",
-    title: "Q&A, your index, and Shopify tools.",
-    body: "Q&A pairs are indexed with your site content and files, then retrieved at reply time. Live catalog and orders come from Shopify tools. The agent stays in those sources and says when it is not sure. Avg resolution confidence appears in analytics after chats close.",
+    title: "Grounded in your store, honest when unsure.",
+    body: "Answers come from your content and live Shopify tools, and the agent says so when it isn't certain instead of guessing.",
     icon: BookOpen,
   },
   {
     theme: "gray",
     label: "Storefront sales",
     title: "Product cards in chat, not a FAQ wall.",
-    body: "Catalog search returns swipeable cards with image, price, and live stock. Shoppers browse and compare products inside the thread instead of getting a static answer block.",
+    body: "Catalog search returns cards with image, price, and live stock, so shoppers buy inside the conversation.",
     icon: LayoutGrid,
   },
 ];
@@ -94,7 +94,7 @@ export function LandingProductSection() {
         <LandingReveal>
           <LandingSectionLabel tone="light">Problems we solve</LandingSectionLabel>
           <h2 className="mkt-display mt-5 max-w-2xl text-3xl sm:text-4xl">
-            What breaks on other support bots
+            What breaks on generic support bots
           </h2>
         </LandingReveal>
       </div>

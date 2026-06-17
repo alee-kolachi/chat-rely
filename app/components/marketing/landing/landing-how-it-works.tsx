@@ -5,19 +5,19 @@ import { cn } from "@/lib/utils";
 const steps = [
   {
     title: "Add your help content",
-    body: "Add site pages, FAQs, and policy docs the agent can search.",
+    body: "Bring in your pages, FAQs, and policies for the agent to learn from.",
   },
   {
     title: "Connect Shopify",
-    body: "Link your store for live catalog, inventory, and order answers.",
+    body: "Sync live catalog, inventory, and orders in one click.",
   },
   {
-    title: "Test in Playground",
-    body: "Send test messages against your real setup before go-live.",
+    title: "Test in the Playground",
+    body: "Try real questions against your setup before going live.",
   },
   {
     title: "Embed on your store",
-    body: "Paste one snippet. The widget goes live on your storefront.",
+    body: "Paste one snippet and your widget is live.",
   },
 ] as const;
 
@@ -77,7 +77,7 @@ function StepCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm transition-all duration-300 ease-out motion-reduce:transition-none motion-reduce:group-hover/step:translate-y-0 group-hover/step:-translate-y-1.5 group-hover/step:border-ds-primary/40 group-hover/step:bg-white/[0.06] group-hover/step:shadow-[0_20px_48px_rgba(138,5,255,0.2)]",
+        "flex h-full flex-col rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm transition-all duration-300 ease-out motion-reduce:transition-none motion-reduce:group-hover/step:translate-y-0 group-hover/step:-translate-y-1.5 group-hover/step:border-ds-primary/40 group-hover/step:bg-white/[0.06] group-hover/step:shadow-[0_20px_48px_rgba(138,5,255,0.2)]",
         className,
       )}
     >
@@ -100,17 +100,17 @@ export function LandingHowItWorks() {
         </LandingReveal>
 
         {/* Desktop */}
-        <ol className="relative mt-20 hidden md:grid md:grid-cols-4 md:gap-5 lg:gap-8">
+        <ol className="relative mt-20 hidden md:grid md:grid-cols-4 md:items-stretch md:gap-5 lg:gap-8">
           <div
             className="pointer-events-none absolute top-10 right-[calc(12.5%+2.75rem)] left-[calc(12.5%+2.75rem)] h-0.5 bg-gradient-to-r from-ds-primary/30 via-ds-primary to-ds-primary/30 sm:top-11"
             aria-hidden
           />
 
           {steps.map((step, index) => (
-            <li key={step.title} className="group/step flex flex-col items-center">
-              <div className="flex w-full max-w-[240px] cursor-default flex-col items-center lg:max-w-[260px]">
+            <li key={step.title} className="group/step flex h-full flex-col">
+              <div className="flex h-full w-full cursor-default flex-col items-center">
                 <StepNode number={index + 1} />
-                <StepCard step={step} className="mt-8 w-full px-5 py-7 lg:py-8" />
+                <StepCard step={step} className="mt-8 w-full flex-1 px-5 py-7 lg:py-8" />
               </div>
             </li>
           ))}
