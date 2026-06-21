@@ -886,7 +886,8 @@ function AppearanceForm() {
                 websiteLogoUrl={websiteLogoUrl}
                 websiteLogoPending={websiteLogoPending}
                 shellHeightClass="h-full"
-                className="h-full max-w-none rounded-none border-0 shadow-none"
+                shellBorderless
+                className="h-full max-w-none rounded-none shadow-none"
                 footerBorderless
                 onHeaderBack={
                   welcomeScreenEnabled ? () => setPreviewChatOpen(false) : undefined

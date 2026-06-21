@@ -103,24 +103,6 @@ export function WidgetChatShell({
 
   useWidgetPreviewFont(resolved.fontFamily);
 
-  const shellStyle: CSSProperties = {
-    fontFamily: widgetFontFamilyCss(resolved.fontFamily),
-    color: resolved.colors.textPrimary,
-    ...(chatSurface
-      ? {
-          ...chatSurfaceShellStyle(
-            resolved.colors.header,
-            resolved.colors.panelBackground,
-            chatSurfaceTopColor,
-          ),
-          ...(shellBorderless ? {} : { borderColor: "rgba(15, 23, 42, 0.06)" }),
-        }
-      : {
-          backgroundColor: resolved.colors.panelBackground,
-          borderColor: resolved.colors.assistantBubbleBorder,
-        }),
-  };
-
   const footerStyle: CSSProperties = chatSurface
     ? { background: "transparent", borderColor: "transparent" }
     : {
@@ -128,18 +110,8 @@ export function WidgetChatShell({
         borderColor: resolved.colors.assistantBubbleBorder,
       };
 
-  return (
-    <div
-      className={cn(
-        "flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
-        shellBorderless ? "border-0" : "border",
-        !shellBorderless && (chatSurface ? "border-black/5" : "border-ds-outline"),
-        chatSurface && WIDGET_EMBED_CHAT_SURFACE_CLASS,
-        shellHeightClass,
-        className
-      )}
-      style={shellStyle}
-    >
+  const shellContent = (
+    <>
       <WidgetEmbedHeader
         agentName={displayName}
         statusLine={statusLine}
@@ -192,6 +164,61 @@ export function WidgetChatShell({
           {footer}
         </div>
       ) : null}
+    </>
+  );
+
+  if (chatSurface) {
+    const gradientStyle: CSSProperties = {
+      fontFamily: widgetFontFamilyCss(resolved.fontFamily),
+      color: resolved.colors.textPrimary,
+      ...chatSurfaceShellStyle(
+        resolved.colors.header,
+        resolved.colors.panelBackground,
+        chatSurfaceTopColor,
+      ),
+    };
+
+    return (
+      <div
+        className={cn(
+          "flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px]",
+          !shellBorderless && "border border-black/5 shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+          shellHeightClass,
+          className,
+        )}
+        style={shellBorderless ? undefined : { borderColor: "rgba(15, 23, 42, 0.06)" }}
+      >
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col overflow-hidden",
+            WIDGET_EMBED_CHAT_SURFACE_CLASS,
+          )}
+          style={gradientStyle}
+        >
+          {shellContent}
+        </div>
+      </div>
+    );
+  }
+
+  const shellStyle: CSSProperties = {
+    fontFamily: widgetFontFamilyCss(resolved.fontFamily),
+    color: resolved.colors.textPrimary,
+    backgroundColor: resolved.colors.panelBackground,
+    borderColor: resolved.colors.assistantBubbleBorder,
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 w-full max-w-[26rem] flex-col overflow-hidden rounded-[28px] shadow-[0_20px_55px_rgba(15,23,42,0.06)]",
+        shellBorderless ? "border-0" : "border border-ds-outline",
+        shellHeightClass,
+        className,
+      )}
+      style={shellStyle}
+    >
+      {shellContent}
     </div>
   );
 }

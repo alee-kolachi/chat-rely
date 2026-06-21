@@ -1209,17 +1209,20 @@ function PlaygroundPreviewConversation({
   };
   const chatSurface = hasBrand && appearanceResolved.themeMode === "light";
   const emptyAssistantLines = effectiveWelcomeMessages(behaviorSettings, agentName);
-  const panelBackgroundStyle = chatSurface
+  const panelFrameStyle = chatSurface
+    ? { borderColor: "rgba(15, 23, 42, 0.06)" as const }
+    : { borderColor: appearanceResolved.colors.assistantBubbleBorder };
+  const panelGradientStyle = chatSurface
     ? {
         ...chatSurfaceShellStyle(
           appearanceResolved.colors.header,
-          appearanceResolved.colors.panelBackground
+          appearanceResolved.colors.panelBackground,
         ),
-        borderColor: "rgba(15, 23, 42, 0.06)" as const,
+        color: appearanceResolved.colors.textPrimary,
       }
     : {
         backgroundColor: appearanceResolved.colors.panelBackground,
-        borderColor: appearanceResolved.colors.assistantBubbleBorder,
+        color: appearanceResolved.colors.textPrimary,
       };
 
   const headerToolbarIconBtnClass = useMemo(
@@ -1251,12 +1254,16 @@ function PlaygroundPreviewConversation({
       <div
         className={cn(
           "relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[28px] border",
-          chatSurface ? cn("border-black/5", WIDGET_EMBED_CHAT_SURFACE_CLASS) : "border-ds-outline"
+          chatSurface ? "border-black/5" : "border-ds-outline",
         )}
-        style={{
-          ...panelBackgroundStyle,
-          color: appearanceResolved.colors.textPrimary,
-        }}
+        style={panelFrameStyle}
+      >
+      <div
+        className={cn(
+          "flex h-full min-h-0 w-full flex-col overflow-hidden",
+          chatSurface && WIDGET_EMBED_CHAT_SURFACE_CLASS,
+        )}
+        style={panelGradientStyle}
       >
       <WidgetEmbedHeader
         agentName={displayName}
@@ -1579,6 +1586,7 @@ function PlaygroundPreviewConversation({
             ) : null}
           </div>
         )}
+      </div>
       </div>
     </div>
     </div>

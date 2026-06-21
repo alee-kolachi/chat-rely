@@ -244,7 +244,11 @@
   );
   --cr-header-title-size: 14px;
   --cr-header-logo-size: 19px;
-  border-color: rgba(15, 23, 42, 0.06);
+  /* Ring via shadow avoids a top hairline from border + rounded gradient (see WidgetChatShell). */
+  border: none;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.06),
+    0 20px 55px rgba(15, 23, 42, 0.06);
   background: linear-gradient(
     0deg,
     var(--cr-chat-surface-bottom) 0%,

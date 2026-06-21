@@ -377,7 +377,8 @@ export default function AppearanceToneOnboardingPage() {
                           websiteLogoUrl={websiteLogoUrl}
                           websiteLogoPending={isLoading}
                           shellHeightClass="h-full min-h-0"
-                          className="min-h-0 max-w-none flex-1 rounded-none border-0 shadow-none"
+                          shellBorderless
+                          className="min-h-0 max-w-none flex-1 rounded-none shadow-none"
                           footerBorderless
                           onHeaderBack={
                             welcomeScreenEnabled ? () => setPreviewChatOpen(false) : undefined
