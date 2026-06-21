@@ -16,6 +16,8 @@ export type WidgetEmbedHeaderProps = {
   headerColor?: string;
   themeMode?: "light" | "dark";
   leading?: ReactNode;
+  /** When set, replaces the default header logo avatar (demo pages). */
+  logoSlot?: ReactNode;
   actions?: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -35,6 +37,7 @@ export function WidgetEmbedHeader({
   headerColor,
   themeMode = "light",
   leading,
+  logoSlot,
   actions,
   className,
   style,
@@ -72,14 +75,16 @@ export function WidgetEmbedHeader({
       <div className="flex min-w-0 flex-1 items-center gap-1">
         {leading}
         <div className="ml-0.5 flex h-9 shrink-0 items-center">
-          <WidgetBrandAvatar
-            logoUrl={websiteLogoUrl ?? null}
-            logoPending={websiteLogoPending}
-            hasBrand={hasBrand}
-            chrome={chrome}
-            brandColorHex={brandColorHex}
-            size="header"
-          />
+          {logoSlot ?? (
+            <WidgetBrandAvatar
+              logoUrl={websiteLogoUrl ?? null}
+              logoPending={websiteLogoPending}
+              hasBrand={hasBrand}
+              chrome={chrome}
+              brandColorHex={brandColorHex}
+              size="header"
+            />
+          )}
         </div>
         <div className="relative flex h-9 min-w-0 items-center pl-0.5">
           <div

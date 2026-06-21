@@ -154,14 +154,14 @@ async def _invoke_closure_llm(
 ) -> ConversationOutcomeLLMResult:
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    from app.agent.llm import make_openai_chat_model
-    from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
+    from app.agent.llm import make_groq_chat_model, make_openai_chat_model
+    from app.core.openai_keys import ainvoke_with_key_fallback, has_chat_llm_key
 
     settings = get_settings()
-    if not has_openai_api_key(settings):
+    if not has_chat_llm_key(settings):
         raise AppError(
             code="runtime.llm_not_configured",
-            message="OPENAI_API_KEY is required for conversation outcomes",
+            message="OPENAI_API_KEY or GROQ_API_KEY is required for conversation outcomes",
             status_code=500,
         )
     model_name = settings.openai_chat_model or "gpt-4o-mini"
@@ -224,6 +224,11 @@ async def _invoke_closure_llm(
         ).with_structured_output(ConversationOutcomeLLMResult),
         [sys, human],
         settings=settings,
+        build_groq_llm=lambda: make_groq_chat_model(
+            timeout=90,
+            max_retries=2,
+            streaming=False,
+        ).with_structured_output(ConversationOutcomeLLMResult),
     )
     if not isinstance(result, ConversationOutcomeLLMResult):
         raise RuntimeError("structured output type mismatch")
@@ -239,11 +244,11 @@ async def compute_turn_signals(
     """
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    from app.agent.llm import make_openai_chat_model
-    from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
+    from app.agent.llm import make_groq_chat_model, make_openai_chat_model
+    from app.core.openai_keys import ainvoke_with_key_fallback, has_chat_llm_key
 
     settings = get_settings()
-    if not has_openai_api_key(settings):
+    if not has_chat_llm_key(settings):
         return None, 0, 0
     if not settings.runtime_enable_turn_signals:
         return None, 0, 0
@@ -271,6 +276,11 @@ async def compute_turn_signals(
             ).with_structured_output(TurnSignals, include_raw=True),
             [sys, human],
             settings=settings,
+            build_groq_llm=lambda: make_groq_chat_model(
+                timeout=30,
+                max_retries=1,
+                streaming=False,
+            ).with_structured_output(TurnSignals, include_raw=True),
         )
         in_t, out_t = 0, 0
         if isinstance(raw_out, dict):

@@ -8,8 +8,8 @@ from uuid import UUID
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
-from app.agent.llm import make_openai_chat_model
-from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
+from app.agent.llm import make_groq_chat_model, make_openai_chat_model
+from app.core.openai_keys import ainvoke_with_key_fallback, has_chat_llm_key
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -283,7 +283,7 @@ async def _generate_batch_summary(
     resolved_hints: list[str],
 ) -> tuple[str, list[str], str | None]:
     settings = get_settings()
-    if not has_openai_api_key(settings):
+    if not has_chat_llm_key(settings):
         return "", [], None
     model = settings.openai_chat_model or "gpt-4o-mini"
     excerpts_block = "\n".join(f"- {_clip(x, 500)}" for x in new_excerpts if x.strip())
@@ -314,6 +314,11 @@ async def _generate_batch_summary(
             ).with_structured_output(_FeedbackSummaryLLM),
             [sys, human],
             settings=settings,
+            build_groq_llm=lambda: make_groq_chat_model(
+                timeout=45,
+                max_retries=1,
+                streaming=False,
+            ).with_structured_output(_FeedbackSummaryLLM),
         )
         if isinstance(out, _FeedbackSummaryLLM):
             topics = [t.strip() for t in out.topics if isinstance(t, str) and t.strip()][:12]

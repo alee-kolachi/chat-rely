@@ -5,7 +5,7 @@ import unicodedata
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-RuntimeChannel = Literal["api", "widget"]
+RuntimeChannel = Literal["api", "widget", "demo", "demo_qa"]
 
 from app.domains.conversation_outcomes.schemas import TurnSignalsDTO
 

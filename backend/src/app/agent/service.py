@@ -18,6 +18,19 @@ log = structlog.get_logger("agent.service")
 # Deferred message persistence after SSE ``done`` so the stream can close without blocking the client.
 _turn_persist_tasks: dict[tuple[str, str], asyncio.Task[None]] = {}
 
+
+async def _resolve_is_demo_agent(db: AsyncSession, agent_id: UUID) -> bool:
+    from app.domains.demo.repository import agent_is_demo
+
+    return await agent_is_demo(db, agent_id)
+
+
+async def _resolve_demo_catalog_products(db: AsyncSession, agent_id: UUID) -> list[dict[str, Any]]:
+    from app.domains.demo.repository import fetch_catalog_snapshot
+
+    products, _policies = await fetch_catalog_snapshot(db, agent_id)
+    return products
+
 from app.agent.escalation import (
     ESCALATION_PENDING_CONTACT_META_KEY,
     EscalationAttemptResult,
@@ -917,6 +930,16 @@ async def stream_chat(
     )
 
     conversation_id = conv["id"]
+
+    is_demo_agent = await _db_call(
+        lambda db: _resolve_is_demo_agent(db, payload.agent_id)
+    )
+    demo_catalog_products: list[dict[str, Any]] = []
+    if is_demo_agent:
+        demo_catalog_products = await _db_call(
+            lambda db: _resolve_demo_catalog_products(db, payload.agent_id)
+        )
+
     if payload.locale or payload.country_code:
         await _db_call(
             lambda db: merge_client_context_metadata(
@@ -937,9 +960,13 @@ async def stream_chat(
     )
     await _await_prior_turn_persist(user_id, conversation_id)
 
-    if not awaiting_human_team and await _resolve_free_plan_limit_reached(
+    if (
+        not is_demo_agent
+        and not awaiting_human_team
+        and await _resolve_free_plan_limit_reached(
         user_id,
         refresh_task=refresh_task,
+    )
     ):
         model = str(config.get("model") or "gpt-4o-mini")
         async for frame in _stream_free_plan_conversation_limit_turn(
@@ -1145,6 +1172,10 @@ async def stream_chat(
 
     wants_human = payload.request_human
     human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
+    if is_demo_agent:
+        human_on = False
+        esc_cfg = {}
+        wants_human = False
 
     operator_engaged = bool((conv.get("metadata") or {}).get(OPERATOR_ENGAGED_META_KEY))
     has_indexed_kb = bool(config.get("has_indexed_knowledge"))
@@ -1228,6 +1259,10 @@ async def stream_chat(
     lang_block = resolve_language_instruction(config.get("language"))
     if lang_block:
         system_prompt = f"{system_prompt}\n\n{lang_block}".strip()
+    if is_demo_agent:
+        from app.domains.demo.prompts import DEMO_SYSTEM_PROMPT_APPENDIX
+
+        system_prompt = f"{system_prompt}\n\n{DEMO_SYSTEM_PROMPT_APPENDIX}".strip()
     shopify_load_ms = float(shopify_setup_timings.get("load_connection_ms", 0.0)) + float(
         shopify_setup_timings.get("list_actions_ms", 0.0)
     ) + float(shopify_setup_timings.get("build_tools_ms", 0.0))
@@ -1497,6 +1532,13 @@ async def stream_chat(
             answer = ""
         else:
             answer = str(fallback_message or "").strip() or visitor_empty_reply_fallback()
+    if is_demo_agent and not stream_products and demo_catalog_products:
+        from app.domains.demo.demo_product_cards import demo_cards_for_turn
+
+        cards = demo_cards_for_turn(demo_catalog_products, payload.message)
+        if cards:
+            stream_products = cards
+            yield format_sse("products", {"products": stream_products})
     if stream_products:
         answer = shorten_answer_for_product_cards(answer)
     usage_in = int(done_payload.get("usage_input_tokens") or 0)

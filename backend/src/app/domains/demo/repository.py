@@ -1,0 +1,186 @@
+"""Demo outreach DB helpers."""
+
+from __future__ import annotations
+
+import json
+import re
+import secrets
+from typing import Any
+from urllib.parse import urlparse
+from uuid import UUID
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import AppError
+from app.domains.demo.constants import DEMO_PUBLIC_BASE_URL
+from app.domains.demo.schemas import DemoOutreachDTO
+
+
+def slugify_store_name(value: str) -> str:
+    candidate = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
+    return candidate or "store"
+
+
+def build_demo_slug(display_name: str) -> str:
+    return f"{slugify_store_name(display_name)}-{secrets.token_hex(4)}"
+
+
+def normalize_store_host(store_url: str) -> str:
+    parsed = urlparse(store_url.strip())
+    host = (parsed.netloc or parsed.path or "").lower().strip()
+    if host.startswith("www."):
+        host = host[4:]
+    if not host:
+        raise AppError(code="demo.invalid_store_url", message="Invalid store URL", status_code=422)
+    return host
+
+
+def demo_public_url(slug: str) -> str:
+    return f"{DEMO_PUBLIC_BASE_URL}/demo/{slug}"
+
+
+def _row_to_dto(row: Any) -> DemoOutreachDTO:
+    data = dict(row)
+    prompts = data.get("suggested_prompts")
+    if isinstance(prompts, str):
+        prompts = json.loads(prompts)
+    if not isinstance(prompts, list):
+        prompts = []
+    for key in ("sheet_ref", "sheet_snapshot", "qa_report"):
+        val = data.get(key)
+        if isinstance(val, str):
+            data[key] = json.loads(val)
+        elif val is None:
+            data[key] = {}
+    data["suggested_prompts"] = [str(p) for p in prompts]
+    return DemoOutreachDTO.model_validate(data)
+
+
+async def fetch_demo_by_slug(db: AsyncSession, slug: str) -> DemoOutreachDTO | None:
+    row = (
+        await db.execute(
+            text(
+                """
+                select
+                  agent_id, slug, store_url, store_host, status::text as status,
+                  display_name, logo_url, brand_color, product_count, suggested_prompts,
+                  sheet_ref, sheet_snapshot, qa_report, lifetime_message_count,
+                  ready_at, expires_at, created_at
+                from public.demo_outreach
+                where slug = :slug
+                limit 1
+                """
+            ),
+            {"slug": slug.strip()},
+        )
+    ).mappings().first()
+    return _row_to_dto(row) if row else None
+
+
+async def fetch_demo_by_agent_id(db: AsyncSession, agent_id: UUID) -> DemoOutreachDTO | None:
+    row = (
+        await db.execute(
+            text(
+                """
+                select
+                  agent_id, slug, store_url, store_host, status::text as status,
+                  display_name, logo_url, brand_color, product_count, suggested_prompts,
+                  sheet_ref, sheet_snapshot, qa_report, lifetime_message_count,
+                  ready_at, expires_at, created_at
+                from public.demo_outreach
+                where agent_id = cast(:agent_id as uuid)
+                limit 1
+                """
+            ),
+            {"agent_id": str(agent_id)},
+        )
+    ).mappings().first()
+    return _row_to_dto(row) if row else None
+
+
+async def agent_is_demo(db: AsyncSession, agent_id: UUID) -> bool:
+    row = (
+        await db.execute(
+            text(
+                """
+                select is_demo
+                from public.agents
+                where id = cast(:agent_id as uuid)
+                limit 1
+                """
+            ),
+            {"agent_id": str(agent_id)},
+        )
+    ).mappings().first()
+    return bool(row and row.get("is_demo"))
+
+
+async def fetch_catalog_snapshot(
+    db: AsyncSession, agent_id: UUID
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    row = (
+        await db.execute(
+            text(
+                """
+                select products, policies
+                from public.demo_catalog_snapshots
+                where agent_id = cast(:agent_id as uuid)
+                limit 1
+                """
+            ),
+            {"agent_id": str(agent_id)},
+        )
+    ).mappings().first()
+    if not row:
+        return [], {}
+    products = row.get("products")
+    policies = row.get("policies")
+    if isinstance(products, str):
+        products = json.loads(products)
+    if isinstance(policies, str):
+        policies = json.loads(policies)
+    if not isinstance(products, list):
+        products = []
+    if not isinstance(policies, dict):
+        policies = {}
+    return products, {str(k): str(v) for k, v in policies.items() if v}
+
+
+async def increment_demo_lifetime_messages(db: AsyncSession, agent_id: UUID) -> int:
+    row = (
+        await db.execute(
+            text(
+                """
+                update public.demo_outreach
+                set lifetime_message_count = lifetime_message_count + 1
+                where agent_id = cast(:agent_id as uuid)
+                returning lifetime_message_count
+                """
+            ),
+            {"agent_id": str(agent_id)},
+        )
+    ).mappings().one()
+    return int(row["lifetime_message_count"] or 0)
+
+
+async def increment_demo_visitor_messages(
+    db: AsyncSession, *, agent_id: UUID, visitor_id: str
+) -> int:
+    row = (
+        await db.execute(
+            text(
+                """
+                insert into public.demo_visitor_usage (demo_agent_id, visitor_id, message_count, updated_at)
+                values (cast(:agent_id as uuid), :visitor_id, 1, now())
+                on conflict (demo_agent_id, visitor_id)
+                do update set
+                  message_count = public.demo_visitor_usage.message_count + 1,
+                  updated_at = now()
+                returning message_count
+                """
+            ),
+            {"agent_id": str(agent_id), "visitor_id": visitor_id.strip()},
+        )
+    ).mappings().one()
+    return int(row["message_count"] or 0)

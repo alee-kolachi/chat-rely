@@ -37,6 +37,8 @@ export type WidgetChatShellProps = {
   websiteLogoPending?: boolean;
   statusLine?: string;
   headerActions?: ReactNode;
+  /** Optional header logo override (demo outreach pages). */
+  headerLogoSlot?: ReactNode;
   /** Appearance preview: return to welcome screen from chat preview. */
   onHeaderBack?: () => void;
   headerBackLabel?: string;
@@ -82,6 +84,7 @@ export function WidgetChatShell({
   websiteLogoPending = false,
   statusLine,
   headerActions,
+  headerLogoSlot,
   onHeaderBack,
   headerBackLabel = "Back to welcome screen",
   children,
@@ -124,6 +127,7 @@ export function WidgetChatShell({
         themeMode={resolved.themeMode}
         titleClassName={headerTitleClassName}
         hideBorder={hideHeaderBorder}
+        logoSlot={headerLogoSlot}
         leading={
           onHeaderBack ? (
             <button
