@@ -1129,6 +1129,18 @@
   align-items: flex-start;
 }
 
+.cr-msg-row--assistant .cr-msg-col.cr-msg-col--products {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  align-items: stretch;
+}
+
+.cr-msg-col.cr-msg-col--products .cr-msg-wrap .cr-msg--assistant.cr-msg--intro-only {
+  width: fit-content;
+  max-width: 100%;
+}
+
 .cr-msg-col {
   display: flex;
   min-width: 0;

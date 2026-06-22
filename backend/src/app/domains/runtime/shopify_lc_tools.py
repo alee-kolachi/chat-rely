@@ -8,6 +8,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.domains.integrations.shopify.tool_runners import (
+    run_catalog_query,
     run_customer_context,
     run_inventory_check,
     run_order_lookup,
@@ -81,6 +82,28 @@ _CUSTOMER_EMAIL_FIELD_DESCRIPTION = (
     "do not guess or infer it."
 )
 
+_CATALOG_QUERY_DESCRIPTION = (
+    "Compute catalog statistics across multiple products: average price, cheapest, most expensive, "
+    "price range, product counts, or comparisons. "
+    "Use when the customer asks for math across the catalog (e.g. average price, cheapest item, "
+    "how many snowboards, price range). "
+    "Do not use for browsing, recommendations, or showing product cards — use shopify_product_search for those. "
+    "Do not use for a single named product's price when one search result is enough. "
+    "Results are pre-computed stats; cite the numbers from the tool output accurately."
+)
+
+_CATALOG_QUERY_FILTER_DESCRIPTION = (
+    "Shopify Admin product search filter, same format as shopify_product_search query: "
+    "one category keyword (e.g. 'snowboard', 'boots'), a short product phrase, "
+    "or 'published_status:published' for the whole published catalog. "
+    "Use thread context for follow-ups — pass the resolved category, not pronouns."
+)
+
+_CATALOG_QUERY_QUESTION_DESCRIPTION = (
+    "What to compute in plain language, mirroring the customer's question "
+    "(e.g. 'average price', 'cheapest item', 'price range for snowboards')."
+)
+
 
 def _product_search_max_results_from_config(config: dict[str, Any] | None) -> int:
     """Read maxResults (dashboard) or max_results from agent_actions.config; clamp 1–20."""
@@ -142,6 +165,11 @@ class InventoryInput(BaseModel):
     product_query: str | None = Field(default=None, description=_INVENTORY_PRODUCT_QUERY_DESCRIPTION)
 
 
+class CatalogQueryInput(BaseModel):
+    filter_query: str = Field(description=_CATALOG_QUERY_FILTER_DESCRIPTION)
+    question: str = Field(description=_CATALOG_QUERY_QUESTION_DESCRIPTION)
+
+
 def _make_customer_context_input(default_recent_orders: int) -> type[BaseModel]:
     class CustomerContextInput(BaseModel):
         email: str = Field(description=_CUSTOMER_EMAIL_FIELD_DESCRIPTION)
@@ -192,6 +220,24 @@ def build_shopify_langchain_tools(
                 name="shopify_product_search",
                 description=product_search_description,
                 args_schema=product_search_input,
+            )
+        )
+
+        async def _catalog_query(filter_query: str, question: str) -> str:
+            return await run_catalog_query(
+                shop_domain=shop_domain,
+                access_token=access_token,
+                filter_query=filter_query,
+                question=question,
+                include_out_of_stock=include_out_of_stock,
+            )
+
+        tools.append(
+            StructuredTool.from_function(
+                coroutine=_catalog_query,
+                name="shopify_catalog_query",
+                description=_CATALOG_QUERY_DESCRIPTION,
+                args_schema=CatalogQueryInput,
             )
         )
 

@@ -320,6 +320,13 @@ _CATALOG_QUERY_STOPWORDS = frozenset(
         "just",
         "yeah",
         "hmm",
+        "hello",
+        "hey",
+        "howdy",
+        "thanks",
+        "thank",
+        "bye",
+        "goodbye",
     }
 )
 
@@ -529,6 +536,226 @@ async def run_product_search(
     if ui_cards:
         payload["ui_cards"] = ui_cards
     return compact_json(payload)
+
+
+_CATALOG_QUERY_NODE_FIELDS = """
+            title
+            handle
+            productType
+            priceRangeV2 {
+              minVariantPrice {
+                amount
+                currencyCode
+              }
+            }
+"""
+
+_CATALOG_QUERY_MAX_PRODUCTS = 100
+_CATALOG_QUERY_PAGE_SIZE = 50
+
+
+def _min_price_tuple_from_node(node: dict[str, object]) -> tuple[float, str] | None:
+    price_range = node.get("priceRangeV2")
+    if not isinstance(price_range, dict):
+        return None
+    min_price = price_range.get("minVariantPrice")
+    if not isinstance(min_price, dict):
+        return None
+    raw_amount = str(min_price.get("amount") or "").strip()
+    if not raw_amount:
+        return None
+    try:
+        amount = float(raw_amount)
+    except ValueError:
+        return None
+    currency = str(min_price.get("currencyCode") or "USD").strip().upper() or "USD"
+    return amount, currency
+
+
+def _catalog_product_row(node: dict[str, object]) -> dict[str, object] | None:
+    handle = str(node.get("handle") or "").strip()
+    title = str(node.get("title") or "").strip()
+    if not handle or not title:
+        return None
+    price_tuple = _min_price_tuple_from_node(node)
+    if price_tuple is None:
+        return None
+    amount, currency = price_tuple
+    product_type = str(node.get("productType") or "").strip() or "Other"
+    return {
+        "title": title,
+        "handle": handle,
+        "product_type": product_type,
+        "min_price": round(amount, 2),
+        "currency": currency,
+        "display_price": _format_display_price(str(amount), currency),
+    }
+
+
+async def _fetch_catalog_query_products(
+    *,
+    shop_domain: str,
+    access_token: str,
+    shopify_q: str,
+    include_out_of_stock: bool,
+    max_products: int = _CATALOG_QUERY_MAX_PRODUCTS,
+) -> list[dict[str, object]]:
+    collected: list[dict[str, object]] = []
+    cursor: str | None = None
+    cap = max(1, min(int(max_products), _CATALOG_QUERY_MAX_PRODUCTS))
+    page_size = min(_CATALOG_QUERY_PAGE_SIZE, cap)
+
+    while len(collected) < cap:
+        fetch_n = min(page_size, cap - len(collected))
+        gql = f"""
+        query CatalogQuery($q: String!, $n: Int!, $after: String) {{
+          products(first: $n, query: $q, after: $after) {{
+            pageInfo {{
+              hasNextPage
+              endCursor
+            }}
+            edges {{
+              node {{
+{_CATALOG_QUERY_NODE_FIELDS}
+              }}
+            }}
+          }}
+        }}
+        """
+        variables: dict[str, object] = {"q": shopify_q, "n": fetch_n, "after": cursor}
+        body = await shopify_graphql(
+            shop_domain=shop_domain,
+            access_token=access_token,
+            query=gql,
+            variables=variables,
+        )
+        data = dict(body.get("data") or {})
+        data = _filter_product_data_by_stock(data, include_out_of_stock=include_out_of_stock)
+        for edge in _product_edges(data):
+            if not isinstance(edge, dict):
+                continue
+            node = edge.get("node")
+            if isinstance(node, dict):
+                collected.append(node)
+        products = data.get("products")
+        if not isinstance(products, dict):
+            break
+        page_info = products.get("pageInfo")
+        if not isinstance(page_info, dict) or not page_info.get("hasNextPage"):
+            break
+        next_cursor = page_info.get("endCursor")
+        if not isinstance(next_cursor, str) or not next_cursor.strip():
+            break
+        cursor = next_cursor.strip()
+
+    return collected[:cap]
+
+
+def _compute_catalog_analysis(
+    nodes: list[dict[str, object]],
+    *,
+    question: str,
+) -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    for node in nodes:
+        row = _catalog_product_row(node)
+        if row is not None:
+            rows.append(row)
+    if not rows:
+        return {
+            "question": (question or "").strip(),
+            "count": 0,
+            "currency": None,
+            "min_price": None,
+            "max_price": None,
+            "average_price": None,
+            "cheapest": [],
+            "most_expensive": [],
+            "by_product_type": {},
+        }
+
+    rows_sorted = sorted(rows, key=lambda r: float(r["min_price"]))
+    currency = str(rows_sorted[0].get("currency") or "USD")
+    amounts = [float(r["min_price"]) for r in rows_sorted]
+    by_type: dict[str, int] = {}
+    for row in rows_sorted:
+        ptype = str(row.get("product_type") or "Other")
+        by_type[ptype] = by_type.get(ptype, 0) + 1
+
+    def _summary(row: dict[str, object]) -> dict[str, object]:
+        return {
+            "title": row["title"],
+            "handle": row["handle"],
+            "min_price": row["min_price"],
+            "display_price": row.get("display_price"),
+            "product_type": row.get("product_type"),
+        }
+
+    return {
+        "question": (question or "").strip(),
+        "count": len(rows_sorted),
+        "currency": currency,
+        "min_price": round(min(amounts), 2),
+        "max_price": round(max(amounts), 2),
+        "average_price": round(sum(amounts) / len(amounts), 2),
+        "cheapest": [_summary(r) for r in rows_sorted[:3]],
+        "most_expensive": [_summary(r) for r in rows_sorted[-3:][::-1]],
+        "by_product_type": by_type,
+    }
+
+
+async def run_catalog_query(
+    *,
+    shop_domain: str,
+    access_token: str,
+    filter_query: str,
+    question: str,
+    include_out_of_stock: bool = False,
+) -> str:
+    q = _strip_catalog_search_noise((filter_query or "").strip())
+    if not q:
+        return compact_json({"error": "empty_filter_query"})
+    shopify_q, is_broad = _resolve_shopify_product_search_query(q)
+    if not shopify_q:
+        lookup_meta: dict[str, object] = {
+            "query": q,
+            "shopify_query": "",
+            "question": (question or "").strip(),
+            "result_count": 0,
+            "not_found": True,
+            "message": "Empty catalog filter query.",
+        }
+        return compact_json({"analysis": _compute_catalog_analysis([], question=question), "lookup_meta": lookup_meta})
+
+    nodes = await _fetch_catalog_query_products(
+        shop_domain=shop_domain,
+        access_token=access_token,
+        shopify_q=shopify_q,
+        include_out_of_stock=include_out_of_stock,
+    )
+    analysis = _compute_catalog_analysis(nodes, question=question)
+    count = int(analysis.get("count") or 0)
+    log.info(
+        "runtime.shopify_catalog_query_result",
+        filter_preview=q[:120],
+        shopify_query_preview=shopify_q[:120],
+        is_broad_catalog=is_broad,
+        result_count=count,
+        question_preview=(question or "")[:120],
+    )
+    lookup_meta: dict[str, object] = {
+        "query": q,
+        "shopify_query": shopify_q,
+        "question": (question or "").strip(),
+        "result_count": count,
+        "not_found": count <= 0,
+    }
+    if count <= 0:
+        lookup_meta["message"] = (
+            "No matching products for this catalog filter in the connected store. "
+            "Do not invent prices or product names."
+        )
+    return compact_json({"analysis": analysis, "lookup_meta": lookup_meta})
 
 
 async def run_product_details(

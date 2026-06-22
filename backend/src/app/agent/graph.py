@@ -36,6 +36,7 @@ from app.agent.product_cards import (
     is_product_browse_turn,
     is_specific_product_availability_question,
 )
+from app.agent.turn_intent import turn_wants_store_data
 from app.domains.integrations.shopify.tool_runners import _is_broad_catalog_shopify_query
 from app.agent.shopify_tools import (
     MAX_SHOPIFY_TOOL_ROUNDS,
@@ -129,7 +130,11 @@ def _state_has_tool_messages(state: ChatGraphState) -> bool:
 
 def _route_after_shopify_tools(state: ChatGraphState) -> Literal["call_model", "__end__"]:
     user_message = str((state.get("turn_context") or {}).get("user_message") or "")
-    if state.get("product_cards") and is_product_browse_turn(user_message):
+    if (
+        state.get("product_cards")
+        and is_product_browse_turn(user_message)
+        and turn_wants_store_data(user_message)
+    ):
         return "__end__"
     if int(state.get("model_round") or 0) >= MAX_TOOL_ROUNDS:
         # Allow one final model turn without tools to answer from collected tool results.
@@ -416,11 +421,12 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
     else:
         product_cards = []
 
-    if product_cards and is_product_browse_turn(user_message):
+    browse_turn = is_product_browse_turn(user_message) and turn_wants_store_data(user_message)
+    if product_cards and browse_turn:
         writer({"type": "products", "products": product_cards})
 
     final_response = ""
-    if product_cards and is_product_browse_turn(user_message):
+    if product_cards and browse_turn:
         final_response = brief_product_search_intro(user_message, count=len(product_cards))
         if final_response:
             writer({"type": "token", "text": final_response})
@@ -429,7 +435,7 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
         "messages": tool_messages,
         "tools_invoked": invoked,
         "tool_result_cache": cache,
-        "product_cards": product_cards,
+        "product_cards": product_cards if browse_turn else [],
         "final_response": final_response,
         "usage_input_tokens": int(state.get("usage_input_tokens") or 0),
         "usage_output_tokens": int(state.get("usage_output_tokens") or 0),

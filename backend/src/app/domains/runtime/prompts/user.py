@@ -23,6 +23,7 @@ def _shopify_thread_follow_up_block(
     *,
     thread_has_prior_turns: bool,
     thread_had_order_lookup: bool = False,
+    include_catalog_followup: bool = True,
 ) -> str:
     if not thread_has_prior_turns:
         return ""
@@ -33,13 +34,16 @@ def _shopify_thread_follow_up_block(
             "(\"it\", \"that order\", shipping city, tracking, status) from that context—"
             "reuse the same order # with `shopify_order_lookup`; do not ask for the order number again.\n"
         )
-    parts.append(
-        "Earlier messages in this thread may name products or categories the customer refers to now. "
-        "Resolve follow-ups (\"give me options\", \"the one\", \"that boot\") from that context, and pass "
-        "specific product or category keywords to Shopify tools—not vague words like \"options\" alone.\n"
-        "Do not contradict your earlier answers unless a new tool call returns different data. "
-        "If you said a size or item is unavailable, do not later claim it is available.\n\n"
-    )
+    if include_catalog_followup:
+        parts.append(
+            "Earlier messages in this thread may name products or categories the customer refers to now. "
+            "Resolve follow-ups (\"give me options\", \"the one\", \"that boot\") from that context, and pass "
+            "specific product or category keywords to Shopify tools—not vague words like \"options\" alone.\n"
+            "Do not contradict your earlier answers unless a new tool call returns different data. "
+            "If you said a size or item is unavailable, do not later claim it is available.\n\n"
+        )
+    elif parts:
+        parts.append("\n")
     return "".join(parts)
 
 
@@ -102,10 +106,11 @@ def build_shopify_turn_user_prompt(
     *,
     thread_has_prior_turns: bool = False,
     thread_had_order_lookup: bool = False,
+    include_catalog_followup: bool = True,
 ) -> str:
     return (
-        f"{_shopify_thread_follow_up_block(thread_has_prior_turns=thread_has_prior_turns, thread_had_order_lookup=thread_had_order_lookup)}"
-        f"{_COMPOUND_CATALOG_SEARCH_RULES}"
+        f"{_shopify_thread_follow_up_block(thread_has_prior_turns=thread_has_prior_turns, thread_had_order_lookup=thread_had_order_lookup, include_catalog_followup=include_catalog_followup)}"
+        f"{_COMPOUND_CATALOG_SEARCH_RULES if include_catalog_followup else ''}"
         f"Customer message:\n{user_message}"
     )
 

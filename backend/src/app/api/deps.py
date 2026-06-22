@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth_state import get_token_verifier
 from app.core.errors import AuthError
 from app.core.settings import get_settings
-from app.db.session import get_db_session
+from app.db.session import get_db_session, get_session_factory
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -27,7 +27,6 @@ def get_db(session: AsyncSession = Depends(get_db_session)) -> AsyncSession:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_db_session),
 ) -> AuthContext:
     settings = get_settings()
     if credentials is None:
@@ -43,12 +42,13 @@ async def get_current_user(
     except (TypeError, ValueError) as exc:
         raise AuthError("Token subject is not a valid UUID") from exc
 
-    row = await db.execute(
-        text("select 1 from auth.users where id = cast(:user_id as uuid)"),
-        {"user_id": str(auth.user_id)},
-    )
-    if row.first() is None:
-        raise AuthError("User account no longer exists")
+    async with get_session_factory()() as db:
+        row = await db.execute(
+            text("select 1 from auth.users where id = cast(:user_id as uuid)"),
+            {"user_id": str(auth.user_id)},
+        )
+        if row.first() is None:
+            raise AuthError("User account no longer exists")
 
     return auth
 

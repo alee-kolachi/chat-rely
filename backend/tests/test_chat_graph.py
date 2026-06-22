@@ -131,6 +131,33 @@ def test_route_after_shopify_tools_loops_until_max_rounds() -> None:
     )
 
 
+def test_route_after_shopify_tools_browse_early_exit() -> None:
+    state = {
+        "model_round": 1,
+        "product_cards": [{"title": "Snowboard", "handle": "snowboard"}],
+        "turn_context": {"user_message": "what do you sell"},
+    }
+    assert _route_after_shopify_tools(state) == "__end__"
+
+
+def test_route_after_shopify_tools_cheapest_calls_model() -> None:
+    state = {
+        "model_round": 1,
+        "product_cards": [{"title": "Snowboard", "handle": "snowboard"}],
+        "turn_context": {"user_message": "give me cheapest one"},
+    }
+    assert _route_after_shopify_tools(state) == "call_model"
+
+
+def test_route_after_shopify_tools_hello_calls_model() -> None:
+    state = {
+        "model_round": 1,
+        "product_cards": [{"title": "Snowboard", "handle": "snowboard"}],
+        "turn_context": {"user_message": "hello"},
+    }
+    assert _route_after_shopify_tools(state) == "call_model"
+
+
 def test_append_escalation_tool_prompt_only_when_enabled() -> None:
     base = "You are helpful."
     disabled = append_escalation_tool_prompt(base, tools_enabled=False)
@@ -583,8 +610,11 @@ def test_product_search_tool_description_excludes_orders_when_order_lookup_disab
         "token",
         {"shopify.product_search"},
     )
-    assert len(tools) == 1
-    desc = (tools[0].description or "").lower()
+    assert len(tools) == 2
+    by_name = {t.name: t for t in tools}
+    assert "shopify_product_search" in by_name
+    assert "shopify_catalog_query" in by_name
+    desc = (by_name["shopify_product_search"].description or "").lower()
     assert "do not use for order" in desc
     assert "order lookup is not enabled" in desc
     assert "lookup_meta.not_found" in desc
@@ -601,6 +631,7 @@ def test_agent_system_prompt_covers_tool_selection_and_product_search_query() ->
     )
     lower = prompt.lower()
     assert "you choose the tool" in lower
+    assert "shopify_catalog_query" in lower
     assert "published_status:published" in lower
     assert "lookup_meta.not_found" in lower
     assert "published_status:published" in lower
@@ -908,6 +939,55 @@ async def test_shopify_tools_node_skips_broad_cards_when_specific_item_missing()
 
     assert result["product_cards"] == []
     writer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_shopify_tools_node_clears_cards_on_non_browse_turn() -> None:
+    from app.agent.graph import _shopify_tools_node
+
+    async def _run(**kwargs: object) -> str:
+        return json.dumps(
+            {
+                "ui_cards": [{"title": "Ski Wax", "handle": "ski-wax", "price": "$9.95"}],
+                "lookup_meta": {
+                    "not_found": False,
+                    "shopify_query": "published_status:published",
+                },
+            }
+        )
+
+    tool = StructuredTool.from_function(
+        coroutine=_run,
+        name="shopify_product_search",
+        description="test",
+    )
+    ai = AIMessage(
+        content="",
+        tool_calls=[
+            {"id": "tc1", "name": "shopify_product_search", "args": {"query": "published_status:published"}},
+        ],
+    )
+    writer = MagicMock()
+    result = await _shopify_tools_node(
+        {
+            "messages": [ai],
+            "bound_tools": [tool],
+            "shopify_tool_names": {"shopify_product_search"},
+            "model_round": 1,
+            "tools_invoked": [],
+            "tool_result_cache": {},
+            "turn_context": {"user_message": "what is the average price of your products?"},
+        },
+        writer,
+    )
+
+    assert result["product_cards"] == []
+    product_events = [
+        call
+        for call in writer.call_args_list
+        if call.args and isinstance(call.args[0], dict) and call.args[0].get("type") == "products"
+    ]
+    assert product_events == []
 
 
 def test_count_unresolved_uses_message_metadata() -> None:

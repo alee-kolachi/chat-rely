@@ -35,10 +35,12 @@ from app.agent.escalation import (
     visitor_non_substantive_reply,
 )
 from app.agent.product_cards import (
+    is_product_browse_turn,
     shorten_answer_for_product_cards,
 )
+from app.agent.turn_intent import message_references_thread_catalog, turn_wants_store_data
 from app.agent.graph import append_escalation_tool_prompt, stream_chat_graph
-from app.agent.knowledge_tools import build_search_knowledge_base_tool
+from app.agent.knowledge_tools import build_search_knowledge_base_tool, SEARCH_KNOWLEDGE_BASE_TOOL_NAME
 
 
 def _sse_conversation_fields(
@@ -105,6 +107,7 @@ from app.domains.conversations.service import (
 from app.domains.conversations.schemas import ConversationMessageCreateRequest
 from app.domains.runtime.prompts import build_grounded_user_prompt
 from app.domains.runtime.prompts.user import (
+    build_chitchat_user_prompt,
     build_shopify_turn_user_prompt,
 )
 from app.domains.runtime.prompts.system import (
@@ -1159,13 +1162,16 @@ async def stream_chat(
     has_indexed_kb = bool(config.get("has_indexed_knowledge"))
     thread_had_shopify = thread_had_shopify_tools(history_rows)
     thread_had_order_lookup = thread_had_order_lookup_tool(history_rows)
+    wants_store_data = turn_wants_store_data(payload.message)
     structural_skip, structural_kb_reason = _structural_skip_kb_retrieval(
         agent_has_indexed_kb=has_indexed_kb,
         thread_had_shopify_tools=thread_had_shopify,
     )
-    skip_rag = structural_skip or operator_engaged
+    skip_rag = structural_skip or operator_engaged or not wants_store_data
     if operator_engaged:
         kb_skip_reason = "operator_engaged"
+    elif not wants_store_data:
+        kb_skip_reason = "conversational_turn"
     elif structural_skip:
         kb_skip_reason = structural_kb_reason
     else:
@@ -1288,6 +1294,28 @@ async def stream_chat(
         ]
         has_knowledge_tool = True
 
+    if not wants_store_data:
+        conversational_tool_names = {
+            "shopify_product_search",
+            "shopify_catalog_query",
+            SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
+        }
+        tool_list = [
+            t
+            for t in tool_list
+            if str(getattr(t, "name", "") or "") not in conversational_tool_names
+        ]
+        has_shopify_tools = any(
+            is_shopify_tool_name(str(getattr(t, "name", "") or "")) for t in tool_list
+        )
+        has_order_lookup_tool = any(
+            str(getattr(t, "name", "") or "") == "shopify_order_lookup" for t in tool_list
+        )
+        has_knowledge_tool = any(
+            str(getattr(t, "name", "") or "") == SEARCH_KNOWLEDGE_BASE_TOOL_NAME
+            for t in tool_list
+        )
+
     tools_bound_count = len(tool_list) + (1 if human_on else 0)
 
     if has_shopify_tools:
@@ -1322,8 +1350,11 @@ async def stream_chat(
             ).strip()
 
     grounded_user_content = payload.message
+    catalog_followup = wants_store_data or message_references_thread_catalog(payload.message)
 
-    if context_block:
+    if not wants_store_data and (has_shopify_tools or context_block or shopify_connected):
+        grounded_user_content = build_chitchat_user_prompt(payload.message)
+    elif context_block:
         grounded_user_content = build_grounded_user_prompt(
             context_block,
             fallback_message,
@@ -1341,6 +1372,7 @@ async def stream_chat(
             payload.message,
             thread_has_prior_turns=bool(history_rows),
             thread_had_order_lookup=thread_had_order_lookup,
+            include_catalog_followup=catalog_followup,
         )
         grounded_user_content = f"{_SHOPIFY_NO_EXCERPT_GROUNDING}{thread_block}"
 
@@ -1469,7 +1501,12 @@ async def stream_chat(
                         "product_cards": ev.get("product_cards"),
                     }
                     cards = ev.get("product_cards") or []
-                    if isinstance(cards, list) and cards:
+                    if (
+                        isinstance(cards, list)
+                        and cards
+                        and wants_store_data
+                        and is_product_browse_turn(payload.message)
+                    ):
                         stream_products = [c for c in cards if isinstance(c, dict)]
         else:
             async for frame in stream_llm_sse(

@@ -970,7 +970,7 @@ function ConversationsPageContent() {
                     className={cn(
                       "flex",
                       message.role === "user" ? "justify-end" : "justify-start",
-                      hasCarousel ? "max-w-[min(100%,540px)]" : ""
+                      hasCarousel ? "w-full min-w-0" : ""
                     )}
                   >
                     {message.role === "assistant" && hasCarousel ? (

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
 from app.agent.service import stream_chat
-from app.api.deps import AuthContext, get_current_user, get_db
+from app.api.deps import AuthContext, get_current_user
+from app.db.session import get_session_factory
 from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.domains.agents.rate_limit import (
@@ -25,15 +25,17 @@ router = APIRouter(tags=["chat"])
 async def chat_stream_route(
     payload: RuntimeChatRequest,
     user: AuthContext = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    behavior = await fetch_agent_behavior_settings(db, user_id=user.user_id, agent_id=payload.agent_id)
-    visitor_key = (payload.visitor_id or "").strip() or f"dashboard:{user.user_id}"
-    await enforce_visitor_message_rate_limit(
-        behavior_settings=behavior,
-        visitor_id=visitor_key,
-        agent_id=payload.agent_id,
-    )
+    async with get_session_factory()() as db:
+        behavior = await fetch_agent_behavior_settings(
+            db, user_id=user.user_id, agent_id=payload.agent_id
+        )
+        visitor_key = (payload.visitor_id or "").strip() or f"dashboard:{user.user_id}"
+        await enforce_visitor_message_rate_limit(
+            behavior_settings=behavior,
+            visitor_id=visitor_key,
+            agent_id=payload.agent_id,
+        )
 
     async def generate():
         from app.agent.streaming import format_sse

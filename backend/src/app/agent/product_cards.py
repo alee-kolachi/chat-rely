@@ -26,6 +26,52 @@ _ASSISTANT_CAPABILITY_HINTS = (
     "are you real",
 )
 
+_PRICE_LOOKUP_HINTS = (
+    "price",
+    "cost",
+    "how much",
+    "how much is",
+    "what does",
+    "worth",
+    "pricing",
+)
+
+_CATALOG_ANALYTICS_HINTS = (
+    "cheapest",
+    "lowest",
+    "lowest-priced",
+    "lowest priced",
+    "highest",
+    "most expensive",
+    "priciest",
+    "average",
+    "mean",
+    "median",
+    "price range",
+    "under $",
+    "over $",
+    "less than $",
+    "more than $",
+    "compare",
+    "how many products",
+    "how many items",
+)
+
+_CATALOG_SHOW_HINTS = (
+    "show me",
+    "show us",
+    "let me see",
+    "can i see",
+    "can you show",
+)
+
+_RECOMMEND_HINTS = (
+    "recommend",
+    "suggestion",
+    "suggestions",
+    "what would you suggest",
+)
+
 
 def is_catalog_browse_question(user_message: str) -> bool:
     """True when the visitor wants a general store catalog overview."""
@@ -57,27 +103,44 @@ def is_specific_product_availability_question(user_message: str) -> bool:
     )
 
 
+def is_catalog_analytics_turn(user_message: str) -> bool:
+    """True when the visitor wants computed catalog stats, not a carousel."""
+    msg = (user_message or "").strip().lower()
+    if not msg:
+        return False
+    return any(hint in msg for hint in _CATALOG_ANALYTICS_HINTS)
+
+
+def is_product_show_request(user_message: str) -> bool:
+    """True when the visitor asks to see or browse specific catalog items."""
+    msg = (user_message or "").strip().lower()
+    if not msg:
+        return False
+    if any(hint in msg for hint in _CATALOG_SHOW_HINTS):
+        return True
+    if any(hint in msg for hint in _RECOMMEND_HINTS):
+        from app.domains.integrations.shopify.tool_runners import _product_keywords_from_query
+
+        return bool(_product_keywords_from_query(msg))
+    return False
+
+
 def is_product_browse_turn(user_message: str) -> bool:
     """True when the UI should show a product carousel (catalog browse, not a price lookup)."""
     msg = (user_message or "").strip().lower()
     if not msg:
-        return True
+        return False
     if any(hint in msg for hint in _ASSISTANT_CAPABILITY_HINTS):
         return False
-    if any(
-        hint in msg
-        for hint in (
-            "price",
-            "cost",
-            "how much",
-            "how much is",
-            "what does",
-            "worth",
-            "pricing",
-        )
-    ):
+    if any(hint in msg for hint in _PRICE_LOOKUP_HINTS):
         return False
-    return True
+    if is_catalog_analytics_turn(msg):
+        return False
+    return (
+        is_catalog_browse_question(msg)
+        or is_specific_product_availability_question(msg)
+        or is_product_show_request(msg)
+    )
 
 
 def brief_product_search_intro(user_message: str, *, count: int) -> str:
