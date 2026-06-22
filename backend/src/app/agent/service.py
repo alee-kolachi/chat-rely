@@ -937,6 +937,15 @@ async def stream_chat(
     )
     await _await_prior_turn_persist(user_id, conversation_id)
 
+    if not awaiting_human_team:
+        awaiting_human_team = await _db_call(
+            lambda db: conversation_is_awaiting_human_team(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        )
+
     if not awaiting_human_team and await _resolve_free_plan_limit_reached(
         user_id,
         refresh_task=refresh_task,

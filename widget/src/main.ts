@@ -56,6 +56,14 @@ type WidgetStore = {
 const DEFAULT_ACCENT = "#831C91";
 const EMPTY_REPLY_FALLBACK =
   "I'm not sure about that right now. Try asking in another way, or contact our support team if you need more help.";
+
+function shouldSuppressEmptyAssistantFallback(opts: {
+  conversationStatus?: string | null;
+  aiChatDisabled?: boolean;
+}): boolean {
+  const status = (opts.conversationStatus ?? "").trim().toLowerCase();
+  return status === "escalated" || opts.aiChatDisabled === true;
+}
 function buildEscalatedBanner(handoff?: HandoffContext | null): string {
   if (handoff?.seller_live) {
     const n = Math.max(1, Math.round(handoff.estimated_minutes ?? 15));
@@ -256,6 +264,10 @@ function clearMessageTimestamp(parent: HTMLElement): void {
 function messageColumn(wrap: HTMLElement): HTMLElement | null {
   const col = wrap.closest(".cr-msg-col");
   return col instanceof HTMLElement ? col : null;
+}
+
+function setMessageColumnProductsMode(wrap: HTMLElement, enabled: boolean): void {
+  messageColumn(wrap)?.classList.toggle("cr-msg-col--products", enabled);
 }
 
 function getEmbedLoaderScript(): HTMLScriptElement | null {
@@ -969,6 +981,7 @@ function renderAssistantRichContent(
   removeColumnCarousel(messageColumn(wrap));
   wrap.classList.remove("cr-msg-wrap--products");
   assistantEl.classList.remove("cr-msg--intro-only");
+  setMessageColumnProductsMode(wrap, false);
 
   if (msg.product_detail) {
     wrap.classList.add("cr-msg-wrap--products");
@@ -983,6 +996,11 @@ function renderAssistantRichContent(
       buildProductCarousel(msg.products, onDetails, onSimilar, disabled)
     );
   }
+
+  setMessageColumnProductsMode(
+    wrap,
+    Boolean(msg.product_detail || msg.products?.length)
+  );
 }
 
 function poweredByChatRelyHtml(appOrigin: string): string {

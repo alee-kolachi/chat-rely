@@ -1420,7 +1420,7 @@ function PlaygroundPreviewConversation({
                     <div
                       className={cn(
                         "flex min-w-0 flex-col gap-1",
-                        hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[92%]"
+                        hasCarousel ? "w-full min-w-0" : "max-w-[92%]"
                       )}
                     >
                         {hasCarousel ? (
@@ -1433,6 +1433,7 @@ function PlaygroundPreviewConversation({
                             products={msg.products}
                             productDetail={msg.productDetail}
                             productActionsDisabled={isSending || aiChatDisabled}
+                            suppressEmptyFallback={humanHandoffActive}
                             introBubbleClassName={assistantBubbleClass}
                             introBubbleStyle={assistantBubbleStyle}
                             bubbleFooter={assistantTimeFooter}
@@ -1464,6 +1465,7 @@ function PlaygroundPreviewConversation({
                               products={msg.products}
                               productDetail={msg.productDetail}
                               productActionsDisabled={isSending || aiChatDisabled}
+                              suppressEmptyFallback={humanHandoffActive}
                               bubbleFooter={assistantTimeFooter}
                               onShowProductDetails={(product) =>
                                 void runProductAction({

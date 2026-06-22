@@ -30,6 +30,7 @@ export function StreamingAssistantMessage({
   introBubbleClassName,
   introBubbleStyle,
   bubbleFooter,
+  suppressEmptyFallback = false,
 }: {
   text: string;
   phase: AssistantStreamPhase;
@@ -48,6 +49,8 @@ export function StreamingAssistantMessage({
   introBubbleStyle?: React.CSSProperties;
   /** Shown bottom-right inside the intro bubble or below assistant content. */
   bubbleFooter?: React.ReactNode;
+  /** Hide generic empty-reply fallback during human handoff. */
+  suppressEmptyFallback?: boolean;
 }) {
   if (phase === "error") {
     return (
@@ -84,7 +87,8 @@ export function StreamingAssistantMessage({
     introText.length > 0 &&
     (phase === "streaming" || phase === "done") &&
     (!hasRichUi || introText.length > 0);
-  const showEmptyDone = phase === "done" && !introText.length && !hasRichUi;
+  const showEmptyDone =
+    phase === "done" && !introText.length && !hasRichUi && !suppressEmptyFallback;
   const detachCarousel = Boolean(showRichProducts && introBubbleClassName);
 
   const introLine = showText ? (

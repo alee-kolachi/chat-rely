@@ -41,6 +41,16 @@ export function isAiChatDisabledStatus(status: string | null | undefined): boole
   return isEscalatedConversationStatus(status);
 }
 
+/** Skip generic empty-reply fallback when the visitor is in human handoff. */
+export function shouldSuppressAssistantEmptyFallback(opts: {
+  conversationStatus?: string | null;
+  aiChatDisabled?: boolean;
+}): boolean {
+  return (
+    isAiChatDisabledStatus(opts.conversationStatus) || opts.aiChatDisabled === true
+  );
+}
+
 export function readConversationStatus(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
