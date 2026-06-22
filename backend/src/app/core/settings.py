@@ -138,6 +138,10 @@ class Settings(BaseSettings):
     """Legacy env names; used when new names are unset (existing Stripe prices / rollout)."""
     stripe_price_starter_monthly: str | None = None
     stripe_price_growth_monthly: str | None = None
+    """Stripe test price (e.g. $0.05/mo) for live card verification on one test account."""
+    stripe_price_test_monthly: str | None = None
+    """Single email allowed to see test checkout; same UX as other users otherwise."""
+    billing_test_checkout_email: str | None = None
     """Origin for Checkout return URLs, e.g. http://localhost:3000"""
     billing_app_base_url: str = "http://localhost:3000"
     """Optional comma-separated extra origins allowed for Stripe return URLs (production)."""
@@ -183,6 +187,20 @@ class Settings(BaseSettings):
 
     def is_admin_email(self, email: str | None) -> bool:
         return bool(email) and email.lower() in self.admin_emails
+
+    @field_validator("billing_test_checkout_email", mode="before")
+    @classmethod
+    def normalize_billing_test_checkout_email(cls, v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        return str(v).strip().lower()
+
+    def is_billing_test_checkout_email(self, email: str | None) -> bool:
+        allowed = (self.billing_test_checkout_email or "").strip().lower()
+        return bool(allowed) and bool(email) and email.lower() == allowed
+
+    def billing_test_checkout_available(self, email: str | None) -> bool:
+        return bool((self.stripe_price_test_monthly or "").strip()) and self.is_billing_test_checkout_email(email)
 
     """Per-model token pricing in USD per 1,000,000 tokens. JSON object keyed by `messages.model`.
 

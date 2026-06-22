@@ -10,10 +10,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, get_current_user, get_db
+from app.api.deps import AuthContext, get_current_user, get_db, require_billing_test_checkout
 from app.core.settings import get_settings
 from app.domains.billing.checkout_service import (
     change_subscription_plan,
+    create_test_checkout_session,
     create_billing_portal_session,
     create_subscription_checkout_session,
     finalize_subscription_checkout_session,
@@ -46,6 +47,29 @@ async def billing_checkout(
         return_context=body.return_context,
         agent_id=body.agent_id,
         return_origin=body.return_origin,
+    )
+    await db.commit()
+    return {"url": url}
+
+
+class TestCheckoutRequest(BaseModel):
+    return_context: str = Field(default="account", pattern="^(account|onboarding|marketing)$")
+    return_origin: str | None = Field(default=None, max_length=256)
+
+
+@router.post("/checkout/test")
+async def billing_test_checkout(
+    request: Request,
+    body: TestCheckoutRequest = TestCheckoutRequest(),
+    user: AuthContext = Depends(require_billing_test_checkout),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Test Checkout with STRIPE_PRICE_TEST_MONTHLY for the configured BILLING_TEST_CHECKOUT_EMAIL."""
+    url = await create_test_checkout_session(
+        db,
+        user_id=user.user_id,
+        return_context=body.return_context,
+        return_origin=body.return_origin or request.headers.get("origin"),
     )
     await db.commit()
     return {"url": url}

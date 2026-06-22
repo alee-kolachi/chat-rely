@@ -95,4 +95,5 @@ class MeContextResponse(BaseModel):
 class OnboardingGateResponse(BaseModel):
     onboarding_completed: bool
     is_admin: bool = False
+    test_checkout_enabled: bool = False
 

@@ -124,6 +124,95 @@ async def create_subscription_checkout_session(
     return str(url)
 
 
+async def create_test_checkout_session(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    return_context: str = "account",
+    return_origin: str | None = None,
+) -> str:
+    """Stripe Checkout with STRIPE_PRICE_TEST_MONTHLY (single test account, hobby entitlements)."""
+    settings = get_settings()
+    price_id = (settings.stripe_price_test_monthly or "").strip()
+    if not price_id:
+        raise AppError(
+            code="billing.test_price_not_configured",
+            message="STRIPE_PRICE_TEST_MONTHLY is not configured",
+            status_code=503,
+        )
+    if not price_id.startswith("price_"):
+        raise AppError(
+            code="billing.invalid_price_id",
+            message="STRIPE_PRICE_TEST_MONTHLY must be a recurring Price ID (price_...)",
+            status_code=503,
+        )
+
+    slug = "hobby"
+    configure_stripe()
+    email = await fetch_auth_user_email(db, user_id)
+    customer_id = await ensure_stripe_customer_for_user(db, user_id=user_id, email=email)
+    if not customer_id:
+        raise AppError(
+            code="stripe.not_configured",
+            message="Stripe is not configured (missing STRIPE_SECRET_KEY)",
+            status_code=503,
+        )
+
+    res = await db.execute(
+        text("select id from public.plans where slug = :slug and is_active = true limit 1"),
+        {"slug": slug},
+    )
+    prow = res.mappings().first()
+    if not prow:
+        raise AppError(code="plan.not_found", message="Plan not found", status_code=404)
+
+    base = resolve_billing_app_base_url(settings, return_origin=return_origin)
+    ctx = return_context.strip().lower()
+    if ctx == "marketing":
+        success_url = f"{base}/pricing?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{base}/pricing?checkout=cancel"
+    elif ctx == "onboarding":
+        success_url = f"{base}/onboarding/pricing?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{base}/onboarding/pricing?checkout=cancel"
+    else:
+        success_url = f"{base}/account/plan?checkout=success&checkout_session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{base}/account/plan?checkout=cancel"
+
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            customer=customer_id,
+            line_items=[{"price": price_id, "quantity": 1}],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            client_reference_id=str(user_id),
+            metadata={
+                "user_id": str(user_id),
+                "plan_slug": slug,
+                "test_checkout": "true",
+            },
+            subscription_data={
+                "metadata": {
+                    "user_id": str(user_id),
+                    "plan_slug": slug,
+                    "test_checkout": "true",
+                }
+            },
+        )
+    except stripe.StripeError as exc:
+        raise AppError(
+            code="stripe.checkout_failed",
+            message="Could not start test Checkout session",
+            status_code=502,
+            details={"stripe": str(exc)[:400]},
+        ) from exc
+
+    url = session.url
+    if not url:
+        raise AppError(code="stripe.checkout_failed", message="Checkout session missing URL", status_code=502)
+    return str(url)
+
+
 async def finalize_subscription_checkout_session(
     db: AsyncSession,
     *,

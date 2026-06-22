@@ -128,7 +128,7 @@ def test_me_onboarding_gate(client: TestClient, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr("app.api.routes.bootstrap.user_dashboard_onboarding_completed", _gate)
     response = client.get("/api/v1/me/onboarding-gate", headers=_auth_header())
     assert response.status_code == 200
-    assert response.json() == {"onboarding_completed": False, "is_admin": False}
+    assert response.json() == {"onboarding_completed": False, "is_admin": False, "test_checkout_enabled": False}
 
 
 def test_me_onboarding_gate_marks_admin_email(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,7 +152,34 @@ def test_me_onboarding_gate_marks_admin_email(client: TestClient, monkeypatch: p
     monkeypatch.setattr("app.api.routes.bootstrap.user_dashboard_onboarding_completed", _gate)
     response = client.get("/api/v1/me/onboarding-gate", headers=_auth_header())
     assert response.status_code == 200
-    assert response.json() == {"onboarding_completed": False, "is_admin": True}
+    assert response.json() == {"onboarding_completed": False, "is_admin": True, "test_checkout_enabled": False}
+
+
+def test_me_onboarding_gate_enables_test_checkout_for_configured_email(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BILLING_TEST_CHECKOUT_EMAIL", "tester@example.com")
+    monkeypatch.setenv("STRIPE_PRICE_TEST_MONTHLY", "price_1TlA5JFBhQAXmJ5kcjKMbR9e")
+    get_settings.cache_clear()
+
+    async def _test_user() -> AuthContext:
+        return AuthContext(
+            user_id=UUID("00000000-0000-0000-0000-000000000123"),
+            claims={
+                "sub": "00000000-0000-0000-0000-000000000123",
+                "email": "tester@example.com",
+            },
+        )
+
+    client.app.dependency_overrides[get_current_user] = _test_user
+
+    async def _gate(*_: Any, **__: Any) -> bool:
+        return True
+
+    monkeypatch.setattr("app.api.routes.bootstrap.user_dashboard_onboarding_completed", _gate)
+    response = client.get("/api/v1/me/onboarding-gate", headers=_auth_header())
+    assert response.status_code == 200
+    assert response.json() == {"onboarding_completed": True, "is_admin": False, "test_checkout_enabled": True}
 
 
 @pytest.mark.parametrize(

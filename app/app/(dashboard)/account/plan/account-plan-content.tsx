@@ -18,6 +18,7 @@ import { buildPlanEntitlementSections } from "@/lib/plan-entitlements";
 import { PlanTierBadge } from "@/components/ui/plan-tier-badge";
 import { appButtonClassName } from "@/lib/button-styles";
 import { useClientMounted } from "@/lib/use-client-mounted";
+import { useTestCheckoutEnabled } from "@/hooks/use-test-checkout-enabled";
 
 /** Tier order used for upgrade vs downgrade (matches billing price map). */
 const PAID_ORDER = ["hobby", "standard", "pro"] as const;
@@ -110,6 +111,7 @@ function PlanFeatureStatusBadge({ row }: { row: PlanEntitlementRow }) {
 export function AccountPlanContent() {
   const searchParams = useSearchParams();
   const localeReady = useClientMounted();
+  const { enabled: testCheckoutEnabled, ready: testCheckoutReady } = useTestCheckoutEnabled();
   const { data: ctx, error, loading, refresh } = useMeContext();
   const { agents, agentsLoading } = useDashboardAgent();
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -199,6 +201,27 @@ export function AccountPlanContent() {
       window.location.href = res.url;
     } catch (e) {
       const msg = e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Checkout failed";
+      setLoadError(msg);
+      setBusySlug(null);
+    }
+  };
+
+  const startTestCheckout = async () => {
+    setBusySlug("test");
+    setLoadError(null);
+    setPlanChangeBanner(null);
+    try {
+      const res = await backendFetch<{ url: string }>("/api/v1/billing/checkout/test", {
+        method: "POST",
+        body: JSON.stringify({
+          return_context: "account",
+          return_origin: getAppSiteOrigin(),
+        }),
+      });
+      window.location.href = res.url;
+    } catch (e) {
+      const msg =
+        e instanceof BackendApiError ? e.message : e instanceof Error ? e.message : "Test checkout failed";
       setLoadError(msg);
       setBusySlug(null);
     }
@@ -451,6 +474,17 @@ export function AccountPlanContent() {
                 className={appButtonClassName("default")}
               >
                 {busySlug === "portal" ? "Opening…" : "Billing portal"}
+              </button>
+            ) : null}
+            {testCheckoutReady && testCheckoutEnabled ? (
+              <button
+                type="button"
+                disabled={busySlug !== null}
+                onClick={() => void startTestCheckout()}
+                className={appButtonClassName("default")}
+                title="Test Stripe checkout ($0.05/mo)"
+              >
+                {busySlug === "test" ? "Opening…" : "Test checkout ($0.05)"}
               </button>
             ) : null}
           </div>

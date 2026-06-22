@@ -41,6 +41,8 @@ def slug_for_price_id(settings: Settings, price_id: str) -> str | None:
         return "pro"
     if _nz(settings.stripe_price_scale_monthly) == pid:
         return "scale"
+    if _nz(settings.stripe_price_test_monthly) == pid:
+        return "hobby"
     return None
 
 

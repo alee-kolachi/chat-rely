@@ -69,6 +69,16 @@ def test_slug_for_price_id_legacy_starter_growth_ids() -> None:
     assert slug_for_price_id(s, "price_b") == "standard"
 
 
+def test_slug_for_price_id_test_checkout() -> None:
+    s = Settings(
+        database_url="postgresql+asyncpg://x@127.0.0.1:1/x",
+        supabase_jwks_url="https://example.com/.well-known/jwks.json",
+        supabase_issuer="https://example.com/auth/v1",
+        stripe_price_test_monthly="price_1TlA5JFBhQAXmJ5kcjKMbR9e",
+    )
+    assert slug_for_price_id(s, "price_1TlA5JFBhQAXmJ5kcjKMbR9e") == "hobby"
+
+
 def test_paid_checkout_slugs_omits_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "STRIPE_PRICE_HOBBY_MONTHLY",

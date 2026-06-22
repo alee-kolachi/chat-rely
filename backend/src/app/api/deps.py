@@ -64,3 +64,12 @@ def require_admin(auth: AuthContext = Depends(get_current_user)) -> AuthContext:
         raise HTTPException(status_code=404, detail="Not Found")
     return auth
 
+
+def require_billing_test_checkout(auth: AuthContext = Depends(get_current_user)) -> AuthContext:
+    """Gate test Checkout to BILLING_TEST_CHECKOUT_EMAIL only (404 for everyone else)."""
+    settings = get_settings()
+    email = auth.claims.get("email")
+    if not settings.billing_test_checkout_available(email if isinstance(email, str) else None):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return auth
+

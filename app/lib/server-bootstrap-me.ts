@@ -9,11 +9,13 @@ export type BootstrapMePayload = {
 export type OnboardingGatePayload = {
   onboarding_completed: boolean;
   is_admin: boolean;
+  test_checkout_enabled: boolean;
 };
 
 const DEFAULT_ONBOARDING_GATE: OnboardingGatePayload = {
   onboarding_completed: true,
   is_admin: false,
+  test_checkout_enabled: false,
 };
 
 /**
@@ -35,6 +37,7 @@ export async function fetchOnboardingGateServer(accessToken: string): Promise<On
     return {
       onboarding_completed: Boolean(data.onboarding_completed),
       is_admin: Boolean(data.is_admin),
+      test_checkout_enabled: Boolean(data.test_checkout_enabled),
     };
   } catch {
     return DEFAULT_ONBOARDING_GATE;

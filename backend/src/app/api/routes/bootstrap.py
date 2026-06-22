@@ -29,8 +29,14 @@ async def me_onboarding_gate_route(
 ) -> OnboardingGateResponse:
     completed = await user_dashboard_onboarding_completed(db, user.user_id)
     email = user.claims.get("email")
-    is_admin = isinstance(email, str) and get_settings().is_admin_email(email)
-    return OnboardingGateResponse(onboarding_completed=completed, is_admin=is_admin)
+    settings = get_settings()
+    is_admin = isinstance(email, str) and settings.is_admin_email(email)
+    test_checkout_enabled = settings.billing_test_checkout_available(email if isinstance(email, str) else None)
+    return OnboardingGateResponse(
+        onboarding_completed=completed,
+        is_admin=is_admin,
+        test_checkout_enabled=test_checkout_enabled,
+    )
 
 
 @router.get("/me/context", response_model=MeContextResponse)
