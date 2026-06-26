@@ -1,7 +1,13 @@
 """Tests for per-turn store vs conversational intent."""
 
+import pytest
+
 from app.agent.product_cards import is_product_browse_turn, is_product_show_request
-from app.agent.turn_intent import message_references_thread_catalog, turn_wants_store_data
+from app.agent.turn_intent import (
+    message_references_thread_catalog,
+    route_turn_intent_sync,
+    turn_wants_store_data,
+)
 
 
 def test_turn_wants_store_data_catalog_questions() -> None:
@@ -29,3 +35,25 @@ def test_is_product_show_request() -> None:
 def test_message_references_thread_catalog() -> None:
     assert message_references_thread_catalog("give me that one") is True
     assert message_references_thread_catalog("hello") is False
+
+
+def test_route_turn_intent_direct() -> None:
+    assert route_turn_intent_sync("hello").route == "direct"
+    assert route_turn_intent_sync("thanks!").route == "direct"
+
+
+def test_route_turn_intent_rag() -> None:
+    assert route_turn_intent_sync("What's your return policy?").route == "rag"
+
+
+def test_route_turn_intent_products() -> None:
+    assert route_turn_intent_sync("what do you sell").route == "products"
+    assert route_turn_intent_sync("do you sell boots?").route == "products"
+
+
+@pytest.mark.asyncio
+async def test_route_turn_intent_async() -> None:
+    from app.agent.turn_intent import route_turn_intent
+
+    decision = await route_turn_intent("hello")
+    assert decision.route == "direct"
