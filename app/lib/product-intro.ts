@@ -14,6 +14,16 @@ function looksLikeProductListLine(line: string): boolean {
   return false;
 }
 
+function firstSentenceWithin(text: string, maxLen: number): string {
+  for (const sep of [". ", "! ", "? "]) {
+    const idx = text.indexOf(sep);
+    if (idx > 10 && idx <= maxLen) return text.slice(0, idx + 1);
+  }
+  if (text.length <= maxLen) return text;
+  const shortened = text.slice(0, 200).replace(/\s+\S*$/, "").trim();
+  return shortened ? `${shortened}...` : text.slice(0, maxLen);
+}
+
 export function stripProductListDump(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return "";
@@ -28,10 +38,16 @@ export function stripProductListDump(text: string): string {
   }
 
   const intro = introLines.join(" ").trim();
-  if (intro && !looksLikeProductListLine(intro) && intro.length <= 160) return intro;
+  if (intro && !looksLikeProductListLine(intro)) {
+    if (intro.length <= 220) return intro;
+    return firstSentenceWithin(intro, 220);
+  }
 
   const first = lines[0] ?? trimmed;
-  if (!looksLikeProductListLine(first) && first.length <= 100) return first;
+  if (!looksLikeProductListLine(first)) {
+    if (first.length <= 120) return first;
+    return firstSentenceWithin(first, 120);
+  }
 
   return "";
 }

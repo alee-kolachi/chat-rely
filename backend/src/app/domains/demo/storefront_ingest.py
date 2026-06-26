@@ -468,28 +468,34 @@ def build_suggested_prompts(
     products: list[DemoProductSnapshot],
     policies: dict[str, str],
 ) -> list[str]:
-    prompts: list[str] = []
+    """Starter chips: greeting, one product question, policy, optional product detail (max 4)."""
+    prompts: list[str] = ["Hello, how can you help me?"]
+
     if products:
         top = products[0]
         prompts.append(f"Do you have the {top.title}?")
-        if top.min_price:
-            prompts.append(f"How much is the {top.title}?")
-        if len(products) > 1 and products[0].options and products[1].options:
-            a = products[0]
-            opt_a = a.options[0]
-            vals = opt_a.get("values") if isinstance(opt_a.get("values"), list) else []
-            if len(vals) >= 2:
-                prompts.append(
-                    f"What sizes does the {a.title} come in?"
-                )
-        elif len(products) > 1:
-            prompts.append(f"Tell me about the {products[1].title}")
+
     if policies.get("refund"):
         prompts.append("What's your return policy?")
     elif policies.get("shipping"):
         prompts.append("What are your shipping options?")
-    if not prompts:
+
+    if products and len(prompts) < 4:
+        top = products[0]
+        opt = top.options[0] if top.options else None
+        vals = opt.get("values") if isinstance(opt, dict) else None
+        if isinstance(vals, list) and len(vals) >= 2:
+            opt_name = str(opt.get("name") or "size").strip().lower()
+            if opt_name == "size" or opt_name == "sizes":
+                prompts.append(f"What sizes does the {top.title} come in?")
+            else:
+                prompts.append(f"What {opt_name} options does the {top.title} come in?")
+        elif top.min_price and len(prompts) < 4:
+            prompts.append(f"How much is the {top.title}?")
+
+    if len(prompts) < 3:
         prompts.append("What products do you carry?")
+
     return prompts[:4]
 
 

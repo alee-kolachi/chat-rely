@@ -21,6 +21,7 @@ from app.agent.product_cards import shorten_answer_for_product_cards
 from app.agent.streaming import format_sse, stream_llm_sse
 from app.agent.turn_intent import route_turn_intent
 from app.domains.demo.demo_chat_prompts import (
+    build_demo_catalog_system_appendix,
     build_demo_kb_system_appendix,
     build_demo_kb_user_prompt,
 )
@@ -76,7 +77,7 @@ async def _load_demo_rag_chunks(
     )
     async with get_session_factory()() as db:
         policies = await fetch_demo_policies(db, agent_id)
-    policy_chunks = policy_grounding_chunks(policies, user_message, limit=2)
+    policy_chunks = policy_grounding_chunks(policies, user_message, limit=4)
     merged = _merge_rag_chunks(
         vector_chunks,
         policy_chunks,
@@ -149,6 +150,9 @@ async def stream_demo_routed_turn(
         max_window_messages=history_limit,
     )
 
+    if decision.route == "products":
+        system_prompt = f"{system_prompt}\n\n{build_demo_catalog_system_appendix()}".strip()
+
     if decision.route == "rag":
         min_sim = float(config.get("min_retrieval_similarity") or 0.52)
         chunks, rag_billing, _kb_reason = await _load_demo_rag_chunks(
@@ -191,7 +195,14 @@ async def stream_demo_routed_turn(
             system_prompt = f"{system_prompt}\n\n{build_demo_kb_system_appendix()}".strip()
             grounded_user = build_demo_kb_user_prompt(context_block, user_message)
         else:
-            grounded_user = build_chitchat_user_prompt(user_message)
+            system_prompt = f"{system_prompt}\n\n{build_demo_kb_system_appendix()}".strip()
+            grounded_user = (
+                "No store policy excerpts were retrieved for this question.\n"
+                "- Say briefly that you do not have the policy details available right now.\n"
+                "- Offer a concrete next step (contact the store or check back later).\n"
+                "- Do not invent refund windows, fees, or policy URLs.\n\n"
+                f"Customer question:\n{user_message.strip()}"
+            )
 
     stream_fallback = fallback_message
     if decision.route == "rag" and chunks:

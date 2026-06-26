@@ -227,8 +227,11 @@ def test_build_top_products_from_catalog() -> None:
 def test_build_suggested_prompts() -> None:
     product = normalized_sample_product()
     prompts = build_suggested_prompts([product], {"refund": "30 day returns"})
+    assert prompts[0].lower().startswith("hello")
     assert any("Classic Hoodie" in p for p in prompts)
     assert any("return" in p.lower() for p in prompts)
+    assert len(prompts) <= 4
+    assert len(prompts) >= 3
 
 
 def test_build_qa_questions_includes_negative_probe() -> None:

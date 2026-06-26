@@ -440,9 +440,6 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
         product_cards = []
 
     browse_turn = is_product_browse_turn(user_message) and turn_wants_store_data(user_message)
-    if product_cards and browse_turn:
-        writer({"type": "products", "products": product_cards})
-
     final_response = ""
     if product_cards and browse_turn:
         final_response = catalog_browse_carousel_intro(
@@ -452,6 +449,7 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
         )
         if final_response:
             writer({"type": "token", "text": final_response})
+        writer({"type": "products", "products": product_cards})
 
     return {
         "messages": tool_messages,

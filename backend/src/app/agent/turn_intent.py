@@ -10,6 +10,7 @@ from app.agent.product_cards import (
     _PRICE_LOOKUP_HINTS,
     is_catalog_analytics_turn,
     is_catalog_browse_question,
+    is_product_attribute_question,
     is_product_show_request,
     is_specific_product_availability_question,
     turn_is_kb_question,
@@ -84,6 +85,8 @@ def turn_wants_store_data(user_message: str) -> bool:
     if is_catalog_analytics_turn(msg):
         return True
     if is_product_show_request(msg):
+        return True
+    if is_product_attribute_question(msg):
         return True
     if any(hint in msg for hint in _PRICE_LOOKUP_HINTS):
         return True

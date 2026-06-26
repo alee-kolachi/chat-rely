@@ -752,9 +752,23 @@ function introTextForProductCards(text: string): string {
     introLines.push(line);
   }
   const intro = introLines.join(" ").trim();
-  if (intro && !looksLikeProductListLine(intro) && intro.length <= 160) return intro;
+  if (intro && !looksLikeProductListLine(intro)) {
+    if (intro.length <= 220) return intro;
+    for (const sep of [". ", "! ", "? "]) {
+      const idx = intro.indexOf(sep);
+      if (idx > 10 && idx <= 220) return intro.slice(0, idx + 1);
+    }
+    const shortened = intro.slice(0, 200).replace(/\s+\S*$/, "").trim();
+    return shortened ? `${shortened}...` : intro.slice(0, 220);
+  }
   const first = lines[0] ?? trimmed;
-  if (!looksLikeProductListLine(first) && first.length <= 100) return first;
+  if (!looksLikeProductListLine(first)) {
+    if (first.length <= 120) return first;
+    for (const sep of [". ", "! ", "? "]) {
+      const idx = first.indexOf(sep);
+      if (idx > 10 && idx <= 120) return first.slice(0, idx + 1);
+    }
+  }
   return "";
 }
 

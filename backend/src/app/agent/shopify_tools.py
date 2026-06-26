@@ -21,6 +21,7 @@ MAX_SHOPIFY_TOOL_ROUNDS = 5
 
 SHOPIFY_TOOL_STATUS: dict[str, str] = {
     "shopify_product_search": "Searching the catalog…",
+    "shopify_product_details": "Loading product details…",
     "shopify_catalog_query": "Crunching catalog numbers…",
     "shopify_order_lookup": "Looking up your order…",
     "shopify_inventory_check": "Checking stock levels…",
@@ -29,6 +30,7 @@ SHOPIFY_TOOL_STATUS: dict[str, str] = {
 
 SHOPIFY_TOOL_PREAMBLE: dict[str, str] = {
     "shopify_product_search": "Let me search the store for that.",
+    "shopify_product_details": "Let me pull up that product's details.",
     "shopify_catalog_query": "Let me work out those catalog numbers.",
     "shopify_order_lookup": "Let me look up your order.",
     "shopify_inventory_check": "Let me check stock on that for you.",

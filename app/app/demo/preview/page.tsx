@@ -47,8 +47,8 @@ const MOCK_STORE: DemoStoreMeta = {
     },
   ],
   suggestedPrompts: [
+    "Hello, how can you help me?",
     "Do you have the Ethiopian Yirgacheffe?",
-    "How much is the Colombian Single Origin?",
     "What's your return policy?",
   ],
   installUrl: DEMO_SHOPIFY_INSTALL_URL,

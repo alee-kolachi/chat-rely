@@ -125,6 +125,8 @@ def is_specific_product_availability_question(user_message: str) -> bool:
     msg = (user_message or "").strip().lower()
     if not msg or is_catalog_browse_question(msg):
         return False
+    if is_product_attribute_question(msg):
+        return False
     return any(
         hint in msg
         for hint in (
@@ -133,9 +135,35 @@ def is_specific_product_availability_question(user_message: str) -> bool:
             "do you carry",
             "do you stock",
             "do you offer",
-            "sell ",
-            "have ",
-            "carry ",
+        )
+    )
+
+
+def is_product_attribute_question(user_message: str) -> bool:
+    """True when the shopper asks about sizes, colors, materials, or other variant facts."""
+    msg = (user_message or "").strip().lower()
+    if not msg:
+        return False
+    return any(
+        hint in msg
+        for hint in (
+            "what size",
+            "what sizes",
+            "which size",
+            "which sizes",
+            "size does",
+            "sizes does",
+            "come in",
+            "what color",
+            "what colour",
+            "which color",
+            "which colour",
+            "in what color",
+            "in what colour",
+            "available in",
+            "what material",
+            "made of",
+            "made from",
         )
     )
 
@@ -177,6 +205,8 @@ def turn_needs_catalog_tools(
         return False
     if is_catalog_browse_question(msg):
         return True
+    if is_product_attribute_question(msg):
+        return True
     return is_specific_product_availability_question(msg)
 
 
@@ -212,6 +242,8 @@ def is_product_browse_turn(user_message: str) -> bool:
     if any(hint in msg for hint in _PRICE_LOOKUP_HINTS):
         return False
     if is_catalog_analytics_turn(msg):
+        return False
+    if is_product_attribute_question(msg):
         return False
     return (
         is_catalog_browse_question(msg)

@@ -49,6 +49,10 @@ def test_route_turn_intent_rag() -> None:
 def test_route_turn_intent_products() -> None:
     assert route_turn_intent_sync("what do you sell").route == "products"
     assert route_turn_intent_sync("do you sell boots?").route == "products"
+    assert route_turn_intent_sync(
+        "What sizes does the Camicia da bowling come in?"
+    ).route == "products"
+    assert route_turn_intent_sync("do you refund after purchase?").route == "rag"
 
 
 @pytest.mark.asyncio

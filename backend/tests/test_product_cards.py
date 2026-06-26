@@ -4,6 +4,7 @@ from app.agent.product_cards import (
     brief_product_search_intro,
     is_catalog_analytics_turn,
     is_catalog_browse_question,
+    is_product_attribute_question,
     is_product_browse_turn,
     is_specific_product_availability_question,
     shorten_answer_for_product_cards,
@@ -64,6 +65,33 @@ def test_is_catalog_browse_question() -> None:
 def test_is_specific_product_availability_question() -> None:
     assert is_specific_product_availability_question("do you sell laptops?") is True
     assert is_specific_product_availability_question("what products do you sell?") is False
+    assert is_specific_product_availability_question(
+        "in what color do you sell Stretch Gabardine Cargo Shorts?"
+    ) is False
+
+
+def test_is_product_attribute_question() -> None:
+    assert is_product_attribute_question(
+        "in what color do you sell Stretch Gabardine Cargo Shorts?"
+    ) is True
+    assert is_product_attribute_question(
+        "What sizes does the Camicia da bowling come in?"
+    ) is True
+    assert is_product_browse_turn(
+        "in what color do you sell Stretch Gabardine Cargo Shorts?"
+    ) is False
+    assert is_product_browse_turn("what do you sell") is True
+
+
+def test_turn_needs_catalog_tools_attribute_questions() -> None:
+    from app.agent.product_cards import turn_needs_catalog_tools
+
+    assert turn_needs_catalog_tools(
+        "What sizes does the Camicia da bowling come in?"
+    ) is True
+    assert turn_needs_catalog_tools(
+        "in what color do you sell Stretch Gabardine Cargo Shorts?"
+    ) is True
 
 
 def test_brief_product_search_intro_catalog_question() -> None:
