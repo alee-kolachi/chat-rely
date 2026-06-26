@@ -100,13 +100,15 @@ def summarize_demo_catalog(products: list[dict[str, Any]]) -> dict[str, Any]:
     ]
 
     if categories:
-        parts = [f"{row['name']} ({row['count']})" for row in categories[:8]]
-        overview = f"We carry {total} products across {len(ranked)} categories, including {', '.join(parts)}"
-        if len(categories) > 8:
-            overview += f", and {len(categories) - 8} more"
-        overview += ". Here are a few examples:"
+        names = [row["name"] for row in categories[:4]]
+        if len(categories) > 4:
+            overview = f"We carry {', '.join(names)}, and more."
+        elif len(names) == 1:
+            overview = f"We carry {names[0]}."
+        else:
+            overview = f"We carry {', '.join(names[:-1])} and {names[-1]}."
     else:
-        overview = f"We carry {total} products in our catalog. Here are a few examples:"
+        overview = "Here's a sample from our catalog."
 
     return {
         "product_count": total,

@@ -151,26 +151,16 @@ def catalog_browse_carousel_intro(
     user_message: str,
     count: int,
 ) -> str:
-    """Short grounded line before product cards (avoid dumping the full category list)."""
-    from app.agent.product_cards import brief_product_search_intro
+    """Short shopper-facing line before product cards (no inventory stats)."""
+    from app.agent.product_cards import brief_product_search_intro, is_catalog_browse_question
 
     if count <= 0:
         return ""
+    if is_catalog_browse_question(user_message):
+        return brief_product_search_intro(user_message, count=count)
+
     text = (overview or "").strip()
-    if text:
-        lower = text.casefold()
-        marker = "here are"
-        idx = lower.find(marker)
-        if idx > 20:
-            lead = text[:idx].strip().rstrip(".,;:")
-            if lead:
-                return f"{lead}."
-        for sep in (". ", "! ", "? "):
-            pos = text.find(sep)
-            if 10 < pos <= 220:
-                return text[: pos + 1]
-        if len(text) <= 220:
-            return text
-        shortened = text[:200].rsplit(" ", 1)[0].strip()
-        return f"{shortened}..." if shortened else text[:200]
+    if text and len(text) <= 120 and "(" not in text and not any(ch.isdigit() for ch in text):
+        return text if text.endswith((".", "!", "?")) else f"{text}."
+
     return brief_product_search_intro(user_message, count=count)

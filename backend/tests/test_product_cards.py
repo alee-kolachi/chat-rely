@@ -141,9 +141,8 @@ def test_shorten_answer_for_product_cards_keeps_intro_before_numbered_list() -> 
 
 def test_shorten_answer_for_product_cards_keeps_long_catalog_overview_lead() -> None:
     raw = (
-        "We carry 120 products across 8 categories, including Dresses (24), "
-        "Bags (18), Shoes (15), and 5 more."
+        "We carry shirts, accessories, footwear, and sweaters."
     )
     out = shorten_answer_for_product_cards(raw)
-    assert out.startswith("We carry 120 products")
+    assert out.startswith("We carry shirts")
     assert len(out) <= 220

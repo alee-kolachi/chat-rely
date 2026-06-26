@@ -80,7 +80,7 @@ def test_summarize_demo_catalog_uses_snapshot_tags() -> None:
     summary = summarize_demo_catalog(products)
     assert summary["product_count"] == 3
     assert len(summary["categories"]) >= 2
-    assert "3 products" in summary["overview"]
+    assert "3 products" not in summary["overview"]
     assert "Wallets" in summary["overview"] or "wallets" in summary["overview"].casefold()
 
 

@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field
 
 from app.domains.demo.demo_catalog_tool_runners import (
     run_demo_product_details,
+    run_demo_product_details_async,
     run_demo_product_search,
+    run_demo_similar_products,
 )
 from app.domains.runtime.shopify_lc_tools import (
     _PRODUCT_SEARCH_DESCRIPTION,
@@ -68,3 +70,33 @@ def build_demo_langchain_tools(
             args_schema=ProductDetailsInput,
         ),
     ]
+
+
+async def demo_product_details_json_async(
+    products: list[dict[str, Any]],
+    *,
+    handle: str,
+    store_url: str | None = None,
+) -> str:
+    """Product card Details action (enrichment + polish)."""
+    return await run_demo_product_details_async(
+        products,
+        handle=handle,
+        store_url=store_url,
+    )
+
+
+def demo_similar_products_json(
+    products: list[dict[str, Any]],
+    *,
+    handle: str,
+    title: str | None = None,
+    max_results: int = 5,
+) -> str:
+    """Product card Similar action."""
+    return run_demo_similar_products(
+        products,
+        handle=handle,
+        title=title,
+        max_results=max_results,
+    )

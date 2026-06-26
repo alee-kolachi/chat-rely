@@ -86,6 +86,6 @@ def test_catalog_browse_carousel_intro_shortens_overview() -> None:
         user_message="what do you sell?",
         count=5,
     )
-    assert intro.endswith(".")
-    assert "here are" not in intro.casefold()
+    assert "120 products" not in intro
+    assert "highlights" in intro.casefold() or "variety" in intro.casefold()
     assert len(intro) <= 220
