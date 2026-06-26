@@ -24,7 +24,7 @@ from app.agent.escalation import (
     handle_escalation_with_contact,
 )
 from app.domains.runtime.service import response_used_fallback
-from app.agent.llm import make_chat_model
+from app.agent.llm import make_chat_model, make_groq_chat_model
 from app.core.openai_keys import astream_with_key_fallback
 from app.agent.messages import text_delta_from_stream_chunk, text_from_model_message, usage_tokens_from_model_message
 from app.agent.knowledge_tools import (
@@ -195,6 +195,12 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
             llm = llm.bind_tools(tools)
         return llm
 
+    def _build_groq_llm():
+        llm = make_groq_chat_model(temperature=temperature)
+        if tools:
+            llm = llm.bind_tools(tools)
+        return llm
+
     parts: list[str] = []
     usage_in = int(state.get("usage_input_tokens") or 0)
     usage_out = int(state.get("usage_output_tokens") or 0)
@@ -204,7 +210,11 @@ async def _call_model_node(state: ChatGraphState, writer: StreamWriter) -> dict[
     buffer_text = bool(tools)
 
     try:
-        async for chunk in astream_with_key_fallback(_build_llm, state["messages"]):
+        async for chunk in astream_with_key_fallback(
+            _build_llm,
+            state["messages"],
+            build_groq_llm=_build_groq_llm,
+        ):
             if isinstance(chunk, AIMessage):
                 aggregated = chunk if aggregated is None else aggregated + chunk
             delta = text_delta_from_stream_chunk(chunk)

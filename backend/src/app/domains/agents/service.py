@@ -137,6 +137,7 @@ async def list_agents(db: AsyncSession, user_id: UUID, include_archived: bool = 
     """
     if not include_archived:
         query += " and status != 'archived'"
+    query += " and is_demo = false"
     query += " order by created_at desc"
     result = await db.execute(text(query), {"user_id": str(user_id)})
     rows = result.mappings().all()

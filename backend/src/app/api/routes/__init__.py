@@ -6,6 +6,8 @@ from app.api.routes.agents import router as agents_router
 from app.api.routes.billing import router as billing_router
 from app.api.routes.bootstrap import router as bootstrap_router
 from app.api.routes.conversations import router as conversations_router
+from app.api.routes.demo import router as demo_router
+from app.api.routes.demo_internal import router as demo_internal_router
 from app.api.routes.health import router as health_router
 from app.api.routes.integrations_shopify import router as integrations_shopify_router
 from app.api.routes.knowledge import router as knowledge_router
@@ -32,6 +34,8 @@ def get_api_router() -> APIRouter:
     router.include_router(bootstrap_router)
     router.include_router(plans_router)
     router.include_router(public_widget_router)
+    router.include_router(demo_router)
+    router.include_router(demo_internal_router)
     router.include_router(profile_router)
     router.include_router(notifications_router)
     router.include_router(agents_router)

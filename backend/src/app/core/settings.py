@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     """Optional personal/backup key used when the primary key hits quota or billing errors."""
     openai_api_key_fallback: str | None = None
+    groq_api_key: str | None = None
+    """Last-resort chat provider when both OpenAI keys fail (quota, billing, invalid key)."""
+    groq_chat_model: str = "llama-3.3-70b-versatile"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
     """When conversations used exceed the plan included amount, visitor chat uses this model (subscription is unchanged; no per-conversation overage). Override via env."""
@@ -148,6 +151,10 @@ class Settings(BaseSettings):
     billing_app_extra_origins: str | None = None
     """Optional shared secret for POST /api/v1/billing/internal/charge-overage (cron)."""
     billing_internal_secret: str | None = None
+
+    google_sheets_spreadsheet_id: str | None = None
+    google_sheets_service_account_json: str | None = None
+    demo_internal_secret: str | None = None
 
     """Comma-separated emails authorized to access /api/v1/admin/* (admin panel). Empty = admin disabled.
 

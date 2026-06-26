@@ -93,6 +93,38 @@ _CHUNK_PERSIST_BATCH_SIZE = 32
 
 log = structlog.get_logger("knowledge.service")
 
+_DEMO_AGENT_STORAGE_BUDGET_BYTES = 100 * 1024 * 1024
+
+
+async def _remaining_knowledge_storage_bytes(
+    db: AsyncSession, *, user_id: UUID, agent_id: UUID
+) -> tuple[int, int | None]:
+    demo_row = (
+        await db.execute(
+            text(
+                """
+                select is_demo
+                from public.agents
+                where id = cast(:aid as uuid)
+                limit 1
+                """
+            ),
+            {"aid": str(agent_id)},
+        )
+    ).mappings().first()
+    if demo_row and bool(demo_row.get("is_demo")):
+        return _DEMO_AGENT_STORAGE_BUDGET_BYTES, None
+    _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
+    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
+    currently_used_storage_bytes = await _agent_used_storage_bytes(
+        db, user_id=user_id, agent_id=agent_id
+    )
+    return (
+        max(0, effective_storage_cap_bytes - currently_used_storage_bytes),
+        included_storage_cap_bytes,
+    )
+
 
 def _charge_bytes_and_html_from_response(response: httpx.Response, *, remaining_budget_bytes: int) -> tuple[int, str]:
     """Charge and parse only bytes that still fit within remaining crawl budget."""
@@ -1561,7 +1593,7 @@ def _ingest_params_from_metadata(metadata: dict[str, object]) -> tuple[WebsiteMo
 
 def _website_ingest_uses_live_discovery(metadata: dict[str, object]) -> bool:
     """Dashboard and onboarding: sitemap seed + incremental page rows while the worker crawls."""
-    return str(metadata.get("origin") or "") in ("dashboard_website", "onboarding")
+    return str(metadata.get("origin") or "") in ("dashboard_website", "onboarding", "demo_outreach")
 
 
 async def _crawl_pages(
@@ -2267,8 +2299,8 @@ async def _exclude_remaining_queued_pages_for_run(
 
 
 def _effective_crawl_budget_bytes(*, origin: str, remaining_storage: int, crawl_cap: int) -> int:
-    """Onboarding uses the full knowledge pool so the first crawl can cover the whole sitemap (within plan storage)."""
-    if origin == "onboarding":
+    """Onboarding/demo uses the full knowledge pool so the first crawl can cover the whole sitemap (within plan storage)."""
+    if origin in ("onboarding", "demo_outreach"):
         return max(0, remaining_storage)
     return min(max(0, remaining_storage), max(0, crawl_cap))
 
@@ -3160,13 +3192,17 @@ async def process_indexing_job(db: AsyncSession, job_id: UUID, user_id: UUID) ->
             "exclude_rules": exclude_rules,
         }
         _plan_slug, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
-        included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
-        effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
-        currently_used_storage_bytes = await _agent_used_storage_bytes(
+        remaining_storage, included_storage_cap_bytes = await _remaining_knowledge_storage_bytes(
             db, user_id=user_id, agent_id=source.agent_id
         )
-        remaining_storage = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
-        crawl_cap = website_crawl_cap_bytes(plan_features, included_storage_cap_bytes)
+        if included_storage_cap_bytes is None:
+            included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
+        effective_storage_cap_bytes = (
+            _DEMO_AGENT_STORAGE_BUDGET_BYTES
+            if included_storage_cap_bytes is None
+            else _effective_storage_cap_bytes(included_storage_cap_bytes)
+        )
+        crawl_cap = website_crawl_cap_bytes(plan_features, included_storage_cap_bytes or 0)
         origin = str(md.get("origin") or "")
         crawl_budget_bytes = _effective_crawl_budget_bytes(
             origin=origin,
@@ -4224,16 +4260,23 @@ async def _create_text_snippet_source_row(
         raise AppError(code="validation.invalid_input", message="Snippet title cannot be empty", status_code=422)
 
     _, _, plan_features = await _fetch_active_subscription_plan(db, user_id)
-    included_storage_cap_bytes = _included_storage_bytes_from_plan_features(plan_features)
-    effective_storage_cap_bytes = _effective_storage_cap_bytes(included_storage_cap_bytes)
-    currently_used_storage_bytes = await _agent_used_storage_bytes(db, user_id=user_id, agent_id=agent_id)
-    remaining_budget_bytes = max(0, effective_storage_cap_bytes - currently_used_storage_bytes)
+    remaining_budget_bytes, _included = await _remaining_knowledge_storage_bytes(
+        db, user_id=user_id, agent_id=agent_id
+    )
     if remaining_budget_bytes <= 0:
         raise AppError(
             code="knowledge.storage_budget_exhausted",
             message="Knowledge storage limit reached. Remove or delete indexed content, or upgrade your plan.",
             status_code=422,
         )
+
+    demo_row = (
+        await db.execute(
+            text("select is_demo from public.agents where id = cast(:aid as uuid) limit 1"),
+            {"aid": str(agent_id)},
+        )
+    ).mappings().first()
+    snippet_origin = "demo_outreach" if demo_row and demo_row.get("is_demo") else "dashboard_text_snippet"
 
     return await create_source(
         db,
@@ -4243,7 +4286,7 @@ async def _create_text_snippet_source_row(
             type="text_snippet",
             title=t,
             raw_text=body,
-            metadata={"origin": "dashboard_text_snippet"},
+            metadata={"origin": snippet_origin},
         ),
     )
 

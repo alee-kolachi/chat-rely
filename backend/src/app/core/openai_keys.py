@@ -40,6 +40,15 @@ def has_openai_api_key(settings: Settings | None = None) -> bool:
     return bool(openai_api_keys(settings))
 
 
+def has_groq_api_key(settings: Settings | None = None) -> bool:
+    settings = settings or get_settings()
+    return bool((settings.groq_api_key or "").strip())
+
+
+def has_chat_llm_key(settings: Settings | None = None) -> bool:
+    return has_openai_api_key(settings) or has_groq_api_key(settings)
+
+
 def _extract_status_code(exc: BaseException) -> int | None:
     status = getattr(exc, "status_code", None)
     if isinstance(status, int):
@@ -69,28 +78,71 @@ def is_openai_http_key_fallback(status_code: int, body: str) -> bool:
     return any(marker in lower for marker in _FALLBACK_ERROR_MARKERS)
 
 
+def _default_groq_builder(settings: Settings) -> Callable[[], Any]:
+    from app.agent.llm import make_groq_chat_model
+
+    return lambda: make_groq_chat_model(settings=settings)
+
+
+def _resolve_groq_builder(
+    build_groq_llm: Callable[[], Any] | None,
+    *,
+    settings: Settings,
+) -> Callable[[], Any] | None:
+    if build_groq_llm is not None:
+        return build_groq_llm
+    if has_groq_api_key(settings):
+        return _default_groq_builder(settings)
+    return None
+
+
+async def _invoke_groq_fallback(
+    build_groq_llm: Callable[[], Any],
+    messages: list[Any],
+    *,
+    last_exc: Exception,
+) -> Any:
+    try:
+        log.warning("llm.groq_fallback", error=str(last_exc)[:300])
+        return await build_groq_llm().ainvoke(messages)
+    except Exception as groq_exc:
+        raise groq_exc from last_exc
+
+
 async def ainvoke_with_key_fallback(
     build_llm: Callable[[str], Any],
     messages: list[Any],
     *,
     settings: Settings | None = None,
+    build_groq_llm: Callable[[], Any] | None = None,
 ) -> Any:
+    settings = settings or get_settings()
     keys = openai_api_keys(settings)
+    groq_builder = _resolve_groq_builder(build_groq_llm, settings=settings)
     if not keys:
-        raise ValueError("no OpenAI API key configured")
+        if groq_builder is None:
+            raise ValueError("no LLM API key configured")
+        return await groq_builder().ainvoke(messages)
     last_exc: Exception | None = None
     for i, key in enumerate(keys):
         try:
             return await build_llm(key).ainvoke(messages)
         except Exception as exc:
-            if i < len(keys) - 1 and is_openai_key_fallback_error(exc):
+            if is_openai_key_fallback_error(exc):
                 log.warning(
                     "openai.api_key_fallback",
                     attempt=i + 1,
                     error=str(exc)[:300],
                 )
                 last_exc = exc
-                continue
+                if i < len(keys) - 1:
+                    continue
+                if groq_builder is not None:
+                    return await _invoke_groq_fallback(
+                        groq_builder,
+                        messages,
+                        last_exc=exc,
+                    )
             raise
     assert last_exc is not None
     raise last_exc
@@ -101,11 +153,19 @@ async def astream_with_key_fallback(
     messages: list[Any],
     *,
     settings: Settings | None = None,
+    build_groq_llm: Callable[[], Any] | None = None,
 ) -> AsyncIterator[Any]:
     """Stream chat chunks; retries with the next key only if the stream never started."""
+    settings = settings or get_settings()
     keys = openai_api_keys(settings)
+    groq_builder = _resolve_groq_builder(build_groq_llm, settings=settings)
     if not keys:
-        raise ValueError("no OpenAI API key configured")
+        if groq_builder is None:
+            raise ValueError("no LLM API key configured")
+        async for chunk in groq_builder().astream(messages):
+            yield chunk
+        return
+
     last_exc: Exception | None = None
     for i, key in enumerate(keys):
         llm = build_llm(key)
@@ -116,14 +176,23 @@ async def astream_with_key_fallback(
                 yield chunk
             return
         except Exception as exc:
-            if not yielded and i < len(keys) - 1 and is_openai_key_fallback_error(exc):
+            if not yielded and is_openai_key_fallback_error(exc):
                 log.warning(
                     "openai.api_key_fallback",
                     attempt=i + 1,
                     error=str(exc)[:300],
                 )
                 last_exc = exc
-                continue
+                if i < len(keys) - 1:
+                    continue
+                if groq_builder is not None:
+                    log.warning("llm.groq_fallback", error=str(exc)[:300])
+                    try:
+                        async for chunk in groq_builder().astream(messages):
+                            yield chunk
+                        return
+                    except Exception as groq_exc:
+                        raise groq_exc from exc
             raise
     if last_exc is not None:
         raise last_exc
@@ -133,23 +202,35 @@ async def run_with_key_fallback(
     fn: Callable[[str], Awaitable[T]],
     *,
     settings: Settings | None = None,
+    run_groq: Callable[[], Awaitable[T]] | None = None,
 ) -> T:
+    settings = settings or get_settings()
     keys = openai_api_keys(settings)
     if not keys:
-        raise ValueError("no OpenAI API key configured")
+        if run_groq is None:
+            raise ValueError("no LLM API key configured")
+        log.warning("llm.groq_fallback", reason="no_openai_keys")
+        return await run_groq()
     last_exc: Exception | None = None
     for i, key in enumerate(keys):
         try:
             return await fn(key)
         except Exception as exc:
-            if i < len(keys) - 1 and is_openai_key_fallback_error(exc):
+            if is_openai_key_fallback_error(exc):
                 log.warning(
                     "openai.api_key_fallback",
                     attempt=i + 1,
                     error=str(exc)[:300],
                 )
                 last_exc = exc
-                continue
+                if i < len(keys) - 1:
+                    continue
+                if run_groq is not None:
+                    try:
+                        log.warning("llm.groq_fallback", error=str(exc)[:300])
+                        return await run_groq()
+                    except Exception as groq_exc:
+                        raise groq_exc from exc
             raise
     assert last_exc is not None
     raise last_exc

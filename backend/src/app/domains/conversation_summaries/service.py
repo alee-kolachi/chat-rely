@@ -77,14 +77,14 @@ async def _fetch_summary_row(
 async def _invoke_summary_llm(transcript: str, conversation_status: str) -> tuple[ConversationSummaryLLMResult, str]:
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    from app.agent.llm import make_openai_chat_model
-    from app.core.openai_keys import ainvoke_with_key_fallback, has_openai_api_key
+    from app.agent.llm import make_groq_chat_model, make_openai_chat_model
+    from app.core.openai_keys import ainvoke_with_key_fallback, has_chat_llm_key
 
     settings = get_settings()
-    if not has_openai_api_key(settings):
+    if not has_chat_llm_key(settings):
         raise AppError(
             code="runtime.llm_not_configured",
-            message="OPENAI_API_KEY is required to generate conversation summaries",
+            message="OPENAI_API_KEY or GROQ_API_KEY is required to generate conversation summaries",
             status_code=500,
         )
     model_name = settings.openai_chat_model or "gpt-4o-mini"
@@ -110,6 +110,11 @@ async def _invoke_summary_llm(transcript: str, conversation_status: str) -> tupl
             ).with_structured_output(ConversationSummaryLLMResult),
             [sys, human],
             settings=settings,
+            build_groq_llm=lambda: make_groq_chat_model(
+                timeout=60,
+                max_retries=1,
+                streaming=False,
+            ).with_structured_output(ConversationSummaryLLMResult),
         )
         if isinstance(result, ConversationSummaryLLMResult):
             return result, model_name

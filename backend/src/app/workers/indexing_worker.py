@@ -23,10 +23,11 @@ async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
             await db.execute(
                 text(
                     """
-                    select id, user_id
-                    from public.indexing_jobs
-                    where status = 'queued'
-                    order by created_at asc
+                    select j.id, j.user_id
+                    from public.indexing_jobs j
+                    join public.knowledge_sources s on s.id = j.knowledge_source_id
+                    where j.status = 'queued' and s.type = 'website'
+                    order by j.created_at asc
                     limit 1
                     """
                 )
@@ -61,10 +62,13 @@ async def _fetch_next_job_id() -> tuple[UUID, UUID] | None:
             await db.execute(
                 text(
                     """
-                    select id, user_id
-                    from public.indexing_jobs
-                    where status = 'running' and phase::text = 'embedding'
-                    order by updated_at asc
+                    select j.id, j.user_id
+                    from public.indexing_jobs j
+                    join public.knowledge_sources s on s.id = j.knowledge_source_id
+                    where j.status = 'running'
+                      and j.phase::text = 'embedding'
+                      and s.type = 'website'
+                    order by j.updated_at asc
                     limit 1
                     """
                 )

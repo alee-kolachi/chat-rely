@@ -14,6 +14,24 @@ Website crawls run in a separate worker (API reload does not pick up crawl chang
 uv run python -m app.workers.indexing_worker
 ```
 
+Maintenance (idle conversations, usage snapshots):
+
+```bash
+uv run python -m app.workers.maintenance_worker
+```
+
+Demo outreach (Google Sheets provisioning + 30-day cleanup, every 6 hours):
+
+```bash
+uv run python -m app.workers.outreach_worker
+```
+
+Manual demo provision for one store:
+
+```bash
+uv run python scripts/provision_demo.py --url https://example.myshopify.com
+```
+
 ## Quality checks
 
 ```bash

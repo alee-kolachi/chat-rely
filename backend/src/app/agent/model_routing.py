@@ -11,7 +11,7 @@ import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict
 
-from app.agent.llm import make_chat_model
+from app.agent.llm import make_chat_model, make_groq_chat_model
 from app.core.openai_keys import ainvoke_with_key_fallback
 from app.agent.messages import usage_tokens_from_model_message
 from app.core.settings import Settings, get_settings
@@ -137,6 +137,9 @@ async def run_complexity_classifier(
             ),
             [SystemMessage(content=sys), HumanMessage(content=user_content)],
             settings=settings,
+            build_groq_llm=lambda: make_groq_chat_model(temperature=0.0, streaming=False).bind(
+                response_format={"type": "json_object"},
+            ),
         )
         in_t, out_t = usage_tokens_from_model_message(msg)
         billing["input_tokens"] = in_t
