@@ -15,6 +15,10 @@ _STEP_LABELS: dict[str, str] = {
     "sheet.row_start": "Starting store",
     "sheet.mark_processing": "Marked sheet row as Processing",
     "sheet.row_retry": "Retrying row stuck on Processing",
+    "sheet.row_enqueued": "Queued store for background provisioning",
+    "sheet.row_already_queued": "Store already queued or running",
+    "provision.job_start": "Running provision job",
+    "provision.job_done": "Provision job finished",
     "provision.start": "Provisioning demo",
     "provision.ingest": "Fetching storefront catalog and policies",
     "provision.ingest_done": "Storefront fetched",
@@ -32,7 +36,7 @@ _STEP_LABELS: dict[str, str] = {
 
 def _format_fields(fields: dict[str, Any]) -> str:
     parts: list[str] = []
-    for key in ("tab", "row", "store", "display_name", "slug", "url", "status", "batch", "batches", "products", "policies", "reason"):
+    for key in ("tab", "row", "store", "display_name", "slug", "url", "status", "batch", "batches", "products", "policies", "reason", "job_id"):
         if key in fields and fields[key] not in (None, ""):
             parts.append(f"{key}={fields[key]}")
     return ", ".join(parts)

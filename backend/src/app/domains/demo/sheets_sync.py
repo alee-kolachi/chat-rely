@@ -11,8 +11,12 @@ from googleapiclient.discovery import build
 
 from app.core.settings import get_settings
 from app.db.session import get_session_factory
+from app.domains.demo.demo_provision_jobs import (
+    enqueue_demo_provision_job,
+    find_active_job_for_store,
+)
 from app.domains.demo.progress import demo_step
-from app.domains.demo.provision import provision_demo_from_store_url
+from app.domains.demo.repository import normalize_store_host
 
 log = structlog.get_logger("demo.sheets_sync")
 
@@ -33,21 +37,35 @@ def _normalize_header(value: str) -> str:
     return " ".join((value or "").strip().lower().split())
 
 
+def _parse_service_account_config(raw: str) -> tuple[dict[str, Any] | None, str]:
+    """Parse inline JSON or return a filesystem path for a service account key file."""
+    value = (raw or "").strip()
+    if not value:
+        return None, ""
+    # Render and some shells wrap the JSON in extra single/double quotes.
+    for _ in range(3):
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1].strip()
+    if value.startswith("{"):
+        return json.loads(value), ""
+    return None, value
+
+
 def _load_sheets_service():
     settings = get_settings()
     raw = (settings.google_sheets_service_account_json or "").strip()
     spreadsheet_id = (settings.google_sheets_spreadsheet_id or "").strip()
     if not raw or not spreadsheet_id:
         raise RuntimeError("Google Sheets is not configured")
-    if raw.startswith("{"):
-        info = json.loads(raw)
+    info, path = _parse_service_account_config(raw)
+    if info is not None:
         creds = service_account.Credentials.from_service_account_info(
             info,
             scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
     else:
         creds = service_account.Credentials.from_service_account_file(
-            raw,
+            path,
             scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
@@ -99,7 +117,7 @@ async def sync_demo_sheet_once() -> dict[str, int]:
     demo_step("sheet.sync_start")
     service, spreadsheet_id = _load_sheets_service()
     meta = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-    stats = {"processed": 0, "ready": 0, "needs_review": 0, "failed": 0, "skipped": 0}
+    stats = {"enqueued": 0, "skipped": 0, "already_active": 0}
     queued_rows = 0
 
     for sheet in meta.get("sheets") or []:
@@ -160,9 +178,24 @@ async def sync_demo_sheet_once() -> dict[str, int]:
                 k: _cell(row, idx) for k, idx in headers.items() if idx is not None
             }
 
+            store_host = normalize_store_host(store_url)
+            async with get_session_factory()() as db:
+                active_job_id = await find_active_job_for_store(db, store_host)
+
+            if active_job_id is not None:
+                stats["already_active"] += 1
+                demo_step(
+                    "sheet.row_already_queued",
+                    tab=title,
+                    row=row_index,
+                    store=store_url,
+                    job_id=str(active_job_id),
+                )
+                continue
+
             try:
                 async with get_session_factory()() as db:
-                    result = await provision_demo_from_store_url(
+                    job_id = await enqueue_demo_provision_job(
                         db,
                         store_url=store_url,
                         sheet_ref=sheet_ref,
@@ -170,7 +203,7 @@ async def sync_demo_sheet_once() -> dict[str, int]:
                     )
             except Exception:
                 log.exception(
-                    "demo.sheet_row_provision_failed",
+                    "demo.sheet_row_enqueue_failed",
                     tab=title,
                     row=row_index,
                     store_url=store_url,
@@ -180,55 +213,28 @@ async def sync_demo_sheet_once() -> dict[str, int]:
                     tab=title,
                     row=row_index,
                     store=store_url,
-                    reason="provision_exception",
+                    reason="enqueue_exception",
                 )
-                result = {"status": "failed", "url": "", "reason": "provision_exception"}
+                continue
 
-            status = str(result.get("status") or "failed")
-            stats["processed"] += 1
-            if status == "ready":
-                stats["ready"] += 1
-            elif status == "needs_review":
-                stats["needs_review"] += 1
-            else:
-                stats["failed"] += 1
+            if job_id is None:
+                stats["already_active"] += 1
+                continue
 
-            updates: list[list[str]] = []
-            update_cols: list[int] = []
-            update_cols.append(headers[_ELIGIBLE_HEADER])
-            updates.append(["Ready" if status == "ready" else status])
-
-            if _DEMO_LINK_HEADER in headers:
-                update_cols.append(headers[_DEMO_LINK_HEADER])
-                updates.append([str(result.get("url") or "")])
-
-            if status == "ready" and _DEMO_READY_DATE_HEADER in headers:
-                from datetime import UTC, datetime
-
-                update_cols.append(headers[_DEMO_READY_DATE_HEADER])
-                updates.append([datetime.now(UTC).date().isoformat()])
-
-            for col_idx, value in zip(update_cols, updates, strict=False):
-                service.spreadsheets().values().update(
-                    spreadsheetId=spreadsheet_id,
-                    range=f"'{title}'!{_col(col_idx)}{row_index}",
-                    valueInputOption="RAW",
-                    body={"values": [value]},
-                ).execute()
-
+            stats["enqueued"] += 1
             demo_step(
-                "sheet.row_done",
+                "sheet.row_enqueued",
                 tab=title,
                 row=row_index,
-                status=status,
-                url=result.get("url"),
+                store=store_url,
+                job_id=str(job_id),
             )
             log.info(
-                "demo.sheet_row_processed",
+                "demo.sheet_row_enqueued",
                 tab=title,
                 row=row_index,
-                status=status,
-                url=result.get("url"),
+                job_id=str(job_id),
+                store_url=store_url,
             )
 
     if queued_rows == 0:

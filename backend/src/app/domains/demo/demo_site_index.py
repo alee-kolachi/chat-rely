@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
 
+from app.core.crawl_http import crawl_get
+from app.core.settings import get_settings
 from app.domains.demo.constants import DEMO_MAX_SITE_PAGES
 from app.domains.demo.progress import demo_step
 from app.domains.demo.storefront_ingest import (
@@ -112,9 +114,10 @@ def _page_title(url: str, html: str) -> str:
 
 
 async def _fetch_page_text(client: httpx.AsyncClient, url: str) -> tuple[str, str]:
+    delay = max(0.0, float(get_settings().demo_store_fetch_delay_seconds))
     try:
-        resp = await client.get(url)
-        if resp.status_code >= 400:
+        resp = await crawl_get(client, url, delay_seconds=delay)
+        if resp is None or resp.status_code >= 400:
             return "", ""
         html = resp.text
     except httpx.HTTPError:
@@ -143,8 +146,9 @@ async def index_demo_site_pages(
     page_urls: list[str] = []
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=_CRAWL_HEADERS) as client:
         try:
-            home_resp = await client.get(base_url)
-            if home_resp.status_code < 400:
+            delay = max(0.0, float(get_settings().demo_store_fetch_delay_seconds))
+            home_resp = await crawl_get(client, base_url, delay_seconds=delay)
+            if home_resp is not None and home_resp.status_code < 400:
                 home_html = home_resp.text
                 page_urls = collect_essential_page_urls(home_html, base_url)
         except httpx.HTTPError:

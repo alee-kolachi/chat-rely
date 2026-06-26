@@ -157,6 +157,10 @@ class Settings(BaseSettings):
     demo_internal_secret: str | None = None
     """How often outreach_worker polls Google Sheets. Default 60s locally; use 21600 (6h) in production."""
     outreach_poll_interval_seconds: int = 60
+    """Max demo provision jobs to run per worker tick (one store at a time by default)."""
+    demo_provision_max_jobs_per_tick: int = 1
+    """Pause between storefront HTTP requests during demo ingest (seconds)."""
+    demo_store_fetch_delay_seconds: float = 1.0
 
     """Comma-separated emails authorized to access /api/v1/admin/* (admin panel). Empty = admin disabled.
 

@@ -12,6 +12,8 @@ import httpx
 import structlog
 from bs4 import BeautifulSoup
 
+from app.core.crawl_http import crawl_get
+from app.core.settings import get_settings
 from app.domains.demo.constants import DEMO_MAX_PRODUCTS, DEMO_MIN_PRODUCT_COUNT, DEMO_PRODUCTS_JSON_MAX_PAGES
 from app.domains.demo.schemas import DemoProductSnapshot
 from app.domains.demo.store_branding import pick_brand_color, pick_store_logo_url
@@ -30,6 +32,10 @@ _POLICY_PATHS: tuple[tuple[str, str], ...] = (
     ("privacy", "/policies/privacy-policy"),
     ("terms", "/policies/terms-of-service"),
 )
+
+
+def _crawl_delay_seconds() -> float:
+    return max(0.0, float(get_settings().demo_store_fetch_delay_seconds))
 
 
 def _strip_html(raw: str | None) -> str:
@@ -234,7 +240,13 @@ async def fetch_storefront_product_enrichment(
             follow_redirects=True,
             timeout=timeout,
         ) as client:
-            resp = await client.get(url)
+            resp = await crawl_get(
+                client,
+                url,
+                delay_seconds=_crawl_delay_seconds(),
+            )
+            if resp is None:
+                return None
             if resp.status_code == 404:
                 return None
             resp.raise_for_status()
@@ -262,7 +274,13 @@ async def _fetch_products_json(
     while page <= DEMO_PRODUCTS_JSON_MAX_PAGES and len(products) < DEMO_MAX_PRODUCTS:
         url = urljoin(base_url.rstrip("/") + "/", f"products.json?limit=250&page={page}")
         try:
-            resp = await client.get(url)
+            resp = await crawl_get(
+                client,
+                url,
+                delay_seconds=_crawl_delay_seconds(),
+            )
+            if resp is None:
+                break
             if resp.status_code == 404:
                 break
             resp.raise_for_status()
@@ -290,7 +308,13 @@ async def _fetch_homepage_meta(
     client: httpx.AsyncClient, base_url: str
 ) -> tuple[str | None, str | None, str | None, str | None]:
     try:
-        resp = await client.get(base_url)
+        resp = await crawl_get(
+            client,
+            base_url,
+            delay_seconds=_crawl_delay_seconds(),
+        )
+        if resp is None:
+            return None, None, None, None
         resp.raise_for_status()
         html_text = resp.text
     except httpx.HTTPError:
@@ -305,8 +329,12 @@ async def _fetch_policies(client: httpx.AsyncClient, base_url: str) -> dict[str,
     for key, path in _POLICY_PATHS:
         url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
         try:
-            resp = await client.get(url)
-            if resp.status_code >= 400:
+            resp = await crawl_get(
+                client,
+                url,
+                delay_seconds=_crawl_delay_seconds(),
+            )
+            if resp is None or resp.status_code >= 400:
                 continue
             text = _extract_shopify_policy_text(resp.text)
             if not text:
@@ -361,8 +389,12 @@ async def _fetch_policies_and_pages(client: httpx.AsyncClient, base_url: str) ->
     """Standard policy URLs plus /pages/* policy links from the homepage."""
     policies = await _fetch_policies(client, base_url)
     try:
-        home_resp = await client.get(base_url)
-        if home_resp.status_code >= 400:
+        home_resp = await crawl_get(
+            client,
+            base_url,
+            delay_seconds=_crawl_delay_seconds(),
+        )
+        if home_resp is None or home_resp.status_code >= 400:
             return policies
         home_html = home_resp.text
     except httpx.HTTPError:
@@ -370,8 +402,12 @@ async def _fetch_policies_and_pages(client: httpx.AsyncClient, base_url: str) ->
 
     for url in discover_policy_page_urls(home_html, base_url):
         try:
-            resp = await client.get(url)
-            if resp.status_code >= 400:
+            resp = await crawl_get(
+                client,
+                url,
+                delay_seconds=_crawl_delay_seconds(),
+            )
+            if resp is None or resp.status_code >= 400:
                 continue
             text = _extract_shopify_policy_text(resp.text) or _extract_page_text(resp.text)
             if not text or len(text.strip()) < 40:
@@ -462,8 +498,12 @@ async def _probe_catalog_product_count(
 ) -> int:
     url = urljoin(base_url.rstrip("/") + "/", "products.json?limit=250&page=1")
     try:
-        resp = await client.get(url)
-        if resp.status_code >= 400:
+        resp = await crawl_get(
+            client,
+            url,
+            delay_seconds=_crawl_delay_seconds(),
+        )
+        if resp is None or resp.status_code >= 400:
             return 0
         payload = resp.json()
     except (httpx.HTTPError, json.JSONDecodeError):

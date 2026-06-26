@@ -13,6 +13,7 @@ from app.core.settings import get_settings
 from app.db.engine import init_engine
 from app.db.session import get_session_factory, init_session_factory
 from app.domains.demo.cleanup import expire_due_demos
+from app.domains.demo.demo_provision_runner import process_demo_provision_jobs
 from app.domains.demo.progress import demo_step
 from app.domains.demo.sheets_sync import sync_demo_sheet_once
 
@@ -40,7 +41,7 @@ def _init_worker() -> float:
 
 
 async def run_tick_once() -> dict[str, int]:
-    stats = {"expired": 0, "processed": 0, "skipped": 0}
+    stats: dict[str, int] = {"expired": 0, "enqueued": 0, "skipped": 0, "already_active": 0}
     async with get_session_factory()() as db:
         stats["expired"] = await expire_due_demos(db)
     try:
@@ -50,6 +51,11 @@ async def run_tick_once() -> dict[str, int]:
         log.warning("demo.sheets_sync_skipped", reason=str(exc))
     except Exception:
         log.exception("demo.sheets_sync_failed")
+    try:
+        provision_stats = await process_demo_provision_jobs()
+        stats.update(provision_stats)
+    except Exception:
+        log.exception("demo.provision_jobs_failed")
     return stats
 
 
@@ -58,7 +64,9 @@ async def _tick_and_log() -> dict[str, int]:
     stats = await run_tick_once()
     demo_step(
         "worker.tick_done",
-        processed=stats.get("processed", 0),
+        enqueued=stats.get("enqueued", 0),
+        already_active=stats.get("already_active", 0),
+        claimed=stats.get("claimed", 0),
         needs_review=stats.get("needs_review", 0),
         failed=stats.get("failed", 0),
         skipped=stats.get("skipped", 0),

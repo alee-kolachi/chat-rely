@@ -358,6 +358,25 @@ def test_row_is_queued() -> None:
     assert not _row_is_queued("")
 
 
+def test_parse_service_account_config_inline_json() -> None:
+    from app.domains.demo.sheets_sync import _parse_service_account_config
+
+    inline = '{"type":"service_account","client_email":"a@b.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}'
+    info, path = _parse_service_account_config(inline)
+    assert info is not None
+    assert info["client_email"] == "a@b.iam.gserviceaccount.com"
+    assert path == ""
+
+    quoted = f"'{inline}'"
+    info2, path2 = _parse_service_account_config(quoted)
+    assert info2 == info
+    assert path2 == ""
+
+    info3, path3 = _parse_service_account_config("/etc/sa.json")
+    assert info3 is None
+    assert path3 == "/etc/sa.json"
+
+
 def test_is_generic_logo_url_filters_shopify_proxy() -> None:
     from app.domains.demo.store_branding import is_generic_logo_url
 
