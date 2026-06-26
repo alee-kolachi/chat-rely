@@ -20,21 +20,7 @@ Maintenance (idle conversations, usage snapshots):
 uv run python -m app.workers.maintenance_worker
 ```
 
-Demo outreach (Google Sheets provisioning + 30-day cleanup, every 6 hours):
-
-```bash
-uv run python -m app.workers.outreach_worker
-```
-
-Each tick enqueues new sheet rows into `demo_provision_jobs`, then processes up to
-`DEMO_PROVISION_MAX_JOBS_PER_TICK` stores (default 1). Tune `DEMO_STORE_FETCH_DELAY_SECONDS`
-to avoid storefront rate limits.
-
-One-off sheet sync (enqueue only):
-
-```bash
-uv run python scripts/sync_demo_sheet.py
-```
+Demo outreach (Google Sheets → demo stores) runs **locally on your laptop**, not on Render. Copy `outreach-local.example/` to `outreach-local/` and see that README.
 
 Manual demo provision for one store:
 

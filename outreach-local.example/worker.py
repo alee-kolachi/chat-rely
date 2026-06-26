@@ -1,4 +1,5 @@
-"""Poll Google Sheets and run demo outreach provisioning + TTL cleanup."""
+#!/usr/bin/env python3
+"""Local demo outreach worker (Google Sheets → provision queue). Run via ./run.sh."""
 
 from __future__ import annotations
 
@@ -23,6 +24,8 @@ log = structlog.get_logger("outreach_worker")
 def _init_worker() -> float:
     os.environ.setdefault("SUPABASE_JWKS_URL", "https://example.com/.well-known/jwks.json")
     os.environ.setdefault("SUPABASE_ISSUER", "https://example.com/auth/v1")
+    os.environ.setdefault("LOG_FILE_ENABLED", "false")
+    os.environ.setdefault("LOG_PRETTY_FILE_ENABLED", "false")
     settings = get_settings()
     setup_logging(
         settings.log_level,
@@ -90,7 +93,7 @@ def main() -> None:
     parser.add_argument(
         "--once",
         action="store_true",
-        help="Run one sheet sync tick and exit (use after setting Eligible for Demo to Yes)",
+        help="Run one tick (sheet enqueue + up to DEMO_PROVISION_MAX_JOBS_PER_TICK jobs) and exit",
     )
     args = parser.parse_args()
     try:

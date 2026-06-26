@@ -31,6 +31,9 @@ __pycache__/
 *.log
 logs/
 
+# Local-only outreach worker (copy from outreach-local.example/)
+outreach-local/
+
 # wrangler files
 .wrangler
 .dev.vars*

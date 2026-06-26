@@ -56,6 +56,14 @@ Run these as separate processes or services alongside the API:
 - **Maintenance** — `cd backend && uv run python -m app.workers.maintenance_worker`  
   Periodically closes idle conversations, backfills conversation outcomes, and refreshes usage snapshots for all workspaces.
 
+**Render background worker** (one service, 512MB-friendly):
+
+```bash
+uv run python -m app.workers.maintenance_worker & uv run python -m app.workers.indexing_worker & wait
+```
+
+**Demo outreach** (Google Sheets provisioning) runs on your laptop only — see `outreach-local.example/README.md`. Not deployed to Render.
+
 ## Embeddable widget script
 
 1. `cd widget && npm install && npm run build`
