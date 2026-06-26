@@ -402,6 +402,58 @@ def test_pick_store_logo_prefers_header_logo() -> None:
     assert logo == "https://store.example.com/files/logo.png"
 
 
+def test_pick_store_logo_prefers_favicon_over_white_header() -> None:
+    from bs4 import BeautifulSoup
+
+    from app.domains.demo.store_branding import pick_store_logo_url
+
+    html = """
+    <html><head>
+      <link rel="shortcut icon" href="//store.example.com/cdn/shop/files/brand-mark_96x.jpg">
+    </head>
+    <body>
+      <img class="Header__LogoImage Header__LogoImage--primary"
+           src="//store.example.com/cdn/shop/files/brand-logo-white_140x.webp"
+           srcset="//store.example.com/cdn/shop/files/brand-logo-white_140x.webp 1x,
+                   //store.example.com/cdn/shop/files/brand-logo-white_140x@2x.webp 2x"
+           alt="Brand">
+    </body></html>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    logo = pick_store_logo_url(
+        soup=soup,
+        base_url="https://store.example.com",
+        social_preview_url=None,
+    )
+    assert logo == "https://store.example.com/cdn/shop/files/brand-mark.jpg"
+
+
+def test_pick_store_logo_shopglamup_fixture() -> None:
+    from bs4 import BeautifulSoup
+
+    from app.domains.demo.store_branding import pick_store_logo_url
+
+    html = """
+    <html><head>
+      <link rel="shortcut icon" href="//www.shopglamup.com/cdn/shop/files/New_Project_96x.jpg?v=1705607456">
+    </head>
+    <body>
+      <img class="Header__LogoImage Header__LogoImage--primary"
+           src="//www.shopglamup.com/cdn/shop/files/glamup-logo-png-white-1_140x.webp?v=1673965370"
+           srcset="//www.shopglamup.com/cdn/shop/files/glamup-logo-png-white-1_140x.webp?v=1673965370 1x,
+                   //www.shopglamup.com/cdn/shop/files/glamup-logo-png-white-1_140x@2x.webp?v=1673965370 2x"
+           alt="SHOPGLAMUP">
+    </body></html>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    logo = pick_store_logo_url(
+        soup=soup,
+        base_url="https://www.shopglamup.com",
+        social_preview_url=None,
+    )
+    assert logo == "https://www.shopglamup.com/cdn/shop/files/New_Project.jpg?v=1705607456"
+
+
 def test_pick_brand_color_from_theme_meta() -> None:
     from bs4 import BeautifulSoup
 

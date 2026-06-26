@@ -32,6 +32,26 @@ _HEADER_LOGO_HINTS = (
     "header-logo",
 )
 
+_LIGHT_LOGO_MARKERS = (
+    "-white",
+    "_white",
+    "white-",
+    "white_",
+    "/white/",
+    "logo-white",
+    "logo_white",
+    "inverted",
+    "reverse",
+)
+
+_SECONDARY_LOGO_HINTS = (
+    "--secondary",
+    "logoimage--secondary",
+    "logo--secondary",
+    "logo-secondary",
+    "logo_secondary",
+)
+
 
 def _normalize_hex_color(raw: str | None) -> str | None:
     if not raw:
@@ -65,7 +85,10 @@ def is_generic_logo_url(url: str | None) -> bool:
 
 
 def _absolute_asset_url(raw: str, base_url: str) -> str | None:
-    absolute = urljoin(base_url, raw.strip())
+    value = raw.strip()
+    if value.startswith("//"):
+        value = f"https:{value}"
+    absolute = urljoin(base_url, value)
     parsed = urlparse(absolute)
     if parsed.scheme in {"http", "https"} and parsed.netloc:
         return absolute
@@ -80,6 +103,11 @@ def _link_href(tag: Tag) -> str | None:
 
 
 def _img_src(tag: Tag) -> str | None:
+    srcset = tag.get("srcset")
+    if srcset:
+        best = _best_srcset_url(str(srcset))
+        if best:
+            return best
     for attr in ("src", "data-src", "data-srcset"):
         raw = tag.get(attr)
         if not raw:
@@ -88,9 +116,40 @@ def _img_src(tag: Tag) -> str | None:
         if not value:
             continue
         if attr == "data-srcset":
-            value = value.split(",")[0].strip().split()[0]
+            value = _best_srcset_url(value) or value.split(",")[0].strip().split()[0]
         return value
     return None
+
+
+def _best_srcset_url(srcset: str) -> str | None:
+    """Pick the highest-density URL from an img srcset attribute."""
+    best_url: str | None = None
+    best_density = -1.0
+    for part in srcset.split(","):
+        chunk = part.strip()
+        if not chunk:
+            continue
+        pieces = chunk.split()
+        if not pieces:
+            continue
+        url = pieces[0].strip()
+        density = 1.0
+        if len(pieces) >= 2:
+            descriptor = pieces[1].strip().lower()
+            if descriptor.endswith("x"):
+                try:
+                    density = float(descriptor[:-1])
+                except ValueError:
+                    density = 1.0
+            elif descriptor.endswith("w"):
+                try:
+                    density = float(descriptor[:-1])
+                except ValueError:
+                    density = 1.0
+        if density >= best_density and url:
+            best_density = density
+            best_url = url
+    return best_url
 
 
 def _rel_values(tag: Tag) -> list[str]:
@@ -108,6 +167,51 @@ def _icon_priority(rel: str) -> int:
     if "icon" in rel:
         return 1
     return 2
+
+
+def is_light_background_logo_url(url: str | None) -> bool:
+    """True when the asset is a white/inverted mark meant for dark headers."""
+    if not url or not str(url).strip():
+        return False
+    lowered = str(url).strip().casefold()
+    return any(marker in lowered for marker in _LIGHT_LOGO_MARKERS)
+
+
+def upgrade_logo_asset_url(url: str | None) -> str | None:
+    """Prefer full-size Shopify CDN assets over tiny header thumbnails."""
+    if not url or not str(url).strip():
+        return None
+    value = str(url).strip()
+    if value.startswith("//"):
+        value = f"https:{value}"
+    if "@2x." in value.casefold():
+        return value
+    upgraded = re.sub(
+        r"(_(?:\d+)x(?:@\d+x)?)(\.(?:png|jpe?g|webp|gif|svg))",
+        r"\2",
+        value,
+        count=1,
+        flags=re.I,
+    )
+    return upgraded or value
+
+
+def _logo_tag_score(tag: Tag) -> tuple[int, int]:
+    attrs = " ".join(
+        [
+            str(tag.get("class") or ""),
+            str(tag.get("id") or ""),
+            str(tag.get("alt") or ""),
+            str(tag.get("src") or ""),
+        ]
+    ).casefold()
+    if not any(hint in attrs for hint in _HEADER_LOGO_HINTS):
+        return (99, 99)
+    if any(hint in attrs for hint in _SECONDARY_LOGO_HINTS):
+        return (0, 0)
+    if is_light_background_logo_url(attrs):
+        return (1, 1)
+    return (0, 1)
 
 
 def extract_favicon_url(soup: BeautifulSoup, base_url: str) -> str | None:
@@ -133,7 +237,7 @@ def extract_favicon_url(soup: BeautifulSoup, base_url: str) -> str | None:
 
 
 def extract_header_logo_url(soup: BeautifulSoup, base_url: str) -> str | None:
-    candidates: list[str] = []
+    candidates: list[tuple[tuple[int, int], str]] = []
     for tag in soup.find_all("img"):
         src = _img_src(tag)
         if not src:
@@ -141,17 +245,14 @@ def extract_header_logo_url(soup: BeautifulSoup, base_url: str) -> str | None:
         absolute = _absolute_asset_url(src, base_url)
         if not absolute or is_generic_logo_url(absolute):
             continue
-        attrs = " ".join(
-            [
-                str(tag.get("class") or ""),
-                str(tag.get("id") or ""),
-                str(tag.get("alt") or ""),
-                str(tag.get("src") or ""),
-            ]
-        ).casefold()
-        if any(hint in attrs for hint in _HEADER_LOGO_HINTS):
-            candidates.append(absolute)
-    return candidates[0] if candidates else None
+        score = _logo_tag_score(tag)
+        if score[0] >= 99:
+            continue
+        candidates.append((score, absolute))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
 
 
 def extract_theme_color(soup: BeautifulSoup) -> str | None:
@@ -188,13 +289,21 @@ def pick_store_logo_url(
     base_url: str,
     social_preview_url: str | None,
 ) -> str | None:
-    for candidate in (
-        extract_header_logo_url(soup, base_url),
-        extract_favicon_url(soup, base_url),
-        social_preview_url,
-    ):
-        if candidate and not is_generic_logo_url(candidate):
-            return candidate
+    header = extract_header_logo_url(soup, base_url)
+    favicon = extract_favicon_url(soup, base_url)
+
+    if header and not is_light_background_logo_url(header):
+        return upgrade_logo_asset_url(header)
+
+    if favicon and not is_generic_logo_url(favicon):
+        return upgrade_logo_asset_url(favicon)
+
+    if header:
+        return upgrade_logo_asset_url(header)
+
+    if social_preview_url and not is_generic_logo_url(social_preview_url):
+        return upgrade_logo_asset_url(social_preview_url)
+
     return None
 
 

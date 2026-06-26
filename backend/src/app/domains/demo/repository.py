@@ -253,6 +253,22 @@ async def increment_demo_lifetime_messages(db: AsyncSession, agent_id: UUID) -> 
     return int(row["lifetime_message_count"] or 0)
 
 
+async def update_demo_logo_url(
+    db: AsyncSession, *, agent_id: UUID, logo_url: str | None
+) -> None:
+    await db.execute(
+        text(
+            """
+            update public.demo_outreach
+            set logo_url = :logo_url
+            where agent_id = cast(:agent_id as uuid)
+            """
+        ),
+        {"agent_id": str(agent_id), "logo_url": logo_url},
+    )
+    await db.commit()
+
+
 async def increment_demo_visitor_messages(
     db: AsyncSession, *, agent_id: UUID, visitor_id: str
 ) -> int:

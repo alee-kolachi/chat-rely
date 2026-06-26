@@ -570,6 +570,16 @@ async def ingest_demo_for_provision(store_url: str) -> DemoProvisionIngestResult
     )
 
 
+async def fetch_store_logo_url(store_url: str) -> str | None:
+    """Re-fetch the best public logo URL for an existing demo."""
+    base_url = _normalize_store_url(store_url)
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=_CRAWL_HEADERS) as client:
+        _display_name, logo_url, _brand_color, _currency_code = await _fetch_homepage_meta(
+            client, base_url
+        )
+        return logo_url
+
+
 async def fetch_storefront_product_catalog(store_url: str) -> list[DemoProductSnapshot]:
     """Full public product catalog (called when the demo page loads)."""
     base_url = _normalize_store_url(store_url)

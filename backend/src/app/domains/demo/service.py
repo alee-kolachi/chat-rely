@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.domains.demo.constants import DEMO_LIFETIME_MESSAGE_CAP, DEMO_SHOPIFY_INSTALL_URL
 from app.domains.demo.demo_product_cards import product_dict_to_card
-from app.domains.demo.repository import fetch_demo_by_slug
+from app.domains.demo.repository import fetch_demo_by_slug, update_demo_logo_url
 from app.domains.demo.schemas import DemoOutreachDTO, DemoPublicConfigResponse, DemoTopProduct
+from app.domains.demo.store_branding import is_light_background_logo_url, upgrade_logo_asset_url
+from app.domains.demo.storefront_ingest import fetch_store_logo_url
 from app.domains.demo.system_user import ensure_demo_system_user
 
 
@@ -88,7 +90,7 @@ def build_demo_public_config(
         slug=row.slug,
         status=row.status,
         display_name=display,
-        logo_url=row.logo_url,
+        logo_url=upgrade_logo_asset_url(row.logo_url),
         store_url=row.store_url,
         product_count=row.product_count,
         suggested_prompts=row.suggested_prompts,
@@ -108,6 +110,16 @@ async def get_demo_public_config(db: AsyncSession, slug: str) -> DemoPublicConfi
     demo = await fetch_demo_by_slug(db, slug)
     if demo is None:
         raise AppError(code="demo.not_found", message="Demo not found", status_code=404)
+
+    logo_url = upgrade_logo_asset_url(demo.logo_url)
+    if is_light_background_logo_url(logo_url):
+        refreshed = await fetch_store_logo_url(demo.store_url)
+        refreshed = upgrade_logo_asset_url(refreshed)
+        if refreshed and refreshed != logo_url:
+            logo_url = refreshed
+            await update_demo_logo_url(db, agent_id=demo.agent_id, logo_url=refreshed)
+            demo = demo.model_copy(update={"logo_url": refreshed})
+
     brand_color = demo.brand_color
     if not brand_color:
         brand_color = await fetch_agent_brand_color(db, demo.agent_id)
