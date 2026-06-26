@@ -462,3 +462,23 @@ def test_pick_brand_color_from_theme_meta() -> None:
     html = '<html><head><meta name="theme-color" content="#112233"></head></html>'
     soup = BeautifulSoup(html, "lxml")
     assert pick_brand_color(soup=soup, html_text=html) == "#112233"
+
+
+def test_logo_link_from_sheet_snapshot() -> None:
+    from app.domains.demo.demo_sheet_fields import logo_link_from_sheet_snapshot
+
+    assert logo_link_from_sheet_snapshot({}) is None
+    assert logo_link_from_sheet_snapshot({"logo link": ""}) is None
+    assert (
+        logo_link_from_sheet_snapshot(
+            {"logo link": "//cdn.example.com/brand.png"}
+        )
+        == "https://cdn.example.com/brand.png"
+    )
+    assert (
+        logo_link_from_sheet_snapshot(
+            {"logo link": "https://cdn.example.com/logo.svg"}
+        )
+        == "https://cdn.example.com/logo.svg"
+    )
+    assert logo_link_from_sheet_snapshot({"logo link": "not-a-url"}) is None

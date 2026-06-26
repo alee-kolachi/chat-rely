@@ -415,24 +415,27 @@ def _filter_cards_for_customer_relevance(
     relevance_query: str | None,
 ) -> list[dict[str, str]]:
     """Drop catalog hits that do not match what the visitor asked for."""
+    from app.agent.catalog_search import catalog_search_tokens, token_matches_catalog_text
+
     if not cards or not relevance_query:
         return cards
     if _is_broad_catalog_shopify_query(shopify_query):
         return cards
-    rel_keywords = _product_keywords_from_query(relevance_query)
+    rel_keywords = catalog_search_tokens(relevance_query)
     if not rel_keywords:
         return cards
     if len(rel_keywords) == 1:
         kw = rel_keywords[0]
-        return [c for c in cards if kw in str(c.get("title") or "").lower()]
+        filtered = [c for c in cards if token_matches_catalog_text(kw, str(c.get("title") or "").casefold())]
+        return filtered or cards
     min_hits = min(2, len(rel_keywords))
     filtered: list[dict[str, str]] = []
     for card in cards:
-        title = str(card.get("title") or "").lower()
-        hits = sum(1 for kw in rel_keywords if kw in title)
+        title = str(card.get("title") or "").casefold()
+        hits = sum(1 for kw in rel_keywords if token_matches_catalog_text(kw, title))
         if hits >= min_hits:
             filtered.append(card)
-    return filtered
+    return filtered or cards
 
 
 def _resolve_shopify_product_search_query(query: str) -> tuple[str, bool]:

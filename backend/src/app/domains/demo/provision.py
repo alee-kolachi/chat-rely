@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.demo.agents import create_demo_agent
+from app.domains.demo.demo_sheet_fields import logo_link_from_sheet_snapshot
 from app.domains.demo.progress import demo_step
 from app.domains.demo.repository import build_demo_slug, demo_public_url, normalize_store_host
 from app.domains.demo.storefront_ingest import (
@@ -159,6 +160,7 @@ async def provision_demo_from_store_url(
 
     suggested = build_suggested_prompts([], ingest.policies)
     store_host = normalize_store_host(ingest.base_url)
+    logo_url = logo_link_from_sheet_snapshot(sheet_snapshot) or ingest.logo_url
 
     await _persist_snapshot_and_outreach(
         db,
@@ -167,7 +169,7 @@ async def provision_demo_from_store_url(
         store_url=ingest.base_url,
         store_host=store_host,
         display_name=display_name,
-        logo_url=ingest.logo_url,
+        logo_url=logo_url,
         brand_color=ingest.brand_color,
         policies=ingest.policies,
         ingest_source=ingest.ingest_source,

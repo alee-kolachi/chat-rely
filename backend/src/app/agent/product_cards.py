@@ -270,11 +270,24 @@ def shorten_answer_for_product_cards(answer: str) -> str:
         intro_lines.append(line)
 
     intro = " ".join(intro_lines).strip()
-    if intro and not _looks_like_product_list_line(intro) and len(intro) <= 160:
-        return intro
+    if intro and not _looks_like_product_list_line(intro):
+        if len(intro) <= 220:
+            return intro
+        for sep in (". ", "! ", "? "):
+            idx = intro.find(sep)
+            if 10 < idx <= 220:
+                return intro[: idx + 1]
+        shortened = intro[:200].rsplit(" ", 1)[0].strip()
+        if shortened:
+            return f"{shortened}..."
 
     first = lines[0]
-    if not _looks_like_product_list_line(first) and len(first) <= 100:
-        return first
+    if not _looks_like_product_list_line(first):
+        if len(first) <= 120:
+            return first
+        for sep in (". ", "! ", "? "):
+            idx = first.find(sep)
+            if 10 < idx <= 120:
+                return first[: idx + 1]
 
     return ""

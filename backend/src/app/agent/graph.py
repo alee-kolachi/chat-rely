@@ -18,26 +18,26 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import StreamWriter
 
+from app.agent.catalog_search import catalog_browse_carousel_intro
 from app.agent.escalation import (
     EscalationTurnContext,
     escalation_tool_system_appendix,
     handle_escalation_with_contact,
 )
-from app.domains.runtime.service import response_used_fallback
-from app.agent.llm import make_chat_model, make_groq_chat_model
-from app.core.openai_keys import astream_with_key_fallback
-from app.agent.messages import text_delta_from_stream_chunk, text_from_model_message, usage_tokens_from_model_message
 from app.agent.knowledge_tools import (
     is_knowledge_tool_name,
     knowledge_tool_preamble_message,
 )
+from app.agent.llm import make_chat_model, make_groq_chat_model
+from app.agent.messages import (
+    text_delta_from_stream_chunk,
+    text_from_model_message,
+    usage_tokens_from_model_message,
+)
 from app.agent.product_cards import (
-    brief_product_search_intro,
     is_product_browse_turn,
     is_specific_product_availability_question,
 )
-from app.agent.turn_intent import turn_wants_store_data
-from app.domains.integrations.shopify.tool_runners import _is_broad_catalog_shopify_query
 from app.agent.shopify_tools import (
     MAX_SHOPIFY_TOOL_ROUNDS,
     invoke_shopify_tool_with_timeout,
@@ -46,8 +46,12 @@ from app.agent.shopify_tools import (
     tool_call_parts,
 )
 from app.agent.tools import ESCALATE_TO_HUMAN_TOOL_NAME, build_escalate_to_human_tool
+from app.agent.turn_intent import turn_wants_store_data
 from app.core.errors import AppError
+from app.core.openai_keys import astream_with_key_fallback
 from app.db.session import get_session_factory
+from app.domains.integrations.shopify.tool_runners import _is_broad_catalog_shopify_query
+from app.domains.runtime.service import response_used_fallback
 from app.domains.runtime.shopify_lc_tools import tools_by_name
 
 MAX_TOOL_ROUNDS = MAX_SHOPIFY_TOOL_ROUNDS
@@ -441,9 +445,10 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
 
     final_response = ""
     if product_cards and browse_turn:
-        final_response = (
-            broad_catalog_overview
-            or brief_product_search_intro(user_message, count=len(product_cards))
+        final_response = catalog_browse_carousel_intro(
+            overview=broad_catalog_overview,
+            user_message=user_message,
+            count=len(product_cards),
         )
         if final_response:
             writer({"type": "token", "text": final_response})

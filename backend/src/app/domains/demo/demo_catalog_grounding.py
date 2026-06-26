@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-import string
 from typing import Any
 
+from app.agent.catalog_search import (
+    CATALOG_SEARCH_NOISE,
+    catalog_search_tokens,
+    score_catalog_token_hits,
+    token_matches_catalog_text,
+)
 from app.domains.demo.schemas import DemoProductSnapshot
 from app.domains.demo.storefront_ingest import product_to_index_text
 
@@ -51,7 +56,7 @@ _QUERY_STOP_WORDS = frozenset(
         "it's",
         "its",
     }
-)
+) | CATALOG_SEARCH_NOISE
 
 _TOKEN_ALIASES: dict[str, str] = {
     "tshirt": "t-shirt",
@@ -69,16 +74,8 @@ _TOKEN_ALIASES: dict[str, str] = {
 }
 
 
-def _normalize_query_token(part: str) -> str:
-    return part.strip(string.punctuation).casefold()
-
-
 def demo_query_tokens(query: str) -> list[str]:
-    base = [
-        t
-        for t in {_normalize_query_token(part) for part in (query or "").split()}
-        if len(t) >= 3 and t not in _QUERY_STOP_WORDS
-    ]
+    base = catalog_search_tokens(query)
     expanded: list[str] = []
     seen: set[str] = set()
     for token in base:
@@ -86,20 +83,7 @@ def demo_query_tokens(query: str) -> list[str]:
             if candidate and candidate not in seen:
                 seen.add(candidate)
                 expanded.append(candidate)
-        if token.endswith("s") and len(token) > 4:
-            singular = token[:-1]
-            if singular not in seen:
-                seen.add(singular)
-                expanded.append(singular)
     return expanded
-
-
-def _token_in_hay(token: str, hay: str) -> bool:
-    if token in hay:
-        return True
-    compact_token = token.replace("-", "")
-    compact_hay = hay.replace("-", "")
-    return bool(compact_token) and compact_token in compact_hay
 
 
 def _product_search_text(product: dict[str, Any]) -> str:
@@ -123,12 +107,11 @@ def rank_demo_products(
         return [(0, p) for p in products[:5]]
 
     ranked: list[tuple[int, dict[str, Any]]] = []
-    query_cf = (query or "").casefold()
     for product in products:
         hay = _product_search_text(product)
         title_cf = str(product.get("title") or "").casefold()
-        score = sum(1 for token in tokens if _token_in_hay(token, hay))
-        if score > 0 and all(_token_in_hay(token, title_cf) for token in tokens):
+        score = score_catalog_token_hits(tokens, hay)
+        if score > 0 and all(token_matches_catalog_text(token, title_cf) for token in tokens):
             score += 2
         if len(tokens) >= 2:
             phrase = " ".join(tokens)
