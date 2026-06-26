@@ -170,15 +170,17 @@ export type BackendFetchOptions = RequestInit & {
   networkRetries?: number;
   /** Call this app origin (e.g. `/api/dashboard/...` route handlers), not `NEXT_PUBLIC_BACKEND_URL`. */
   sameOrigin?: boolean;
+  /** Skip Supabase auth hydration (public endpoints like demo config). */
+  skipAuth?: boolean;
 };
 
 export async function backendFetch<T>(path: string, init: BackendFetchOptions = {}): Promise<T> {
-  const { networkRetries = 0, sameOrigin = false, ...requestInit } = init;
+  const { networkRetries = 0, sameOrigin = false, skipAuth = false, ...requestInit } = init;
   const method = (requestInit.method ?? "GET").toUpperCase();
   const allowNetworkRetry = method === "GET" || method === "HEAD";
   const maxAttempts = allowNetworkRetry ? 1 + Math.max(0, networkRetries) : 1;
 
-  const token = await getAccessToken();
+  const token = skipAuth ? null : await getAccessToken();
   const isFormDataBody = typeof FormData !== "undefined" && requestInit.body instanceof FormData;
   const base =
     sameOrigin && typeof window !== "undefined" ? "" : getBackendBaseUrl();

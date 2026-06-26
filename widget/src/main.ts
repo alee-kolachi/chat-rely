@@ -780,17 +780,21 @@ function mountProductCardActions(
   onDetails: (card: ProductCard) => void,
   onSimilar: (card: ProductCard) => void,
   disabled: boolean,
-  layout: "row" | "column" = "row"
+  layout: "row" | "column" = "row",
+  hideDetails = false
 ): void {
   const row = document.createElement("div");
   row.className =
     layout === "column" ? "cr-product-actions cr-product-actions--stack" : "cr-product-actions";
-  const detailsBtn = document.createElement("button");
-  detailsBtn.type = "button";
-  detailsBtn.className = "cr-product-btn cr-product-btn--secondary";
-  detailsBtn.innerHTML = `${ICON_INFO}<span>Details</span>`;
-  detailsBtn.disabled = disabled;
-  detailsBtn.addEventListener("click", () => onDetails(card));
+  if (!hideDetails) {
+    const detailsBtn = document.createElement("button");
+    detailsBtn.type = "button";
+    detailsBtn.className = "cr-product-btn cr-product-btn--secondary";
+    detailsBtn.innerHTML = `${ICON_INFO}<span>Details</span>`;
+    detailsBtn.disabled = disabled;
+    detailsBtn.addEventListener("click", () => onDetails(card));
+    row.appendChild(detailsBtn);
+  }
   const similarBtn = document.createElement("button");
   similarBtn.type = "button";
   similarBtn.className = "cr-product-btn cr-product-btn--secondary";
@@ -803,7 +807,7 @@ function mountProductCardActions(
   viewLink.href = card.url;
   viewLink.target = "_blank";
   viewLink.rel = "noopener noreferrer";
-  row.append(detailsBtn, similarBtn, viewLink);
+  row.append(similarBtn, viewLink);
   host.appendChild(row);
 }
 
@@ -963,7 +967,68 @@ function renderProductDetailView(
     price.textContent = detail.price;
     body.appendChild(price);
   }
-  mountProductCardActions(detail, body, onDetails, onSimilar, disabled, "column");
+  if (detail.vendor || detail.sku) {
+    const specs = document.createElement("dl");
+    specs.className = "cr-product-detail-specs";
+    const addSpec = (label: string, value: string) => {
+      const row = document.createElement("div");
+      row.className = "cr-product-detail-spec-row";
+      const dt = document.createElement("span");
+      dt.className = "cr-product-detail-spec-label";
+      dt.textContent = label;
+      const dd = document.createElement("span");
+      dd.className = "cr-product-detail-spec-value";
+      dd.textContent = value;
+      row.append(dt, dd);
+      specs.appendChild(row);
+    };
+    if (detail.vendor) addSpec("Brand", detail.vendor);
+    if (detail.product_type) addSpec("Type", detail.product_type);
+    if (detail.sku) addSpec("SKU", detail.sku);
+    body.appendChild(specs);
+  }
+  const descriptionPoints =
+    detail.description_points && detail.description_points.length > 0
+      ? detail.description_points
+      : detail.description
+        ? [detail.description]
+        : [];
+  if (descriptionPoints.length > 0) {
+    const block = document.createElement("div");
+    block.className = "cr-product-detail-section";
+    const heading = document.createElement("p");
+    heading.className = "cr-product-detail-section-title";
+    heading.textContent = "Details";
+    block.appendChild(heading);
+    const list = document.createElement("ul");
+    list.className = "cr-product-detail-bullets";
+    descriptionPoints.forEach((point) => {
+      const item = document.createElement("li");
+      item.textContent = point;
+      list.appendChild(item);
+    });
+    block.appendChild(list);
+    body.appendChild(block);
+  }
+  detail.options?.forEach((option) => {
+    const block = document.createElement("div");
+    block.className = "cr-product-detail-section";
+    const heading = document.createElement("p");
+    heading.className = "cr-product-detail-section-title";
+    heading.textContent = option.name;
+    block.appendChild(heading);
+    const chips = document.createElement("div");
+    chips.className = "cr-product-detail-chips";
+    option.values.forEach((value) => {
+      const chip = document.createElement("span");
+      chip.className = "cr-product-detail-chip";
+      chip.textContent = value;
+      chips.appendChild(chip);
+    });
+    block.appendChild(chips);
+    body.appendChild(block);
+  });
+  mountProductCardActions(detail, body, onDetails, onSimilar, disabled, "column", true);
   root.appendChild(body);
   parent.appendChild(root);
   return root;

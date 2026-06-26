@@ -25,11 +25,34 @@ async def _resolve_is_demo_agent(db: AsyncSession, agent_id: UUID) -> bool:
     return await agent_is_demo(db, agent_id)
 
 
-async def _resolve_demo_catalog_products(db: AsyncSession, agent_id: UUID) -> list[dict[str, Any]]:
-    from app.domains.demo.repository import fetch_catalog_snapshot
+async def _load_turn_tools(
+    *,
+    is_demo_agent: bool,
+    user_id: UUID,
+    agent_id: UUID,
+    conversation_id: UUID,
+    customer_message: str,
+) -> tuple[list[Any], dict[str, float], bool]:
+    if is_demo_agent:
+        from app.db.session import get_session_factory
+        from app.domains.demo.demo_tools_loader import load_demo_tools_fast
 
-    products, _policies = await fetch_catalog_snapshot(db, agent_id)
-    return products
+        async with get_session_factory()() as db:
+            return await load_demo_tools_fast(
+                db,
+                agent_id=agent_id,
+                customer_message=customer_message,
+            )
+    return await _load_shopify_tools_fast(
+        user_id=user_id,
+        agent_id=agent_id,
+        conversation_id=conversation_id,
+        customer_message=customer_message,
+    )
+
+
+async def _empty_turn_tools() -> tuple[list[Any], dict[str, float], bool]:
+    return [], {"load_connection_ms": 0.0, "list_actions_ms": 0.0, "build_tools_ms": 0.0, "router_llm_ms": 0.0}, False
 
 from app.agent.escalation import (
     ESCALATION_PENDING_CONTACT_META_KEY,
@@ -50,6 +73,9 @@ from app.agent.escalation import (
 from app.agent.product_cards import (
     is_product_browse_turn,
     shorten_answer_for_product_cards,
+    turn_is_kb_question,
+    turn_needs_catalog_tools,
+    turn_needs_shopify_graph,
 )
 from app.agent.turn_intent import message_references_thread_catalog, turn_wants_store_data
 from app.agent.graph import append_escalation_tool_prompt, stream_chat_graph
@@ -221,7 +247,7 @@ async def _bootstrap_stream_turn_db(
             limit=history_limit,
             skip_conversation_check=True,
         )
-    if not history_rows and (payload.channel or "").strip() == "widget":
+    if not history_rows and (payload.channel or "").strip() in ("widget", "demo"):
         history_rows = await seed_widget_greeting_messages_if_needed(
             db,
             user_id=user_id,
@@ -256,6 +282,7 @@ async def _prepare_turn_model_selection(
     user_message: str,
     history_rows: list[Any],
     is_greeting_or_small_talk: bool = False,
+    skip_throttle: bool = False,
 ) -> tuple[str, dict[str, Any] | None]:
     """Plan policy, optional classifier, and throttle delay (parallel with Shopify/RAG prep)."""
     policy = get_cached_plan_model_policy(user_id)
@@ -281,12 +308,13 @@ async def _prepare_turn_model_selection(
         throttle_tier=throttle_tier,
         model=model,
     )
-    await apply_throttle_delay(
-        throttle_tier=throttle_tier,
-        policy=policy,
-        conversations_used=conversations_used,
-        included_conversations=included_conversations,
-    )
+    if not skip_throttle:
+        await apply_throttle_delay(
+            throttle_tier=throttle_tier,
+            policy=policy,
+            conversations_used=conversations_used,
+            included_conversations=included_conversations,
+        )
     return model, None
 
 
@@ -786,12 +814,113 @@ async def _stream_product_action_turn(
     if action is None:
         return
 
-    conn = await _shopify_product_search_enabled(user_id=user_id, agent_id=agent_id)
     escalation_info = build_escalation_info(
         human_enabled=human_on,
         esc_cfg=esc_cfg,
         occurred=False,
     ).model_dump(mode="json")
+
+    async with get_session_factory()() as db:
+        is_demo = await _resolve_is_demo_agent(db, agent_id)
+        if is_demo:
+            from app.domains.demo.demo_lc_tools import (
+                demo_product_details_json_async,
+                demo_similar_products_json,
+            )
+            from app.domains.demo.demo_product_catalog import ensure_demo_product_catalog
+            from app.domains.demo.repository import fetch_demo_by_agent_id
+
+            demo_row = await fetch_demo_by_agent_id(db, agent_id)
+            if demo_row is not None:
+                products_loaded, _, _ = await ensure_demo_product_catalog(
+                    db,
+                    agent_id=agent_id,
+                    store_url=demo_row.store_url,
+                )
+                if products_loaded:
+                    user_message = _product_action_user_message(action)
+                    products: list[dict[str, Any]] | None = None
+                    product_detail: dict[str, Any] | None = None
+                    tools_invoked: list[str] = []
+
+                    if action.type == "details":
+                        yield format_sse("preamble", {"text": "Let me grab the details on that item."})
+                        raw = await demo_product_details_json_async(
+                            products_loaded,
+                            handle=action.handle,
+                            store_url=demo_row.store_url,
+                        )
+                        tools_invoked = ["shopify_product_search"]
+                        try:
+                            parsed = json.loads(raw)
+                        except json.JSONDecodeError:
+                            parsed = {}
+                        lookup = parsed.get("lookup_meta") if isinstance(parsed, dict) else {}
+                        not_found = bool(isinstance(lookup, dict) and lookup.get("not_found"))
+                        detail = parsed.get("ui_detail") if isinstance(parsed, dict) else None
+                        if not_found or not isinstance(detail, dict):
+                            answer = "I couldn't find that product in this store's catalog."
+                        else:
+                            product_detail = detail
+                            answer = ""
+                            yield format_sse("product_detail", {"product": product_detail})
+                    else:
+                        yield format_sse("preamble", {"text": "Let me find similar items in the catalog."})
+                        raw = demo_similar_products_json(
+                            products_loaded,
+                            handle=action.handle,
+                            title=action.title,
+                        )
+                        tools_invoked = ["shopify_product_search"]
+                        try:
+                            parsed = json.loads(raw)
+                        except json.JSONDecodeError:
+                            parsed = {}
+                        cards = parsed.get("ui_cards") if isinstance(parsed, dict) else None
+                        if isinstance(cards, list) and cards:
+                            products = [c for c in cards if isinstance(c, dict)]
+                            answer = ""
+                            yield format_sse("products", {"products": products})
+                        else:
+                            answer = "I couldn't find similar products in this store's catalog."
+
+                    if answer:
+                        yield format_sse("token", {"text": answer})
+                    assistant_id = await _finalize_stream_turn_persist(
+                        user_id=user_id,
+                        agent_id=agent_id,
+                        conversation_id=conversation_id,
+                        user_message=user_message,
+                        model=model,
+                        answer=answer,
+                        usage_in=0,
+                        usage_out=0,
+                        tools_invoked=tools_invoked,
+                        rag_billing={},
+                        classifier_billing=None,
+                        products=products,
+                        product_detail=product_detail,
+                        latency_ms=int((time.perf_counter() - turn_started_at) * 1000.0),
+                    )
+                    done_data: dict[str, Any] = {
+                        "conversation_id": str(conversation_id),
+                        "assistant_message_id": str(assistant_id) if assistant_id else None,
+                        "response": answer,
+                        "model": model,
+                        "fallback_used": False,
+                        "tools_available_count": 1,
+                        "tools_invoked": tools_invoked,
+                        "retrieval_count": 0,
+                        "escalation": escalation_info,
+                    }
+                    if products:
+                        done_data["products"] = products
+                    if product_detail:
+                        done_data["product_detail"] = product_detail
+                    yield format_sse("done", done_data)
+                    return
+
+    conn = await _shopify_product_search_enabled(user_id=user_id, agent_id=agent_id)
 
     if conn is None:
         answer = "Product browsing is not available for this store right now."
@@ -937,11 +1066,6 @@ async def stream_chat(
     is_demo_agent = await _db_call(
         lambda db: _resolve_is_demo_agent(db, payload.agent_id)
     )
-    demo_catalog_products: list[dict[str, Any]] = []
-    if is_demo_agent:
-        demo_catalog_products = await _db_call(
-            lambda db: _resolve_demo_catalog_products(db, payload.agent_id)
-        )
 
     if payload.locale or payload.country_code:
         await _db_call(
@@ -953,14 +1077,8 @@ async def stream_chat(
                 country_code=payload.country_code,
             )
         )
-    shopify_task = asyncio.create_task(
-        _load_shopify_tools_fast(
-            user_id=user_id,
-            agent_id=payload.agent_id,
-            conversation_id=conversation_id,
-            customer_message=payload.message,
-        )
-    )
+    shopify_task: asyncio.Task[tuple[list[Any], dict[str, float], bool]] | None = None
+
     await _await_prior_turn_persist(user_id, conversation_id)
 
     if not awaiting_human_team:
@@ -994,9 +1112,8 @@ async def stream_chat(
         return
 
     if awaiting_human_team:
-        for task in (shopify_task,):
-            if not task.done():
-                task.cancel()
+        if shopify_task is not None and not shopify_task.done():
+            shopify_task.cancel()
         model = str(config.get("model") or "gpt-4o-mini")
         human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
         escalation_info_handoff = build_escalation_info(
@@ -1054,9 +1171,8 @@ async def stream_chat(
         return
 
     if not message_has_substantive_content(payload.message):
-        for task in (shopify_task,):
-            if not task.done():
-                task.cancel()
+        if shopify_task is not None and not shopify_task.done():
+            shopify_task.cancel()
         ack = visitor_non_substantive_reply()
         yield format_sse("token", {"text": ack})
         yield format_sse(
@@ -1080,9 +1196,6 @@ async def stream_chat(
         return
 
     if payload.product_action is not None:
-        for task in (shopify_task,):
-            if not task.done():
-                task.cancel()
         human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
         model = str(config.get("model") or "gpt-4o-mini")
         async for frame in _stream_product_action_turn(
@@ -1098,17 +1211,48 @@ async def stream_chat(
             yield frame
         return
 
+    if is_demo_agent:
+        from app.domains.demo.demo_chat_turn import stream_demo_routed_turn
+
+        async for frame in stream_demo_routed_turn(
+            user_id=user_id,
+            agent_id=payload.agent_id,
+            conversation_id=conversation_id,
+            user_message=payload.message,
+            config=config,
+            history_rows=history_rows,
+            history_limit=history_limit,
+            turn_started_at=t_turn,
+            maybe_retrieve_chunks=_maybe_retrieve_chunks,
+            build_context_block=_build_context_block,
+            finalize_turn_persist=_finalize_stream_turn_persist,
+            log_retrieval_trace=_log_retrieval_trace,
+            build_retrieval_expanded_query=_build_retrieval_expanded_query,
+            rag_prompt_chunk_count=RAG_PROMPT_CHUNK_COUNT,
+        ):
+            yield frame
+        return
+
+    shopify_task = asyncio.create_task(
+        _load_turn_tools(
+            is_demo_agent=False,
+            user_id=user_id,
+            agent_id=payload.agent_id,
+            conversation_id=conversation_id,
+            customer_message=payload.message,
+        )
+    )
+
     t_prep = time.perf_counter()
 
     if conv_meta.get(ESCALATION_PENDING_CONTACT_META_KEY):
         human_on, esc_cfg = await _load_human_escalation(user_id, payload.agent_id)
         if human_on:
-            for task in (shopify_task,):
-                if not task.done():
-                    task.cancel()
-            for task in (shopify_task,):
+            if shopify_task is not None:
+                if not shopify_task.done():
+                    shopify_task.cancel()
                 try:
-                    await task
+                    await shopify_task
                 except asyncio.CancelledError:
                     pass
             model_early = str(config.get("model") or "gpt-4o-mini")
@@ -1199,7 +1343,15 @@ async def stream_chat(
         thread_had_shopify_tools=thread_had_shopify,
     )
     skip_rag = structural_skip or operator_engaged or not wants_store_data
-    if operator_engaged:
+    if (
+        skip_rag
+        and structural_kb_reason == "thread_shopify_tools"
+        and turn_is_kb_question(payload.message)
+        and has_indexed_kb
+    ):
+        skip_rag = False
+        kb_skip_reason = "store_info_rag"
+    elif operator_engaged:
         kb_skip_reason = "operator_engaged"
     elif not wants_store_data:
         kb_skip_reason = "conversational_turn"
@@ -1234,11 +1386,14 @@ async def stream_chat(
             conversation_id=conversation_id,
             user_message=payload.message,
             history_rows=history_rows,
+            skip_throttle=is_demo_agent,
         )
     )
 
     parallel_prep: list[Any] = [shopify_task, model_task]
+    rag_task_index: int | None = None
     if rag_task is not None:
+        rag_task_index = len(parallel_prep)
         parallel_prep.append(rag_task)
 
     t_parallel_prep = time.perf_counter()
@@ -1274,10 +1429,6 @@ async def stream_chat(
     lang_block = resolve_language_instruction(config.get("language"))
     if lang_block:
         system_prompt = f"{system_prompt}\n\n{lang_block}".strip()
-    if is_demo_agent:
-        from app.domains.demo.prompts import DEMO_SYSTEM_PROMPT_APPENDIX
-
-        system_prompt = f"{system_prompt}\n\n{DEMO_SYSTEM_PROMPT_APPENDIX}".strip()
     shopify_load_ms = float(shopify_setup_timings.get("load_connection_ms", 0.0)) + float(
         shopify_setup_timings.get("list_actions_ms", 0.0)
     ) + float(shopify_setup_timings.get("build_tools_ms", 0.0))
@@ -1287,8 +1438,8 @@ async def stream_chat(
     has_order_lookup_tool = any(
         str(getattr(t, "name", "") or "") == "shopify_order_lookup" for t in tool_list
     )
-    if rag_task is not None:
-        chunks, rag_billing, kb_skip_reason = parallel_results[2]
+    if rag_task_index is not None:
+        chunks, rag_billing, kb_skip_reason = parallel_results[rag_task_index]
         retrieve_wall_ms = (time.perf_counter() - t_parallel_prep) * 1000.0
         retrieval_count = len(chunks)
         retrieval_preview = [
@@ -1495,7 +1646,15 @@ async def stream_chat(
             grounded_user_content=grounded_user_content,
         )
 
-        use_agent_graph = has_shopify_tools or escalation_enabled
+        use_agent_graph = escalation_enabled or (
+            has_shopify_tools
+            and turn_needs_shopify_graph(
+                payload.message,
+                thread_had_shopify_tools=thread_had_shopify,
+                thread_had_order_lookup=thread_had_order_lookup,
+                has_order_lookup_tool=has_order_lookup_tool,
+            )
+        )
 
         if use_agent_graph:
             async for ev in stream_chat_graph(
@@ -1578,13 +1737,6 @@ async def stream_chat(
             answer = ""
         else:
             answer = str(fallback_message or "").strip() or visitor_empty_reply_fallback()
-    if is_demo_agent and not stream_products and demo_catalog_products:
-        from app.domains.demo.demo_product_cards import demo_cards_for_turn
-
-        cards = demo_cards_for_turn(demo_catalog_products, payload.message)
-        if cards:
-            stream_products = cards
-            yield format_sse("products", {"products": stream_products})
     if stream_products:
         answer = shorten_answer_for_product_cards(answer)
     usage_in = int(done_payload.get("usage_input_tokens") or 0)

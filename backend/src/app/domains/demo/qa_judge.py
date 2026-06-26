@@ -18,12 +18,8 @@ from app.domains.runtime.schemas import RuntimeChatRequest
 
 log = structlog.get_logger("demo.qa_judge")
 
-
-def _fake_negative_product(products: list[dict[str, Any]]) -> str:
-    if not products:
-        return "Quantum Titanium Skateboard"
-    sample = str(products[0].get("product_type") or products[0].get("title") or "Widget")
-    return f"Premium Ultra {sample} XL Pro"
+# Invented names with no overlap with typical catalog tokens (tops, premium, etc.).
+_FAKE_PROBE_PRODUCT = "Zorblax Meridian Frame Pack"
 
 
 def build_qa_questions(
@@ -45,12 +41,20 @@ def build_qa_questions(
             }
         )
         if p.get("min_price"):
+            currency = str(p.get("currency") or "USD").strip().upper()
+            min_price = str(p.get("min_price"))
+            price_display = f"${min_price}" if currency == "USD" else f"{min_price} {currency}"
             questions.append(
                 {
                     "category": "product_price",
                     "question": f"How much is the {title}?",
                     "ground_truth": json.dumps(
-                        {"title": title, "price": p.get("min_price"), "currency": p.get("currency", "USD")},
+                        {
+                            "title": title,
+                            "price": min_price,
+                            "currency": currency,
+                            "price_display": price_display,
+                        },
                         ensure_ascii=False,
                     ),
                 }
@@ -77,7 +81,7 @@ def build_qa_questions(
                 "ground_truth": policies["refund"][:4000],
             }
         )
-    fake = _fake_negative_product(products)
+    fake = _FAKE_PROBE_PRODUCT
     questions.append(
         {
             "category": "negative_probe",

@@ -22,7 +22,8 @@ export function DemoStoreView({
   composerError,
   messageInputRef,
   messagesScrollRef,
-  onProductSelect,
+  onShowProductDetails,
+  onShowSimilarProducts,
   previewMode = false,
 }: {
   store: DemoStoreMeta;
@@ -38,7 +39,8 @@ export function DemoStoreView({
   composerError?: string | null;
   messageInputRef: RefObject<HTMLTextAreaElement | null>;
   messagesScrollRef: RefObject<HTMLDivElement | null>;
-  onProductSelect?: (product: ProductCard) => void;
+  onShowProductDetails?: (product: ProductCard) => void;
+  onShowSimilarProducts?: (product: ProductCard) => void;
   previewMode?: boolean;
 }) {
   return (
@@ -59,7 +61,8 @@ export function DemoStoreView({
           composerError={composerError}
           messageInputRef={messageInputRef}
           messagesScrollRef={messagesScrollRef}
-          onProductSelect={onProductSelect}
+          onShowProductDetails={onShowProductDetails}
+          onShowSimilarProducts={onShowSimilarProducts}
         />
       }
     />

@@ -30,6 +30,25 @@ export type DemoPublicConfigResponse = {
   limit_message: string | null;
 };
 
+export type DemoCatalogLoadResponse = {
+  product_count: number;
+  top_products: ProductCard[];
+  suggested_prompts: string[];
+  catalog_ready: boolean;
+};
+
+export function mergeCatalogIntoStoreMeta(
+  store: DemoStoreMeta,
+  catalog: DemoCatalogLoadResponse,
+): DemoStoreMeta {
+  return {
+    ...store,
+    productCount: catalog.product_count,
+    topProducts: catalog.top_products ?? [],
+    suggestedPrompts: catalog.suggested_prompts ?? store.suggestedPrompts,
+  };
+}
+
 export function demoConfigToStoreMeta(config: DemoPublicConfigResponse): DemoStoreMeta {
   return {
     displayName: config.display_name,

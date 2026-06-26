@@ -99,6 +99,15 @@ function ProductDetailThumbs({
   );
 }
 
+function ProductDetailSpecRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2 text-xs leading-snug">
+      <span className="text-ds-on-surface-variant w-14 shrink-0">{label}</span>
+      <span className="text-ds-on-surface min-w-0">{value}</span>
+    </div>
+  );
+}
+
 export function ProductDetailView({
   product,
   disabled,
@@ -122,6 +131,10 @@ export function ProductDetailView({
         : [];
   const [activeIndex, setActiveIndex] = useState(0);
   const active = images[activeIndex] ?? null;
+  const descriptionPoints =
+    product.description_points && product.description_points.length > 0
+      ? product.description_points
+      : null;
 
   return (
     <div
@@ -133,7 +146,12 @@ export function ProductDetailView({
     >
       {images.length > 0 ? (
         <div>
-          <div className="bg-ds-sidebar aspect-square max-h-56 w-full overflow-hidden">
+          <div
+            className={cn(
+              "bg-ds-sidebar aspect-square w-full overflow-hidden",
+              embedded ? "max-h-72" : "max-h-56",
+            )}
+          >
             {active ? (
               <img src={active} alt="" className="h-full w-full object-cover" loading="lazy" />
             ) : null}
@@ -147,21 +165,68 @@ export function ProductDetailView({
           ) : null}
         </div>
       ) : (
-        <div className="bg-ds-sidebar text-ds-on-surface-variant flex aspect-square max-h-56 w-full items-center justify-center text-sm">
+        <div
+          className={cn(
+            "bg-ds-sidebar text-ds-on-surface-variant flex aspect-square w-full items-center justify-center text-sm",
+            embedded ? "max-h-72" : "max-h-56",
+          )}
+        >
           No image
         </div>
       )}
       <div className="pt-2">
         <p className="text-ds-on-surface text-sm font-semibold leading-snug">{product.title}</p>
         {product.price ? (
-          <p className="text-ds-on-surface-variant mt-1 text-sm">{product.price}</p>
+          <p className="text-ds-on-surface mt-1 text-sm font-medium">{product.price}</p>
         ) : null}
+        {(product.vendor || product.sku) && (
+          <dl className="border-ds-outline/60 mt-2 space-y-1 border-t pt-2">
+            {product.vendor ? <ProductDetailSpecRow label="Brand" value={product.vendor} /> : null}
+            {product.product_type ? (
+              <ProductDetailSpecRow label="Type" value={product.product_type} />
+            ) : null}
+            {product.sku ? <ProductDetailSpecRow label="SKU" value={product.sku} /> : null}
+          </dl>
+        )}
+        {descriptionPoints ? (
+          <div className="mt-3">
+            <p className="text-ds-on-surface text-xs font-semibold uppercase tracking-wide">Details</p>
+            <ul className="text-ds-on-surface mt-1.5 list-disc space-y-1 pl-4 text-sm leading-relaxed">
+              {descriptionPoints.map((point) => (
+                <li key={point}>{point}</li>
+              ))}
+            </ul>
+          </div>
+        ) : product.description ? (
+          <div className="mt-3">
+            <p className="text-ds-on-surface text-xs font-semibold uppercase tracking-wide">Details</p>
+            <p className="text-ds-on-surface mt-1.5 text-sm leading-relaxed">{product.description}</p>
+          </div>
+        ) : null}
+        {product.options?.map((option) => (
+          <div key={option.name} className="mt-3">
+            <p className="text-ds-on-surface text-xs font-semibold uppercase tracking-wide">
+              {option.name}
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {option.values.map((value) => (
+                <span
+                  key={value}
+                  className="border-ds-outline text-ds-on-surface rounded-full border bg-ds-muted px-2.5 py-0.5 text-[11px] font-medium"
+                >
+                  {value}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
         <ProductCardActions
           product={product}
           disabled={disabled}
           onShowDetails={onShowDetails}
           onShowSimilar={onShowSimilar}
           layout="column"
+          hideDetails
         />
       </div>
     </div>

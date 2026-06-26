@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.domains.demo.constants import DEMO_LIFETIME_MESSAGE_CAP, DEMO_SHOPIFY_INSTALL_URL
 from app.domains.demo.demo_product_cards import product_dict_to_card
-from app.domains.demo.repository import fetch_catalog_snapshot, fetch_demo_by_slug
+from app.domains.demo.repository import fetch_demo_by_slug
 from app.domains.demo.schemas import DemoOutreachDTO, DemoPublicConfigResponse, DemoTopProduct
 from app.domains.demo.system_user import ensure_demo_system_user
 
@@ -75,9 +75,9 @@ def build_demo_public_config(
 ) -> DemoPublicConfigResponse:
     row = demo if isinstance(demo, DemoOutreachDTO) else DemoOutreachDTO.model_validate(demo)
     display = (row.display_name or row.store_host or "this store").strip()
-    chat_available = row.status == "ready"
+    chat_available = row.status in ("ready", "needs_review")
     limit_message = None
-    if row.status != "ready":
+    if row.status not in ("ready", "needs_review"):
         limit_message = "This demo is still being prepared."
     elif row.lifetime_message_count >= DEMO_LIFETIME_MESSAGE_CAP:
         limit_message = "This demo has reached its message limit."
@@ -108,10 +108,14 @@ async def get_demo_public_config(db: AsyncSession, slug: str) -> DemoPublicConfi
     demo = await fetch_demo_by_slug(db, slug)
     if demo is None:
         raise AppError(code="demo.not_found", message="Demo not found", status_code=404)
-    products, _policies = await fetch_catalog_snapshot(db, demo.agent_id)
-    top_products = build_top_products(products)
-    brand_color = demo.brand_color or await fetch_agent_brand_color(db, demo.agent_id)
-    return build_demo_public_config(demo, top_products=top_products, brand_color=brand_color)
+    brand_color = demo.brand_color
+    if not brand_color:
+        brand_color = await fetch_agent_brand_color(db, demo.agent_id)
+    return build_demo_public_config(
+        demo,
+        top_products=[],
+        brand_color=brand_color,
+    )
 
 
 async def resolve_demo_chat_context(

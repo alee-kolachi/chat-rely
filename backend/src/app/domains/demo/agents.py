@@ -73,8 +73,10 @@ async def create_demo_agent(
     await db.execute(
         text(
             """
-            insert into public.agent_reliability_settings (agent_id, user_id)
-            values (cast(:agent_id as uuid), cast(:user_id as uuid))
+            insert into public.agent_reliability_settings (
+              agent_id, user_id, min_retrieval_similarity
+            )
+            values (cast(:agent_id as uuid), cast(:user_id as uuid), 0.52)
             on conflict (agent_id) do nothing
             """
         ),

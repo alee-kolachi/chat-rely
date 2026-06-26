@@ -9,6 +9,33 @@ from pathlib import Path
 import structlog
 
 
+class ResilientRotatingFileHandler(RotatingFileHandler):
+    """Rotating file handler that disables itself when the disk is full."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._disabled = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self._disabled:
+            return
+        try:
+            super().emit(record)
+        except OSError:
+            self._disabled = True
+            self.close()
+
+    def shouldRollover(self, record: logging.LogRecord) -> bool:  # noqa: N802
+        if self._disabled:
+            return False
+        try:
+            return super().shouldRollover(record)
+        except OSError:
+            self._disabled = True
+            self.close()
+            return False
+
+
 class PrettyLogFormatter(logging.Formatter):
     """Human-readable formatter for structlog JSON records."""
 
@@ -93,10 +120,13 @@ def setup_logging(
     console_handler.setFormatter(logging.Formatter("%(message)s"))
     root.addHandler(console_handler)
 
+    for noisy_logger in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
     if log_file_enabled:
         path = Path(log_file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = RotatingFileHandler(
+        file_handler = ResilientRotatingFileHandler(
             filename=path,
             maxBytes=max(1024, int(log_file_max_bytes)),
             backupCount=max(1, int(log_file_backup_count)),
@@ -108,7 +138,7 @@ def setup_logging(
     if log_pretty_file_enabled:
         pretty_path = Path(log_pretty_file_path)
         pretty_path.parent.mkdir(parents=True, exist_ok=True)
-        pretty_handler = RotatingFileHandler(
+        pretty_handler = ResilientRotatingFileHandler(
             filename=pretty_path,
             maxBytes=max(1024, int(log_pretty_file_max_bytes)),
             backupCount=max(1, int(log_pretty_file_backup_count)),

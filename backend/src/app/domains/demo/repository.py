@@ -116,6 +116,95 @@ async def agent_is_demo(db: AsyncSession, agent_id: UUID) -> bool:
     return bool(row and row.get("is_demo"))
 
 
+async def fetch_demo_public_page_row(
+    db: AsyncSession, slug: str
+) -> tuple[DemoOutreachDTO, list[dict[str, Any]]] | None:
+    """Demo row plus first six catalog products in one round trip."""
+    row = (
+        await db.execute(
+            text(
+                """
+                select
+                  d.agent_id, d.slug, d.store_url, d.store_host, d.status::text as status,
+                  d.display_name, d.logo_url, d.brand_color, d.product_count, d.suggested_prompts,
+                  d.sheet_ref, d.sheet_snapshot, d.qa_report, d.lifetime_message_count,
+                  d.ready_at, d.expires_at, d.created_at,
+                  coalesce(
+                    (
+                      select jsonb_agg(p.elem)
+                      from (
+                        select elem
+                        from jsonb_array_elements(s.products) as elem
+                        limit 6
+                      ) p
+                    ),
+                    '[]'::jsonb
+                  ) as top_products_raw
+                from public.demo_outreach d
+                left join public.demo_catalog_snapshots s on s.agent_id = d.agent_id
+                where d.slug = :slug
+                limit 1
+                """
+            ),
+            {"slug": slug.strip()},
+        )
+    ).mappings().first()
+    if not row:
+        return None
+    data = dict(row)
+    raw_products = data.pop("top_products_raw", None)
+    if isinstance(raw_products, str):
+        raw_products = json.loads(raw_products)
+    if not isinstance(raw_products, list):
+        raw_products = []
+    products = [p for p in raw_products if isinstance(p, dict)]
+    return _row_to_dto(data), products
+
+
+async def fetch_demo_policies(db: AsyncSession, agent_id: UUID) -> dict[str, str]:
+    row = (
+        await db.execute(
+            text(
+                """
+                select policies
+                from public.demo_catalog_snapshots
+                where agent_id = cast(:agent_id as uuid)
+                limit 1
+                """
+            ),
+            {"agent_id": str(agent_id)},
+        )
+    ).mappings().first()
+    if not row:
+        return {}
+    policies = row.get("policies")
+    if isinstance(policies, str):
+        policies = json.loads(policies)
+    if not isinstance(policies, dict):
+        return {}
+    return {str(k): str(v) for k, v in policies.items() if v}
+
+
+async def fetch_demo_store_url(db: AsyncSession, agent_id: UUID) -> str | None:
+    row = (
+        await db.execute(
+            text(
+                """
+                select store_url
+                from public.demo_outreach
+                where agent_id = cast(:agent_id as uuid)
+                limit 1
+                """
+            ),
+            {"agent_id": str(agent_id)},
+        )
+    ).mappings().first()
+    if not row:
+        return None
+    url = str(row.get("store_url") or "").strip()
+    return url or None
+
+
 async def fetch_catalog_snapshot(
     db: AsyncSession, agent_id: UUID
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:

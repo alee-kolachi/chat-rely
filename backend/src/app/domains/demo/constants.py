@@ -13,4 +13,10 @@ DEMO_LIFETIME_MESSAGE_CAP = 100
 DEMO_QA_SCORE_THRESHOLD = 0.75
 DEMO_TTL_DAYS = 30
 DEMO_MIN_PRODUCT_COUNT = 3
-DEMO_SNAPSHOT_PRODUCT_CAP = 500
+# Full catalog fetched when the demo page loads (not at outreach provision).
+DEMO_MAX_PRODUCTS = 2500
+DEMO_PRODUCTS_JSON_MAX_PAGES = 12
+# Lines sent to the per-turn catalog selection LLM.
+DEMO_CATALOG_SELECT_LIMIT = 5
+# Essential non-product pages at provision (one combined embedding job).
+DEMO_MAX_SITE_PAGES = 7

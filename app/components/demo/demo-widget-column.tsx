@@ -47,7 +47,8 @@ export function DemoWidgetColumn({
   composerError,
   messageInputRef,
   messagesScrollRef,
-  onProductSelect,
+  onShowProductDetails,
+  onShowSimilarProducts,
 }: {
   store: DemoStoreMeta;
   messages: DemoChatMessage[];
@@ -62,7 +63,8 @@ export function DemoWidgetColumn({
   composerError?: string | null;
   messageInputRef: RefObject<HTMLTextAreaElement | null>;
   messagesScrollRef: RefObject<HTMLDivElement | null>;
-  onProductSelect?: (product: ProductCard) => void;
+  onShowProductDetails?: (product: ProductCard) => void;
+  onShowSimilarProducts?: (product: ProductCard) => void;
 }) {
   const [open, setOpen] = useState(true);
   const brandColorHex = store.brandColorHex?.trim() || DEMO_ACCENT_HEX;
@@ -88,7 +90,8 @@ export function DemoWidgetColumn({
           composerError={composerError}
           messageInputRef={messageInputRef}
           messagesScrollRef={messagesScrollRef}
-          onProductSelect={onProductSelect}
+          onShowProductDetails={onShowProductDetails}
+          onShowSimilarProducts={onShowSimilarProducts}
           onClose={() => setOpen(false)}
         />
       ) : (

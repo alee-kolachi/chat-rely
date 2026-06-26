@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -13,7 +14,8 @@ from app.api.deps import get_db
 from app.core.errors import AppError
 from app.core.settings import get_settings
 from app.domains.demo.rate_limit import enforce_demo_chat_limits, record_demo_chat_message
-from app.domains.demo.schemas import DemoChatRequest, DemoPublicConfigResponse
+from app.domains.demo.demo_product_catalog import load_demo_catalog_for_slug
+from app.domains.demo.schemas import DemoCatalogLoadResponse, DemoChatRequest, DemoPublicConfigResponse
 from app.domains.demo.service import get_demo_public_config, resolve_demo_chat_context
 from app.domains.runtime.schemas import RuntimeChatRequest
 
@@ -25,8 +27,21 @@ router = APIRouter(prefix="/demo", tags=["demo"])
 async def demo_public_config_route(
     slug: str,
     db: AsyncSession = Depends(get_db),
-) -> DemoPublicConfigResponse:
-    return await get_demo_public_config(db, slug)
+) -> JSONResponse:
+    payload = await get_demo_public_config(db, slug)
+    return JSONResponse(
+        content=payload.model_dump(mode="json"),
+        headers={"Cache-Control": "public, max-age=60, stale-while-revalidate=300"},
+    )
+
+
+@router.post("/{slug}/catalog", response_model=DemoCatalogLoadResponse)
+async def demo_load_catalog_route(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+) -> DemoCatalogLoadResponse:
+    payload = await load_demo_catalog_for_slug(db, slug)
+    return DemoCatalogLoadResponse.model_validate(payload)
 
 
 @router.post("/{slug}/stream")
@@ -44,6 +59,7 @@ async def demo_public_stream_route(
         conversation_id=payload.conversation_id,
         visitor_id=payload.visitor_id,
         channel="demo",
+        product_action=payload.product_action,
     )
 
     async def generate():

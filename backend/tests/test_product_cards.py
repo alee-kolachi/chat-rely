@@ -27,6 +27,35 @@ def test_is_product_browse_turn_assistant_capability_question() -> None:
     assert is_product_browse_turn("who are you") is False
 
 
+def test_is_product_browse_turn_policy_question() -> None:
+    assert is_product_browse_turn("What's your return policy?") is False
+    assert is_product_browse_turn("what is your shipping policy") is False
+
+
+def test_turn_needs_catalog_tools() -> None:
+    from app.agent.product_cards import turn_is_kb_question, turn_needs_catalog_tools
+
+    assert turn_needs_catalog_tools("what do you sell?") is True
+    assert turn_needs_catalog_tools("do you sell boots?") is True
+    assert turn_needs_catalog_tools("What's your return policy?") is False
+    assert turn_needs_catalog_tools("hello") is False
+    assert turn_needs_catalog_tools("tell me more", thread_had_shopify_tools=True) is True
+    assert turn_is_kb_question("What's your return policy?") is True
+    assert turn_is_kb_question("where is my order") is False
+    assert turn_needs_catalog_tools("where is my order") is False
+
+
+def test_turn_needs_shopify_graph() -> None:
+    from app.agent.product_cards import turn_needs_shopify_graph
+
+    assert turn_needs_shopify_graph("what do you sell?") is True
+    assert turn_needs_shopify_graph("What's your return policy?") is False
+    assert turn_needs_shopify_graph(
+        "where is order #1234",
+        has_order_lookup_tool=True,
+    ) is True
+
+
 def test_is_catalog_browse_question() -> None:
     assert is_catalog_browse_question("what products do you sell?") is True
     assert is_catalog_browse_question("do you sell laptops?") is False

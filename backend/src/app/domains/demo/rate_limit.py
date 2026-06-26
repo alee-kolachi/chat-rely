@@ -38,7 +38,7 @@ async def enforce_demo_chat_limits(
     demo = await fetch_demo_by_agent_id(db, agent_id)
     if demo is None:
         raise AppError(code="demo.not_found", message="Demo not found", status_code=404)
-    if demo.status != "ready":
+    if demo.status not in ("ready", "needs_review"):
         raise AppError(
             code="demo.not_ready",
             message="This demo is still being prepared.",

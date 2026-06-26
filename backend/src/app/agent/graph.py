@@ -343,6 +343,7 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
     cache = dict(state.get("tool_result_cache") or {})
     product_cards: list[dict[str, Any]] = []
     broad_catalog_cards: list[dict[str, Any]] | None = None
+    broad_catalog_overview: str | None = None
     specific_product_cards: list[dict[str, Any]] | None = None
     specific_product_not_found = False
 
@@ -405,7 +406,7 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
             not_found = bool(lookup.get("not_found"))
             cards = parsed.get("ui_cards") if isinstance(parsed, dict) else None
             shopify_q = str(lookup.get("shopify_query") or lookup.get("query") or "").strip()
-            is_broad = _is_broad_catalog_shopify_query(shopify_q)
+            is_broad = _is_broad_catalog_shopify_query(shopify_q) or bool(lookup.get("is_broad_catalog"))
             if isinstance(cards, list) and cards:
                 normalized = [c for c in cards if isinstance(c, dict)]
             else:
@@ -413,6 +414,9 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
             if is_broad:
                 if not not_found and normalized:
                     broad_catalog_cards = normalized
+                    overview = str(lookup.get("catalog_overview") or "").strip()
+                    if overview:
+                        broad_catalog_overview = overview
             elif not_found:
                 specific_product_not_found = True
                 specific_product_cards = None
@@ -437,7 +441,10 @@ async def _shopify_tools_node(state: ChatGraphState, writer: StreamWriter) -> di
 
     final_response = ""
     if product_cards and browse_turn:
-        final_response = brief_product_search_intro(user_message, count=len(product_cards))
+        final_response = (
+            broad_catalog_overview
+            or brief_product_search_intro(user_message, count=len(product_cards))
+        )
         if final_response:
             writer({"type": "token", "text": final_response})
 

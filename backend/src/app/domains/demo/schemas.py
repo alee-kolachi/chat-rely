@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.domains.runtime.schemas import ProductActionRequest
+
 
 class DemoProductSnapshot(BaseModel):
     shopify_product_id: int | None = None
@@ -11,6 +13,7 @@ class DemoProductSnapshot(BaseModel):
     title: str
     url: str
     image_url: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
     min_price: str | None = None
     max_price: str | None = None
     currency: str = "USD"
@@ -20,6 +23,7 @@ class DemoProductSnapshot(BaseModel):
     options: list[dict[str, Any]] = Field(default_factory=list)
     variants: list[dict[str, Any]] = Field(default_factory=list)
     description_excerpt: str | None = None
+    description_points: list[str] = Field(default_factory=list)
 
 
 class DemoTopProduct(BaseModel):
@@ -66,10 +70,18 @@ class DemoPublicConfigResponse(BaseModel):
     limit_message: str | None = None
 
 
+class DemoCatalogLoadResponse(BaseModel):
+    product_count: int
+    top_products: list[DemoTopProduct] = Field(default_factory=list)
+    suggested_prompts: list[str] = Field(default_factory=list)
+    catalog_ready: bool = True
+
+
 class DemoChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: UUID | None = None
     visitor_id: str = Field(min_length=1, max_length=128)
+    product_action: ProductActionRequest | None = None
 
 
 class DemoJudgeResult(BaseModel):

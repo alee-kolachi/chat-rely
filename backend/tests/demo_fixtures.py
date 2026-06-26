@@ -16,7 +16,10 @@ def sample_shopify_product() -> dict:
         "tags": "hoodie, cotton",
         "variants": [{"title": "S", "price": "48.00", "sku": "HD-S"}],
         "options": [{"name": "Size", "values": ["S", "M", "L"]}],
-        "images": [{"src": "https://cdn.example.com/hoodie.jpg"}],
+        "images": [
+            {"src": "https://cdn.example.com/hoodie.jpg"},
+            {"src": "https://cdn.example.com/hoodie-alt.jpg"},
+        ],
     }
 
 

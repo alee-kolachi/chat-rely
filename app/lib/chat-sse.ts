@@ -80,6 +80,8 @@ function parseSseBlock(block: string): ChatSseEvent | null {
 export type ChatSseRequestInit = RequestInit & {
   /** Override auth (widget uses agent key header). */
   headers?: HeadersInit;
+  /** Skip Supabase auth hydration (public demo chat). */
+  skipAuth?: boolean;
 };
 
 /**
@@ -89,7 +91,7 @@ export async function* chatSseStream(
   path: string,
   init: ChatSseRequestInit = {}
 ): AsyncGenerator<ChatSseEvent> {
-  const token = await getAccessToken();
+  const token = init.skipAuth ? null : await getAccessToken();
   const base = getBackendBaseUrl();
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
 

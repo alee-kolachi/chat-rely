@@ -12,6 +12,7 @@ export function ProductCardActions({
   onShowSimilar,
   className,
   layout = "row",
+  hideDetails = false,
 }: {
   product: ProductCard;
   disabled?: boolean;
@@ -19,6 +20,7 @@ export function ProductCardActions({
   onShowSimilar: (product: ProductCard) => void;
   className?: string;
   layout?: "row" | "column";
+  hideDetails?: boolean;
 }) {
   const buttonBase =
     layout === "column"
@@ -32,15 +34,17 @@ export function ProductCardActions({
         className
       )}
     >
-      <button
-        type="button"
-        disabled={disabled}
-        className={buttonBase}
-        onClick={() => onShowDetails(product)}
-      >
-        <Info className="size-3 shrink-0" aria-hidden />
-        Details
-      </button>
+      {hideDetails ? null : (
+        <button
+          type="button"
+          disabled={disabled}
+          className={buttonBase}
+          onClick={() => onShowDetails(product)}
+        >
+          <Info className="size-3 shrink-0" aria-hidden />
+          Details
+        </button>
+      )}
       <button
         type="button"
         disabled={disabled}

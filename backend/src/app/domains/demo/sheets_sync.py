@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 
 from app.core.settings import get_settings
 from app.db.session import get_session_factory
+from app.domains.demo.progress import demo_step
 from app.domains.demo.provision import provision_demo_from_store_url
 
 log = structlog.get_logger("demo.sheets_sync")
@@ -20,7 +21,12 @@ _STORE_LINK_HEADER = "store link"
 _DEMO_LINK_HEADER = "demo link"
 _DEMO_READY_DATE_HEADER = "demo ready date"
 _PROCESSING = "Processing"
-_YES_VALUES = {"yes", "y"}
+# Yes starts a run; Processing is retried when a prior run died mid-flight.
+_QUEUE_VALUES = frozenset({"yes", "y", "processing"})
+
+
+def _row_is_queued(eligible_raw: str) -> bool:
+    return eligible_raw.lower() in _QUEUE_VALUES
 
 
 def _normalize_header(value: str) -> str:
@@ -90,9 +96,11 @@ def _ensure_headers(
 
 
 async def sync_demo_sheet_once() -> dict[str, int]:
+    demo_step("sheet.sync_start")
     service, spreadsheet_id = _load_sheets_service()
     meta = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
     stats = {"processed": 0, "ready": 0, "needs_review": 0, "failed": 0, "skipped": 0}
+    queued_rows = 0
 
     for sheet in meta.get("sheets") or []:
         props = sheet.get("properties") or {}
@@ -115,37 +123,66 @@ async def sync_demo_sheet_once() -> dict[str, int]:
 
         for row_index, row in enumerate(rows[1:], start=2):
             eligible_raw = _cell(row, headers.get(_ELIGIBLE_HEADER))
-            eligible = eligible_raw.lower()
-            if eligible not in _YES_VALUES:
-                continue
-            if eligible_raw in {"Ready", "needs_review", "failed", _PROCESSING}:
-                stats["skipped"] += 1
+            if not _row_is_queued(eligible_raw):
                 continue
             store_url = _cell(row, headers.get(_STORE_LINK_HEADER))
             if not store_url:
                 stats["skipped"] += 1
+                log.info(
+                    "demo.sheet_row_skipped",
+                    tab=title,
+                    row=row_index,
+                    reason="missing_store_link",
+                )
                 continue
 
-            service.spreadsheets().values().update(
-                spreadsheetId=spreadsheet_id,
-                range=f"'{title}'!{_col(headers[_ELIGIBLE_HEADER])}{row_index}",
-                valueInputOption="RAW",
-                body={"values": [[_PROCESSING]]},
-            ).execute()
+            queued_rows += 1
+            demo_step(
+                "sheet.row_start",
+                tab=title,
+                row=row_index,
+                store=store_url,
+            )
+
+            if eligible_raw.lower() != "processing":
+                service.spreadsheets().values().update(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{title}'!{_col(headers[_ELIGIBLE_HEADER])}{row_index}",
+                    valueInputOption="RAW",
+                    body={"values": [[_PROCESSING]]},
+                ).execute()
+                demo_step("sheet.mark_processing", tab=title, row=row_index)
+            else:
+                demo_step("sheet.row_retry", tab=title, row=row_index)
 
             sheet_ref = {"tab_name": title, "row_index": row_index}
             sheet_snapshot = {
                 k: _cell(row, idx) for k, idx in headers.items() if idx is not None
             }
 
-            async with get_session_factory()() as db:
-                result = await provision_demo_from_store_url(
-                    db,
+            try:
+                async with get_session_factory()() as db:
+                    result = await provision_demo_from_store_url(
+                        db,
+                        store_url=store_url,
+                        sheet_ref=sheet_ref,
+                        sheet_snapshot=sheet_snapshot,
+                    )
+            except Exception:
+                log.exception(
+                    "demo.sheet_row_provision_failed",
+                    tab=title,
+                    row=row_index,
                     store_url=store_url,
-                    sheet_ref=sheet_ref,
-                    sheet_snapshot=sheet_snapshot,
-                    run_qa=True,
                 )
+                demo_step(
+                    "sheet.row_failed",
+                    tab=title,
+                    row=row_index,
+                    store=store_url,
+                    reason="provision_exception",
+                )
+                result = {"status": "failed", "url": "", "reason": "provision_exception"}
 
             status = str(result.get("status") or "failed")
             stats["processed"] += 1
@@ -179,6 +216,13 @@ async def sync_demo_sheet_once() -> dict[str, int]:
                     body={"values": [value]},
                 ).execute()
 
+            demo_step(
+                "sheet.row_done",
+                tab=title,
+                row=row_index,
+                status=status,
+                url=result.get("url"),
+            )
             log.info(
                 "demo.sheet_row_processed",
                 tab=title,
@@ -187,6 +231,8 @@ async def sync_demo_sheet_once() -> dict[str, int]:
                 url=result.get("url"),
             )
 
+    if queued_rows == 0:
+        demo_step("sheet.sync_idle")
     return stats
 
 

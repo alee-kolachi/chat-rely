@@ -2007,8 +2007,79 @@ a.cr-product-btn--secondary:hover {
 
 .cr-product-detail-price {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cr-on-surface);
+}
+
+.cr-product-detail-specs {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--cr-border) 60%, transparent);
+}
+
+.cr-product-detail-spec-row {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.cr-product-detail-spec-row + .cr-product-detail-spec-row {
+  margin-top: 4px;
+}
+
+.cr-product-detail-spec-label {
+  width: 56px;
+  flex: 0 0 auto;
   color: var(--cr-text-muted);
+}
+
+.cr-product-detail-spec-value {
+  color: var(--cr-on-surface);
+  min-width: 0;
+}
+
+.cr-product-detail-section {
+  margin-top: 12px;
+}
+
+.cr-product-detail-section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cr-on-surface);
+}
+
+.cr-product-detail-bullets {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--cr-on-surface);
+}
+
+.cr-product-detail-bullets li + li {
+  margin-top: 4px;
+}
+
+.cr-product-detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.cr-product-detail-chip {
+  border: 1px solid var(--cr-border);
+  border-radius: 999px;
+  background: var(--cr-muted, #f4f4f5);
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cr-on-surface);
 }
 
 .cr-msg-feedback {

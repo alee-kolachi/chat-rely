@@ -977,6 +977,24 @@ def _extract_page_text(html: str) -> str:
     return "\n\n".join(merged).strip()
 
 
+def _extract_body_text_for_index(html: str) -> str:
+    """Visible main content only (no head meta, JSON-LD, or microdata). Used for storefront page indexing."""
+    soup = _parse_html(html)
+    for element in soup(["script", "style", "noscript"]):
+        element.decompose()
+
+    main_candidates = soup.select("main, article, [role='main'], #MainContent, #main-content")
+    root = main_candidates[0] if main_candidates else (soup.body or soup)
+
+    structural_blocks = _extract_structural_body_blocks(root)
+    merged = _dedupe_preserve_order_snippets(structural_blocks)
+    if len("\n\n".join(merged)) < _THIN_PAGE_BODY_FALLBACK_CHARS:
+        fallback = _normalize_text(root.get_text("\n", strip=True))
+        if fallback:
+            merged = _dedupe_preserve_order_snippets([*merged, fallback])
+    return "\n\n".join(merged).strip()
+
+
 def _extract_page_title(html: str) -> str | None:
     soup = _parse_html(html)
     title = soup.find("title")

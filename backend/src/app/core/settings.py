@@ -155,6 +155,8 @@ class Settings(BaseSettings):
     google_sheets_spreadsheet_id: str | None = None
     google_sheets_service_account_json: str | None = None
     demo_internal_secret: str | None = None
+    """How often outreach_worker polls Google Sheets. Default 60s locally; use 21600 (6h) in production."""
+    outreach_poll_interval_seconds: int = 60
 
     """Comma-separated emails authorized to access /api/v1/admin/* (admin panel). Empty = admin disabled.
 

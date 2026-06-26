@@ -1,43 +1,58 @@
 "use client";
 
+import {
+  StreamingAssistantMessage,
+  type AssistantStreamPhase,
+} from "@/components/chat/StreamingAssistantMessage";
 import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
-import { DemoProductRow } from "@/components/demo/demo-product-row";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
 import { DEMO_ACCENT_HEX } from "@/lib/demo-constants";
 import type { ProductCard } from "@/lib/product-card";
-import { stripProductListDump } from "@/lib/product-intro";
+import { getWidgetPreviewContext, userBubbleGradient } from "@/lib/widget-appearance";
 import { cn } from "@/lib/utils";
 
 export function DemoChatMessageBubble({
   message,
   isSending,
   isLast,
-  onProductSelect,
+  onShowProductDetails,
+  onShowSimilarProducts,
   compact = false,
   accentColorHex,
 }: {
   message: DemoChatMessage;
   isSending: boolean;
   isLast: boolean;
-  onProductSelect?: (product: ProductCard) => void;
+  onShowProductDetails?: (product: ProductCard) => void;
+  onShowSimilarProducts?: (product: ProductCard) => void;
   compact?: boolean;
   accentColorHex?: string;
 }) {
   const accent = accentColorHex?.trim() || DEMO_ACCENT_HEX;
-  const botBubbleClass = cn(
-    "max-w-full overflow-visible rounded-2xl border border-neutral-200/90 bg-white text-neutral-800 shadow-sm break-words",
-    compact ? "px-3 py-2.5 text-[13px] leading-relaxed" : "px-3.5 py-2.5 text-[14px] leading-relaxed",
+  const { resolved, userChrome } = getWidgetPreviewContext(null, accentColorHex ?? accent, null);
+
+  const assistantBubbleClass = cn(
+    "max-w-full rounded-2xl rounded-tl-sm border px-3 py-2.5 leading-snug",
+    compact ? "text-[13px]" : "text-[13px]",
   );
+  const assistantBubbleStyle = {
+    backgroundColor: resolved.colors.assistantBubble,
+    borderColor: "rgba(15, 23, 42, 0.05)",
+    color: resolved.colors.textPrimary,
+  };
 
   if (message.from === "user") {
     return (
       <div className="flex justify-end">
         <div
           className={cn(
-            "max-w-[88%] rounded-2xl rounded-br-md text-white",
-            compact ? "px-3 py-2 text-[13px] leading-snug" : "px-3.5 py-2.5 text-[14px] leading-relaxed",
+            "max-w-[85%] rounded-2xl rounded-tr-sm px-3 py-2.5 leading-snug",
+            compact ? "text-[13px]" : "text-[13px]",
           )}
-          style={{ backgroundColor: accent }}
+          style={{
+            background: userBubbleGradient(resolved.colors.userBubble),
+            color: userChrome.lightBg ? "#0f172a" : "#ffffff",
+          }}
         >
           {message.text}
         </div>
@@ -45,68 +60,52 @@ export function DemoChatMessageBubble({
     );
   }
 
-  const phase =
+  const phase: AssistantStreamPhase =
     message.streamPhase ??
     (isLast && isSending ? "thinking" : message.text.trim() ? "done" : "thinking");
-
-  if (phase === "error") {
-    return (
-      <div className="flex justify-start">
-        <div className={cn(botBubbleClass, "border-rose-200 bg-rose-50 text-rose-800")}>
-          {message.errorMessage ?? message.text ?? "Something went wrong. Try again."}
-        </div>
-      </div>
-    );
-  }
-
-  const products = message.products ?? [];
-  const detailCard = message.productDetail
-    ? [
-        {
-          handle: message.productDetail.handle,
-          title: message.productDetail.title,
-          url: message.productDetail.url,
-          image_url: message.productDetail.image_url,
-          price: message.productDetail.price,
-        },
-      ]
-    : [];
-  const rowProducts = products.length > 0 ? products : detailCard;
-  const showProducts =
-    rowProducts.length > 0 && (phase === "streaming" || phase === "done");
-  const introText = showProducts ? stripProductListDump(message.text.trim()) : message.text.trim();
-  const showThinking = phase === "thinking" && !introText;
+  const hasCarousel = Boolean(message.products?.length && !message.productDetail);
 
   return (
     <div className="flex justify-start">
-      <div className="flex min-w-0 max-w-full flex-col gap-2.5">
-        {(showThinking || introText || message.statusLine) && (
-          <div className={botBubbleClass}>
-            {showThinking ? (
-              <WidgetEmbedThinkingDots accentColor={accent} />
-            ) : (
-              <>
-                {introText ? (
-                  <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-neutral-800">
-                    {introText}
-                  </p>
-                ) : null}
-                {message.statusLine && phase === "streaming" ? (
-                  <p className="mt-1 text-[12px] text-neutral-500">{message.statusLine}</p>
-                ) : null}
-              </>
-            )}
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-1",
+          hasCarousel ? "max-w-[min(100%,640px)]" : "max-w-[92%]",
+        )}
+      >
+        {hasCarousel ? (
+          <StreamingAssistantMessage
+            text={message.text}
+            phase={phase}
+            errorMessage={message.errorMessage}
+            statusLine={message.statusLine}
+            brandColorHex={accent}
+            products={message.products}
+            productDetail={message.productDetail}
+            productActionsDisabled={isSending}
+            introBubbleClassName={assistantBubbleClass}
+            introBubbleStyle={assistantBubbleStyle}
+            onShowProductDetails={onShowProductDetails}
+            onShowSimilarProducts={onShowSimilarProducts}
+          />
+        ) : phase === "thinking" && !message.text.trim() ? (
+          <WidgetEmbedThinkingDots accentColor={accent} />
+        ) : (
+          <div className={assistantBubbleClass} style={assistantBubbleStyle}>
+            <StreamingAssistantMessage
+              text={message.text}
+              phase={phase}
+              errorMessage={message.errorMessage}
+              statusLine={message.statusLine}
+              brandColorHex={accent}
+              products={message.products}
+              productDetail={message.productDetail}
+              productActionsDisabled={isSending}
+              onShowProductDetails={onShowProductDetails}
+              onShowSimilarProducts={onShowSimilarProducts}
+            />
           </div>
         )}
-        {showProducts ? (
-          <DemoProductRow
-            products={rowProducts}
-            onSelect={onProductSelect}
-            disabled={isSending}
-            compact={compact}
-            brandColorHex={accentColorHex}
-          />
-        ) : null}
       </div>
     </div>
   );

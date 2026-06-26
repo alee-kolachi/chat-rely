@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 
@@ -12,28 +13,13 @@ from app.core.settings import get_settings
 from app.db.engine import init_engine
 from app.db.session import get_session_factory, init_session_factory
 from app.domains.demo.cleanup import expire_due_demos
+from app.domains.demo.progress import demo_step
 from app.domains.demo.sheets_sync import sync_demo_sheet_once
 
 log = structlog.get_logger("outreach_worker")
 
-OUTREACH_POLL_INTERVAL_SECONDS = 6 * 60 * 60  # 6 hours
 
-
-async def run_tick_once() -> dict[str, int]:
-    stats = {"expired": 0, "processed": 0}
-    async with get_session_factory()() as db:
-        stats["expired"] = await expire_due_demos(db)
-    try:
-        sheet_stats = await sync_demo_sheet_once()
-        stats.update(sheet_stats)
-    except RuntimeError as exc:
-        log.warning("demo.sheets_sync_skipped", reason=str(exc))
-    except Exception:
-        log.exception("demo.sheets_sync_failed")
-    return stats
-
-
-async def run_loop(interval_seconds: float = OUTREACH_POLL_INTERVAL_SECONDS) -> None:
+def _init_worker() -> float:
     os.environ.setdefault("SUPABASE_JWKS_URL", "https://example.com/.well-known/jwks.json")
     os.environ.setdefault("SUPABASE_ISSUER", "https://example.com/auth/v1")
     settings = get_settings()
@@ -50,19 +36,61 @@ async def run_loop(interval_seconds: float = OUTREACH_POLL_INTERVAL_SECONDS) -> 
     )
     init_engine(settings)
     init_session_factory()
+    return float(settings.outreach_poll_interval_seconds)
+
+
+async def run_tick_once() -> dict[str, int]:
+    stats = {"expired": 0, "processed": 0, "skipped": 0}
+    async with get_session_factory()() as db:
+        stats["expired"] = await expire_due_demos(db)
+    try:
+        sheet_stats = await sync_demo_sheet_once()
+        stats.update(sheet_stats)
+    except RuntimeError as exc:
+        log.warning("demo.sheets_sync_skipped", reason=str(exc))
+    except Exception:
+        log.exception("demo.sheets_sync_failed")
+    return stats
+
+
+async def _tick_and_log() -> dict[str, int]:
+    demo_step("worker.tick_start")
+    stats = await run_tick_once()
+    demo_step(
+        "worker.tick_done",
+        processed=stats.get("processed", 0),
+        needs_review=stats.get("needs_review", 0),
+        failed=stats.get("failed", 0),
+        skipped=stats.get("skipped", 0),
+        expired=stats.get("expired", 0),
+    )
+    log.info("outreach_worker.tick", **stats)
+    return stats
+
+
+async def run_loop(interval_seconds: float) -> None:
     while True:
         try:
-            stats = await run_tick_once()
-            if stats.get("processed") or stats.get("expired"):
-                log.info("outreach_worker.tick", **stats)
+            await _tick_and_log()
         except Exception:
             log.exception("outreach_worker.tick_failed")
         await asyncio.sleep(interval_seconds)
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Demo outreach: Google Sheets sync + provisioning")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one sheet sync tick and exit (use after setting Eligible for Demo to Yes)",
+    )
+    args = parser.parse_args()
     try:
-        asyncio.run(run_loop())
+        interval = _init_worker()
+        if args.once:
+            asyncio.run(_tick_and_log())
+        else:
+            asyncio.run(run_loop(interval))
     except KeyboardInterrupt:
         log.info("outreach_worker_stopped_by_user")
 

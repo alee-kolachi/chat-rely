@@ -72,6 +72,43 @@ _RECOMMEND_HINTS = (
     "what would you suggest",
 )
 
+_NON_CATALOG_QUESTION_HINTS = (
+    "return",
+    "refund",
+    "exchange",
+    "shipping",
+    "delivery",
+    "privacy",
+    "terms",
+    "warranty",
+    "policy",
+)
+
+_ORDER_TOOL_QUESTION_HINTS = (
+    "order #",
+    "order number",
+    "track my order",
+    "order status",
+    "where is my order",
+    "tracking number",
+    "shipment status",
+)
+
+
+def turn_is_order_tool_question(user_message: str) -> bool:
+    msg = (user_message or "").strip().lower()
+    if not msg:
+        return False
+    return any(h in msg for h in _ORDER_TOOL_QUESTION_HINTS)
+
+
+def turn_is_kb_question(user_message: str) -> bool:
+    """Policy, shipping, returns, privacy — answered from indexed knowledge (RAG), not catalog tools."""
+    msg = (user_message or "").strip().lower()
+    if not msg or turn_is_order_tool_question(msg):
+        return False
+    return any(h in msg for h in _NON_CATALOG_QUESTION_HINTS)
+
 
 def is_catalog_browse_question(user_message: str) -> bool:
     """True when the visitor wants a general store catalog overview."""
@@ -122,6 +159,46 @@ def is_product_show_request(user_message: str) -> bool:
         from app.domains.integrations.shopify.tool_runners import _product_keywords_from_query
 
         return bool(_product_keywords_from_query(msg))
+    return False
+
+
+def turn_needs_catalog_tools(
+    user_message: str,
+    *,
+    thread_had_shopify_tools: bool = False,
+) -> bool:
+    """True when Shopify catalog tools should run this turn."""
+    if turn_is_kb_question(user_message):
+        return False
+    if thread_had_shopify_tools:
+        return True
+    msg = (user_message or "").strip()
+    if not msg:
+        return False
+    if is_catalog_browse_question(msg):
+        return True
+    return is_specific_product_availability_question(msg)
+
+
+def turn_needs_shopify_graph(
+    user_message: str,
+    *,
+    thread_had_shopify_tools: bool = False,
+    thread_had_order_lookup: bool = False,
+    has_order_lookup_tool: bool = False,
+) -> bool:
+    """True when the LangGraph tool loop should run (catalog browse or order lookup)."""
+    if turn_is_kb_question(user_message):
+        return False
+    if turn_needs_catalog_tools(
+        user_message,
+        thread_had_shopify_tools=thread_had_shopify_tools,
+    ):
+        return True
+    if has_order_lookup_tool and (
+        thread_had_order_lookup or turn_is_order_tool_question(user_message)
+    ):
+        return True
     return False
 
 

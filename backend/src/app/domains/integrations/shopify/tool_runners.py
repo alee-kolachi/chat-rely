@@ -253,6 +253,9 @@ def normalize_product_detail_ui(
         image_urls.insert(0, featured)
     detail: dict[str, object] = dict(card)
     detail["image_urls"] = image_urls
+    description = str(node.get("description") or "").strip()
+    if description:
+        detail["description"] = description[:400]
     return detail
 
 
@@ -772,6 +775,7 @@ async def run_product_details(
       productByHandle(handle: $handle) {
         title
         handle
+        description
         onlineStoreUrl
         priceRangeV2 {
           minVariantPrice {
