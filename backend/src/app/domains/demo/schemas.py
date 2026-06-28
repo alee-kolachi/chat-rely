@@ -54,6 +54,11 @@ class DemoOutreachDTO(BaseModel):
     created_at: datetime
 
 
+class DemoWelcomeSocialLink(BaseModel):
+    label: str
+    url: str
+
+
 class DemoPublicConfigResponse(BaseModel):
     slug: str
     status: str
@@ -68,6 +73,12 @@ class DemoPublicConfigResponse(BaseModel):
     demo_limitation_line: str
     chat_available: bool
     limit_message: str | None = None
+    welcome_screen_enabled: bool = True
+    welcome_screen_headline: str = "How can we help?"
+    welcome_screen_headline_color: str | None = "#FFFFFF"
+    welcome_screen_description: str = "Ask about orders, products, or store policies."
+    welcome_screen_button_label: str = "Chat with us"
+    welcome_screen_social_links: list[DemoWelcomeSocialLink] = Field(default_factory=list)
 
 
 class DemoCatalogLoadResponse(BaseModel):

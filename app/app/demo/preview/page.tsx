@@ -54,6 +54,17 @@ const MOCK_STORE: DemoStoreMeta = {
   installUrl: DEMO_SHOPIFY_INSTALL_URL,
   limitationLine:
     "This demo runs on Acme Coffee's public catalog. Connect your store to unlock live inventory and order tracking.",
+  welcomeScreen: {
+    enabled: true,
+    headline: "How can we help?",
+    headlineColor: "#FFFFFF",
+    description: "Ask about orders, products, or store policies.",
+    buttonLabel: "Chat with us",
+    socialLinks: [
+      { label: "Visit our website", url: "https://acme-coffee.example.com" },
+      { label: "Follow us on Instagram", url: "https://www.instagram.com/acmecoffee/" },
+    ],
+  },
 };
 
 const MOCK_MESSAGES: DemoChatMessage[] = [

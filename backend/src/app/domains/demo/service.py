@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.domains.demo.constants import DEMO_LIFETIME_MESSAGE_CAP, DEMO_SHOPIFY_INSTALL_URL
 from app.domains.demo.demo_product_cards import product_dict_to_card
-from app.domains.demo.demo_sheet_fields import logo_link_from_sheet_snapshot
+from app.domains.demo.demo_sheet_fields import (
+    build_demo_welcome_social_links,
+    logo_link_from_sheet_snapshot,
+)
 from app.domains.demo.repository import fetch_demo_by_slug, update_demo_logo_url
 from app.domains.demo.schemas import DemoOutreachDTO, DemoPublicConfigResponse, DemoTopProduct
 from app.domains.demo.store_branding import is_light_background_logo_url, upgrade_logo_asset_url
@@ -90,6 +93,11 @@ def build_demo_public_config(
         logo_link_from_sheet_snapshot(row.sheet_snapshot) or upgrade_logo_asset_url(row.logo_url)
     )
 
+    social_links = build_demo_welcome_social_links(
+        store_url=row.store_url,
+        sheet_snapshot=row.sheet_snapshot,
+    )
+
     return DemoPublicConfigResponse(
         slug=row.slug,
         status=row.status,
@@ -107,6 +115,12 @@ def build_demo_public_config(
         ),
         chat_available=chat_available,
         limit_message=limit_message,
+        welcome_screen_enabled=True,
+        welcome_screen_headline="How can we help?",
+        welcome_screen_headline_color="#FFFFFF",
+        welcome_screen_description="Ask about orders, products, or store policies.",
+        welcome_screen_button_label="Chat with us",
+        welcome_screen_social_links=social_links,
     )
 
 

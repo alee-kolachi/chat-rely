@@ -485,3 +485,31 @@ def test_logo_link_from_sheet_snapshot() -> None:
         == "https://cdn.example.com/logo.svg"
     )
     assert logo_link_from_sheet_snapshot({"logo link": "not-a-url"}) is None
+
+
+def test_instagram_link_from_sheet_snapshot() -> None:
+    from app.domains.demo.demo_sheet_fields import (
+        build_demo_welcome_social_links,
+        instagram_link_from_sheet_snapshot,
+    )
+
+    assert instagram_link_from_sheet_snapshot({}) is None
+    assert instagram_link_from_sheet_snapshot({"instagram link": ""}) is None
+    assert (
+        instagram_link_from_sheet_snapshot({"instagram link": "https://www.instagram.com/mcs/"})
+        == "https://www.instagram.com/mcs/"
+    )
+    assert (
+        instagram_link_from_sheet_snapshot({"instagram link": "@mcsstore"})
+        == "https://www.instagram.com/mcsstore/"
+    )
+
+    links = build_demo_welcome_social_links(
+        store_url="https://store.example.com",
+        sheet_snapshot={"instagram link": "https://www.instagram.com/brand/"},
+    )
+    assert len(links) == 2
+    assert links[0]["label"] == "Visit our website"
+    assert links[0]["url"] == "https://store.example.com"
+    assert links[1]["label"] == "Follow us on Instagram"
+    assert "instagram.com" in links[1]["url"]

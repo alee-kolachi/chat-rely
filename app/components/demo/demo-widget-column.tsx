@@ -76,6 +76,7 @@ export function DemoWidgetColumn({
           displayName={store.displayName}
           logoUrl={store.logoUrl}
           brandColorHex={brandColorHex}
+          welcomeScreen={store.welcomeScreen}
           suggestedPrompts={store.suggestedPrompts}
           installUrl={store.installUrl}
           messages={messages}

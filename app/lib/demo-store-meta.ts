@@ -1,5 +1,6 @@
 import type { ProductCard } from "@/lib/product-card";
 import { sanitizeDemoLogoUrl } from "@/lib/demo-store-logo";
+import type { WelcomeScreenSocialLink } from "@/lib/agent-settings";
 
 /** Store personalization payload for demo outreach pages. */
 export type DemoStoreMeta = {
@@ -12,6 +13,16 @@ export type DemoStoreMeta = {
   suggestedPrompts: string[];
   installUrl: string;
   limitationLine: string;
+  welcomeScreen: DemoWelcomeScreen;
+};
+
+export type DemoWelcomeScreen = {
+  enabled: boolean;
+  headline: string;
+  headlineColor: string;
+  description: string;
+  buttonLabel: string;
+  socialLinks: [WelcomeScreenSocialLink, WelcomeScreenSocialLink];
 };
 
 export type DemoPublicConfigResponse = {
@@ -28,6 +39,12 @@ export type DemoPublicConfigResponse = {
   demo_limitation_line: string;
   chat_available: boolean;
   limit_message: string | null;
+  welcome_screen_enabled?: boolean;
+  welcome_screen_headline?: string;
+  welcome_screen_headline_color?: string | null;
+  welcome_screen_description?: string;
+  welcome_screen_button_label?: string;
+  welcome_screen_social_links?: Array<{ label: string; url: string }>;
 };
 
 export type DemoCatalogLoadResponse = {
@@ -36,6 +53,35 @@ export type DemoCatalogLoadResponse = {
   suggested_prompts: string[];
   catalog_ready: boolean;
 };
+
+function demoWelcomeSocialLinks(
+  links: Array<{ label: string; url: string }> | undefined,
+): [WelcomeScreenSocialLink, WelcomeScreenSocialLink] {
+  const empty: WelcomeScreenSocialLink = { label: "", url: "" };
+  const first = links?.[0];
+  const second = links?.[1];
+  return [
+    first?.url?.trim()
+      ? { label: first.label.trim() || "Visit our website", url: first.url.trim() }
+      : empty,
+    second?.url?.trim()
+      ? { label: second.label.trim() || "Follow us on Instagram", url: second.url.trim() }
+      : empty,
+  ];
+}
+
+function demoWelcomeScreenFromConfig(config: DemoPublicConfigResponse): DemoWelcomeScreen {
+  return {
+    enabled: config.welcome_screen_enabled !== false,
+    headline: config.welcome_screen_headline?.trim() || "How can we help?",
+    headlineColor: config.welcome_screen_headline_color?.trim() || "#FFFFFF",
+    description:
+      config.welcome_screen_description?.trim() ||
+      "Ask about orders, products, or store policies.",
+    buttonLabel: config.welcome_screen_button_label?.trim() || "Chat with us",
+    socialLinks: demoWelcomeSocialLinks(config.welcome_screen_social_links),
+  };
+}
 
 export function mergeCatalogIntoStoreMeta(
   store: DemoStoreMeta,
@@ -60,5 +106,6 @@ export function demoConfigToStoreMeta(config: DemoPublicConfigResponse): DemoSto
     suggestedPrompts: config.suggested_prompts ?? [],
     installUrl: config.install_url,
     limitationLine: config.demo_limitation_line,
+    welcomeScreen: demoWelcomeScreenFromConfig(config),
   };
 }

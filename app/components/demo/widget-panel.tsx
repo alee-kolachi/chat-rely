@@ -1,18 +1,20 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, type FormEvent, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { DemoChatMessageBubble } from "@/components/demo/demo-chat-message-bubble";
 import { DemoPromptChips } from "@/components/demo/demo-prompt-chips";
 import { DemoStoreLogo } from "@/components/demo/demo-store-logo";
 import { PlaygroundComposer } from "@/components/chat/playground-composer";
+import { WidgetWelcomeScreen } from "@/components/chat/widget-welcome-screen";
 import {
   WidgetChatPreviewFooter,
   WidgetChatShell,
 } from "@/components/chat/widget-chat-shell";
 import { WIDGET_FOOTER_PADDING_WITHOUT_POWERED } from "@/components/branding/powered-by-chatrely";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
+import type { DemoWelcomeScreen } from "@/lib/demo-store-meta";
 import { getWidgetPreviewContext } from "@/lib/widget-appearance";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
 import type { ProductCard } from "@/lib/product-card";
@@ -22,6 +24,7 @@ export function WidgetPanel({
   displayName,
   logoUrl,
   brandColorHex,
+  welcomeScreen,
   suggestedPrompts,
   installUrl,
   messages,
@@ -44,6 +47,7 @@ export function WidgetPanel({
   displayName: string;
   logoUrl: string | null;
   brandColorHex: string;
+  welcomeScreen: DemoWelcomeScreen;
   suggestedPrompts: string[];
   installUrl: string;
   messages: DemoChatMessage[];
@@ -67,6 +71,14 @@ export function WidgetPanel({
   const { resolved, headerChrome } = getWidgetPreviewContext(null, brandColorHex, null);
   const stickToBottomRef = useRef(true);
   const prevMessageCountRef = useRef(messages.length);
+  const welcomeEnabled = welcomeScreen.enabled;
+  const [chatOpen, setChatOpen] = useState(() => !welcomeEnabled || messages.length > 0);
+
+  useEffect(() => {
+    if (messages.length > 0) setChatOpen(true);
+  }, [messages.length]);
+
+  const showWelcome = welcomeEnabled && !chatOpen;
 
   const onMessagesScroll = useCallback(() => {
     const el = messagesScrollRef.current;
@@ -113,6 +125,31 @@ export function WidgetPanel({
     </>
   );
 
+  if (showWelcome) {
+    return (
+      <div
+        className={cn(
+          "flex h-[min(640px,calc(100dvh-96px))] w-full max-w-[400px] flex-col overflow-hidden rounded-[28px] border-transparent shadow-none",
+          className,
+        )}
+      >
+        <WidgetWelcomeScreen
+          agentName={displayName}
+          brandColorHex={brandColorHex}
+          panelBackgroundHex={resolved.colors.panelBackground}
+          headline={welcomeScreen.headline}
+          headlineColor={welcomeScreen.headlineColor}
+          description={welcomeScreen.description}
+          buttonLabel={welcomeScreen.buttonLabel}
+          socialLinks={welcomeScreen.socialLinks}
+          websiteLogoUrl={logoUrl}
+          className="min-h-0 flex-1"
+          onChatClick={() => setChatOpen(true)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={cn("w-full max-w-[400px]", className)}>
       <WidgetChatShell
@@ -130,6 +167,8 @@ export function WidgetPanel({
         shellHeightClass="h-[min(640px,calc(100dvh-96px))] w-full"
         hideHeaderBorder
         headerActions={headerActions}
+        onHeaderBack={welcomeEnabled && messages.length === 0 ? () => setChatOpen(false) : undefined}
+        headerBackLabel="Back to welcome screen"
         footerBorderless
         footer={
           <WidgetChatPreviewFooter showPoweredBy={false}>
