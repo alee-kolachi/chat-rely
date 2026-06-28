@@ -70,6 +70,35 @@ def _normalize_hex_color(raw: str | None) -> str | None:
     return None
 
 
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    value = hex_color.lstrip("#")
+    return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+
+
+def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
+
+
+def _color_luminance_yiq(hex_color: str) -> float:
+    r, g, b = _hex_to_rgb(hex_color)
+    return (r * 299 + g * 587 + b * 114) / 1000
+
+
+def refine_demo_brand_color(hex_color: str | None) -> str | None:
+    """Darken auto-extracted primaries that are too light for welcome gradients (e.g. yellow)."""
+    normalized = _normalize_hex_color(hex_color)
+    if not normalized:
+        return None
+    yiq = _color_luminance_yiq(normalized)
+    if yiq <= 140:
+        return normalized
+    # Light colors get more black mixed in; already-dark colors are unchanged above.
+    mix_black = 0.15 + min(1.0, (yiq - 140) / 115) * 0.35
+    r, g, b = _hex_to_rgb(normalized)
+    keep = 1.0 - mix_black
+    return _rgb_to_hex(int(r * keep), int(g * keep), int(b * keep))
+
+
 def is_generic_logo_url(url: str | None) -> bool:
     if not url or not str(url).strip():
         return True
@@ -317,7 +346,7 @@ def pick_brand_color(
         extract_shopify_theme_color(html_text),
     ):
         if candidate:
-            return candidate
+            return refine_demo_brand_color(candidate)
     return None
 
 

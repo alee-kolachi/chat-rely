@@ -467,6 +467,15 @@ def test_pick_brand_color_from_theme_meta() -> None:
     assert pick_brand_color(soup=soup, html_text=html) == "#112233"
 
 
+def test_refine_demo_brand_color_darkens_bright_yellow() -> None:
+    from app.domains.demo.store_branding import refine_demo_brand_color
+
+    refined = refine_demo_brand_color("#ffff00")
+    assert refined is not None
+    assert refined != "#ffff00"
+    assert refine_demo_brand_color("#112233") == "#112233"
+
+
 def test_logo_link_from_sheet_snapshot() -> None:
     from app.domains.demo.demo_sheet_fields import logo_link_from_sheet_snapshot
 

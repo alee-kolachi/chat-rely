@@ -481,6 +481,11 @@ function defaultAccentPanelBackground(brandHex: string, themeMode: "light" | "da
   return `color-mix(in srgb, ${accent} 14%, #f3edff)`;
 }
 
+function welcomeGradientBottomForBrand(brandHex: string): string {
+  const accent = normalizeHexColor(brandHex, DEFAULT_ACCENT);
+  return `color-mix(in srgb, ${accent} 36%, #94a3b8)`;
+}
+
 function resolveWidgetTheme(cfg: WidgetConfig, brandHex: string): ResolvedWidgetTheme {
   const appearance = cfg.widget_appearance;
   const themeMode = appearance?.theme_mode === "dark" ? "dark" : "light";
@@ -543,7 +548,7 @@ function applyWidgetAppearance(
     ["--cr-panel-bg", theme.panelBackground],
     ["--cr-surface", theme.panelBackground],
     ["--cr-chat-surface-bottom", theme.panelBackground],
-    ["--cr-welcome-gradient-bottom", theme.panelBackground],
+    ["--cr-welcome-gradient-bottom", welcomeGradientBottomForBrand(theme.headerColor)],
     ["--cr-sidebar", theme.composerBackground],
     ["--cr-assistant-bubble", theme.assistantBubble],
     ["--cr-assistant-border", theme.assistantBubbleBorder],

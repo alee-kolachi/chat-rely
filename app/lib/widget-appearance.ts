@@ -126,6 +126,11 @@ export function chatSurfaceBottomForBrand(headerHex: string): string {
   return `color-mix(in srgb, ${headerHex} 14%, ${CHAT_SURFACE_WHITE})`;
 }
 
+/** Gradient bottom stop for welcome panel (darker than chat panel tint, still on-brand). */
+export function welcomeGradientBottomForBrand(accentHex: string): string {
+  return `color-mix(in srgb, ${accentHex} 36%, #94a3b8)`;
+}
+
 export function defaultAccentPanelBackground(
   brandColorHex: string | null | undefined,
   themeMode: WidgetThemeMode = "light"
@@ -138,10 +143,10 @@ export function defaultAccentPanelBackground(
 }
 
 /** Full welcome panel gradient from one accent color (matches embed `.cr-welcome`). */
-export function welcomePanelGradient(accentHex: string, panelBgHex: string): string {
+export function welcomePanelGradient(accentHex: string): string {
   const top = accentHex;
   const mid = `color-mix(in srgb, ${top} 78%, #000000)`;
-  const bottom = panelBgHex;
+  const bottom = welcomeGradientBottomForBrand(top);
   return [
     "linear-gradient(180deg,",
     `${top} 0%,`,
@@ -151,9 +156,9 @@ export function welcomePanelGradient(accentHex: string, panelBgHex: string): str
     `color-mix(in srgb, ${mid} 82%, ${bottom}) 38%,`,
     `color-mix(in srgb, ${mid} 62%, ${bottom}) 48%,`,
     `color-mix(in srgb, ${mid} 42%, ${bottom}) 58%,`,
-    `color-mix(in srgb, ${mid} 26%, ${bottom}) 68%,`,
-    `color-mix(in srgb, ${mid} 14%, ${bottom}) 78%,`,
-    `color-mix(in srgb, ${mid} 6%, ${bottom}) 88%,`,
+    `color-mix(in srgb, ${mid} 30%, ${bottom}) 68%,`,
+    `color-mix(in srgb, ${mid} 22%, ${bottom}) 78%,`,
+    `color-mix(in srgb, ${mid} 12%, ${bottom}) 88%,`,
     `${bottom} 100%)`,
   ].join(" ");
 }

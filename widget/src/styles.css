@@ -756,7 +756,7 @@
   flex-direction: column;
   overflow: hidden;
   --cr-welcome-gradient-top: var(--cr-header-bg, var(--cr-accent, #831c91));
-  --cr-welcome-gradient-bottom: var(--cr-panel-bg, #f8fafc);
+  --cr-welcome-gradient-bottom: color-mix(in srgb, var(--cr-welcome-gradient-top, var(--cr-accent, #831c91)) 36%, #94a3b8);
   --cr-welcome-gradient-mid: color-mix(in srgb, var(--cr-welcome-gradient-top) 78%, #000000);
   background: linear-gradient(
     180deg,
@@ -767,9 +767,9 @@
     color-mix(in srgb, var(--cr-welcome-gradient-mid) 82%, var(--cr-welcome-gradient-bottom)) 38%,
     color-mix(in srgb, var(--cr-welcome-gradient-mid) 62%, var(--cr-welcome-gradient-bottom)) 48%,
     color-mix(in srgb, var(--cr-welcome-gradient-mid) 42%, var(--cr-welcome-gradient-bottom)) 58%,
-    color-mix(in srgb, var(--cr-welcome-gradient-mid) 26%, var(--cr-welcome-gradient-bottom)) 68%,
-    color-mix(in srgb, var(--cr-welcome-gradient-mid) 14%, var(--cr-welcome-gradient-bottom)) 78%,
-    color-mix(in srgb, var(--cr-welcome-gradient-mid) 6%, var(--cr-welcome-gradient-bottom)) 88%,
+    color-mix(in srgb, var(--cr-welcome-gradient-mid) 30%, var(--cr-welcome-gradient-bottom)) 68%,
+    color-mix(in srgb, var(--cr-welcome-gradient-mid) 22%, var(--cr-welcome-gradient-bottom)) 78%,
+    color-mix(in srgb, var(--cr-welcome-gradient-mid) 12%, var(--cr-welcome-gradient-bottom)) 88%,
     var(--cr-welcome-gradient-bottom) 100%
   );
 }

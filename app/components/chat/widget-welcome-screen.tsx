@@ -14,7 +14,6 @@ import {
   WelcomeSocialPlatformIcon,
 } from "@/lib/welcome-social-platform";
 import {
-  defaultAccentPanelBackground,
   welcomePanelGradient,
 } from "@/lib/widget-appearance";
 import { cn } from "@/lib/utils";
@@ -106,7 +105,6 @@ export function WidgetWelcomeScreen({
   onChatClick,
 }: WidgetWelcomeScreenProps) {
   const brand = parseBrandColorHex(brandColorHex) ?? "#831C91";
-  const panelBg = panelBackgroundHex?.trim() || defaultAccentPanelBackground(brand);
   const chrome = brandChromeClasses(brand);
   const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
   const displayName = agentName.trim() || "Support";
@@ -115,7 +113,7 @@ export function WidgetWelcomeScreen({
   return (
     <div
       className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden", className)}
-      style={{ background: welcomePanelGradient(brand, panelBg) }}
+      style={{ background: welcomePanelGradient(brand) }}
     >
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_55%_at_50%_-8%,rgba(255,255,255,0.16),transparent_62%)]"

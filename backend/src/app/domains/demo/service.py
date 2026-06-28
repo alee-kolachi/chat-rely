@@ -16,7 +16,7 @@ from app.domains.demo.demo_sheet_fields import (
 )
 from app.domains.demo.repository import fetch_demo_by_slug, update_demo_logo_url
 from app.domains.demo.schemas import DemoOutreachDTO, DemoPublicConfigResponse, DemoTopProduct
-from app.domains.demo.store_branding import is_light_background_logo_url, upgrade_logo_asset_url
+from app.domains.demo.store_branding import is_light_background_logo_url, refine_demo_brand_color, upgrade_logo_asset_url
 from app.domains.demo.storefront_ingest import fetch_store_logo_url
 from app.domains.demo.system_user import ensure_demo_system_user
 
@@ -89,6 +89,8 @@ def build_demo_public_config(
         limit_message = "This demo has reached its message limit."
 
     resolved_brand = _normalize_brand_color(brand_color) or _normalize_brand_color(row.brand_color)
+    if resolved_brand:
+        resolved_brand = refine_demo_brand_color(resolved_brand) or resolved_brand
     resolved_logo = (
         logo_link_from_sheet_snapshot(row.sheet_snapshot) or upgrade_logo_asset_url(row.logo_url)
     )
