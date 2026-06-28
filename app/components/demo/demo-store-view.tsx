@@ -6,6 +6,7 @@ import { PitchPanel } from "@/components/demo/pitch-panel";
 import { SplitLayout } from "@/components/demo/split-layout";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
 import type { DemoStoreMeta } from "@/lib/demo-store-meta";
+import { DEMO_ACCENT_HEX, demoWidgetColumnBackground } from "@/lib/demo-constants";
 import type { ProductCard } from "@/lib/product-card";
 
 export function DemoStoreView({
@@ -43,8 +44,11 @@ export function DemoStoreView({
   onShowSimilarProducts?: (product: ProductCard) => void;
   previewMode?: boolean;
 }) {
+  const brandColorHex = store.brandColorHex?.trim() || DEMO_ACCENT_HEX;
+
   return (
     <SplitLayout
+      widgetColumnBackground={demoWidgetColumnBackground(brandColorHex)}
       pitch={<PitchPanel store={store} previewMode={previewMode} />}
       widget={
         <DemoWidgetColumn

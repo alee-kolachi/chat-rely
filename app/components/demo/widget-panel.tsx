@@ -14,7 +14,6 @@ import {
 import { WIDGET_FOOTER_PADDING_WITHOUT_POWERED } from "@/components/branding/powered-by-chatrely";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
 import type { DemoWelcomeScreen } from "@/lib/demo-store-meta";
-import { DEMO_WIDGET_FRAME_CLASS } from "@/lib/demo-constants";
 import { getWidgetPreviewContext } from "@/lib/widget-appearance";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
 import type { ProductCard } from "@/lib/product-card";
@@ -115,8 +114,7 @@ export function WidgetPanel({
     return (
       <div
         className={cn(
-          DEMO_WIDGET_FRAME_CLASS,
-          "flex h-[min(640px,calc(100dvh-96px))] flex-col",
+          "flex h-[min(640px,calc(100dvh-96px))] w-full max-w-[400px] flex-col overflow-hidden rounded-[28px] shadow-[0_20px_55px_rgba(15,23,42,0.08)]",
           className,
         )}
       >
@@ -138,7 +136,7 @@ export function WidgetPanel({
   }
 
   return (
-    <div className={cn(DEMO_WIDGET_FRAME_CLASS, className)}>
+    <div className={cn("w-full max-w-[400px]", className)}>
       <WidgetChatShell
         agentName={displayName}
         brandColorHex={brandColorHex}
@@ -152,7 +150,6 @@ export function WidgetPanel({
           />
         }
         shellHeightClass="h-[min(640px,calc(100dvh-96px))] w-full"
-        shellBorderless
         hideHeaderBorder
         headerActions={headerActions}
         onHeaderBack={welcomeEnabled ? () => setChatOpen(false) : undefined}

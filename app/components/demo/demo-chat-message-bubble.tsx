@@ -6,7 +6,6 @@ import {
 } from "@/components/chat/StreamingAssistantMessage";
 import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
-import { sanitizeDemoAssistantMarkdown } from "@/lib/demo-assistant-text";
 import { DEMO_ACCENT_HEX } from "@/lib/demo-constants";
 import type { ProductCard } from "@/lib/product-card";
 import { getWidgetPreviewContext, userBubbleGradient } from "@/lib/widget-appearance";
@@ -31,8 +30,6 @@ export function DemoChatMessageBubble({
 }) {
   const accent = accentColorHex?.trim() || DEMO_ACCENT_HEX;
   const { resolved, userChrome } = getWidgetPreviewContext(null, accentColorHex ?? accent, null);
-  const assistantText =
-    message.from === "assistant" ? sanitizeDemoAssistantMarkdown(message.text) : message.text;
 
   const assistantBubbleClass = cn(
     "max-w-full rounded-2xl rounded-tl-sm border px-3 py-2.5 leading-snug",
@@ -65,7 +62,7 @@ export function DemoChatMessageBubble({
 
   const phase: AssistantStreamPhase =
     message.streamPhase ??
-    (isLast && isSending ? "thinking" : assistantText.trim() ? "done" : "thinking");
+    (isLast && isSending ? "thinking" : message.text.trim() ? "done" : "thinking");
   const hasCarousel = Boolean(message.products?.length && !message.productDetail);
 
   return (
@@ -78,7 +75,7 @@ export function DemoChatMessageBubble({
       >
         {hasCarousel ? (
           <StreamingAssistantMessage
-            text={assistantText}
+            text={message.text}
             phase={phase}
             errorMessage={message.errorMessage}
             statusLine={message.statusLine}
@@ -91,12 +88,12 @@ export function DemoChatMessageBubble({
             onShowProductDetails={onShowProductDetails}
             onShowSimilarProducts={onShowSimilarProducts}
           />
-        ) : phase === "thinking" && !assistantText.trim() ? (
+        ) : phase === "thinking" && !message.text.trim() ? (
           <WidgetEmbedThinkingDots accentColor={accent} />
         ) : (
           <div className={assistantBubbleClass} style={assistantBubbleStyle}>
             <StreamingAssistantMessage
-              text={assistantText}
+              text={message.text}
               phase={phase}
               errorMessage={message.errorMessage}
               statusLine={message.statusLine}

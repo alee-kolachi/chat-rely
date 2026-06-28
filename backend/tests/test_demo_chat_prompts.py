@@ -20,4 +20,3 @@ def test_build_demo_catalog_system_appendix_mentions_details_tool() -> None:
     appendix = build_demo_catalog_system_appendix()
     assert "shopify_product_details" in appendix
     assert "sizes" in appendix.casefold()
-    assert "plain text" in appendix.casefold()
