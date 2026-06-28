@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
 import type { FormEvent, RefObject } from "react";
-import { WidgetLauncher } from "@/components/demo/widget-launcher";
 import { WidgetPanel } from "@/components/demo/widget-panel";
 import type { DemoStoreMeta } from "@/lib/demo-store-meta";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
@@ -66,48 +64,32 @@ export function DemoWidgetColumn({
   onShowProductDetails?: (product: ProductCard) => void;
   onShowSimilarProducts?: (product: ProductCard) => void;
 }) {
-  const [open, setOpen] = useState(true);
   const brandColorHex = store.brandColorHex?.trim() || DEMO_ACCENT_HEX;
 
   return (
     <div className="flex w-full flex-col items-center">
-      {open ? (
-        <WidgetPanel
-          displayName={store.displayName}
-          logoUrl={store.logoUrl}
-          brandColorHex={brandColorHex}
-          welcomeScreen={store.welcomeScreen}
-          suggestedPrompts={store.suggestedPrompts}
-          installUrl={store.installUrl}
-          messages={messages}
-          isSending={isSending}
-          input={input}
-          onInputChange={onInputChange}
-          onSend={onSend}
-          onPromptSelect={onPromptSelect}
-          sendDisabled={sendDisabled}
-          composerDisabled={composerDisabled}
-          composerPlaceholder={composerPlaceholder}
-          composerError={composerError}
-          messageInputRef={messageInputRef}
-          messagesScrollRef={messagesScrollRef}
-          onShowProductDetails={onShowProductDetails}
-          onShowSimilarProducts={onShowSimilarProducts}
-          onClose={() => setOpen(false)}
-        />
-      ) : (
-        <div className="flex flex-col items-center gap-4 py-8">
-          <WidgetLauncher
-            brandColorHex={brandColorHex}
-            logoUrl={store.logoUrl}
-            visible
-            onClick={() => setOpen(true)}
-          />
-          <p className="max-w-xs text-center text-sm text-neutral-500">
-            Chat closed. Click the bubble to preview again.
-          </p>
-        </div>
-      )}
+      <WidgetPanel
+        displayName={store.displayName}
+        logoUrl={store.logoUrl}
+        brandColorHex={brandColorHex}
+        welcomeScreen={store.welcomeScreen}
+        suggestedPrompts={store.suggestedPrompts}
+        installUrl={store.installUrl}
+        messages={messages}
+        isSending={isSending}
+        input={input}
+        onInputChange={onInputChange}
+        onSend={onSend}
+        onPromptSelect={onPromptSelect}
+        sendDisabled={sendDisabled}
+        composerDisabled={composerDisabled}
+        composerPlaceholder={composerPlaceholder}
+        composerError={composerError}
+        messageInputRef={messageInputRef}
+        messagesScrollRef={messagesScrollRef}
+        onShowProductDetails={onShowProductDetails}
+        onShowSimilarProducts={onShowSimilarProducts}
+      />
       <EmbedCaption brandColorHex={brandColorHex} />
     </div>
   );

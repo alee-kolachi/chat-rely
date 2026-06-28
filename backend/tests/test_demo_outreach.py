@@ -291,7 +291,7 @@ def test_demo_public_url_uses_fixed_base() -> None:
 
 def test_build_demo_slug_contains_name() -> None:
     slug = build_demo_slug("Acme Store")
-    assert slug.startswith("acme-store-")
+    assert slug == "acme-store"
 
 
 def test_qa_routing_threshold() -> None:

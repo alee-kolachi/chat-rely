@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import Link from "next/link";
-import { X } from "lucide-react";
 import { DemoChatMessageBubble } from "@/components/demo/demo-chat-message-bubble";
 import { DemoPromptChips } from "@/components/demo/demo-prompt-chips";
 import { DemoStoreLogo } from "@/components/demo/demo-store-logo";
@@ -15,6 +14,7 @@ import {
 import { WIDGET_FOOTER_PADDING_WITHOUT_POWERED } from "@/components/branding/powered-by-chatrely";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
 import type { DemoWelcomeScreen } from "@/lib/demo-store-meta";
+import { DEMO_WIDGET_FRAME_CLASS } from "@/lib/demo-constants";
 import { getWidgetPreviewContext } from "@/lib/widget-appearance";
 import { parseBrandColorHex } from "@/lib/brand-chrome";
 import type { ProductCard } from "@/lib/product-card";
@@ -41,7 +41,6 @@ export function WidgetPanel({
   messagesScrollRef,
   onShowProductDetails,
   onShowSimilarProducts,
-  onClose,
   className,
 }: {
   displayName: string;
@@ -64,7 +63,6 @@ export function WidgetPanel({
   messagesScrollRef: RefObject<HTMLDivElement | null>;
   onShowProductDetails?: (product: ProductCard) => void;
   onShowSimilarProducts?: (product: ProductCard) => void;
-  onClose?: () => void;
   className?: string;
 }) {
   const hasBrand = Boolean(parseBrandColorHex(brandColorHex));
@@ -102,34 +100,23 @@ export function WidgetPanel({
   }, [messages, isSending, messagesScrollRef]);
 
   const headerActions = (
-    <>
-      <Link
-        href={installUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-black/[0.04]"
-        style={{ color: brandColorHex }}
-      >
-        Install →
-      </Link>
-      {onClose ? (
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close chat preview"
-          className="inline-flex size-9 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-900/6 hover:text-slate-900"
-        >
-          <X className="size-4" strokeWidth={2} aria-hidden />
-        </button>
-      ) : null}
-    </>
+    <Link
+      href={installUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-black/[0.04]"
+      style={{ color: brandColorHex }}
+    >
+      Install →
+    </Link>
   );
 
   if (showWelcome) {
     return (
       <div
         className={cn(
-          "flex h-[min(640px,calc(100dvh-96px))] w-full max-w-[400px] flex-col overflow-hidden rounded-[28px] border-transparent shadow-none",
+          DEMO_WIDGET_FRAME_CLASS,
+          "flex h-[min(640px,calc(100dvh-96px))] flex-col",
           className,
         )}
       >
@@ -151,7 +138,7 @@ export function WidgetPanel({
   }
 
   return (
-    <div className={cn("w-full max-w-[400px]", className)}>
+    <div className={cn(DEMO_WIDGET_FRAME_CLASS, className)}>
       <WidgetChatShell
         agentName={displayName}
         brandColorHex={brandColorHex}
@@ -165,9 +152,10 @@ export function WidgetPanel({
           />
         }
         shellHeightClass="h-[min(640px,calc(100dvh-96px))] w-full"
+        shellBorderless
         hideHeaderBorder
         headerActions={headerActions}
-        onHeaderBack={welcomeEnabled && messages.length === 0 ? () => setChatOpen(false) : undefined}
+        onHeaderBack={welcomeEnabled ? () => setChatOpen(false) : undefined}
         headerBackLabel="Back to welcome screen"
         footerBorderless
         footer={

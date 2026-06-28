@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domains.demo.agents import create_demo_agent
 from app.domains.demo.demo_sheet_fields import logo_link_from_sheet_snapshot
 from app.domains.demo.progress import demo_step
-from app.domains.demo.repository import build_demo_slug, demo_public_url, normalize_store_host
+from app.domains.demo.repository import allocate_demo_slug, demo_public_url, normalize_store_host
 from app.domains.demo.storefront_ingest import (
     build_suggested_prompts,
     ingest_demo_for_provision,
@@ -154,7 +154,7 @@ async def provision_demo_from_store_url(
     )
 
     user_id = await ensure_demo_system_user(db)
-    slug = build_demo_slug(display_name)
+    slug = await allocate_demo_slug(db, display_name)
     demo_step("provision.agent", display_name=display_name, slug=slug)
     agent_id, _public_key = await create_demo_agent(db, name=f"{display_name} Demo")
 

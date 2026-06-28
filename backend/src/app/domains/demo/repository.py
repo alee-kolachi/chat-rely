@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import secrets
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -22,8 +21,25 @@ def slugify_store_name(value: str) -> str:
     return candidate or "store"
 
 
+def base_demo_slug(display_name: str) -> str:
+    """Human-readable demo path segment (no random suffix)."""
+    return slugify_store_name(display_name)
+
+
 def build_demo_slug(display_name: str) -> str:
-    return f"{slugify_store_name(display_name)}-{secrets.token_hex(4)}"
+    """Sync helper for tests; production uses allocate_demo_slug."""
+    return base_demo_slug(display_name)
+
+
+async def allocate_demo_slug(db: AsyncSession, display_name: str) -> str:
+    """Pick a unique slug like ``patrick-james``, adding ``-2`` only on collision."""
+    base = base_demo_slug(display_name)
+    slug = base
+    suffix = 2
+    while await fetch_demo_by_slug(db, slug) is not None:
+        slug = f"{base}-{suffix}"
+        suffix += 1
+    return slug
 
 
 def normalize_store_host(store_url: str) -> str:
