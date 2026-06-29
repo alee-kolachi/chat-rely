@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import Link from "next/link";
 import { DemoChatMessageBubble } from "@/components/demo/demo-chat-message-bubble";
+import { DEMO_SIGNUP_URL } from "@/lib/demo-constants";
 import { DemoPromptChips } from "@/components/demo/demo-prompt-chips";
 import { DemoStoreLogo } from "@/components/demo/demo-store-logo";
 import { PlaygroundComposer } from "@/components/chat/playground-composer";
@@ -25,7 +26,6 @@ export function WidgetPanel({
   brandColorHex,
   welcomeScreen,
   suggestedPrompts,
-  installUrl,
   messages,
   isSending,
   input,
@@ -47,7 +47,6 @@ export function WidgetPanel({
   brandColorHex: string;
   welcomeScreen: DemoWelcomeScreen;
   suggestedPrompts: string[];
-  installUrl: string;
   messages: DemoChatMessage[];
   isSending: boolean;
   input: string;
@@ -100,13 +99,10 @@ export function WidgetPanel({
 
   const headerActions = (
     <Link
-      href={installUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-black/[0.04]"
-      style={{ color: brandColorHex }}
+      href={DEMO_SIGNUP_URL}
+      className="rounded-md px-2 py-1 text-[11px] font-medium text-ds-primary transition-colors hover:bg-ds-muted"
     >
-      Install →
+      Get started →
     </Link>
   );
 
@@ -114,7 +110,7 @@ export function WidgetPanel({
     return (
       <div
         className={cn(
-          "flex h-[min(640px,calc(100dvh-96px))] w-full max-w-[400px] flex-col overflow-hidden rounded-[28px] shadow-[0_20px_55px_rgba(15,23,42,0.08)]",
+          "demo-widget-frame flex h-[min(640px,calc(100dvh-96px))] w-full max-w-[400px] flex-col overflow-hidden rounded-[28px]",
           className,
         )}
       >
@@ -129,6 +125,7 @@ export function WidgetPanel({
           socialLinks={welcomeScreen.socialLinks}
           websiteLogoUrl={logoUrl}
           className="min-h-0 flex-1"
+          variant="demo"
           onChatClick={() => setChatOpen(true)}
         />
       </div>

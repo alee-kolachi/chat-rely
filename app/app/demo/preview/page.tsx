@@ -4,7 +4,6 @@ import { useRef } from "react";
 import { DemoStoreView } from "@/components/demo/demo-store-view";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
 import type { DemoStoreMeta } from "@/lib/demo-store-meta";
-import { DEMO_SHOPIFY_INSTALL_URL } from "@/lib/demo-constants";
 
 const MOCK_STORE: DemoStoreMeta = {
   displayName: "Acme Coffee",
@@ -51,7 +50,7 @@ const MOCK_STORE: DemoStoreMeta = {
     "Do you have the Ethiopian Yirgacheffe?",
     "What's your return policy?",
   ],
-  installUrl: DEMO_SHOPIFY_INSTALL_URL,
+  installUrl: "https://chatrely.com/signup",
   limitationLine:
     "This demo runs on Acme Coffee's public catalog. Connect your store to unlock live inventory and order tracking.",
   welcomeScreen: {

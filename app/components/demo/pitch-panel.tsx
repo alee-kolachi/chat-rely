@@ -1,10 +1,10 @@
 "use client";
 
-import { DemoInstallCta } from "@/components/demo/demo-install-cta";
+import { DemoSignupCta } from "@/components/demo/demo-signup-cta";
 import { DemoStoreLogo } from "@/components/demo/demo-store-logo";
 import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import type { DemoStoreMeta } from "@/lib/demo-store-meta";
-import { DEMO_ACCENT_HEX, demoPitchPanelBackground } from "@/lib/demo-constants";
+import { DEMO_ACCENT_HEX } from "@/lib/demo-constants";
 import { cn } from "@/lib/utils";
 
 const VALUE_BULLETS = [
@@ -26,12 +26,7 @@ export function PitchPanel({
   const trustLine = `Trained on ${store.displayName}'s catalog · ${store.productCount} products indexed`;
 
   return (
-    <section
-      className={cn("flex min-h-full flex-1 flex-col lg:min-h-screen", className)}
-      style={{
-        backgroundColor: demoPitchPanelBackground(accent),
-      }}
-    >
+    <section className={cn("demo-page-pitch-panel flex min-h-full flex-1 flex-col lg:min-h-screen", className)}>
       <div className="flex flex-1 flex-col justify-center px-6 py-8 sm:px-10 sm:py-10 lg:px-12">
         <div className="mx-auto w-full max-w-lg">
           {previewMode ? (
@@ -62,8 +57,7 @@ export function PitchPanel({
             {VALUE_BULLETS.map((bullet) => (
               <li key={bullet} className="flex gap-2.5 text-sm leading-snug text-neutral-700">
                 <span
-                  className="mt-1.5 size-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: accent }}
+                  className="mt-1.5 size-1.5 shrink-0 rounded-full bg-ds-primary"
                   aria-hidden
                 />
                 {bullet}
@@ -72,12 +66,7 @@ export function PitchPanel({
           </ul>
 
           <div className="mt-8">
-            <DemoInstallCta
-              storeName={store.displayName}
-              href={store.installUrl}
-              accentColor={accent}
-              variant="primary"
-            />
+            <DemoSignupCta variant="primary" />
           </div>
 
           <div className="mt-6">

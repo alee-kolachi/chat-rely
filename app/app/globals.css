@@ -1073,3 +1073,57 @@ body {
     display: none;
   }
 }
+
+/* Demo storefront preview — cohesive two-panel layout (token-only) */
+.demo-page-widget-column {
+  background: color-mix(in srgb, var(--ds-muted) 58%, var(--ds-app-canvas));
+}
+
+.demo-page-pitch-panel {
+  background: var(--ds-app-canvas);
+}
+
+.demo-widget-frame {
+  border: 1px solid var(--ds-outline);
+  box-shadow: var(--ds-shadow-lg);
+}
+
+.demo-welcome-shell {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ds-muted) 50%, var(--ds-app-canvas)) 0%,
+    color-mix(in srgb, var(--ds-primary) 5%, var(--ds-app-canvas)) 100%
+  );
+}
+
+.demo-welcome-card {
+  border: 1px solid var(--ds-outline);
+  background-color: var(--ds-elevated);
+  box-shadow: var(--ds-shadow-sm);
+}
+
+.demo-welcome-social-card {
+  border: 1px solid var(--ds-outline);
+  background-color: var(--ds-elevated);
+  box-shadow: var(--ds-shadow-sm);
+}
+
+.demo-welcome-social-card:hover {
+  border-color: color-mix(in srgb, var(--ds-primary) 28%, var(--ds-outline));
+  background-color: var(--ds-surface);
+}
+
+.demo-welcome-social-icon {
+  background: color-mix(in srgb, var(--ds-primary) 8%, var(--ds-muted));
+  color: var(--ds-primary);
+}
+
+.demo-welcome-social-arrow {
+  color: color-mix(in srgb, var(--ds-primary) 50%, transparent);
+}
+
+.demo-embed-caption-icon {
+  background: color-mix(in srgb, var(--ds-on-surface) 75%, var(--ds-muted));
+  color: var(--ds-on-primary);
+  border-color: color-mix(in srgb, var(--ds-on-surface) 10%, transparent);
+}
