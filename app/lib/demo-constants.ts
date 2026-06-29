@@ -1,3 +1,5 @@
+import type { WidgetAppearanceSettings } from "@/lib/widget-appearance";
+
 /** Fixed demo URLs (mirror backend constants for the Next.js app). */
 export const DEMO_PUBLIC_BASE_URL = "https://chatrely.com";
 export const DEMO_SIGNUP_URL = "/signup";
@@ -44,8 +46,8 @@ export function demoWelcomePanelGradient(): string {
 }
 
 /** Widget appearance override so chat shell uses demo chat-surface stops. */
-export const DEMO_WIDGET_APPEARANCE = {
-  theme_mode: "light" as const,
+export const DEMO_WIDGET_APPEARANCE: WidgetAppearanceSettings = {
+  theme_mode: "light",
   font_family: "geist",
   colors: {
     panel_background: DEMO_CHAT_SURFACE_BOTTOM,

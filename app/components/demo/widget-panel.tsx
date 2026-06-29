@@ -20,8 +20,8 @@ import {
 import { WIDGET_FOOTER_PADDING_WITHOUT_POWERED } from "@/components/branding/powered-by-chatrely";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
 import type { DemoWelcomeScreen } from "@/lib/demo-store-meta";
-import { getWidgetPreviewContext } from "@/lib/widget-appearance";
-import { parseBrandColorHex } from "@/lib/brand-chrome";
+import { resolveWidgetAppearance } from "@/lib/widget-appearance";
+import { brandChromeClasses, parseBrandColorHex } from "@/lib/brand-chrome";
 import type { ProductCard } from "@/lib/product-card";
 import { cn } from "@/lib/utils";
 
@@ -70,7 +70,9 @@ export function WidgetPanel({
   className?: string;
 }) {
   const hasBrand = Boolean(parseBrandColorHex(DEMO_CHAT_PRIMARY));
-  const { resolved, headerChrome } = getWidgetPreviewContext(null, DEMO_CHAT_PRIMARY, DEMO_WIDGET_APPEARANCE);
+  const brand = parseBrandColorHex(DEMO_CHAT_PRIMARY) ?? DEMO_CHAT_PRIMARY;
+  const resolved = resolveWidgetAppearance(DEMO_WIDGET_APPEARANCE, brand);
+  const headerChrome = brandChromeClasses(resolved.colors.header);
   const stickToBottomRef = useRef(true);
   const prevMessageCountRef = useRef(messages.length);
   const welcomeEnabled = welcomeScreen.enabled;
