@@ -11,6 +11,10 @@ const VALUE_BULLETS = [
   "ChatRely is an AI chat widget you install on your store",
   "It answers from your live catalog, policies, and orders",
   "Shoppers get product, shipping, and return help instantly",
+  "Customize widget colors, fonts, and welcome screen to match your brand",
+  "Hand off to your team when shoppers need a person",
+  "Playground, analytics, and shopper feedback help you refine answers over time",
+  "Give shoppers a better experience with fast, helpful answers on your site",
 ] as const;
 
 export function PitchPanel({
@@ -52,7 +56,7 @@ export function PitchPanel({
             {store.displayName}
           </p>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-[1.75rem] sm:leading-tight">
-            See ChatRely on your store: an AI support chat trained on what you sell.
+            Try ChatRely with a live demo of your store: AI support trained on what you sell.
           </h1>
 
           <p className="mt-4 text-sm text-neutral-600">{trustLine}</p>
