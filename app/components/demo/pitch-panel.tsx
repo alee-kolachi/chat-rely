@@ -8,13 +8,11 @@ import { DEMO_CHAT_PRIMARY, DEMO_PITCH_PANEL_BG } from "@/lib/demo-constants";
 import { cn } from "@/lib/utils";
 
 const VALUE_BULLETS = [
-  "ChatRely is an AI chat widget you install on your store",
-  "It answers from your live catalog, policies, and orders",
-  "Shoppers get product, shipping, and return help instantly",
-  "Customize widget colors, fonts, and welcome screen to match your brand",
+  "AI chat widget trained on your catalog, policies, and orders",
+  "Shoppers get fast product, shipping, and return help on your site",
+  "Customize colors, fonts, and welcome screen to match your brand",
   "Hand off to your team when shoppers need a person",
-  "Playground, analytics, and shopper feedback help you refine answers over time",
-  "Give shoppers a better experience with fast, helpful answers on your site",
+  "Playground, analytics, and feedback to refine answers over time",
 ] as const;
 
 export function PitchPanel({
@@ -56,7 +54,7 @@ export function PitchPanel({
             {store.displayName}
           </p>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 sm:text-[1.75rem] sm:leading-tight">
-            Try ChatRely with a live demo of your store: AI support trained on what you sell.
+            Try ChatRely with a live demo of your store
           </h1>
 
           <p className="mt-4 text-sm text-neutral-600">{trustLine}</p>
