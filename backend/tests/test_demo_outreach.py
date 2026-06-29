@@ -228,10 +228,26 @@ def test_build_suggested_prompts() -> None:
     product = normalized_sample_product()
     prompts = build_suggested_prompts([product], {"refund": "30 day returns"})
     assert prompts[0].lower().startswith("hello")
+    assert prompts[1] == "What do you sell?"
     assert any("Classic Hoodie" in p for p in prompts)
     assert any("return" in p.lower() for p in prompts)
     assert len(prompts) <= 4
     assert len(prompts) >= 3
+
+
+def test_normalize_demo_suggested_prompts_replaces_second_chip() -> None:
+    from app.domains.demo.storefront_ingest import normalize_demo_suggested_prompts
+
+    stored = [
+        "Hello, how can you help me?",
+        "Do you have the Tea Towel- Chai & Sage Flower?",
+        "What's your return policy?",
+        "How much is the Tea Towel- Chai & Sage Flower?",
+    ]
+    normalized = normalize_demo_suggested_prompts(stored)
+    assert normalized[1] == "What do you sell?"
+    assert normalized[2] == stored[2]
+    assert normalized[3] == stored[3]
 
 
 def test_build_qa_questions_includes_negative_probe() -> None:

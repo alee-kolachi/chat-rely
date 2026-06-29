@@ -464,16 +464,15 @@ def product_to_index_text(product: DemoProductSnapshot) -> str:
     return "\n".join(lines)
 
 
+DEMO_CATALOG_SUGGESTED_PROMPT = "What do you sell?"
+
+
 def build_suggested_prompts(
     products: list[DemoProductSnapshot],
     policies: dict[str, str],
 ) -> list[str]:
-    """Starter chips: greeting, one product question, policy, optional product detail (max 4)."""
-    prompts: list[str] = ["Hello, how can you help me?"]
-
-    if products:
-        top = products[0]
-        prompts.append(f"Do you have the {top.title}?")
+    """Starter chips: greeting, catalog question, policy, optional product detail (max 4)."""
+    prompts: list[str] = ["Hello, how can you help me?", DEMO_CATALOG_SUGGESTED_PROMPT]
 
     if policies.get("refund"):
         prompts.append("What's your return policy?")
@@ -497,6 +496,16 @@ def build_suggested_prompts(
         prompts.append("What products do you carry?")
 
     return prompts[:4]
+
+
+def normalize_demo_suggested_prompts(prompts: list[str]) -> list[str]:
+    """Apply current demo chip rules to stored prompts (e.g. static catalog question)."""
+    if not prompts:
+        return prompts
+    out = list(prompts)
+    if len(out) >= 2:
+        out[1] = DEMO_CATALOG_SUGGESTED_PROMPT
+    return out[:4]
 
 
 async def _probe_catalog_product_count(

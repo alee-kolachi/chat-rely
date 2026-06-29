@@ -47,7 +47,7 @@ const MOCK_STORE: DemoStoreMeta = {
   ],
   suggestedPrompts: [
     "Hello, how can you help me?",
-    "Do you have the Ethiopian Yirgacheffe?",
+    "What do you sell?",
     "What's your return policy?",
   ],
   installUrl: "https://chatrely.com/signup",

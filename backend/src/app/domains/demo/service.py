@@ -17,7 +17,7 @@ from app.domains.demo.demo_sheet_fields import (
 from app.domains.demo.repository import fetch_demo_by_slug, update_demo_logo_url
 from app.domains.demo.schemas import DemoOutreachDTO, DemoPublicConfigResponse, DemoTopProduct
 from app.domains.demo.store_branding import is_light_background_logo_url, refine_demo_brand_color, upgrade_logo_asset_url
-from app.domains.demo.storefront_ingest import fetch_store_logo_url
+from app.domains.demo.storefront_ingest import fetch_store_logo_url, normalize_demo_suggested_prompts
 from app.domains.demo.system_user import ensure_demo_system_user
 
 
@@ -107,7 +107,7 @@ def build_demo_public_config(
         logo_url=resolved_logo,
         store_url=row.store_url,
         product_count=row.product_count,
-        suggested_prompts=row.suggested_prompts,
+        suggested_prompts=normalize_demo_suggested_prompts(row.suggested_prompts),
         top_products=top_products or [],
         brand_color=resolved_brand,
         install_url=DEMO_SHOPIFY_INSTALL_URL,
