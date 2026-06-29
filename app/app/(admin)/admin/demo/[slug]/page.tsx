@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { appButtonClassName } from "@/lib/button-styles";
+import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import { AdminDataTable, AdminPagination, type AdminColumn } from "@/components/admin/admin-data-table";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import { formatCostUsd } from "@/lib/admin/cost-format";
@@ -10,6 +11,8 @@ import {
   listAdminDemoConversations,
   type AdminConversationListItem,
 } from "@/lib/admin/api";
+
+export const dynamic = "force-dynamic";
 
 type RouteParams = Promise<{ slug: string }>;
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -51,15 +54,33 @@ export default async function AdminDemoDetailPage({
     if (err instanceof AdminApiError && err.status === 404) {
       notFound();
     }
+    if (err instanceof AdminApiError) {
+      return (
+        <AdminApiErrorPanel title="Could not load demo store" message={err.message} />
+      );
+    }
     throw err;
   }
 
-  const conversations = await listAdminDemoConversations(slug, {
-    visitor_id: visitorId || null,
-    status: status || null,
-    page,
-    page_size: pageSize,
-  });
+  let conversations;
+  try {
+    conversations = await listAdminDemoConversations(slug, {
+      visitor_id: visitorId || null,
+      status: status || null,
+      page,
+      page_size: pageSize,
+    });
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return (
+        <AdminApiErrorPanel
+          title="Could not load demo conversations"
+          message={err.message}
+        />
+      );
+    }
+    throw err;
+  }
 
   const basePath = `/admin/demo/${encodeURIComponent(slug)}`;
 

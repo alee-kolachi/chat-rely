@@ -41,7 +41,6 @@ _DEMO_LIST_SELECT = """
         max(c.last_activity_at) as last_conversation_at
       from public.conversations c
       where c.agent_id = d.agent_id
-        and c.channel = 'demo'::public.conversation_channel
     ) conv on true
 """
 
@@ -177,7 +176,6 @@ async def list_admin_demo_conversations(
     return await list_admin_conversations(
         db,
         agent_id=demo.agent_id,
-        channel="demo",
         visitor_id=visitor_id,
         status=status,
         started_after=started_after,

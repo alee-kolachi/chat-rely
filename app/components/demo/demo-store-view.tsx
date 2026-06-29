@@ -6,6 +6,7 @@ import { PitchPanel } from "@/components/demo/pitch-panel";
 import { SplitLayout } from "@/components/demo/split-layout";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
 import type { DemoStoreMeta } from "@/lib/demo-store-meta";
+import { DEMO_WIDGET_COLUMN_BG } from "@/lib/demo-constants";
 import type { ProductCard } from "@/lib/product-card";
 
 export function DemoStoreView({
@@ -45,6 +46,7 @@ export function DemoStoreView({
 }) {
   return (
     <SplitLayout
+      widgetColumnBackground={DEMO_WIDGET_COLUMN_BG}
       pitch={<PitchPanel store={store} previewMode={previewMode} />}
       widget={
         <DemoWidgetColumn

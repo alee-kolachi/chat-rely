@@ -6,7 +6,7 @@ import {
 } from "@/components/chat/StreamingAssistantMessage";
 import { WidgetEmbedThinkingDots } from "@/components/chat/widget-embed-thinking-dots";
 import type { DemoChatMessage } from "@/lib/demo-chat-message";
-import { DEMO_ACCENT_HEX } from "@/lib/demo-constants";
+import { DEMO_CHAT_PRIMARY } from "@/lib/demo-constants";
 import type { ProductCard } from "@/lib/product-card";
 import { getWidgetPreviewContext, userBubbleGradient } from "@/lib/widget-appearance";
 import { cn } from "@/lib/utils";
@@ -28,8 +28,8 @@ export function DemoChatMessageBubble({
   compact?: boolean;
   accentColorHex?: string;
 }) {
-  const accent = accentColorHex?.trim() || DEMO_ACCENT_HEX;
-  const { resolved, userChrome } = getWidgetPreviewContext(null, accentColorHex ?? accent, null);
+  const accent = accentColorHex?.trim() || DEMO_CHAT_PRIMARY;
+  const { resolved, userChrome } = getWidgetPreviewContext(null, accent, null);
 
   const assistantBubbleClass = cn(
     "max-w-full rounded-2xl rounded-tl-sm border px-3 py-2.5 leading-snug",

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { DemoStoreView } from "@/components/demo/demo-store-view";
 import { chatSseStream } from "@/lib/chat-sse";
 import { applyChatSseEventToAssistantMessages } from "@/lib/chat-stream-handlers";
@@ -31,6 +32,7 @@ type DemoStorePageClientProps = {
 };
 
 export function DemoStorePageClient({ slug, initialConfig }: DemoStorePageClientProps) {
+  const router = useRouter();
   const [config] = useState(initialConfig);
   const [storeMeta, setStoreMeta] = useState(() => demoConfigToStoreMeta(initialConfig));
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -44,6 +46,10 @@ export function DemoStorePageClient({ slug, initialConfig }: DemoStorePageClient
   const chatAbortRef = useRef<AbortController | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    router.prefetch("/signup");
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;

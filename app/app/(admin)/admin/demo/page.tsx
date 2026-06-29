@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { appButtonClassName } from "@/lib/button-styles";
+import { AdminApiErrorPanel } from "@/components/admin/admin-api-error-panel";
 import { AdminDataTable, AdminPagination, type AdminColumn } from "@/components/admin/admin-data-table";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import {
+  AdminApiError,
   listAdminDemos,
   type AdminDemoListItem,
 } from "@/lib/admin/api";
+
+export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -45,12 +49,22 @@ export default async function AdminDemoPage({
   const page = Math.max(1, Number(pickString(sp.page) ?? "1") || 1);
   const pageSize = Math.max(1, Math.min(200, Number(pickString(sp.page_size) ?? "50") || 50));
 
-  const data = await listAdminDemos({
-    q: q || null,
-    status: status || null,
-    page,
-    page_size: pageSize,
-  });
+  let data;
+  try {
+    data = await listAdminDemos({
+      q: q || null,
+      status: status || null,
+      page,
+      page_size: pageSize,
+    });
+  } catch (err) {
+    if (err instanceof AdminApiError) {
+      return (
+        <AdminApiErrorPanel title="Could not load demo agents" message={err.message} />
+      );
+    }
+    throw err;
+  }
 
   const buildHref = (overrides: Record<string, string | number | null | undefined>) => {
     const params = new URLSearchParams();

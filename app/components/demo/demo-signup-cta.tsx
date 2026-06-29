@@ -1,50 +1,53 @@
 "use client";
 
-import Link from "next/link";
 import { DEMO_SIGNUP_URL } from "@/lib/demo-constants";
-import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
+
+const ctaBase =
+  "touch-manipulation inline-flex items-center justify-center rounded-lg px-5 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90 active:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
 
 export function DemoSignupCta({
   href = DEMO_SIGNUP_URL,
+  accentColor,
   variant = "primary",
   className,
 }: {
   href?: string;
+  accentColor: string;
   variant?: "primary" | "header" | "inline" | "sticky";
   className?: string;
 }) {
   const label = "Get started →";
-  const primaryClass = appButtonClassName("primary", {
-    className: cn(
-      "inline-flex items-center justify-center no-underline",
-      variant === "header" && "shrink-0 px-4 py-2.5",
-      variant === "sticky" && "w-full shadow-ds-sm",
-      className,
-    ),
-  });
 
   if (variant === "sticky") {
     return (
-      <Link href={href} className={primaryClass}>
+      <a
+        href={href}
+        className={cn(ctaBase, "w-full shadow-sm", className)}
+        style={{ backgroundColor: accentColor }}
+      >
         {label}
-      </Link>
+      </a>
     );
   }
 
   if (variant === "inline") {
     return (
       <div className={cn("flex justify-center py-2", className)}>
-        <Link href={href} className={primaryClass}>
+        <a href={href} className={ctaBase} style={{ backgroundColor: accentColor }}>
           {label}
-        </Link>
+        </a>
       </div>
     );
   }
 
   return (
-    <Link href={href} className={primaryClass}>
+    <a
+      href={href}
+      className={cn(ctaBase, variant === "header" ? "shrink-0 px-4 py-2.5" : "", className)}
+      style={{ backgroundColor: accentColor }}
+    >
       {label}
-    </Link>
+    </a>
   );
 }

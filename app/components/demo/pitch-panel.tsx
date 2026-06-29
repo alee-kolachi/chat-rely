@@ -4,7 +4,7 @@ import { DemoSignupCta } from "@/components/demo/demo-signup-cta";
 import { DemoStoreLogo } from "@/components/demo/demo-store-logo";
 import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import type { DemoStoreMeta } from "@/lib/demo-store-meta";
-import { DEMO_ACCENT_HEX } from "@/lib/demo-constants";
+import { DEMO_CHAT_PRIMARY, DEMO_PITCH_PANEL_BG } from "@/lib/demo-constants";
 import { cn } from "@/lib/utils";
 
 const VALUE_BULLETS = [
@@ -22,11 +22,15 @@ export function PitchPanel({
   previewMode?: boolean;
   className?: string;
 }) {
-  const accent = store.brandColorHex?.trim() || DEMO_ACCENT_HEX;
   const trustLine = `Trained on ${store.displayName}'s catalog · ${store.productCount} products indexed`;
 
   return (
-    <section className={cn("demo-page-pitch-panel flex min-h-full flex-1 flex-col lg:min-h-screen", className)}>
+    <section
+      className={cn("flex min-h-full flex-1 flex-col lg:min-h-screen", className)}
+      style={{
+        backgroundColor: DEMO_PITCH_PANEL_BG,
+      }}
+    >
       <div className="flex flex-1 flex-col justify-center px-6 py-8 sm:px-10 sm:py-10 lg:px-12">
         <div className="mx-auto w-full max-w-lg">
           {previewMode ? (
@@ -39,7 +43,7 @@ export function PitchPanel({
             <DemoStoreLogo
               displayName={store.displayName}
               logoUrl={store.logoUrl}
-              brandColorHex={accent}
+              brandColorHex={DEMO_CHAT_PRIMARY}
               size="pitch"
             />
           </div>
@@ -57,7 +61,8 @@ export function PitchPanel({
             {VALUE_BULLETS.map((bullet) => (
               <li key={bullet} className="flex gap-2.5 text-sm leading-snug text-neutral-700">
                 <span
-                  className="mt-1.5 size-1.5 shrink-0 rounded-full bg-ds-primary"
+                  className="mt-1.5 size-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: DEMO_CHAT_PRIMARY }}
                   aria-hidden
                 />
                 {bullet}
@@ -66,7 +71,7 @@ export function PitchPanel({
           </ul>
 
           <div className="mt-8">
-            <DemoSignupCta variant="primary" />
+            <DemoSignupCta accentColor={DEMO_CHAT_PRIMARY} variant="primary" />
           </div>
 
           <div className="mt-6">
