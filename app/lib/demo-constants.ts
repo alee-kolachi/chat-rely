@@ -5,7 +5,11 @@ export const DEMO_SHOPIFY_INSTALL_URL = "https://apps.shopify.com/chatrely";
 /** Restrained accent for demo outreach UI (user bubbles + CTAs only). */
 export const DEMO_ACCENT_HEX = "#4f46e5";
 
-/** Demo page widget column background (matches pitch panel tint). */
+/** Demo page backgrounds: widget column (left) slightly darker than pitch panel (right). */
+export function demoPitchPanelBackground(brandColorHex: string): string {
+  return `color-mix(in srgb, ${brandColorHex} 4%, #ffffff)`;
+}
+
 export function demoWidgetColumnBackground(brandColorHex: string): string {
-  return `color-mix(in srgb, ${brandColorHex} 7%, #fafafa)`;
+  return `color-mix(in srgb, ${brandColorHex} 14%, #eef0f3)`;
 }

@@ -161,6 +161,39 @@ class AdminConversationDetail(AdminConversationListItem):
     transcript_message_cap: int = 1000
 
 
+# ---------- Demo outreach (prospect demos) ---------------------------------------
+
+
+class AdminDemoListItem(BaseModel):
+    slug: str
+    display_name: str | None = None
+    store_url: str
+    store_host: str
+    status: str
+    product_count: int = 0
+    lifetime_message_count: int = 0
+    conversation_count: int = 0
+    visitor_count: int = 0
+    demo_url: str
+    ready_at: datetime | None = None
+    expires_at: datetime | None = None
+    created_at: datetime
+    last_conversation_at: datetime | None = None
+
+
+class AdminDemoListResponse(BaseModel):
+    items: list[AdminDemoListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class AdminDemoDetail(AdminDemoListItem):
+    logo_url: str | None = None
+    brand_color: str | None = None
+    suggested_prompts: list[str] = Field(default_factory=list)
+
+
 # ---------- User detail (declared after conversation list item) ------------------
 
 

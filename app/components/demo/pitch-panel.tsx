@@ -4,7 +4,7 @@ import { DemoInstallCta } from "@/components/demo/demo-install-cta";
 import { DemoStoreLogo } from "@/components/demo/demo-store-logo";
 import { PoweredByChatRely } from "@/components/branding/powered-by-chatrely";
 import type { DemoStoreMeta } from "@/lib/demo-store-meta";
-import { DEMO_ACCENT_HEX } from "@/lib/demo-constants";
+import { DEMO_ACCENT_HEX, demoPitchPanelBackground } from "@/lib/demo-constants";
 import { cn } from "@/lib/utils";
 
 const VALUE_BULLETS = [
@@ -29,7 +29,7 @@ export function PitchPanel({
     <section
       className={cn("flex min-h-full flex-1 flex-col lg:min-h-screen", className)}
       style={{
-        backgroundColor: `color-mix(in srgb, ${accent} 7%, #fafafa)`,
+        backgroundColor: demoPitchPanelBackground(accent),
       }}
     >
       <div className="flex flex-1 flex-col justify-center px-6 py-8 sm:px-10 sm:py-10 lg:px-12">

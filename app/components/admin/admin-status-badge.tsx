@@ -25,6 +25,14 @@ const TONE_BY_STATUS: Record<string, Tone> = {
   idle_closed: "neutral",
   resolved: "positive",
   escalated: "danger",
+  // demo outreach
+  ready: "positive",
+  pending: "warning",
+  indexing: "info",
+  qa_running: "info",
+  needs_review: "warning",
+  failed: "danger",
+  expired: "neutral",
   // generic
   inactive: "neutral",
   archived: "neutral",

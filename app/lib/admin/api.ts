@@ -432,6 +432,87 @@ export async function getAdminConversation(
   );
 }
 
+// ---------- Demo outreach (prospect demos) -------------------------------------
+
+export type AdminDemoListItem = {
+  slug: string;
+  display_name: string | null;
+  store_url: string;
+  store_host: string;
+  status: string;
+  product_count: number;
+  lifetime_message_count: number;
+  conversation_count: number;
+  visitor_count: number;
+  demo_url: string;
+  ready_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  last_conversation_at: string | null;
+};
+
+export type AdminDemoListResponse = {
+  items: AdminDemoListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export type AdminDemoDetail = AdminDemoListItem & {
+  logo_url: string | null;
+  brand_color: string | null;
+  suggested_prompts: string[];
+};
+
+export type ListAdminDemosParams = {
+  q?: string | null;
+  status?: string | null;
+  page?: number;
+  page_size?: number;
+};
+
+export async function listAdminDemos(
+  params: ListAdminDemosParams = {}
+): Promise<AdminDemoListResponse> {
+  const q = buildQuery({
+    q: params.q ?? undefined,
+    status: params.status ?? undefined,
+    page: params.page,
+    page_size: params.page_size,
+  });
+  return adminFetch<AdminDemoListResponse>(`/api/v1/admin/demo${q}`);
+}
+
+export async function getAdminDemo(slug: string): Promise<AdminDemoDetail> {
+  return adminFetch<AdminDemoDetail>(`/api/v1/admin/demo/${encodeURIComponent(slug)}`);
+}
+
+export type ListAdminDemoConversationsParams = {
+  visitor_id?: string | null;
+  status?: string | null;
+  started_after?: string | null;
+  started_before?: string | null;
+  page?: number;
+  page_size?: number;
+};
+
+export async function listAdminDemoConversations(
+  slug: string,
+  params: ListAdminDemoConversationsParams = {}
+): Promise<AdminConversationListResponse> {
+  const q = buildQuery({
+    visitor_id: params.visitor_id ?? undefined,
+    status: params.status ?? undefined,
+    started_after: params.started_after ?? undefined,
+    started_before: params.started_before ?? undefined,
+    page: params.page,
+    page_size: params.page_size,
+  });
+  return adminFetch<AdminConversationListResponse>(
+    `/api/v1/admin/demo/${encodeURIComponent(slug)}/conversations${q}`
+  );
+}
+
 // ---------- Phase 3: Costing helpers -------------------------------------------
 
 export async function getPlatformCostingOverview(): Promise<AdminPlatformCosting> {
