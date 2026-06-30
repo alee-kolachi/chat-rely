@@ -296,18 +296,18 @@
   box-shadow: none;
 }
 
-.cr-panel--chat-surface .cr-panel-header--brand .cr-header-btn {
+.cr-panel--chat-surface .cr-panel-header .cr-header-btn {
   color: #475569;
   opacity: 0.88;
 }
 
-.cr-panel--chat-surface .cr-panel-header--brand .cr-header-btn:hover:not(:disabled) {
+.cr-panel--chat-surface .cr-panel-header .cr-header-btn:hover:not(:disabled) {
   color: #0f172a;
   opacity: 1;
   background: rgba(15, 23, 42, 0.06);
 }
 
-.cr-panel--chat-surface .cr-panel-header--brand .cr-header-btn--active {
+.cr-panel--chat-surface .cr-panel-header .cr-header-btn--active {
   color: #0f172a;
   opacity: 1;
   background: rgba(15, 23, 42, 0.08);

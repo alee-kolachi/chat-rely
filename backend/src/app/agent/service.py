@@ -74,8 +74,6 @@ from app.agent.product_cards import (
     is_product_browse_turn,
     shorten_answer_for_product_cards,
     turn_is_kb_question,
-    turn_needs_catalog_tools,
-    turn_needs_shopify_graph,
 )
 from app.agent.turn_intent import message_references_thread_catalog, turn_wants_store_data
 from app.agent.graph import append_escalation_tool_prompt, stream_chat_graph
@@ -1480,28 +1478,6 @@ async def stream_chat(
         ]
         has_knowledge_tool = True
 
-    if not wants_store_data:
-        conversational_tool_names = {
-            "shopify_product_search",
-            "shopify_catalog_query",
-            SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
-        }
-        tool_list = [
-            t
-            for t in tool_list
-            if str(getattr(t, "name", "") or "") not in conversational_tool_names
-        ]
-        has_shopify_tools = any(
-            is_shopify_tool_name(str(getattr(t, "name", "") or "")) for t in tool_list
-        )
-        has_order_lookup_tool = any(
-            str(getattr(t, "name", "") or "") == "shopify_order_lookup" for t in tool_list
-        )
-        has_knowledge_tool = any(
-            str(getattr(t, "name", "") or "") == SEARCH_KNOWLEDGE_BASE_TOOL_NAME
-            for t in tool_list
-        )
-
     tools_bound_count = len(tool_list) + (1 if human_on else 0)
 
     if has_shopify_tools:
@@ -1646,15 +1622,8 @@ async def stream_chat(
             grounded_user_content=grounded_user_content,
         )
 
-        use_agent_graph = escalation_enabled or (
-            has_shopify_tools
-            and turn_needs_shopify_graph(
-                payload.message,
-                thread_had_shopify_tools=thread_had_shopify,
-                thread_had_order_lookup=thread_had_order_lookup,
-                has_order_lookup_tool=has_order_lookup_tool,
-            )
-        )
+        # LangGraph + tool_choice=auto: the model picks tools; no phrase-based routing gate.
+        use_agent_graph = escalation_enabled or bool(tool_list)
 
         if use_agent_graph:
             async for ev in stream_chat_graph(

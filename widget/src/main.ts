@@ -1087,9 +1087,40 @@ function renderAssistantRichContent(
   );
 }
 
+function chatRelyLogoAssetUrl(appOrigin: string): string {
+  return `${appOrigin.replace(/\/$/, "")}/chat-rely.svg`;
+}
+
 function poweredByChatRelyHtml(appOrigin: string): string {
-  const logoUrl = `${appOrigin.replace(/\/$/, "")}/chat-rely.svg`;
+  const logoUrl = chatRelyLogoAssetUrl(appOrigin);
   return `<a class="cr-powered-link" href="https://chatrely.com" target="_blank" rel="noopener noreferrer"><img class="cr-powered-logo" src="${logoUrl}" alt="" /><span class="cr-powered-text">Powered by <span class="cr-powered-brand">ChatRely</span></span></a>`;
+}
+
+function mountWidgetLogoImage(
+  img: HTMLImageElement,
+  wrap: HTMLElement,
+  storeLogoUrl: string | null | undefined,
+  fallbackLogoUrl: string,
+  onShow: () => void
+): void {
+  const storeLogo = storeLogoUrl?.trim() || "";
+  let usedFallback = !storeLogo;
+  img.referrerPolicy = "no-referrer";
+  img.onload = () => {
+    wrap.hidden = false;
+    img.style.display = "block";
+    onShow();
+  };
+  img.onerror = () => {
+    if (!usedFallback) {
+      usedFallback = true;
+      img.src = fallbackLogoUrl;
+      return;
+    }
+    wrap.hidden = true;
+    img.style.display = "none";
+  };
+  img.src = storeLogo || fallbackLogoUrl;
 }
 
 function threadPreview(messages: StoredMessage[]): string {
@@ -1336,10 +1367,7 @@ async function boot(): Promise<void> {
   headerAvatarImg.className = "cr-avatar-img";
   headerAvatarImg.alt = "";
   headerAvatarImg.style.display = "none";
-  const headerAvatarFallback = document.createElement("span");
-  headerAvatarFallback.className = "cr-avatar-fallback";
-  headerAvatarFallback.textContent = (cfg.name || "C").trim().charAt(0).toUpperCase() || "?";
-  headerAvatarWrap.append(headerAvatarImg, headerAvatarFallback);
+  headerAvatarWrap.append(headerAvatarImg);
 
   const headerCopy = document.createElement("div");
   headerCopy.className = "cr-panel-header-copy";
@@ -1348,11 +1376,7 @@ async function boot(): Promise<void> {
   titleEl.className = "cr-panel-title";
   titleEl.textContent = cfg.name || "Chat";
 
-  const titleSub = document.createElement("div");
-  titleSub.className = "cr-panel-subtitle";
-  titleSub.textContent = demoMode ? "Offline preview" : "Typically replies instantly";
-
-  headerCopy.append(titleEl, titleSub);
+  headerCopy.append(titleEl);
   headerMain.append(headerAvatarWrap, headerCopy);
 
   const headerActions = document.createElement("div");
@@ -1423,22 +1447,11 @@ async function boot(): Promise<void> {
   welcomeCardRow.className = "cr-welcome-card-row";
   const welcomeCardAvatar = document.createElement("div");
   welcomeCardAvatar.className = "cr-avatar-wrap cr-avatar-wrap--welcome cr-welcome-card-avatar";
-  if (cfg.avatar_url) {
-    const welcomeAvatarImg = document.createElement("img");
-    welcomeAvatarImg.className = "cr-avatar-img";
-    welcomeAvatarImg.alt = "";
-    welcomeAvatarImg.referrerPolicy = "no-referrer";
-    welcomeAvatarImg.src = cfg.avatar_url;
-    welcomeAvatarImg.onerror = () => {
-      welcomeCardAvatar.replaceChildren();
-      welcomeCardAvatar.classList.add("cr-welcome-card-avatar--fallback");
-      welcomeCardAvatar.textContent = headerAvatarFallback.textContent || "?";
-    };
-    welcomeCardAvatar.appendChild(welcomeAvatarImg);
-  } else {
-    welcomeCardAvatar.classList.add("cr-welcome-card-avatar--fallback");
-    welcomeCardAvatar.textContent = headerAvatarFallback.textContent || "?";
-  }
+  const welcomeAvatarImg = document.createElement("img");
+  welcomeAvatarImg.className = "cr-avatar-img";
+  welcomeAvatarImg.alt = "";
+  welcomeAvatarImg.style.display = "none";
+  welcomeCardAvatar.appendChild(welcomeAvatarImg);
   const welcomeCardCopy = document.createElement("div");
   welcomeCardCopy.className = "cr-welcome-card-copy";
   const welcomeCardName = document.createElement("p");
@@ -1564,18 +1577,15 @@ async function boot(): Promise<void> {
   root.append(launcher, panel);
   document.body.appendChild(host);
 
-  if (cfg.avatar_url) {
-    headerAvatarImg.referrerPolicy = "no-referrer";
-    headerAvatarImg.src = cfg.avatar_url;
-    headerAvatarImg.onload = () => {
-      headerAvatarWrap.hidden = false;
-      headerAvatarImg.style.display = "block";
-      headerAvatarFallback.hidden = true;
-    };
-    headerAvatarImg.onerror = () => {
-      headerAvatarWrap.hidden = true;
-    };
-  }
+  const chatRelyLogoUrl = chatRelyLogoAssetUrl(appOrigin);
+  mountWidgetLogoImage(headerAvatarImg, headerAvatarWrap, cfg.avatar_url, chatRelyLogoUrl, () => {});
+  mountWidgetLogoImage(
+    welcomeAvatarImg,
+    welcomeCardAvatar,
+    cfg.avatar_url,
+    chatRelyLogoUrl,
+    () => {}
+  );
 
   let store = readWidgetStore(agentKey);
   let visitorId = store.visitorId;

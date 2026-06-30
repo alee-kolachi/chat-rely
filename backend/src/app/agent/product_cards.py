@@ -92,14 +92,52 @@ _ORDER_TOOL_QUESTION_HINTS = (
     "where is my order",
     "tracking number",
     "shipment status",
+    "my order",
+    "status of my order",
+    "where is my package",
+    "track my package",
 )
+
+_POLICY_QUESTION_MARKERS = (
+    "policy",
+    "policies",
+    "warranty",
+    "terms",
+    "privacy",
+)
+
+_ORDER_TRACKING_HINTS = (
+    "order",
+    "track",
+    "tracking",
+    "shipment",
+    "shipping status",
+    "fulfillment",
+    "delivered",
+    "package",
+)
+
+
+def _looks_like_policy_question(msg: str) -> bool:
+    return any(marker in msg for marker in _POLICY_QUESTION_MARKERS)
 
 
 def turn_is_order_tool_question(user_message: str) -> bool:
     msg = (user_message or "").strip().lower()
     if not msg:
         return False
-    return any(h in msg for h in _ORDER_TOOL_QUESTION_HINTS)
+    if any(h in msg for h in _ORDER_TOOL_QUESTION_HINTS):
+        return True
+    stripped = msg.lstrip("#").strip()
+    if stripped.isdigit() and len(stripped) >= 3:
+        return True
+    if "order" in msg and sum(1 for c in msg if c.isdigit()) >= 3:
+        return True
+    if _looks_like_policy_question(msg):
+        return False
+    if "return" in msg and "order" not in msg:
+        return False
+    return any(h in msg for h in _ORDER_TRACKING_HINTS)
 
 
 def turn_is_kb_question(user_message: str) -> bool:
@@ -208,28 +246,6 @@ def turn_needs_catalog_tools(
     if is_product_attribute_question(msg):
         return True
     return is_specific_product_availability_question(msg)
-
-
-def turn_needs_shopify_graph(
-    user_message: str,
-    *,
-    thread_had_shopify_tools: bool = False,
-    thread_had_order_lookup: bool = False,
-    has_order_lookup_tool: bool = False,
-) -> bool:
-    """True when the LangGraph tool loop should run (catalog browse or order lookup)."""
-    if turn_is_kb_question(user_message):
-        return False
-    if turn_needs_catalog_tools(
-        user_message,
-        thread_had_shopify_tools=thread_had_shopify_tools,
-    ):
-        return True
-    if has_order_lookup_tool and (
-        thread_had_order_lookup or turn_is_order_tool_question(user_message)
-    ):
-        return True
-    return False
 
 
 def is_product_browse_turn(user_message: str) -> bool:
