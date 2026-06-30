@@ -85,7 +85,9 @@ export async function deleteAgentWidgetLogoFiles(params: {
   const prefix = `${params.userId}/${params.agentId}`;
   const { data, error: listError } = await supabase.storage.from(AGENT_LOGOS_BUCKET).list(prefix);
   if (listError) throw new Error(listError.message || "Could not list stored logos.");
-  const names = (data ?? []).map((row) => row.name).filter(Boolean);
+  const names: string[] = (data ?? [])
+    .map((row: { name: string }) => row.name)
+    .filter((name: string) => name.length > 0);
   if (names.length === 0) return;
   const paths = names.map((name) => `${prefix}/${name}`);
   const { error: removeError } = await supabase.storage.from(AGENT_LOGOS_BUCKET).remove(paths);
