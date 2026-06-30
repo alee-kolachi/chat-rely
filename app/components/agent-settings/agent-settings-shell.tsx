@@ -2,10 +2,13 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AgentLogoField } from "@/components/agent-settings/agent-logo-field";
+import { useAgentIntegrationsBootstrap } from "@/components/integrations/use-agent-integrations-bootstrap";
 import { useDashboardAgent } from "@/components/layout/dashboard-agent-context";
 import { backendFetch } from "@/lib/backend-api";
 import { appButtonClassName } from "@/lib/button-styles";
+import { faviconServiceUrl } from "@/lib/website-url";
 import { cn } from "@/lib/utils";
 import { AgentSettingsSubnav, type AgentSettingsTabKey } from "@/components/agent-settings/agent-settings-subnav";
 
@@ -23,9 +26,18 @@ type AgentSettingsShellProps = {
  */
 export function AgentSettingsHeader() {
   const { selectedAgent, selectedAgentId, refreshAgents, agents, agentsLoading } = useDashboardAgent();
+  const { websitePreview: integrationsWebsitePreview, loading: integrationsLoading } =
+    useAgentIntegrationsBootstrap(selectedAgentId || undefined);
   const [draftName, setDraftName] = useState(selectedAgent?.name ?? "");
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+
+  const websiteFaviconUrl = useMemo(() => {
+    if (!selectedAgentId || integrationsLoading) return null;
+    const raw = integrationsWebsitePreview?.source_url?.trim();
+    if (!raw) return null;
+    return faviconServiceUrl(raw) || null;
+  }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
 
   useEffect(() => {
     const nextName = selectedAgent?.name ?? "";
@@ -76,15 +88,22 @@ export function AgentSettingsHeader() {
         <label htmlFor="agent-name-input" className="ds-app-kicker mb-2 block text-ds-on-surface-variant">
           Agent name
         </label>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <input
             id="agent-name-input"
-            className="ds-app-field flex-1"
+            className="ds-app-field min-w-0 flex-1"
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             placeholder="My assistant"
             maxLength={120}
             disabled={!selectedAgent}
+          />
+          <AgentLogoField
+            agentId={selectedAgentId || null}
+            behaviorSettings={selectedAgent?.behavior_settings}
+            websiteFaviconUrl={websiteFaviconUrl}
+            disabled={!selectedAgent}
+            onSaved={() => refreshAgents({ silent: true })}
           />
           <button
             type="button"

@@ -16,6 +16,7 @@ from app.domains.public_widget.appearance import (
     parse_widget_appearance_from_behavior,
     strip_widget_appearance_from_behavior,
 )
+from app.domains.public_widget.logo import resolve_widget_avatar_url
 from app.domains.public_widget.schemas import (
     PublicWidgetAgentContext,
     PublicWidgetConfigResponse,
@@ -156,7 +157,11 @@ async def build_public_widget_config_response(
         )
     ).mappings().first()
     raw_url = str(url_row["source_url"]).strip() if url_row and url_row.get("source_url") else ""
-    avatar_url = _favicon_from_site_url(raw_url) if raw_url else None
+    favicon_url = _favicon_from_site_url(raw_url) if raw_url else None
+    avatar_url = resolve_widget_avatar_url(
+        ctx.behavior_settings,
+        website_favicon_url=favicon_url,
+    )
 
     plan_slug = await fetch_active_plan_slug(db, ctx.user_id)
     attachments_ui = attachments_ui_enabled_for_plan_slug(plan_slug)

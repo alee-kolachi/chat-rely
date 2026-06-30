@@ -19,6 +19,7 @@ import {
   productActionUserMessage,
   type ProductActionRequest,
 } from "@/lib/product-card";
+import { readAgentWidgetLogoUrl, resolveAgentLogoUrl } from "@/lib/agent-logo";
 import { getOnboardingAgentName } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
 import { useOnboardingIndexingStatus } from "@/lib/use-onboarding-indexing-status";
@@ -110,6 +111,10 @@ export default function AgentPreviewOnboardingPage() {
   const siteName = siteDisplayName(onboardingStatus);
   const siteUrl = onboardingStatus?.website_url ?? null;
   const siteIcon = faviconUrl(siteUrl);
+  const previewLogoUrl = useMemo(
+    () => resolveAgentLogoUrl(readAgentWidgetLogoUrl(behaviorSettings), siteIcon || null),
+    [behaviorSettings, siteIcon]
+  );
   const brandColorHex =
     parseBrandColorHex(
       typeof behaviorSettings?.brand_color === "string" ? behaviorSettings.brand_color : null,
@@ -466,7 +471,7 @@ export default function AgentPreviewOnboardingPage() {
                     agentName={agentName}
                     brandColorHex={brandColorHex}
                     behaviorSettings={behaviorSettings}
-                    websiteLogoUrl={siteIcon || null}
+                    websiteLogoUrl={previewLogoUrl}
                     messages={messages}
                     isSending={isSending}
                     messageInput={input}

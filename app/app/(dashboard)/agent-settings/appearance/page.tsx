@@ -67,6 +67,7 @@ import {
   snapWidgetBorderRadiusToPreset,
   WIDGET_BORDER_RADIUS_PRESETS,
 } from "@/lib/widget-shape";
+import { readAgentWidgetLogoUrl, resolveAgentLogoUrl } from "@/lib/agent-logo";
 import { faviconServiceUrl } from "@/lib/website-url";
 import { appButtonClassName } from "@/lib/button-styles";
 import { cn } from "@/lib/utils";
@@ -218,12 +219,20 @@ function AppearanceForm() {
   );
 
   const websiteLogoPending = Boolean(selectedAgentId && integrationsLoading);
-  const websiteLogoUrl = useMemo(() => {
+  const websiteFaviconUrl = useMemo(() => {
     if (!selectedAgentId || integrationsLoading) return null;
     const raw = integrationsWebsitePreview?.source_url?.trim();
     if (!raw) return null;
     return faviconServiceUrl(raw) || null;
   }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
+  const websiteLogoUrl = useMemo(
+    () =>
+      resolveAgentLogoUrl(
+        readAgentWidgetLogoUrl(selectedAgent?.behavior_settings),
+        websiteFaviconUrl
+      ),
+    [selectedAgent?.behavior_settings, websiteFaviconUrl]
+  );
 
   const welcomeScreenPreview = useMemo(
     () =>

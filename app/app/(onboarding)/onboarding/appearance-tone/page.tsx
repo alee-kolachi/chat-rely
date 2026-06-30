@@ -27,6 +27,7 @@ import {
   resolveWelcomeScreenSettings,
 } from "@/lib/agent-settings";
 import { readWidgetAppearance, resolveWidgetAppearance } from "@/lib/widget-appearance";
+import { readAgentWidgetLogoUrl, resolveAgentLogoUrl } from "@/lib/agent-logo";
 import { faviconServiceUrl } from "@/lib/website-url";
 import { getOnboardingAgentName } from "@/lib/onboarding-state";
 import { useResolvedOnboardingAgentId } from "@/lib/use-resolved-onboarding-agent-id";
@@ -69,7 +70,7 @@ export default function AppearanceToneOnboardingPage() {
   const [behaviorSettings, setBehaviorSettings] = useState<Record<string, unknown> | null>(null);
   const [welcomeScreenEnabled, setWelcomeScreenEnabled] = useState(true);
   const [previewChatOpen, setPreviewChatOpen] = useState(false);
-  const [websiteLogoUrl, setWebsiteLogoUrl] = useState<string | null>(null);
+  const [websiteFaviconUrl, setWebsiteFaviconUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,7 +124,7 @@ export default function AppearanceToneOnboardingPage() {
 
         const siteUrl =
           bootstrap.website_preview?.source_url?.trim() || status?.website_url?.trim() || null;
-        setWebsiteLogoUrl(siteUrl ? faviconServiceUrl(siteUrl) || null : null);
+        setWebsiteFaviconUrl(siteUrl ? faviconServiceUrl(siteUrl) || null : null);
       } catch {
         if (!cancelled) setError("Could not load your agent settings.");
       } finally {
@@ -157,6 +158,11 @@ export default function AppearanceToneOnboardingPage() {
   }
 
   const previewBrandChrome = useMemo(() => brandChromeClasses(previewBrandColor), [previewBrandColor]);
+
+  const previewLogoUrl = useMemo(
+    () => resolveAgentLogoUrl(readAgentWidgetLogoUrl(behaviorSettings), websiteFaviconUrl),
+    [behaviorSettings, websiteFaviconUrl]
+  );
 
   const previewBehaviorSettings = useMemo(
     () => ({
@@ -359,7 +365,7 @@ export default function AppearanceToneOnboardingPage() {
                           description={welcomeScreenPreview.description}
                           buttonLabel={welcomeScreenPreview.buttonLabel}
                           socialLinks={welcomeScreenPreview.socialLinks}
-                          websiteLogoUrl={websiteLogoUrl}
+                          websiteLogoUrl={previewLogoUrl}
                           websiteLogoPending={isLoading}
                           className="min-h-0 flex-1"
                           onChatClick={() => setPreviewChatOpen(true)}
@@ -374,7 +380,7 @@ export default function AppearanceToneOnboardingPage() {
                           agentName={agentName}
                           brandColorHex={previewBrandColor}
                           widgetAppearance={widgetAppearance}
-                          websiteLogoUrl={websiteLogoUrl}
+                          websiteLogoUrl={previewLogoUrl}
                           websiteLogoPending={isLoading}
                           shellHeightClass="h-full min-h-0"
                           shellBorderless
@@ -414,7 +420,7 @@ export default function AppearanceToneOnboardingPage() {
                     )}
                   <div className="mt-3 flex w-full justify-end">
                     <WidgetBrandAvatar
-                      logoUrl={websiteLogoUrl}
+                      logoUrl={previewLogoUrl}
                       logoPending={isLoading}
                       hasBrand={Boolean(previewBrandColor)}
                       chrome={previewBrandChrome}

@@ -1099,12 +1099,15 @@ function poweredByChatRelyHtml(appOrigin: string): string {
 function mountWidgetLogoImage(
   img: HTMLImageElement,
   wrap: HTMLElement,
-  storeLogoUrl: string | null | undefined,
-  fallbackLogoUrl: string,
+  logoUrl: string | null | undefined,
   onShow: () => void
 ): void {
-  const storeLogo = storeLogoUrl?.trim() || "";
-  let usedFallback = !storeLogo;
+  const src = logoUrl?.trim() || "";
+  if (!src) {
+    wrap.hidden = true;
+    img.style.display = "none";
+    return;
+  }
   img.referrerPolicy = "no-referrer";
   img.onload = () => {
     wrap.hidden = false;
@@ -1112,15 +1115,10 @@ function mountWidgetLogoImage(
     onShow();
   };
   img.onerror = () => {
-    if (!usedFallback) {
-      usedFallback = true;
-      img.src = fallbackLogoUrl;
-      return;
-    }
     wrap.hidden = true;
     img.style.display = "none";
   };
-  img.src = storeLogo || fallbackLogoUrl;
+  img.src = src;
 }
 
 function threadPreview(messages: StoredMessage[]): string {
@@ -1577,15 +1575,8 @@ async function boot(): Promise<void> {
   root.append(launcher, panel);
   document.body.appendChild(host);
 
-  const chatRelyLogoUrl = chatRelyLogoAssetUrl(appOrigin);
-  mountWidgetLogoImage(headerAvatarImg, headerAvatarWrap, cfg.avatar_url, chatRelyLogoUrl, () => {});
-  mountWidgetLogoImage(
-    welcomeAvatarImg,
-    welcomeCardAvatar,
-    cfg.avatar_url,
-    chatRelyLogoUrl,
-    () => {}
-  );
+  mountWidgetLogoImage(headerAvatarImg, headerAvatarWrap, cfg.avatar_url, () => {});
+  mountWidgetLogoImage(welcomeAvatarImg, welcomeCardAvatar, cfg.avatar_url, () => {});
 
   let store = readWidgetStore(agentKey);
   let visitorId = store.visitorId;

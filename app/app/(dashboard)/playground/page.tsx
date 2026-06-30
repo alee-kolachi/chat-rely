@@ -19,6 +19,7 @@ import {
 } from "@/components/chat/StreamingAssistantMessage";
 import { chatSseStream } from "@/lib/chat-sse";
 import { applyChatSseEventToAssistantMessages } from "@/lib/chat-stream-handlers";
+import { readAgentWidgetLogoUrl, resolveAgentLogoUrl } from "@/lib/agent-logo";
 import {
   productActionUserMessage,
   type ProductActionRequest,
@@ -1632,12 +1633,19 @@ export default function PlaygroundPage() {
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const websiteLogoPending = Boolean(selectedAgentId && integrationsLoading);
-  const websiteLogoUrl = useMemo(() => {
+  const websiteFaviconUrl = useMemo(() => {
     if (!selectedAgentId || integrationsLoading) return null;
     const raw = integrationsWebsitePreview?.source_url?.trim();
     if (!raw) return null;
     return faviconServiceUrl(raw) || null;
   }, [selectedAgentId, integrationsLoading, integrationsWebsitePreview?.source_url]);
+  const websiteLogoUrl = useMemo(() => {
+    const agent = agents.find((a) => a.id === selectedAgentId);
+    return resolveAgentLogoUrl(
+      readAgentWidgetLogoUrl(agent?.behavior_settings),
+      websiteFaviconUrl
+    );
+  }, [agents, selectedAgentId, websiteFaviconUrl]);
   const { data: meData, loading: meLoading } = useMeContext();
   const planResolved = !meLoading;
   const shopifyAccess = shopifyConnectAccess(meData?.plan, planResolved);
